@@ -1429,6 +1429,30 @@ class ResolvedTextLine:
         return any(run.style.cutter is not None for run in self.styled_runs)
 
     @property
+    def original_cutter_flags(self) -> Tuple[bool, ...]:
+        """Per-character ``<oc>`` flags aligned with :attr:`plain_text`.
+
+        ``True`` at every position wrapped in an ``<oc>...</oc>`` span (and
+        therefore engraving with the line's own plain cutter, immune to the
+        markup-induced cutter changes). Mirrors :attr:`cutter_overrides`:
+        DERIVED from :attr:`styled_runs` (never a stored positional array),
+        so a pre-pass that rewrites the line's text (:meth:`with_markup`, the
+        line-content reflow) keeps every run pinned to the line's tool.
+        """
+        if not self.styled_runs:
+            return ()
+        return tuple(
+            style.original_cutter
+            for run in self.styled_runs
+            for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_original_cutter(self) -> bool:
+        """True when any markup run of this line carries an ``<oc>`` tag."""
+        return any(run.style.original_cutter for run in self.styled_runs)
+
+    @property
     def strikethrough_cap(self) -> float:
         """The ``<s>`` strikethrough centerline height in inches above the baseline.
 
@@ -1544,11 +1568,23 @@ class ResolvedTextLine:
         set :func:`build_cutter_pen_map` keys, so a scaled run's strokes land
         on their own tool's pen (and per-cutter PLT file) exactly like the
         bold rung does.
+
+        The bold rung is only a layer when some character actually engraves
+        with it: a line whose every bold character is pinned by an ``<oc>``
+        (or overridden by a ``<c:D>``) never takes the rung, so the rung
+        would add a phantom pen -- and an empty per-cutter PLT file -- that
+        no stroke lands on.
         """
         cutters = {self.cutter_diameter}
         if self.bold_cutter_diameter is not None:
             cutters.add(self.bold_cutter_diameter)
         cutters.update(self.per_char_cutters)
+        if self.bold_cutter_diameter is not None and not any(
+            math.isclose(cutter, self.bold_cutter_diameter, rel_tol=1e-9, abs_tol=1e-9)
+            for cutter in self.per_char_cutters
+        ):
+            # No character engraves with the bold rung: it is not a layer.
+            cutters.discard(self.bold_cutter_diameter)
         return tuple(sorted(cutters))
 
     @property
@@ -1559,7 +1595,13 @@ class ResolvedTextLine:
         **explicit** diameter ``D`` it declares (snapped to the shop
         inventory) -- overriding every other cutter setting for the segment
         (the line's own tool, the ``<b>`` bold rung, the ``<scale:N>`` height
-        ladder) -- a ``<scale:N>`` character takes the ladder cutter for its
+        ladder) -- an ``<oc>`` character takes the **line's own** tool,
+        immune to every markup-induced cutter change (the ``<scale:N>``
+        ladder, the ``<b>`` bold rung, the bare ``<sup>``/``<sub>`` downscale
+        ladder, the ``<f:...>`` run ladder), while still following the line
+        through a compression-driven downsize (the pin is derived from
+        :attr:`cutter_diameter`, never a captured literal) -- a ``<scale:N>``
+        character takes the ladder cutter for its
         effective height (``N * nominal_text_height``) -- the tool that size
         of text gets authored on its own, so a downscaled run engraves
         *lighter*, not heavier -- a bare ``<sup>``/``<sub>`` character takes
@@ -1599,16 +1641,29 @@ class ResolvedTextLine:
         # cutter setting for the segment).
         overrides = self.cutter_overrides
         inventory = self.scale_cutter_inventory
+        # The <oc> original-cutter flags. A character covered by one keeps
+        # the LINE's own plain tool, so it is immune to every markup-induced
+        # cutter change (the <scale:N> height ladder, the <b> bold rung, the
+        # bare <sup>/<sub> downscale ladder, the <f:...> run ladder). The pin
+        # is a DERIVED reference to the line's own cutter (never a captured
+        # literal), so the compression-driven downsize -- which replaces
+        # ``cutter_diameter`` on the line -- moves the pinned segment with
+        # it (the <oc> contract: markup-induced changes are blocked, the
+        # line's own compression-driven downsize is not).
+        originals = self.original_cutter_flags
         # A bold rung at the effective height is only needed when some
         # character is BOTH bold and scaled/font-selected; asking for it
         # otherwise would log a meaningless "no larger rung" warning on a
         # line with no such run. A <c:D> character never takes the ladder
         # (its explicit tool wins), so it is excluded here too -- otherwise
-        # a bold <c:D> run would request a rung it never uses.
+        # a bold <c:D> run would request a rung it never uses. An <oc>
+        # character is excluded for the same reason: it never takes the
+        # ladder either (it keeps the line's own tool).
         scaled_bold = bold_cutter is not None and any(
             index < len(bolds)
             and bolds[index]
             and not (index < len(overrides) and overrides[index] is not None)
+            and not (index < len(originals) and originals[index])
             and (
                 (scale := (scales[index] if index < len(scales) else 1.0)) != 1.0
                 or (font_runs[index] if index < len(font_runs) else None) is not None
@@ -1622,12 +1677,22 @@ class ResolvedTextLine:
             is_bold = bold_cutter is not None and index < len(bolds) and bolds[index]
             run_font = font_runs[index] if index < len(font_runs) else None
             override = overrides[index] if index < len(overrides) else None
+            original = originals[index] if index < len(originals) else False
             if override is not None:
                 # The <c:D> explicit tool wins over every other cutter
                 # setting for this character (the line's own tool, the bold
                 # rung, the scale ladder). It is snapped to the shop
                 # inventory exactly like the line-level cutter_size.
                 cutters.append(snapped_cutter(override, inventory))
+            elif original:
+                # The <oc> original-cutter tag: the character keeps the
+                # LINE's own plain tool, so the <scale:N> ladder, the <b>
+                # bold rung and the <f:...> run ladder never move it. The
+                # explicit <c:D> tool still wins (an explicit tool is a
+                # human decision, never overridden automatically). The
+                # pinned value is the line's own cutter, so the
+                # compression-driven downsize moves it with the line.
+                cutters.append(self.cutter_diameter)
             elif scale != 1.0 or run_font is not None:
                 # A <f:...> run engraves with the ladder for its OWN font at
                 # its effective height (the <scale:N> contract): the tool
@@ -3176,6 +3241,7 @@ def glyph_render_plan(
         and not line.has_sup_sub
         and not line.has_font_runs
         and not line.has_cutter_runs
+        and not line.has_original_cutter
     ):
         return None
     scale_flags = line.scale_values

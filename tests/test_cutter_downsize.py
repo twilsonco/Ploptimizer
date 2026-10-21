@@ -825,3 +825,75 @@ class TestCutterMarkupPin:
         # smaller tool.
         assert math.isclose(line.per_char_cutters[5], 0.03)
         assert math.isclose(line.per_char_cutters[0], 0.06)
+
+
+class TestOriginalCutterFollowsDownsize:
+    """An ``<oc>`` run follows the line's own tool through a downsize.
+
+    The contrast with :class:`TestCutterMarkupPin`: an explicit ``<c:D>``
+    tool is a human decision and never moves, while an ``<oc>`` pin only
+    blocks the *markup-induced* cutter changes -- the line's own
+    compression-driven downsize still moves it.
+    """
+
+    @staticmethod
+    def _original_cutter_line(
+        text: str = "WIDE",
+        *,
+        nominal: float = 0.5,
+        cutter: float = 0.09,
+        max_cutter_downsizes: int = 1,
+    ) -> ResolvedTextLine:
+        """A resolved line carrying an ``<oc>`` run."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        styled_runs = (Run("WIDE ", PLAIN), Run("PIN", Style(original_cutter=True)))
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=nominal,
+            toolpath_text_height=nominal - cutter,
+            cutter_diameter=cutter,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            max_h_compress=0.5,
+            max_cutter_downsizes=max_cutter_downsizes,
+            plain_text="WIDE PIN",
+            styled_runs=styled_runs,
+            scale_cutter_inventory=tuple(_INVENTORY),
+        )
+
+    def test_the_pinned_run_follows_the_line(self) -> None:
+        """The pinned characters take the line's reduced tool."""
+        labels = [_label("l1", self._original_cutter_line(cutter=0.09))]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({0.09: 0.80}))
+        line = out[0].content[0]
+        # The line's own tool stepped down...
+        assert math.isclose(line.cutter_diameter, 0.06)
+        # ...and the pinned characters followed it (unlike the <c:D> pin).
+        assert line.original_cutter_flags == (False,) * 5 + (True,) * 3
+        assert math.isclose(line.per_char_cutters[5], 0.06)
+        assert math.isclose(line.per_char_cutters[0], 0.06)
+        # One tool for the whole line: the pin adds no per-cutter layer.
+        assert line.used_cutters == (0.06,)
+
+    def test_the_pinned_run_keeps_the_line_tool_before_the_downsize(self) -> None:
+        """Before the downsize the pinned characters are on the line's tool."""
+        line = self._original_cutter_line(cutter=0.09)
+        assert math.isclose(line.per_char_cutters[5], 0.09)
+        assert line.used_cutters == (0.09,)
+
+    def test_a_multi_step_downsize_moves_the_pin_too(self) -> None:
+        """The pin follows the line through every downsize step."""
+        labels = [
+            _label(
+                "l1",
+                self._original_cutter_line(cutter=0.125, max_cutter_downsizes=2),
+            )
+        ]
+        out = apply_compression_cutter_downsize(
+            labels, _INVENTORY, probe=_probe({0.125: 0.80, 0.09: 0.80})
+        )
+        line = out[0].content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.per_char_cutters[5], 0.06)
+        assert line.used_cutters == (0.06,)

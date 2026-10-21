@@ -656,6 +656,7 @@ class TestUnderlineRegistry:
             "sc",
             "f",
             "c",
+            "oc",
         ]
 
 
@@ -756,6 +757,7 @@ class TestScaleRegistry:
             "sc",
             "f",
             "c",
+            "oc",
         ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
@@ -911,6 +913,7 @@ class TestSupSubRegistry:
             "sc",
             "f",
             "c",
+            "oc",
         ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
@@ -1218,6 +1221,7 @@ class TestStrikethroughRegistry:
             "sc",
             "f",
             "c",
+            "oc",
         ]
 
     def test_nested_strike_serializes_flat(self) -> None:
@@ -1331,6 +1335,7 @@ class TestSmallCapsRegistry:
             "sc",
             "f",
             "c",
+            "oc",
         ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
@@ -1521,11 +1526,13 @@ class TestCutterRegistry:
     """The <c:D> registry entry (the explicit-cutter value tag)."""
 
     def test_cutter_is_registered_with_args(self) -> None:
-        """The tag accepts a mandatory arg and is registered last."""
+        """The tag accepts a mandatory arg and is registered after every other value tag."""
         spec = TAG_REGISTRY["c"]
         assert spec.accepts_args is True
         assert spec.args_optional is False
-        assert list(TAG_REGISTRY)[-1] == "c"
+        # The <oc> flag tag was registered after <c>, so <c> is no longer last.
+        assert list(TAG_REGISTRY).index("c") == list(TAG_REGISTRY).index("f") + 1
+        assert list(TAG_REGISTRY)[-1] == "oc"
         assert spec.apply(PLAIN, "0.06") == CUTTER
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(CUTTER, "0.06") == CUTTER
@@ -1560,6 +1567,7 @@ class TestCutterRegistry:
             "sc",
             "f",
             "c",
+            "oc",
         ]
 
 
@@ -1658,3 +1666,112 @@ class TestCutterWords:
         words, separators = split_styled_words_with_separators(styled)
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.cutter == 0.06 for sep in separators)
+
+class TestOriginalCutterRegistry:
+    """The <oc> registry entry (the original-cutter flag tag)."""
+
+    def test_original_cutter_is_registered_as_a_flag(self) -> None:
+        """The tag takes no args and is registered last (the serialization order)."""
+        spec = TAG_REGISTRY["oc"]
+        assert spec.accepts_args is False
+        assert spec.args_optional is False
+        assert spec.arg is None
+        assert list(TAG_REGISTRY)[-1] == "oc"
+        assert spec.apply(PLAIN, "") == Style(original_cutter=True)
+        # Set-to-True: re-applying is idempotent (nesting <oc> in <oc> is a no-op).
+        assert spec.apply(Style(original_cutter=True), "") == Style(original_cutter=True)
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly when the segment is pinned."""
+        spec = TAG_REGISTRY["oc"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(Style(original_cutter=True)) is True
+
+    def test_original_cutter_composes_with_the_other_tags(self) -> None:
+        """Applying <oc> inside <i> composes (idempotent per field)."""
+        spec = TAG_REGISTRY["oc"]
+        assert spec.apply(ITALIC, "") == Style(italic=True, original_cutter=True)
+        assert spec.apply(BOLD, "") == Style(bold=True, original_cutter=True)
+
+
+class TestOriginalCutterParse:
+    """Parsing the <oc> tag (the original-cutter pin)."""
+
+    def test_original_cutter_flags_align_with_the_plain_text(self) -> None:
+        """The run carries the pin and the per-char flags align."""
+        styled = parse_markup("A<oc>B</oc>C")
+        assert styled.plain_text == "ABC"
+        assert styled.original_cutter_flags == (False, True, False)
+
+    def test_a_bare_open_tag_is_markup(self) -> None:
+        """The tag carries no argument, so the bare <oc> IS markup."""
+        styled = parse_markup("<oc>x</oc>")
+        assert styled.plain_text == "x"
+        assert styled.original_cutter_flags == (True,)
+
+    def test_an_argument_form_is_literal_text(self) -> None:
+        """<oc:0.06> is not a legal form (the tag takes no argument)."""
+        styled = parse_markup("a <oc:0.06> b")
+        assert styled.plain_text == "a <oc:0.06> b"
+        assert styled.has_markup is False
+
+    def test_an_unclosed_tag_is_a_hard_error(self) -> None:
+        """An opener never closed raises MarkupError (the fail-loud contract)."""
+        with pytest.raises(MarkupError, match="Unclosed tag"):
+            parse_markup("<oc>text")
+
+    def test_the_pin_composes_with_a_scale_run(self) -> None:
+        """The motivating case: bigger text, the line's own tool."""
+        styled = parse_markup("<oc><scale:2.0>x</scale></oc>")
+        assert styled.original_cutter_flags == (True,)
+        assert styled.scale_values == (2.0,)
+
+    def test_the_pin_is_independent_of_the_cutter_tag(self) -> None:
+        """<oc> and <c:D> are separate fields (they compose, never confuse)."""
+        styled = parse_markup("<oc><c:0.06>x</c></oc>")
+        assert styled.original_cutter_flags == (True,)
+        assert styled.cutter_values == (0.06,)
+
+
+class TestOriginalCutterSerialize:
+    """The <oc> serialization round-trip (the reflow depends on it)."""
+
+    def test_the_tag_round_trips(self) -> None:
+        """serialize_runs re-emits <oc>/</oc> and re-parses to the same runs."""
+        styled = parse_markup("A<oc>B</oc>C")
+        raw = serialize_runs(styled.runs)
+        assert raw == "A<oc>B</oc>C"
+        assert parse_markup(raw).runs == styled.runs
+
+    def test_a_nested_pin_restores_the_outer_style(self) -> None:
+        """A nested <oc> restores the outer run for the trailing text."""
+        styled = parse_markup("<oc>a<oc>b</oc>c</oc>")
+        assert styled.original_cutter_flags == (True, True, True)
+        raw = serialize_runs(styled.runs)
+        assert parse_markup(raw).original_cutter_flags == styled.original_cutter_flags
+
+    def test_the_pin_survives_a_scale_composition(self) -> None:
+        """The <oc> pin nests inside the <scale:N> tag and round-trips."""
+        styled = parse_markup("<oc><scale:2.0>x</scale></oc>")
+        raw = serialize_runs(styled.runs)
+        assert "<oc>" in raw
+        assert parse_markup(raw).runs == styled.runs
+
+
+class TestOriginalCutterWords:
+    """The <oc> reflow tokens (the line-content reflow round-trip)."""
+
+    def test_styled_word_keeps_the_pin(self) -> None:
+        """A styled word token round-trips with the pin."""
+        styled = parse_markup("plain <oc>pinned</oc>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["plain", "pinned"]
+        assert serialize_word(words[1]) == "<oc>pinned</oc>"
+        assert serialize_word(words[0]) == "plain"
+
+    def test_space_spanning_pin_run_keeps_the_separator(self) -> None:
+        """<oc>foo bar</oc> tokenizes with the pinned separator."""
+        styled = parse_markup("<oc>foo bar</oc>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        assert all(sep.original_cutter for sep in separators)

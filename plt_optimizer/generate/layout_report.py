@@ -143,6 +143,25 @@ def _font_run_info(line: ResolvedTextLine) -> tuple[tuple[str, ...], tuple[float
     return tuple(sorted(names)), tuple(sorted(used))
 
 
+def _original_cutter_run_info(line: ResolvedTextLine) -> tuple[int, tuple[float, ...]]:
+    """Return the ``(count, cutters)`` a line's ``<oc>`` runs pin.
+
+    The number of characters wrapped in an ``<oc>...</oc>`` span and the
+    distinct tools those characters engrave with (read from the derived
+    per-character cutters). The pinned tool is the line's own plain cutter,
+    so the finding names the tool the markup protected -- invisible in the
+    YAML, exactly like the ``<c:D>`` / ``<f:...>`` findings.
+    """
+    flags = line.original_cutter_flags
+    cutters = line.per_char_cutters
+    used = {
+        cutters[index] if index < len(cutters) else line.cutter_diameter
+        for index, flag in enumerate(flags)
+        if flag
+    }
+    return sum(1 for flag in flags if flag), tuple(sorted(used))
+
+
 def _cutter_run_info(line: ResolvedTextLine) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Return the ``(requested, engraved)`` cutters a line's ``<c:...>`` runs use.
 
@@ -210,9 +229,10 @@ def _label_findings(
         tuple[float, float] | None,
         tuple[tuple[str, ...], tuple[float, ...]] | None,
         tuple[tuple[float, ...], tuple[float, ...]] | None,
+        tuple[int, tuple[float, ...]] | None,
     ]
 ]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -221,7 +241,8 @@ def _label_findings(
 
     Returns:
         One ``(line_index, line_text, scale, requested, effective, downsize,
-        relief_count, bold, markup_scale, sup_sub, font_runs, cutter_runs)``
+        relief_count, bold, markup_scale, sup_sub, font_runs, cutter_runs,
+        original_cutter)``
         tuple per finding, in content order. ``scale`` is set (below ``1.0``)
         only for compressed lines; ``requested``/``effective`` are set only for
         spacing gaps (always in full mode, or when deviating in compact mode);
@@ -236,7 +257,8 @@ def _label_findings(
         carrying a ``<sup>``/``<sub>`` run; ``font_runs`` is the ``(fonts,
         cutters)`` pair only for lines carrying a ``<f:...>`` run;
         ``cutter_runs`` is the ``(requested, engraved)`` cutter pairs only for
-        lines carrying a ``<c:...>`` run.
+        lines carrying a ``<c:...>`` run; ``original_cutter`` is the
+        ``(count, cutters)`` pair only for lines carrying an ``<oc>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -255,6 +277,7 @@ def _label_findings(
             tuple[float, float] | None,
             tuple[tuple[str, ...], tuple[float, ...]] | None,
             tuple[tuple[float, ...], tuple[float, ...]] | None,
+            tuple[int, tuple[float, ...]] | None,
         ]
     ] = []
     for line_index in sorted(
@@ -267,6 +290,7 @@ def _label_findings(
         | {index for index, line in enumerate(content) if line.has_sup_sub}
         | {index for index, line in enumerate(content) if line.has_font_runs}
         | {index for index, line in enumerate(content) if line.has_cutter_runs}
+        | {index for index, line in enumerate(content) if line.has_original_cutter}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -297,6 +321,9 @@ def _label_findings(
         cutter_runs: tuple[tuple[float, ...], tuple[float, ...]] | None = None
         if line.has_cutter_runs:
             cutter_runs = _cutter_run_info(line)
+        original_cutter: tuple[int, tuple[float, ...]] | None = None
+        if line.has_original_cutter:
+            original_cutter = _original_cutter_run_info(line)
         if (
             not compressed
             and not deviates
@@ -307,6 +334,7 @@ def _label_findings(
             and sup_sub is None
             and font_runs is None
             and cutter_runs is None
+            and original_cutter is None
         ):
             continue
         findings.append(
@@ -323,6 +351,7 @@ def _label_findings(
                 sup_sub,
                 font_runs,
                 cutter_runs,
+                original_cutter,
             )
         )
     return findings
@@ -361,6 +390,7 @@ def _label_lines(
             tuple[float, float] | None,
             tuple[tuple[str, ...], tuple[float, ...]] | None,
             tuple[tuple[float, ...], tuple[float, ...]] | None,
+            tuple[int, tuple[float, ...]] | None,
         ],
     ] = {
         index: (
@@ -374,8 +404,9 @@ def _label_lines(
             sup_sub,
             font_runs,
             cutter_runs,
+            original_cutter,
         )
-        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub, font_runs, cutter_runs in findings
+        for index, _t, scale, requested, effective, downsize, relief_count, bold, markup_scale, sup_sub, font_runs, cutter_runs, original_cutter in findings
     }
 
     if not full and not findings and not _hole_adjust_lines(rendered.source_label):
@@ -515,6 +546,21 @@ def _label_lines(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"cutter {requested_text} (engraved cutter {engraved_text}, "
                     f"line cutter {line.cutter_diameter:.3f}in)"
+                )
+            original_cutter = entry[10]
+            if original_cutter is not None:
+                count, pinned_cutters = original_cutter
+                # The <oc> pin is invisible in the YAML (it rides the tag), so
+                # name the tool the markup protected and how many characters
+                # it covers.
+                cutter_text = (
+                    f"{pinned_cutters[0]:.3f}in"
+                    if len(pinned_cutters) == 1
+                    else "-".join(f"{cutter:.3f}" for cutter in pinned_cutters) + "in"
+                )
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"original cutter {cutter_text} ({count} chars pinned)"
                 )
             if entry[4]:
                 for fix in rendered.descender_adjustments_by_line.get(line_index, ()):

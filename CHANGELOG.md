@@ -14,6 +14,17 @@
 
 ### Features
 
+* **generate:** `<oc>...</oc>` inline original-cutter markup - the eleventh shipped tag. The wrapped characters engrave with the **line's own plain cutter** (the tool unmarked text on the line gets), so they are immune to every *markup-induced* cutter change: the `<scale:N>` height ladder, the `<b>` bold rung, the bare `<sup>`/`<sub>` downscale ladder and the `<f:...>` run ladder all leave the segment on the line's tool
+  - The tag carries **no argument** (the `<i>`/`<b>` flag idiom): `Style.original_cutter` (a set-to-True flag field) and `register_tag("oc", ...)` registered LAST, so every existing tag's emitted markup stays byte-identical. A bare `<oc>` IS markup, `<oc:0.06>` is literal text, and an unclosed `<oc>` is a `MarkupError` -> CLI non-zero (the fail-loud contract)
+  - The pin is a **derived reference** to the line's own `cutter_diameter` (never a captured literal), so the line's own **compression-driven downsize still moves it** - the deliberate contrast with `<c:D>`, whose explicit tool is a human decision and never moves. The global horizontal compression rides the same mechanism
+  - The pin freezes the **TOOL, not the geometry**: a `<scale:2.0>` inside an `<oc>` still scales the glyphs **up** (the centerline formula `g = (s*nominal - d)/(nominal - cutter)` with the pinned `d`), so the run's engraved silhouette is `N*nominal - line_cutter` tall - "larger text without a larger cutter"
+  - **Precedence**: an explicit `<c:D>` still wins over `<oc>` (an explicit tool is never overridden automatically); the order is `<c:D>` -> `<oc>` -> the scale/font ladder -> the `<b>` bold rung -> the line's own cutter
+  - `used_cutters` no longer carries the line-level `<b>` bold rung when **no character engraves with it** (a fully pinned bold line), so the pen map claims no phantom layer and no empty per-cutter PLT file is written
+  - A pinned run lands in the line's **own** per-cutter file, so the tag adds **no** new tool and **no** new file (the `<c:D>` contrast, whose explicit tool gets its own file)
+  - No schema field, no `job-config.json` key, no cascade - the tag carries no value (the `<i>`/`<b>` precedent)
+  - The layout report prints a per-line finding `Line N: '<text>' original cutter 0.060in (3 chars pinned)` (the 13th findings slot)
+  - Pins: `tests_deps/original_cutter_job.yaml` (`TestOriginalCutterDemoExample`, 8 labels), `TestOriginalCutterRegistry` / `TestOriginalCutterParse` / `TestOriginalCutterSerialize` / `TestOriginalCutterWords` (`test_markup.py`, plus the six registry-order re-pins), `TestOriginalCutterResolution` (`test_resolution.py`), `TestOriginalCutterFollowsDownsize` (`test_cutter_downsize.py`), `TestOriginalCutterFindings` (`test_layout_report.py`)
+
 * **generate:** `<c:D>...</c>` inline cutter markup - the tenth shipped tag. The wrapped characters engrave with the **explicit cutter diameter `D`** (inches), overriding every other cutter setting for that segment (the line's own tool, the `<b>` bold rung, the `<scale:N>` height ladder)
   - The argument is mandatory (a bare `<c>` is literal text, the `<scale:N>` rule) and in inches; a non-numeric, zero, or out-of-range value is a `MarkupError` -> CLI non-zero (the fail-loud contract)
   - `D` **snaps to the shop inventory** with the same rule the line-level `cutter_size` uses (exact match kept, else the next size down, else the next size up) with a WARNING naming the line; a tool at or above the line's `text_height` leaves no material and aborts the job (`CutterSizeError`)

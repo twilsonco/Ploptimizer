@@ -1122,3 +1122,95 @@ lighter one on the rest, without splitting the line into two YAML entries.
   (`tests/test_label_renderer_gaps.py`), `TestCutterMarkupFindings`
   (`tests/test_layout_report.py`), and `TestCutterMarkupPin`
   (`tests/test_cutter_downsize.py`).
+
+
+### Inline Original Cutter (`<oc>`)
+
+`<oc>...</oc>` is the eleventh shipped markup tag: the wrapped characters
+engrave with the **line's own plain cutter** — the tool unmarked text on the
+line gets — so they are immune to every *markup-induced* cutter change. The
+motivating case: a marked-up run that must not end up with a different cutter
+from the text around it (`<oc><scale:2.0>larger text without larger
+cutter</scale></oc>`).
+
+- **The tag carries no argument.** It is a plain **flag tag** (the `<i>` /
+  `<u>` / `<b>` / `<s>` / `<sc>` idiom): `Style.original_cutter: bool =
+  False`, set-to-True (so the nesting `<oc>` inside `<oc>` is the identity
+  and the close pops the pre-open style). A bare `<oc>` IS markup;
+  `<oc:0.06>` is **literal text** (the `name:args` form requires
+  `accepts_args`, which this tag does not set). It is registered **LAST** in
+  `TAG_REGISTRY`, so every earlier tag's emitted markup stays byte-identical.
+- **What it blocks.** Every cutter change caused by *other markup on the
+  same segment*: the `<scale:N>` height ladder, the `<b>` bold rung, the bare
+  `<sup>`/`<sub>` downscale ladder, and the `<f:...>` run-font ladder. The
+  pinned character takes the line's own `cutter_diameter` in
+  `per_char_cutters`, so the segment stays on the line's tool.
+- **What it does NOT block — the line's own cutter still moves.** The
+  compression-driven downsize (the horizontal-text-compression carve-out)
+  replaces the line's `cutter_diameter`, and the pinned segment **follows**
+  it. This falls out of the design: the pin is a *derived* reference to
+  `line.cutter_diameter` (never a captured literal), so the downsize clone
+  moves it for free. The global horizontal compression rides the same
+  mechanism.
+- **The deliberate contrast with `<c:D>`.** An explicit `<c:D>` tool is a
+  human decision and is **never** overridden automatically (the line-level
+  `cutter_size` contract) — the downsize moves the line's *plain*
+  characters and the `<c:D>` run keeps its pinned tool, so the line engraves
+  across **two** tools. An `<oc>` pin does the opposite: it follows the
+  line. `<c:D>` pins a *literal* tool; `<oc>` pins the *line's* tool.
+- **Precedence: `<c:D>` still wins over `<oc>`.** In `per_char_cutters` the
+  explicit override is taken **before** the `<oc>` branch, so an explicit
+  tool is never overridden automatically. The `<oc>` branch sits between the
+  override and the scale/font ladder, so the order is
+  `<c:D>` → `<oc>` → `<scale:N>` / `<f:...>` ladder → `<b>` bold rung → the
+  line's own cutter.
+- **The pin freezes the TOOL, not the geometry.** The centerline contract
+  `g = (s * nominal - d) / (nominal - line_cutter)` still applies, with the
+  pinned `d` = the line's own cutter. A `<scale:2.0>` inside an `<oc>`
+  therefore scales the glyphs **up** while the tool stays put — the run's
+  engraved silhouette is `N * nominal - line_cutter` tall (not `N *
+  nominal`): the direct, intended consequence of "bigger text, same
+  cutter". The engraved-baseline raise stays `0.0` (the tool equals the
+  line's, so `baseline_raises` is unchanged).
+- **The bold rung is not a layer when no character uses it.** A line whose
+  every bold character is pinned resolves the bold rung line-wide, but no
+  character engraves with it, so `used_cutters` **excludes** it — otherwise
+  the pen map would carry a phantom layer (and an empty per-cutter PLT file)
+  that no stroke lands on.
+- **Everything downstream is free.** `used_cutters` → `build_cutter_pen_map`
+  → the N-way `_split_block_by_cutters` → the per-cutter `<cutter>_txt_`
+  files: a pinned run lands in the line's **own** per-cutter file, so the
+  tag adds **no** new tool and **no** new file (the `<c:D>` contrast, whose
+  explicit tool gets its own file). `_stroke_cutter_map` and the underline /
+  strikethrough run split read `per_char_cutters`, so the split is exact.
+- **The TTF caveat** (the `<b>` / `<c:D>` caveat): the TTF renderer draws
+  outlines, so a pinned TTF run's visible weight comes from the **pen
+  assignment** (the per-cutter file split), while its geometry factor still
+  applies. The PLT path carries the weight in the geometry itself.
+- **The mixed PLT/TTF caveat.** In a line mixing font families, the
+  composed path (`_render_line_block_composed` → `_font_segment_line`)
+  renders one tool per font segment, so an `<oc>` segment inside such a
+  line follows its *segment's* tool, not the line's — the same one-rung
+  staleness the `<f:...>` run ladder documents. The all-PLT path (the
+  common case) is exact.
+- **No schema field, no `job-config.json` key, no cascade** — the tag
+  carries no value (the `<i>` / `<b>` precedent). No new `DEFAULT_*`
+  constant ⇒ no `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row and
+  no `docs/schema/JOB_SPEC.md` change.
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' original cutter 0.060in (3 chars pinned)` — the pinned
+  tool and how many characters it covers (invisible in the YAML, so the
+  finding is the only place it shows). The 13th slot of the findings tuple;
+  reads `plain_text`, compact-mode finding.
+- Fixture: `tests_deps/original_cutter_job.yaml` (8 labels) pinned by
+  `TestOriginalCutterDemoExample` — the pinned run vs its plain twin, the
+  blocked `<scale:N>` ladder, the blocked `<b>` bold rung, the explicit
+  `<c:D>` winning over the pin, the pinned glyphs being *bigger* than the
+  plain twin's (the tool is frozen, the geometry is not), the per-cutter file
+  set (the pin adds **no** file), and the TTF pair. Unit tests:
+  `TestOriginalCutterRegistry` / `TestOriginalCutterParse` /
+  `TestOriginalCutterSerialize` / `TestOriginalCutterWords`
+  (`tests/test_markup.py`), `TestOriginalCutterResolution`
+  (`tests/test_resolution.py`), `TestOriginalCutterFollowsDownsize`
+  (`tests/test_cutter_downsize.py`), and `TestOriginalCutterFindings`
+  (`tests/test_layout_report.py`).

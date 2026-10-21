@@ -825,3 +825,64 @@ class TestHoleAdjustFindings:
         )
 
         assert "Holes 0.100in -> 0.070in (cutter 0.030in)" in text
+
+
+class TestOriginalCutterFindings:
+    """An ``<oc>`` run's pinned tool is a report finding."""
+
+    @staticmethod
+    def _original_cutter_line(text: str, plain: float = 0.06) -> ResolvedTextLine:
+        """A resolved line carrying an ``<oc>`` run."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - plain,
+            cutter_diameter=plain,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            max_h_compress=0.0,
+            text_h_alignment="center",
+            plain_text="plain PIN",
+            styled_runs=(Run("plain ", PLAIN), Run("PIN", Style(original_cutter=True))),
+            scale_cutter_inventory=(0.03, 0.06),
+        )
+
+    def test_original_cutter_is_a_compact_finding(self) -> None:
+        """A line with an <oc> run prints its pinned tool alongside the line's."""
+        resolved, rendered = _label("l1", [self._original_cutter_line("plain <oc>PIN</oc>")])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "original cutter 0.060in (3 chars pinned)" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_original_cutter_finding_strips_markup(self) -> None:
+        """The finding reports the plain text, never the tags."""
+        resolved, rendered = _label("l1", [self._original_cutter_line("plain PIN")])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'plain PIN' original cutter 0.060in" in text
+        assert "<oc>" not in text
+
+    def test_original_cutter_prints_alongside_compression(self) -> None:
+        """One line can report compression and its pinned tool."""
+        resolved, rendered = _label(
+            "l1",
+            [self._original_cutter_line("WIDE")],
+            compression={0: 0.85},
+        )
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "scale 0.850 (15.0% compressed)" in text
+        assert "original cutter 0.060in" in text
+
+    def test_no_original_cutter_run_is_not_a_finding(self) -> None:
+        """A line without the tag produces no original-cutter finding."""
+        resolved, rendered = _label("l1", [_line("PLAIN")])
+
+        assert format_layout_report([resolved], {"l1": rendered}) == []

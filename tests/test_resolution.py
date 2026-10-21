@@ -6835,3 +6835,146 @@ class TestHoleAdjustForCutterCascade:
         label = resolve_job_spec(job, boundary_hole_cutter_size=0.015)[0]
         assert label.holes[0].diameter == pytest.approx(0.1)
         assert label.hole_adjust_for_cutter is True
+
+
+class TestOriginalCutterResolution:
+    """The <oc> markup pins a segment to the line's own cutter.
+
+    The pin blocks every *markup-induced* cutter change (the <scale:N>
+    height ladder, the <b> bold rung, the bare <sup>/<sub> downscale
+    ladder, the <f:...> run ladder) while the line's own compression-driven
+    downsize still moves it (the pin is derived from ``cutter_diameter``,
+    never a captured literal).
+    """
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label Dino job over ``lines`` (inventory wired)."""
+        job_kwargs.setdefault("font", "Dino")
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def test_the_pin_keeps_the_line_cutter(self) -> None:
+        """A pinned segment engraves with the line's own tool."""
+        job = self._job(TextLine(text="A<oc>B</oc>C"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.plain_text == "ABC"
+        assert line.has_original_cutter is True
+        assert line.original_cutter_flags == (False, True, False)
+        assert line.cutter_diameter == pytest.approx(0.06)
+        # The pinned character takes the line's own tool -- no new layer.
+        assert line.per_char_cutters == (0.06, 0.06, 0.06)
+        assert line.used_cutters == (0.06,)
+
+    def test_the_pin_blocks_the_scale_ladder(self) -> None:
+        """<oc> keeps the line's tool where <scale:N> would step to its own."""
+        job = self._job(TextLine(text="<scale:2.0>BIG</scale>"))
+        plain = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The scaled run takes the 1.0in ladder (0.125in), not the line's.
+        assert plain.per_char_cutters[0] == pytest.approx(0.125)
+
+        job = self._job(TextLine(text="<oc><scale:2.0>BIG</scale></oc>"))
+        pinned = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The pinned run keeps the line's own 0.06in tool.
+        assert pinned.per_char_cutters == (0.06, 0.06, 0.06)
+        assert pinned.used_cutters == (0.06,)
+
+    def test_the_pin_blocks_the_bold_rung(self) -> None:
+        """<oc> keeps the line's tool where <b> would step to a thicker one."""
+        job = self._job(TextLine(text="<b>bold</b>"))
+        plain = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert plain.bold_cutter_diameter == pytest.approx(0.09)
+        assert plain.per_char_cutters[0] == pytest.approx(0.09)
+
+        job = self._job(TextLine(text="<oc><b>bold</b></oc>"))
+        pinned = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert pinned.per_char_cutters == (0.06, 0.06, 0.06, 0.06)
+
+    def test_the_pin_blocks_the_font_run_ladder(self) -> None:
+        """<oc> keeps the line's tool where <f:...> would step to its own."""
+        job = self._job(TextLine(text="A<f:Wingdings>B</f>"))
+        plain = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The Wingdings run takes its own (narrower) ladder tool.
+        assert plain.per_char_cutters[1] == pytest.approx(0.03)
+
+        job = self._job(TextLine(text="<oc><f:Wingdings>B</f></oc>"))
+        pinned = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The pinned run keeps the line's own 0.06in tool.
+        assert pinned.per_char_cutters == (0.06,)
+        assert pinned.used_cutters == (0.06,)
+
+    def test_the_explicit_cutter_still_wins(self) -> None:
+        """<c:D> beats <oc>: an explicit tool is never overridden automatically."""
+        job = self._job(TextLine(text="<oc><c:0.03>B</c></oc>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.per_char_cutters == (0.03,)
+        # The line's own tool stays in the layer set (the used_cutters contract).
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_the_pinned_geometry_scales_up(self) -> None:
+        """The pin freezes the TOOL, not the geometry: the glyphs still scale."""
+        job = self._job(TextLine(text="<oc><scale:2.0>B</scale></oc>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        assert diameters == (0.06,)
+        # g = (s*nominal - d)/(nominal - cutter) with the pinned d = line cutter.
+        assert scales[0] == pytest.approx((2.0 * 0.5 - 0.06) / (0.5 - 0.06))
+        # The engraved baseline raise is 0.0 (the tool equals the line's).
+        assert line.baseline_raises == (pytest.approx(0.0),)
+
+    def test_the_pin_follows_the_line_through_a_downsize(self) -> None:
+        """The line's own compression-driven downsize moves the pinned segment.
+
+        This is the <oc> / <c:D> difference: the explicit tool is a human
+        decision and stays, while the <oc> pin follows the line's own tool.
+        """
+        job = self._job(TextLine(text="<oc>B</oc>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.per_char_cutters[0] == pytest.approx(0.06)
+
+        clone = replace(
+            line,
+            cutter_diameter=0.045,
+            toolpath_text_height=line.nominal_text_height - 0.045,
+        )
+        assert clone.per_char_cutters[0] == pytest.approx(0.045)
+        assert clone.used_cutters == (0.045,)
+
+    def test_the_pin_follows_the_line_through_a_text_rewrite(self) -> None:
+        """The pin is derived from the style, so a reflow keeps it (no staleness)."""
+        job = self._job(TextLine(text="<oc>B</oc>"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        rewritten = line.with_markup("X<oc>B</oc>")
+        assert rewritten.original_cutter_flags == (False, True)
+        assert rewritten.per_char_cutters == (0.06, 0.06)
+
+    def test_a_markup_free_line_has_no_pin(self) -> None:
+        """A line without the tag carries no pin (the renderers' fast path)."""
+        job = self._job(TextLine(text="plain"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.has_original_cutter is False
+        assert not any(line.original_cutter_flags)
+        # The plan gate still short-circuits: no markup, no plan (bit-identical).
+        assert glyph_render_plan(line) is None
+
+    def test_the_bold_rung_is_not_a_layer_when_no_character_uses_it(self) -> None:
+        """A fully pinned bold line claims no bold layer (no phantom pen).
+
+        The bold rung is resolved line-wide, but a line whose every bold
+        character is pinned by an ``<oc>`` never engraves with it -- so the
+        rung must not enter :attr:`used_cutters`, or the pen map would carry
+        a layer (and an empty per-cutter PLT file) that no stroke lands on.
+        """
+        job = self._job(TextLine(text="<oc><b>bold</b></oc> plain"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        # The line still knows the bold rung (it was resolved)...
+        assert line.bold_cutter_diameter == pytest.approx(0.09)
+        # ...but no character engraves with it, so it is not a layer.
+        assert line.per_char_cutters == (0.06,) * 10
+        assert line.used_cutters == (0.06,)

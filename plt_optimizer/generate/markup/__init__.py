@@ -56,9 +56,10 @@ round-trip exact. Adding a markup type (``<b>``, ``<u>``, ...) is a
 one-line registry entry plus the render-side handling of the new
 :class:`Style` field; the parser, cascade, and serialization need no change.
 
-The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``
-and ``<c:D>`` (the explicit cutter diameter in inches for the wrapped
-segment).
+The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``,
+``<c:D>`` (the explicit cutter diameter in inches for the wrapped segment)
+and ``<oc>`` (the original cutter: the wrapped segment keeps the line's own
+tool, immune to markup-induced cutter changes).
 """
 
 from __future__ import annotations
@@ -205,6 +206,18 @@ class Style:
             argument is in inches (like every other cutter value in the
             repo) and must be positive; the pipeline snaps it to the shop
             inventory and validates it against the line's text height.
+        original_cutter: True when the run is wrapped in a registered
+            original-cutter tag (``<oc>`` with the default brackets). The
+            wrapped characters engrave with the **line's own plain cutter**
+            -- the tool unmarked text on the line gets -- and are therefore
+            immune to every *markup-induced* cutter change: the
+            ``<scale:N>`` height ladder, the ``<b>`` bold rung, the bare
+            ``<sup>``/``<sub>`` downscale ladder and the ``<f:...>`` run
+            ladder all leave the segment on the line's tool. The line's own
+            cutter may still move on its own (the compression-driven
+            downsize), and the pinned segment follows it. An explicit
+            ``<c:D>`` tool still wins over this tag (an explicit tool is a
+            human decision, never overridden automatically).
     """
 
     italic: bool = False
@@ -216,6 +229,7 @@ class Style:
     small_caps: bool = False
     font: Optional[str] = None
     cutter: Optional[float] = None
+    original_cutter: bool = False
 
 
 #: The style of unmarked text (every field at its default).
@@ -593,6 +607,17 @@ register_tag(
     arg=lambda style: _format_cutter_arg(style.cutter),
     is_active=lambda style: style.cutter is not None,
 )
+# Registered LAST so every existing serialization order stays bit-identical.
+# The original-cutter tag: a plain flag tag (no args -- the pinned tool is
+# the line's own, so there is nothing to spell out). The wrapped characters
+# engrave with the line's plain cutter and are immune to every
+# markup-induced cutter change (the <scale:N> height ladder, the <b> bold
+# rung, the bare <sup>/<sub> downscale ladder, the <f:...> run ladder).
+# apply is set-to-True (idempotent), so nesting <oc> inside <oc> has no
+# additional effect and the close pops the pre-open Style, restoring the
+# outer run for the trailing text. The pipeline resolves the pin against
+# the line's own cutter (which the compression-driven downsize may move).
+register_tag("oc", lambda style, arg: replace(style, original_cutter=True))
 
 
 @dataclass(frozen=True)
@@ -699,6 +724,19 @@ class StyledText:
         the line-content reflow) keeps every run on its own tool.
         """
         return tuple(style.cutter for style in _per_char_styles(self))
+
+    @property
+    def original_cutter_flags(self) -> Tuple[bool, ...]:
+        """Per-character ``<oc>`` flags, aligned with :attr:`plain_text`.
+
+        ``True`` at every position the character is wrapped in an
+        ``<oc>...</oc>`` span (and therefore engraves with the line's own
+        plain cutter, immune to markup-induced cutter changes). Mirrors
+        :attr:`bold_flags`: the selection is DERIVED from the runs, so a
+        pre-pass that rewrites the line's text (``with_markup``, the
+        line-content reflow) keeps every run pinned.
+        """
+        return tuple(style.original_cutter for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)

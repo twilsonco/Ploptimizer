@@ -1,0 +1,105 @@
+# Fixture for inline original-cutter markup (`<oc>`).
+#
+# `<oc>...</oc>` pins the wrapped characters to the LINE's own plain cutter
+# -- the tool unmarked text on the line gets -- so they are immune to every
+# *markup-induced* cutter change: the `<scale:N>` height ladder, the `<b>`
+# bold rung, the bare `<sup>`/`<sub>` downscale ladder and the `<f:...>` run
+# ladder all leave the segment on the line's own tool.
+#
+# The pin does NOT block the line's own compression-driven downsize: the pin
+# is DERIVED from the line's `cutter_diameter` (never a captured literal), so
+# when the downsize moves the line's tool the pinned segment follows it. This
+# is the deliberate difference from `<c:D>`, whose explicit tool is a human
+# decision and never moves.
+#
+# The pin freezes the TOOL, not the geometry: a `<scale:2.0>` inside an
+# `<oc>` still scales the glyphs up (the centerline formula
+# `g = (s*nominal - d) / (nominal - cutter)` with the pinned `d` = the line's
+# own cutter), so the run is BIGGER but engraved with the line's tool.
+#
+# Against the test inventory
+# [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25] at text_height 0.5:
+#   - Dino (S1, auto) ................. plain 0.060
+#   - `<oc>` .......................... pinned 0.060 (NO second per-cutter file)
+#   - `<scale:2.0>` .................... the 1.0in ladder's 0.125in tool
+#   - `<oc><scale:2.0>` ................ pinned 0.060 (the ladder is blocked)
+#   - `<b>` ............................ the bold rung's 0.090in tool
+#   - `<oc><b>` ....................... pinned 0.060 (the bold rung is blocked)
+#   - `<c:0.03>` inside `<oc>` ......... the EXPLICIT tool wins (0.030in)
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix.
+job:
+  job_name: Original Cutter Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The headline case: a pinned run inside a plain line. `PIN` engraves
+    #    with the line's OWN 0.060in tool, so the label contributes ONE
+    #    per-cutter text file (the whole point of the tag).
+    - id: plt_pin
+      font: Dino
+      content:
+        - text: "plain <oc>PIN</oc> plain"
+
+    # 2. The plain control for label 1 (same text, no markup).
+    - id: plt_plain
+      font: Dino
+      content:
+        - text: "plain PIN plain"
+
+    # 3. The scale ladder is BLOCKED: a bare `<scale:2.0>` run would engrave
+    #    with the 1.0in-height ladder's 0.125in tool (a second per-cutter
+    #    file). The plain sibling keeps the line's own 0.060in tool.
+    - id: plt_scale
+      font: Dino
+      content:
+        - text: "<scale:2.0>BIG</scale> plain"
+
+    # 4. The same run, pinned: bigger text, the line's OWN 0.060in tool.
+    #    This is the motivating case from the TODO. The plain sibling shows
+    #    the pinned run shares the line's tool -- ONE per-cutter file.
+    - id: plt_pinned_scale
+      font: Dino
+      content:
+        - text: "<oc><scale:2.0>BIG</scale></oc> plain"
+
+    # 5. The bold rung is BLOCKED: a bare `<b>` run would engrave with the
+    #    bold rung's 0.090in tool (a second per-cutter file). The plain
+    #    sibling keeps the line's own 0.060in tool.
+    - id: plt_bold
+      font: Dino
+      content:
+        - text: "<b>bold</b> plain"
+
+    # 6. The same run, pinned: the line's own 0.060in tool.
+    - id: plt_pinned_bold
+      font: Dino
+      content:
+        - text: "<oc><b>bold</b></oc> plain"
+
+    # 7. An EXPLICIT tool still wins over the pin: `<c:D>` is a human
+    #    decision, never overridden automatically.
+    - id: plt_vs_cutter
+      font: Dino
+      content:
+        - text: "plain <oc><c:0.03>CUT</c></oc> plain"
+
+    # 8. The TTF family: the same pin, the same per-cutter file split (the
+    #    TTF run's visible weight comes from the pen assignment, not the
+    #    glyph -- the `<b>`/`<c:D>` caveat).
+    - id: plt_ttf
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "plain <oc>PIN</oc> plain"

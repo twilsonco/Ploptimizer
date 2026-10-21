@@ -3558,6 +3558,149 @@ class TestCutterDemoExample:
         assert line.used_cutters == (0.03, 0.06)
 
 
+class TestOriginalCutterDemoExample:
+    """Regression tests for tests_deps/original_cutter_job.yaml.
+
+    The fixture pins inline original-cutter markup (``<oc>``): the wrapped
+    characters engrave with the LINE's own plain cutter -- the tool unmarked
+    text on the line gets -- so they are immune to every markup-induced
+    cutter change (the ``<scale:N>`` height ladder, the ``<b>`` bold rung,
+    the bare ``<sup>``/``<sub>`` downscale ladder, the ``<f:...>`` run
+    ladder). The pin freezes the TOOL, not the geometry, so the run's glyphs
+    still scale up. The line's own compression-driven downsize still moves
+    the pin (the deliberate difference from the ``<c:D>`` pin, whose
+    explicit tool is a human decision and never moves).
+    """
+
+    _SPEC = Path("tests_deps/original_cutter_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="oc",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    def test_markup_parses_to_plain_text_and_flags(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, the run carries the pin."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        pin = by_id["plt_pin"].content[0]
+        assert pin.text == "plain <oc>PIN</oc> plain"
+        assert pin.plain_text == "plain PIN plain"
+        assert pin.has_original_cutter is True
+        # The 6 plain chars are unmarked, the 3 'PIN' chars are pinned.
+        assert pin.original_cutter_flags == (False,) * 6 + (True,) * 3 + (False,) * 6
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "plain PIN plain"
+        assert plain.has_original_cutter is False
+
+    def test_the_pin_keeps_the_line_cutter(self, tmp_path: Path) -> None:
+        """The pinned characters engrave with the line's own tool."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_pin"].source_label.content[0]
+        assert math.isclose(line.cutter_diameter, 0.06)
+        assert math.isclose(line.per_char_cutters[6], 0.06)  # the 'P' of 'PIN'
+        assert math.isclose(line.per_char_cutters[0], 0.06)  # the plain 'p'
+        # ONE tool for the whole line: the pin adds no per-cutter layer.
+        assert line.used_cutters == (0.06,)
+
+    def test_the_pin_blocks_the_scale_ladder(self, tmp_path: Path) -> None:
+        """<oc> keeps the line's tool where <scale:N> would step to its own."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        # The bare scaled run takes the 1.0in ladder's tool; the plain
+        # sibling keeps the line's own 0.060in tool.
+        scaled = by_id["plt_scale"].content[0]
+        assert math.isclose(scaled.per_char_cutters[0], 0.125)
+        assert scaled.used_cutters == (0.06, 0.125)
+
+        # The pinned run keeps the line's own 0.060in tool -- ONE tool for
+        # the whole line (the plain sibling included).
+        pinned = by_id["plt_pinned_scale"].content[0]
+        assert math.isclose(pinned.per_char_cutters[0], 0.06)
+        assert pinned.used_cutters == (0.06,)
+
+    def test_the_pin_blocks_the_bold_rung(self, tmp_path: Path) -> None:
+        """<oc> keeps the line's tool where <b> would step to a thicker one."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        bold = by_id["plt_bold"].content[0]
+        assert math.isclose(bold.per_char_cutters[0], 0.09)
+        assert bold.used_cutters == (0.06, 0.09)
+
+        pinned = by_id["plt_pinned_bold"].content[0]
+        assert math.isclose(pinned.per_char_cutters[0], 0.06)
+        assert pinned.used_cutters == (0.06,)
+
+    def test_the_explicit_cutter_still_wins(self, tmp_path: Path) -> None:
+        """<c:D> beats <oc>: an explicit tool is never overridden automatically."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_vs_cutter"].source_label.content[0]
+        # The 'C' of 'CUT' (glyph index 6) takes the explicit tool.
+        assert math.isclose(line.per_char_cutters[6], 0.03)
+        assert line.used_cutters == (0.03, 0.06)
+
+    def test_the_pinned_glyphs_are_bigger_than_the_plain_twin(self, tmp_path: Path) -> None:
+        """The pin freezes the TOOL, not the geometry: the run still scales up.
+
+        The pinned ``<scale:2.0>`` run engraves with the line's own tool, so
+        its glyphs are BIGGER than the plain twin's -- the whole point of the
+        tag ("larger text without a larger cutter").
+        """
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+        from plt_optimizer.generate.text_geometry import TextBlock
+
+        result = self._export(tmp_path)
+
+        def run_glyph_top(label_id: str, index: int) -> float:
+            label = result.rendered_labels[label_id].source_label
+            block, _words, glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
+            bounds = TextBlock(strokes=tuple(block.strokes[i] for i in glyphs[index])).bounds()
+            assert bounds is not None
+            return bounds[3]
+
+        # The pinned run's glyphs reach higher than the plain twin's.
+        assert run_glyph_top("plt_pinned_scale", 0) > run_glyph_top("plt_plain", 0)
+
+    def test_the_pin_adds_no_per_cutter_file(self, tmp_path: Path) -> None:
+        """A pinned run lands in the line's own per-cutter file (no new tool).
+
+        The contrast with the ``<c:D>`` demo, whose explicit tool gets its
+        own file: the ``<oc>`` pin is invisible in the file set, because the
+        pinned characters engrave with the line's own tool. The pinned bold
+        and scale labels contribute NO 0.090 / 0.125 file (their unpinned
+        twins do).
+        """
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_oc.plt",
+            "0.030_txt_oc.plt",  # the <c:0.03> run (the explicit tool wins)
+            "0.060_txt_oc.plt",  # every other run, pinned or plain
+            "0.090_txt_oc.plt",  # the <b> bold rung (the unpinned twin)
+            "0.125_txt_oc.plt",  # the bare <scale:2.0> ladder (the unpinned twin)
+        ]
+
+    def test_the_ttf_pair_keeps_the_line_cutter(self, tmp_path: Path) -> None:
+        """The TTF family gets the same pin (the pen assignment carries it)."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_ttf"].source_label.content[0]
+        assert math.isclose(line.per_char_cutters[6], 0.06)
+        assert line.used_cutters == (0.06,)
+
+
 class TestSupSubDemoExample:
     """Regression tests for tests_deps/sup_sub_job.yaml.
 
