@@ -341,6 +341,28 @@ JobSpec (job-level defaults)
   job → unset (plate parity only); `job-config.json` supplies the shop default
   (`null` = unset).
 
+**TextLine-only** (never inherited by the label, the job or a plate; no
+`job-config.json` counterpart — the `TextLine.placeholder` precedent):
+- `new_line`: Boolean hard break (`default False`). When true, the line
+  **begins on its own line**: it *starts* a new `optimize_line_content` reflow
+  group, so the lines that follow it (which do not carry the flag) reflow
+  **with it** rather than with the lines above it — the group's words fill the
+  lines from the flagged one downward. A later flagged line starts a fresh
+  group. Word order is never changed; only the line breaks move. The flag is
+  **inert** when the line does not enable `optimize_line_content` (every line
+  already begins on its own line then) — it never raises and never enables
+  reflow on its own. The line cap stays **group-scoped**: the flagged line's
+  own `optimize_line_content_max_lines` governs its group, and a cap declared
+  on a line of one group never leaks into the next group (so the
+  four-bullet shape — four flagged lines with caps 2, 2, 2, 3 — is valid,
+  not a conflicting-caps error). Implemented in
+  `line_content.py` by the **grouping** only: the DP partition, the growth
+  loop and the probes are untouched. Group membership lives in **one** place,
+  `resolution.reflow_groups()` (the shared source of truth — the resolution
+  cap fan-out and the export pre-pass must agree, or a cap would be fanned
+  out onto lines the pre-pass never reflows together). Grown (clone) lines
+  never carry the flag: a clone continues its block, so it must not split it.
+
 **LabelAttributes** (extends TextAttributes, cascades to LabelSpec only):
 - `width`: Label width in inches; must be defined at label or job level (required; no longer auto-sized).
 - `height`: Label height in inches; must be defined at label or job level (required; no longer auto-sized).
@@ -688,9 +710,12 @@ disabled line breaks the group into independent neighbours).
   widths is the same objective as minimizing the compression the label needs.
   It emits `ResolvedLabel` clones (`dataclasses.replace`) carrying the reflowed
   `content`; untouched labels keep their object identity.
-- **Groups:** maximal runs of consecutive enabled lines (`_reflow_groups`);
-  a disabled line breaks a run, a run of one line is a no-op, and a word may
-  travel across the whole group (not just one line).
+- **Groups:** maximal runs of consecutive enabled lines
+  (`resolution.reflow_groups()`, the single source of truth shared with the
+  resolution cap fan-out); a disabled line breaks a run, a run of one line is
+  a no-op, and a word may travel across the whole group (not just one line).
+  A line carrying the line-level `new_line` flag additionally breaks the run
+  **before** it, so the flagged line starts a fresh group.
 - **DP repartition** (`_partition_words`): the linear-partition problem solved
   exactly — cut the concatenated word sequence into one contiguous segment per
   group line (every line keeps ≥1 word), minimizing the widest segment,

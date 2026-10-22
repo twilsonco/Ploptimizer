@@ -184,6 +184,7 @@ always wins at its level. Precedence per attribute:
 | `v_center_by_content` | label → job → config (never lines; plate parity) | `false` |
 | `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance`, `descending_character_reciprocal_scale` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` / `0.5` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
+| `new_line` | line only (never label/job/plate/config) | `false` |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
 | `h_margin`, `v_margin` | label → job → config | `margin` (then 0.125) |
@@ -212,6 +213,15 @@ entries that omit it).
 - **Hole groups**: `location: corners` expands in place to the four corner
   holes; `sides` to left+right — at validation time, so downstream only ever
   sees the 8 atomic locations.
+- **Line hard break** (`new_line`, line-level only): the flagged line *begins*
+  a new `optimize_line_content` reflow group, so the lines that follow it
+  reflow with it rather than with the lines above it (the group's words fill
+  the lines from the flagged one downward). The flag is inert unless the line
+  also enables `optimize_line_content` — it never raises and never enables
+  reflow by itself. The `optimize_line_content_max_lines` cap stays
+  group-scoped, so two different caps in two groups separated by a flagged
+  line are legal (only two different caps *within one group* raise
+  `LineContentConfigError`).
 - **Cutter-compensated holes** (`hole_adjust_for_cutter`, default true): the
   drill path is the circle the cutter *centre* follows, so the cutter engraves
   half a cutter width on each side of it. With the mechanism on, the emitted

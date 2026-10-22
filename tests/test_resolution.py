@@ -92,6 +92,7 @@ from plt_optimizer.generate.resolution import (
     multi_stroke_cutter_diameter,
     next_larger_cutter,
     next_smaller_cutter,
+    reflow_groups,
     resolve_job_spec,
     scale_cutter_ladder,
     should_downsize_cutter,
@@ -3396,6 +3397,136 @@ class TestOptimizeLineContentMaxLinesCascade:
             line_spacing=0.1,
         )
         assert line.optimize_line_content_max_lines is None
+
+
+class TestNewLineResolution:
+    """``new_line`` is a line-level hard break: it never cascades."""
+
+    @staticmethod
+    def _job(*lines: TextLine, reflow: bool = True) -> JobSpec:
+        """Build a single-label job carrying the given content lines.
+
+        Args:
+            lines: The label's content lines.
+            reflow: Whether the job enables the word-level reflow.
+
+        Returns:
+            A validated JobSpec (single label).
+        """
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            optimize_line_content=reflow,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=list(lines),
+                )
+            ],
+        )
+
+    def test_resolved_line_defaults_to_false(self) -> None:
+        """A manually constructed ResolvedTextLine defaults the flag to False."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.09,
+            line_spacing=0.1,
+        )
+        assert line.new_line is False
+
+    def test_flag_survives_resolution(self) -> None:
+        """A line-level new_line reaches the resolved line unchanged."""
+        job = self._job(TextLine(text="AAA", new_line=True))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.new_line is True
+
+    def test_omitted_flag_resolves_false(self) -> None:
+        """A line that omits the flag resolves to False."""
+        job = self._job(TextLine(text="AAA"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.new_line is False
+
+    def test_flag_does_not_cascade_from_the_label(self) -> None:
+        """new_line is line-level only: a label-level declaration is ignored."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            optimize_line_content=True,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="AAA")],
+                )
+            ],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.new_line is False
+
+    def test_groups_split_at_a_new_line(self) -> None:
+        """A new_line line starts a fresh reflow group."""
+        job = self._job(
+            TextLine(text="AAA", new_line=True),
+            TextLine(text="BBB"),
+            TextLine(text="CCC", new_line=True),
+        )
+        content = resolve_job_spec(job)[0].content
+        assert reflow_groups(content) == [[0, 1], [2]]
+
+    def test_caps_do_not_leak_across_a_new_line_boundary(self) -> None:
+        """Two different caps in two groups separated by new_line do not conflict."""
+        job = self._job(
+            TextLine(text="AAA", new_line=True, optimize_line_content_max_lines=2),
+            TextLine(text="BBB", optimize_line_content_max_lines=2),
+            TextLine(text="CCC", new_line=True, optimize_line_content_max_lines=3),
+        )
+        content = resolve_job_spec(job)[0].content
+        # Each group keeps its own cap (fanned out within the group only).
+        assert content[0].optimize_line_content_max_lines == 2
+        assert content[1].optimize_line_content_max_lines == 2
+        assert content[2].optimize_line_content_max_lines == 3
+
+    def test_conflicting_caps_in_one_group_still_raise(self) -> None:
+        """A new_line boundary does not weaken the same-group conflict check."""
+        job = self._job(
+            TextLine(text="AAA", new_line=True, optimize_line_content_max_lines=2),
+            TextLine(text="BBB", optimize_line_content_max_lines=3),
+        )
+        with pytest.raises(LineContentConfigError, match="conflicting"):
+            resolve_job_spec(job)
+
+    def test_four_bullet_spec_resolves(self) -> None:
+        """The TODO's four-bullet example resolves (one group per bullet)."""
+        job = self._job(
+            TextLine(
+                text="Always charge secondary CO2 system through a filter drier.",
+                new_line=True,
+                optimize_line_content_max_lines=2,
+            ),
+            TextLine(
+                text="Do not trap liquid by closing charging station.",
+                new_line=True,
+                optimize_line_content_max_lines=2,
+            ),
+            TextLine(
+                text="Always vacuum charging line after charging is complete.",
+                new_line=True,
+                optimize_line_content_max_lines=2,
+            ),
+            TextLine(
+                text="Charge secondary CO2 system with 99.9% pure CO2.",
+                new_line=True,
+                optimize_line_content_max_lines=3,
+            ),
+        )
+        content = resolve_job_spec(job)[0].content
+        assert reflow_groups(content) == [[0], [1], [2], [3]]
 
 
 class TestBaselinePitchMath:

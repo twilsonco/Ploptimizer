@@ -1679,6 +1679,15 @@ class TextLine(TextAttributes):
             the synthesized line. Non-placeholder lines are copied verbatim to
             every generated label instance. Requires the parent label to
             declare ``replacement_text_file``.
+        new_line: When ``True``, this line begins on its own line in the
+            label. It modifies the word-level line-content reflow
+            (``optimize_line_content``): the line starts a new reflow group,
+            so the lines that follow it (which do not carry the flag
+            themselves) reflow together with it instead of with the lines
+            above it. The flag is inert when the line does not enable
+            ``optimize_line_content`` (every line then begins on its own line
+            already). Line-level only -- it is never inherited from the label
+            or the job, and it has no ``job-config.json`` counterpart.
     """
 
     text: str = Field(description="The text string to render (non-empty).")
@@ -1690,6 +1699,18 @@ class TextLine(TextAttributes):
             "other attributes are preserved. Non-placeholder lines copy verbatim "
             "to every instance. Requires the parent label to declare "
             "replacement_text_file."
+        ),
+    )
+    new_line: bool = Field(
+        default=False,
+        description=(
+            "Force this line to begin on its own line. When True, the line "
+            "starts a new optimize_line_content reflow group: the lines that "
+            "follow it reflow with it rather than with the lines above it, so "
+            "the group's words fill the lines from this one downward. The "
+            "flag has no effect unless this line also enables "
+            "optimize_line_content. Line-level only: it is not inherited from "
+            "the label or the job, and job-config.json has no counterpart."
         ),
     )
 

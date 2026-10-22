@@ -1,36 +1,15 @@
 # TODO List
 
-- [ ] Add a new optional bool field, `new_line` that *only* exists as a TextAttribute (i.e. at line-level), and not in job-config.json. Default false. This field interacts with `optimize_line_content`. If true, then it forces the line to begin on its own line in the label. 
+- [x] Add a new optional bool field, `new_line` that *only* exists as a TextAttribute (i.e. at line-level), and not in job-config.json. Default false. This field interacts with `optimize_line_content`. If true, then it forces the line to begin on its own line in the label. 
   - This allows for a job spec to, e.g., specify three very long lines, each of which begins on a new line but has its content optimized onto the following lines as necessary. 
   - Combines with `optimize_line_content_max_lines` so that the user can specify the max number of lines each line is potentially expanded to.
-  - e.g.
-    ```yaml
-    job:
-      job_name: Coolsys Walmart 5168
-      width: 24
-      height: 16
-      text_height: 1.0
-      v_margin: 1.0
-      h_margin: 1.0
-      optimize_line_content: true
-      h_compress_global: true
-      font: dino sc
-      labels:
-        - id: label
-          content:
-            - text: "Always charge secondary CO2 system through a filter drier."
-              new_line: true
-              optimize_line_content_max_lines: 2
-            - text: "• Do not trap liquid by closing charging station and isolation valves while servicing."
-              new_line: true
-              optimize_line_content_max_lines: 2
-            - text: "• Always vacuum charging line after charging is complete."
-              new_line: true
-              optimize_line_content_max_lines: 2
-            - text: "• Charge secondary CO2 system with 99.9% pure or higher food and beverage grade CO2."
-              new_line: true
-              optimize_line_content_max_lines: 3
-    ```
+  - **Shipped** as a **line-level-only** field (`TextLine.new_line`, the `TextLine.placeholder` precedent): it is declared on `TextLine`, *not* on the shared `TextAttributes` mixin, so it is absent from `LabelSpec`/`JobSpec`/`PlateSpec` and has no `job-config.json` counterpart and no cascade (the default is the literal `False`).
+  - **Semantics: a hard break BEFORE the line.** The flagged line *starts* a new `optimize_line_content` reflow group, so the lines that follow it (which do not carry the flag) reflow **with it** rather than with the lines above it — the group's words fill the lines from the flagged one downward. A later flagged line starts a fresh group. Word order is never changed; only the line breaks move.
+  - **Only the grouping changed.** The DP partition (`_partition_words`), the growth loop and the probes are untouched: group membership moved into a single shared source of truth, `resolution.reflow_groups()` (the resolution cap fan-out and the export pre-pass must agree, or a cap would be fanned out onto lines the pre-pass never reflows together). A flagged line breaks the run *before* it; a disabled line still breaks it as before.
+  - **The cap stays group-scoped**: the flagged line's own `optimize_line_content_max_lines` governs its group, and a cap never leaks across a flagged-line boundary. The four-bullet example above (caps 2, 2, 2, 3 on four flagged lines) is therefore **valid** — under the old grouping it would have been a conflicting-caps error.
+  - **Inert without reflow**: the flag never raises and never enables `optimize_line_content` on its own; a line that does not enable reflow already begins on its own line.
+  - Grown (clone) lines never carry the flag: a clone continues its block, so it must not split it.
+  - **Pins**: `tests/test_schema.py::TestNewLine` (line-level only, default false), `tests/test_job_config.py::test_new_line_is_not_a_config_field`, `tests/test_resolution.py::TestNewLineResolution` (resolution, group split, the cap non-leak and the four-bullet spec), `tests/test_line_content.py::TestReflowGroups` + `::TestNewLineReflow` (grouping, forward flow, the clone flag) and `tests/test_phase3_export.py::TestOptimizeLineContentNewLineDemoExample` (end-to-end, fixture `tests_deps/optimize_line_content_new_line_job.yaml`).
 - [ ] Add support for bullet lists and enumerated lists.
   - This will take some thought for how to implement.
   - The bullet/enumerated list fields could be alternatives to `text` within a `content` block, allowing each `text` item to either be a simple text line or a bullet/enumerated list item, called `itemize`/`enumerate` respectively.

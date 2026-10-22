@@ -42,6 +42,7 @@ def _line(
     space_width_fraction: float = 0.3,
     max_lines: int | None = None,
     max_h_compress: float = 0.0,
+    new_line: bool = False,
     html_brackets: str = "<>",
 ) -> ResolvedTextLine:
     """Build a resolved line with the reflow permission defaulting to enabled."""
@@ -56,6 +57,7 @@ def _line(
         max_h_compress=max_h_compress,
         optimize_line_content=enabled,
         optimize_line_content_max_lines=max_lines,
+        new_line=new_line,
         html_brackets=html_brackets,
     )
 
@@ -169,6 +171,84 @@ class TestReflowGroups:
         """The run ending on the last line is not dropped."""
         content = [_line(enabled=False), _line(), _line()]
         assert _reflow_groups(content) == [[1, 2]]
+
+    def test_new_line_breaks_the_run_before_the_line(self) -> None:
+        """A new_line line starts a fresh group; the lines above it close."""
+        content = [_line(), _line(new_line=True), _line()]
+        assert _reflow_groups(content) == [[0], [1, 2]]
+
+    def test_new_line_line_joins_the_lines_that_follow_it(self) -> None:
+        """The lines after a new_line line reflow with it, not with the lines above."""
+        content = [_line(new_line=True), _line(), _line(new_line=True), _line()]
+        assert _reflow_groups(content) == [[0, 1], [2, 3]]
+
+    def test_every_new_line_line_is_its_own_group(self) -> None:
+        """Four new_line lines form four singleton groups (the TODO's bullets)."""
+        content = [_line(new_line=True) for _ in range(4)]
+        assert _reflow_groups(content) == [[0], [1], [2], [3]]
+
+    def test_new_line_on_a_disabled_line_forms_no_group(self) -> None:
+        """A disabled line is not reflowed at all, new_line or not."""
+        content = [_line(), _line(enabled=False, new_line=True)]
+        assert _reflow_groups(content) == [[0]]
+
+
+class TestNewLineReflow:
+    """A new_line line keeps its own words; the following line fills its tail."""
+
+    def test_words_flow_forward_into_the_following_line(self) -> None:
+        """The new_line line's tail lands on the following line's group.
+
+        The group is ``[new_line line, following line]``; the DP cuts the
+        concatenated word sequence so the first (new_line) line keeps its
+        leading words and the rest flows down.
+        """
+        label = _label("lbl", _line("AAA BBB", new_line=True), _line("CCC"))
+        result = apply_line_content_reflow([label], probe=_char_probe())
+        assert result is not None
+        texts = [line.text for line in result[0].content]
+        # Word order is preserved across the whole group.
+        assert " ".join(texts).split() == "AAA BBB CCC".split()
+        # The new_line line still begins its own line (it keeps the first words).
+        assert texts[0] == "AAA"
+        # The following line carries the rest.
+        assert texts[1] == "BBB CCC"
+
+    def test_new_line_line_starts_its_own_block(self) -> None:
+        """Two new_line lines never exchange words with each other."""
+        label = _label(
+            "lbl",
+            _line("AAA BBB", new_line=True),
+            _line("CCC DDD", new_line=True),
+        )
+        result = apply_line_content_reflow([label], probe=_char_probe())
+        assert result is not None
+        texts = [line.text for line in result[0].content]
+        # Each singleton group keeps its own words, in order.
+        assert " ".join(texts).split() == "AAA BBB CCC DDD".split()
+        assert texts[0].startswith("AAA")
+        assert texts[1].startswith("CCC")
+
+    def test_grown_clone_lines_never_carry_the_flag(self) -> None:
+        """A grown line continues its group, so it never carries new_line.
+
+        A clone carrying the flag would split the group it belongs to on the
+        next pass (the grouping is recomputed from the resolved lines).
+        """
+        label = _label(
+            "lbl",
+            _line("AAA BBB CCC", new_line=True, max_lines=2, max_h_compress=0.5),
+        )
+        result = apply_line_content_reflow(
+            [label],
+            probe=_char_probe(),
+            scale_probe=_scale_probe(inner=0.35),
+        )
+        assert result is not None
+        content = result[0].content
+        assert len(content) > 1  # The group grew.
+        # Only the authored anchor line carries the flag.
+        assert [line.new_line for line in content] == [True] + [False] * (len(content) - 1)
 
 
 class TestPartitionCost:

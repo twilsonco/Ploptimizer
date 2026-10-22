@@ -2410,6 +2410,38 @@ class TestOptimizeLineContentMaxLines:
         assert job.optimize_line_content_max_lines == 3
 
 
+class TestNewLine:
+    """Tests for the line-level ``new_line`` hard-break field."""
+
+    def test_default_is_false(self) -> None:
+        """The shipped default keeps every line where the author put it."""
+        assert TextLine(text="X").new_line is False
+
+    def test_text_line_accepts_the_field(self) -> None:
+        """TextLine exposes new_line and honours an explicit True."""
+        assert TextLine(text="X", new_line=True).new_line is True
+        assert TextLine(text="X", new_line=False).new_line is False
+
+    def test_line_level_only(self) -> None:
+        """The field is a line-level field: it is absent from every other tier.
+
+        ``new_line`` is deliberately NOT on ``TextAttributes`` (the shared
+        line/label/job mixin), so it cannot be declared on a label, a job or a
+        plate, and it never cascades.
+        """
+        assert "new_line" in TextLine.model_fields
+        assert "new_line" not in TextAttributes.model_fields
+        assert "new_line" not in LabelAttributes.model_fields
+        assert "new_line" not in LabelSpec.model_fields
+        assert "new_line" not in JobSpec.model_fields
+        assert "new_line" not in PlateSpec.model_fields
+
+    def test_unknown_key_is_ignored_at_the_label_level(self) -> None:
+        """A label-level ``new_line`` is not a known field (and is not honoured)."""
+        label = LabelSpec(id="lbl", content=[TextLine(text="X")])
+        assert not hasattr(label, "new_line")
+
+
 class TestHtmlBracketsField:
     """The cascading ``html_brackets`` field (line -> label -> job + plate)."""
 

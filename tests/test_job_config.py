@@ -140,6 +140,11 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(**{"cutter_size": 0.03})  # type: ignore
 
+    def test_new_line_is_not_a_config_field(self) -> None:
+        """new_line is a per-line hard break, never a shop default."""
+        with pytest.raises(ValidationError):
+            JobDefaults(**{"new_line": True})  # type: ignore
+
     def test_cutter_downsize_config_fields(self) -> None:
         """cutter_downsize/max_cutter_downsizes are legal shop defaults."""
         defaults = JobDefaults(cutter_downsize=False, max_cutter_downsizes=2)

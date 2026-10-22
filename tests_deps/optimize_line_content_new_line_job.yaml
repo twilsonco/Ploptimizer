@@ -1,0 +1,81 @@
+# Fixture for the line-level hard break (`new_line`, default false).
+#
+# `new_line: true` forces a line to begin on its own line. It modifies the
+# word-level line-content reflow: the line *starts* a new reflow group, so
+# the lines that follow it (which do not carry the flag) reflow with it
+# instead of with the lines above it. Word order is never changed -- only the
+# line breaks move.
+#
+# Geometry: inner content area = width - 2 * margin = 3.8in.
+job:
+  job_name: Optimize Line Content New Line Demo
+
+  width: 4.0
+  height: 2.6
+  margin: 0.1
+  text_height: 0.5
+
+  # Compression budget: the reflowed lines fit, so nothing compresses.
+  max_h_compress: 0.5
+
+  # Opt in at the job level (the field defaults to false).
+  optimize_line_content: true
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Group split: the first line is a plain enabled line, the second
+    #    carries new_line, the third is plain again. The new_line line
+    #    starts a fresh group, so the first line keeps its own words (a
+    #    singleton group is a no-op) and the second and third lines reflow
+    #    together. Without the flag all three lines would form one group
+    #    and the words would spread over all three.
+    - id: new_line_block
+      content:
+        - text: "AAA BBBB"
+        - text: "CCCC DDDD"
+          new_line: true
+        - text: "EEEE"
+
+    # 2. Two new_line lines: each starts its own group, so the two lines
+    #    never exchange words (each is a singleton group -- a no-op).
+    - id: new_line_twins
+      content:
+        - text: "FFFF GGGG"
+          new_line: true
+        - text: "HHHH IIII"
+          new_line: true
+
+    # 3. A new_line line with a line cap: the cap governs the new_line
+    #    block, which may grow past its authored line count while its
+    #    lines still need horizontal compression. The grown lines continue
+    #    the block, so they never carry the new_line flag themselves.
+    - id: new_line_cap
+      content:
+        - text: "JJJJ KKKK LLLL MMMM"
+          new_line: true
+          optimize_line_content_max_lines: 3
+
+    # 4. The four-bullet shape from the feature request: every bullet is a
+    #    new_line line, so each bullet is its own group and each carries its
+    #    own cap (2, 2, 2, 3) without a conflicting-caps error. The label is
+    #    wider so the bullets engrave without compression.
+    - id: bullets
+      width: 10.0
+      height: 3.0
+      content:
+        - text: "Always charge secondary CO2 system through a filter drier."
+          new_line: true
+          optimize_line_content_max_lines: 2
+        - text: "Do not trap liquid by closing charging station and valves."
+          new_line: true
+          optimize_line_content_max_lines: 2
+        - text: "Always vacuum charging line after charging is complete."
+          new_line: true
+          optimize_line_content_max_lines: 2
+        - text: "Charge secondary CO2 system with 99.9% pure or higher CO2."
+          new_line: true
+          optimize_line_content_max_lines: 3

@@ -1710,6 +1710,109 @@ class TestOptimizeLineContentMaxLinesDemoExample:
             resolve_job_spec(job)
 
 
+class TestOptimizeLineContentNewLineDemoExample:
+    """Regression tests for tests_deps/optimize_line_content_new_line_job.yaml.
+
+    The line-level ``new_line`` hard break modifies the word-level reflow:
+    the flagged line *starts* a new reflow group, so the lines that follow
+    it reflow with it instead of with the lines above it. Word order is kept;
+    only the line breaks move.
+    """
+
+    _SPEC = Path("tests_deps/optimize_line_content_new_line_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="olcn",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_new_line_splits_the_group(self, tmp_path: Path) -> None:
+        """The flagged line starts a fresh group; the next line joins it."""
+        result = self._export(tmp_path)
+        blocked = result.rendered_labels["new_line_block"]
+        assert [line.text for line in blocked.source_label.content] == [
+            "AAA BBBB",
+            "CCCC",
+            "DDDD EEEE",
+        ]
+        assert blocked.compression_by_line == {}
+
+    def test_new_line_line_keeps_its_own_words(self, tmp_path: Path) -> None:
+        """The flagged line's own words stay on it (it begins its own line)."""
+        result = self._export(tmp_path)
+        blocked = result.rendered_labels["new_line_block"]
+        lines = blocked.source_label.content
+        # The flagged line is the second one and it starts the group.
+        assert lines[1].new_line is True
+        assert lines[1].text == "CCCC"
+        # The line above it is a singleton group: it kept its authored text.
+        assert lines[0].text == "AAA BBBB"
+
+    def test_two_new_line_lines_never_exchange_words(self, tmp_path: Path) -> None:
+        """Each flagged line is its own group, so the two keep their text."""
+        result = self._export(tmp_path)
+        twins = result.rendered_labels["new_line_twins"]
+        assert [line.text for line in twins.source_label.content] == [
+            "FFFF GGGG",
+            "HHHH IIII",
+        ]
+        assert twins.compression_by_line == {}
+
+    def test_new_line_cap_grows_the_block(self, tmp_path: Path) -> None:
+        """The line cap grows the new_line block past its authored line count."""
+        result = self._export(tmp_path)
+        capped = result.rendered_labels["new_line_cap"]
+        texts = [line.text for line in capped.source_label.content]
+        assert texts == ["JJJJ KKKK", "LLLL MMMM"]
+        # The grown line continues the block: it never carries the flag.
+        assert [line.new_line for line in capped.source_label.content] == [True, False]
+        assert capped.compression_by_line == {}
+
+    def test_bullets_each_form_their_own_group(self, tmp_path: Path) -> None:
+        """The four-bullet shape: each bullet is its own group with its own cap."""
+        result = self._export(tmp_path)
+        bullets = result.rendered_labels["bullets"]
+        lines = bullets.source_label.content
+        # Every bullet kept its own first line, and each block grew to its cap.
+        assert [line.new_line for line in lines] == [
+            True,
+            False,
+            True,
+            False,
+            True,
+            False,
+            True,
+            False,
+        ]
+        # Word order is preserved across the whole label.
+        assert (
+            " ".join(line.text for line in lines).split()
+            == (
+                "Always charge secondary CO2 system through a filter drier. "
+                "Do not trap liquid by closing charging station and valves. "
+                "Always vacuum charging line after charging is complete. "
+                "Charge secondary CO2 system with 99.9% pure or higher CO2."
+            ).split()
+        )
+        assert bullets.compression_by_line == {}
+
+    def test_reflow_keeps_one_cutter_file(self, tmp_path: Path) -> None:
+        """Reflow changes line breaks only, so the cutter set is unchanged."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "0.015_bh_olcn.plt",
+            "0.060_txt_olcn.plt",
+        ]
+
+
 class TestPlateNumberScoping:
     """Plate numbers are scoped to a material group, not the whole job."""
 

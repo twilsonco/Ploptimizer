@@ -1085,6 +1085,16 @@ class ResolvedTextLine:
             two *different* values in one group raise
             :class:`LineContentConfigError`, and so does declaring it while
             no line of the label enables ``optimize_line_content``.
+        new_line: Whether this line begins on its own line in the label
+            (default ``False``). Line-level only -- it is never cascaded from
+            the label or the job, and ``job-config.json`` has no counterpart.
+            It modifies the word-level reflow: the line *starts* a new reflow
+            group, so the lines that follow it (which do not carry the flag)
+            reflow with it rather than with the lines above it, and the
+            group's words fill the lines from this one downward. The flag is
+            inert when the line does not enable ``optimize_line_content``
+            (every line already begins on its own line then). Consumed by
+            :mod:`plt_optimizer.generate.line_content`.
         enforce_cap_line: Whether alphanumeric glyphs are clamped to the
             capline (cascaded line -> label -> job, default
             ``DEFAULT_ENFORCE_CAP_LINE`` (``True``)). When enabled, every
@@ -1253,6 +1263,7 @@ class ResolvedTextLine:
     h_compress_global_same_height_only: bool = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
     optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
     optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
+    new_line: bool = False
     enforce_cap_line: bool = DEFAULT_ENFORCE_CAP_LINE
 
     def __post_init__(self) -> None:
@@ -3106,6 +3117,46 @@ def _resolve_holes(
     return [ResolvedHoleSpec(diameter=h.diameter, location=h.location.value) for h in raw_holes]
 
 
+def reflow_groups(content: Sequence[ResolvedTextLine]) -> list[list[int]]:
+    """Split a label's lines into the reflow groups of the word-level reflow.
+
+    A group is a maximal run of consecutive lines that enable
+    ``optimize_line_content``; a disabled line breaks the run. A line that
+    carries ``new_line`` additionally breaks the run **before** it, so the
+    line starts a fresh group: the lines that follow it (which do not carry
+    the flag) then reflow with it instead of with the lines above it.
+
+    This is the single source of truth for group membership: the resolution
+    post-pass (the ``optimize_line_content_max_lines`` fan-out) and the export
+    pre-pass (:mod:`plt_optimizer.generate.line_content`) must agree on the
+    groups, or a cap would be fanned out onto lines the pre-pass never
+    reflows together.
+
+    Args:
+        content: The label's resolved text lines, in content order.
+
+    Returns:
+        One list of line indices per group, in content order. A group of one
+        line is included; the callers skip it (a lone line has no sibling to
+        exchange words with).
+    """
+    groups: list[list[int]] = []
+    current: list[int] = []
+    for index, line in enumerate(content):
+        if line.optimize_line_content:
+            if line.new_line and current:
+                # A new_line line starts a fresh group: close the run above.
+                groups.append(current)
+                current = []
+            current.append(index)
+        elif current:
+            groups.append(current)
+            current = []
+    if current:
+        groups.append(current)
+    return groups
+
+
 def _apply_reflow_line_caps(
     resolved_content: list[ResolvedTextLine],
     label_id: str,
@@ -3128,6 +3179,11 @@ def _apply_reflow_line_caps(
        the group, so the reflow pre-pass reads it from the group's first line
        without re-scanning.
 
+    Group membership comes from :func:`reflow_groups` (the single source of
+    truth shared with the export pre-pass), so a ``new_line`` line also ends
+    the group above it: the caps of two groups separated by a ``new_line``
+    line never conflict.
+
     Labels whose groups need no fan-out are returned unchanged (same line
     objects), keeping the pass free for the overwhelmingly common
     cap-less case.
@@ -3143,16 +3199,7 @@ def _apply_reflow_line_caps(
     Raises:
         LineContentConfigError: On rule 1 or rule 2 violations.
     """
-    groups: list[list[int]] = []
-    current: list[int] = []
-    for index, line in enumerate(resolved_content):
-        if line.optimize_line_content:
-            current.append(index)
-        elif current:
-            groups.append(current)
-            current = []
-    if current:
-        groups.append(current)
+    groups = reflow_groups(resolved_content)
 
     caps_declared = any(
         line.optimize_line_content_max_lines is not None for line in resolved_content
@@ -4341,6 +4388,7 @@ def _resolve_content(
                 h_compress_global_same_height_only=line_h_compress_global_same_height_only,
                 optimize_line_content=line_optimize_line_content,
                 optimize_line_content_max_lines=line_max_lines,
+                new_line=line.new_line,
                 enforce_cap_line=line_enforce_cap_line,
             )
         )

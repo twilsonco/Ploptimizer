@@ -83,7 +83,11 @@ from plt_optimizer.generate.markup import (
     split_brackets,
     split_styled_words_with_separators,
 )
-from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.resolution import (
+    ResolvedLabel,
+    ResolvedTextLine,
+    reflow_groups,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,27 +160,23 @@ def _default_scale_probe(label: ResolvedLabel) -> Dict[int, float]:
 
 
 def _reflow_groups(content: Sequence[ResolvedTextLine]) -> List[List[int]]:
-    """Split ``content`` into maximal runs of consecutive enabled line indices.
+    """Split ``content`` into the reflow groups of the word-level reflow.
+
+    A thin wrapper over :func:`plt_optimizer.generate.resolution.reflow_groups`
+    (the single source of truth for group membership, shared with the
+    resolution post-pass that fans out the line cap): a maximal run of
+    consecutive lines with ``optimize_line_content`` enabled forms a group, a
+    disabled line breaks the run, and a ``new_line`` line breaks the run
+    **before** it, so the line starts a fresh group.
 
     Args:
         content: The label's resolved text lines.
 
     Returns:
-        One list of line indices per maximal run of consecutive lines with
-        ``optimize_line_content`` enabled. Runs of length 1 are included; the
+        One list of line indices per group. Runs of length 1 are included; the
         caller skips them (a lone line has no sibling to exchange words with).
     """
-    groups: List[List[int]] = []
-    current: List[int] = []
-    for index, line in enumerate(content):
-        if line.optimize_line_content:
-            current.append(index)
-        elif current:
-            groups.append(current)
-            current = []
-    if current:
-        groups.append(current)
-    return groups
+    return reflow_groups(content)
 
 
 def _partition_cost(
@@ -481,9 +481,11 @@ def _group_layout(
             index = group[position]
             layout[index] = line.with_markup(text)
         else:
+            # A grown line continues its group's block, so it never carries
+            # the new_line flag (which would split the group it belongs to).
             layout.insert(
                 group[-1] + 1 + (position - len(group)),
-                donor.with_markup(text),
+                dataclasses.replace(donor.with_markup(text), new_line=False),
             )
     return layout
 

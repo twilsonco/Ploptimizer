@@ -312,6 +312,7 @@ A single line of text content within a label.
 | `text_color` | TextColor \| null | null (unset) | — | Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified. |
 | `text` | str | **required** | — | The text string to render (non-empty). |
 | `placeholder` | bool | `false` | — | Mark this line for selective replacement. When True, the line's text is replaced by the corresponding replacement-file item; its other attributes are preserved. Non-placeholder lines copy verbatim to every instance. Requires the parent label to declare replacement_text_file. |
+| `new_line` | bool | `false` | — | Force this line to begin on its own line. When True, the line starts a new optimize_line_content reflow group: the lines that follow it reflow with it rather than with the lines above it, so the group's words fill the lines from this one downward. The flag has no effect unless this line also enables optimize_line_content. Line-level only: it is not inherited from the label or the job, and job-config.json has no counterpart. |
 
 ### `HoleSpec`
 

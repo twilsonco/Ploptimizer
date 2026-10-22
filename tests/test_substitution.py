@@ -895,6 +895,25 @@ class TestPlaceholderSubstitution:
         assert line.text_h_alignment is not None and line.text_h_alignment.value == "left"
         assert line.placeholder is False
 
+    def test_new_line_flag_survives_expansion(self, tmp_path: Path) -> None:
+        """The line-level new_line flag rides the replacement-file expansion.
+
+        The expansion rebuilds the content lines with ``model_copy``; a
+        refactor that dropped the flag would silently move the hard break.
+        """
+        _write(tmp_path / "r.txt", "REAL TEXT\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            content=[
+                TextLine(text="HEAD", new_line=True),
+                TextLine(text="PLACEHOLDER", placeholder=True, new_line=True),
+            ],
+        )
+        (inst,) = expand_label_with_replacements(label, tmp_path)
+        assert inst.content is not None
+        assert [line.new_line for line in inst.content] == [True, True]
+
     def test_extra_items_appended_after_last_constant_line(self, tmp_path: Path) -> None:
         """Extra items land after the final constant line, not between lines."""
         _write(tmp_path / "r.txt", "ITEM1;ITEM2\n")
