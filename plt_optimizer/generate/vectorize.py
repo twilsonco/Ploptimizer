@@ -64,7 +64,7 @@ from plt_optimizer.generate.schema import (
     material_key,
 )
 from plt_optimizer.utils.logging import TextLogger
-from plt_optimizer.utils.stage_timing import stage_timer
+from plt_optimizer.utils.stage_timing import StageTimings, stage_timer
 
 # Module logger for stage timing (named _LOG so the ``logger`` parameter of
 # export_per_cutter_plts -- a TextLogger for operational reports -- never
@@ -419,6 +419,10 @@ class PerCutterExport:
             partitioned by material at packing time, so each plate carries
             at most one material (see
             :attr:`~plt_optimizer.generate.packing.layout.PackedPlate.material`).
+        packed_plates: The packed plates from the layout stage, in packing
+            order. Reporting-only: each plate carries its usable size, its
+            material and the placement (position, size, rotation) of every
+            label on it, so a report can name where each label was cut.
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -429,6 +433,7 @@ class PerCutterExport:
     default_pdf_paths: list[Path] = field(default_factory=list)
     rendered_labels: dict[str, RenderedLabel] = field(default_factory=dict)
     material_by_plate: dict[int, Optional[str]] = field(default_factory=dict)
+    packed_plates: list[PackedPlate] = field(default_factory=list)
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -702,6 +707,7 @@ def export_per_cutter_plts(
     job_spec: Optional[JobSpec] = None,
     job_config: Optional[JobConfig] = None,
     available_cutters: Optional[list[float]] = None,
+    stage_timings: Optional[StageTimings] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -799,6 +805,11 @@ def export_per_cutter_plts(
             the pen map is built, so layers and file names reflect the final
             tools. ``None`` (the default) disables the pre-pass (every label
             exports exactly as before).
+        stage_timings: Optional collector that receives the per-stage
+            wall-clock timings directly. The stage timers normally report
+            through an INFO log record, which the logging level gates; a
+            consumer that needs the numbers regardless of the log level
+            (the generation report) passes a collector here.
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -825,7 +836,7 @@ def export_per_cutter_plts(
     # No-op (same list) when no label enables it.
     from plt_optimizer.generate.line_content import apply_line_content_reflow
 
-    with stage_timer("reflow", _LOG):
+    with stage_timer("reflow", _LOG, timings=stage_timings):
         resolved_labels = apply_line_content_reflow(resolved_labels)
 
     # Per-label shared horizontal compression (pre-pass): when a label enables
@@ -838,7 +849,7 @@ def export_per_cutter_plts(
     # the same tool.
     from plt_optimizer.generate.h_compress import apply_global_h_compress
 
-    with stage_timer("h_compress", _LOG):
+    with stage_timer("h_compress", _LOG, timings=stage_timings):
         resolved_labels = apply_global_h_compress(resolved_labels)
 
     # Compression-driven cutter reduction (pre-pass): render-measure the
@@ -849,7 +860,7 @@ def export_per_cutter_plts(
     # the shared compression, so the midpoint trigger sees the shared scale.
     from plt_optimizer.generate.cutter_downsize import apply_compression_cutter_downsize
 
-    with stage_timer("cutter_downsize", _LOG):
+    with stage_timer("cutter_downsize", _LOG, timings=stage_timings):
         resolved_labels = apply_compression_cutter_downsize(resolved_labels, available_cutters)
 
     # Pen == (cutter, color): assign one HPGL pen per distinct text
@@ -876,7 +887,7 @@ def export_per_cutter_plts(
 
     # Phase 2: Generate layout with rendered bounds (labels rendered onto
     # their cutter pens).
-    with stage_timer("layout_render_pack", _LOG):
+    with stage_timer("layout_render_pack", _LOG, timings=stage_timings):
         packed_plates, rendered_labels_map = generate_layout_with_bounds(
             resolved_labels,
             provided_plates,
@@ -894,6 +905,7 @@ def export_per_cutter_plts(
         output_dir=output_dir.resolve(),
         job_id=job_id,
         rendered_labels=rendered_labels_map,
+        packed_plates=list(packed_plates),
     )
 
     # Plate-space optimization strategy (only built when optimizing):
@@ -971,14 +983,14 @@ def export_per_cutter_plts(
         prefix = _format_plate_prefix(plate_no, plate_counts[plate_no], plate.material)
         plate_str = prefix.rstrip("_") or f"{plate_no:02d}"
         # Structural group: borders (SP2) + holes (SP3) share one run.
-        with stage_timer("assemble_split", _LOG):
+        with stage_timer("assemble_split", _LOG, timings=stage_timings):
             combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
             structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
         result.combined_by_plate[plate_no] = combined
         if plt_has_geometry(structure_content):
             bh_content = structure_content
             if optimize and strategy_factory is not None:
-                with stage_timer("optimize_layer", _LOG):
+                with stage_timer("optimize_layer", _LOG, timings=stage_timings):
                     optimization = optimize_structural_layer(
                         structure_content,
                         strategy_factory,
@@ -1011,7 +1023,7 @@ def export_per_cutter_plts(
             layer_tag = _format_text_layer(cutter, text_color)
             written_content: Optional[str] = None
             if optimize and strategy_factory is not None:
-                with stage_timer("optimize_layer", _LOG):
+                with stage_timer("optimize_layer", _LOG, timings=stage_timings):
                     optimization = optimize_text_layer(
                         plate.labels,
                         rendered_labels_map,
@@ -1024,7 +1036,7 @@ def export_per_cutter_plts(
                     written_content = optimization.content
                     _report(f"{plate_str} text {layer_tag}", optimization)
             if written_content is None:
-                with stage_timer("assemble_split", _LOG):
+                with stage_timer("assemble_split", _LOG, timings=stage_timings):
                     text_content = extract_pens_from_plt_text(combined, [pen_id])
                 if not plt_has_geometry(text_content):
                     continue
@@ -1049,7 +1061,7 @@ def export_per_cutter_plts(
         text_height = resolved_labels[0].content[0].nominal_text_height
 
     if plots:
-        with stage_timer("plots", _LOG):
+        with stage_timer("plots", _LOG, timings=stage_timings):
             result.pdf_paths = _write_simple_plots(
                 output_dir,
                 job_id,
@@ -1059,7 +1071,7 @@ def export_per_cutter_plts(
                 pen_widths=pen_widths,
             )
     if default_plots:
-        with stage_timer("default_plots", _LOG):
+        with stage_timer("default_plots", _LOG, timings=stage_timings):
             result.default_pdf_paths = write_default_plots(
                 output_dir, job_id, result, job_name=job_name, text_height=text_height
             )

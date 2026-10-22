@@ -51,6 +51,67 @@ combined (`all`) plots use `linewidth=1.0`/`alpha=1.0` (via
 Collision aborts (`LabelRenderError`) and fit failures (`LayoutFitError`) exit
 non-zero after full ERROR diagnostics.
 
+#### `generate` output contract (the agent-facing surface)
+
+The `generate` CLI's **stdout is deliberately minimal**: exactly one summary
+line, naming the report. Everything else the pipeline learned about the job
+lives in the report files, so an agent driving the CLI is not flooded with
+progress chatter it has to sift through.
+
+| Stream | Content |
+|---|---|
+| stdout | ONE line: `Generated '<job>': N PLT file(s), M PDF(s) in <out> (report: <out>/generation_report/report.json)`. Under `-v`, the full layout report is appended (the only verbose affordance). |
+| stderr | WARNING and ERROR records only (the console handler is retuned to stderr at WARNING; `-v` raises it to DEBUG). The fatal-error line (`Generation FAILED (<ErrorType>): <msg> (report: ...)`) also goes here. |
+| `logs_generate/generate.log` | The text log at the **same** level as the run: WARNING by default (so the INFO chatter never reaches the file either), DEBUG under `-v`. |
+| `<out>/generation_report/report.json` | The machine-readable report (see below). |
+| `<out>/generation_report/summary.txt` | The human-readable digest of the same data. |
+
+**The generate pipeline runs at WARNING, not INFO.** The operational
+chatter is INFO (stage timers, per-plate optimization summaries, the
+per-strategy benchmark tables, the font-catalog and substitution notes) and
+the report already carries everything worth knowing, so the default run
+keeps it out of the log entirely. `-v` escalates the whole pipeline (the
+logger, the console handler and the file handler) to DEBUG for a deep-dive
+run.
+
+> **The spawned ensemble workers need an explicit handoff.** The
+> optimizer's `ParallelEnsembleStrategy` runs its strategies in a spawned
+> `ProcessPoolExecutor` pool. A worker starts with a clean interpreter and
+> builds its OWN logger, so it knows nothing about the parent's handler
+> configuration: left alone it logs at the default INFO level to stdout,
+> and its `Running <strategy> on N blocks` chatter lands on stdout even
+> though the parent runs at WARNING with the console on stderr. The CLI
+> therefore calls `utils.logging.publish_log_policy(...)` right after
+> `apply_log_levels(...)`; the policy travels to the child through the
+> environment (`PLT_LOG_LEVEL` / `PLT_LOG_CONSOLE` / `PLT_LOG_FILE`), which
+> the `spawn` start method copies. See
+> [`../utils/AGENTS.md`](../utils/AGENTS.md).
+
+> The per-stage wall clock therefore CANNOT be read back from the log at
+> the default level -- the stage timing *records* are INFO and never
+> exist. The report's `timings` section gets them from the explicit
+> `utils.stage_timing.StageTimings` collector instead (see
+> [`../generate/AGENTS.md`](../generate/AGENTS.md)).
+
+The report directory is a **sibling of `plt/` and `pdf/`** — the same
+`<out>` the PLT/PDF files land in (`<out>/generation_report/`). It is
+created on demand and is written **on success AND on failure**: a failed
+job leaves `job.status = "failed"` with `job.error = {type, message, stage}`,
+plus every warning logged before the failure, so the reason is available
+without re-reading stdout.
+
+`report.json` sections: `schema_version`, `job` (name, id, status, error,
+paths, timestamps, duration, tools, options), `summary` (counts), `timings`
+(per-stage wall clock), `outputs` (written files + plate placements),
+`labels[]` → `lines[]` → `findings[]` (the typed per-line render-time
+effects), `warnings[]`, `errors[]`. The findings come from
+`layout_report.collect_line_findings`, so the JSON and the text report
+describe the same effects.
+
+Implementation: [`../generate/generation_report.py`](../generate/generation_report.py)
+(the report builder), `utils.logging.apply_log_levels` (the console/stream
+retuning), and the CLI's own `run()`.
+
 ### `watch --watch-dir <dir>`
 Hot-folder daemon. Flags: `--watch-dir` (required), `--output-dir` (default
 `./optimized`), `--log-dir` (default `./logs`), `--processed-dir` (archive

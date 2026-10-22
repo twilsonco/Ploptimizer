@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from typing import Any, Optional
@@ -335,25 +336,56 @@ def close_figures_after_test() -> None:
 
 @pytest.fixture(autouse=True)
 def isolate_log_level_env() -> Any:
-    """Isolate the ``PLT_LOG_LEVEL`` env var around every test.
+    """Isolate the logging-policy env vars around every test.
 
     The benchmark CLI propagates ``--log-level`` into subprocesses by writing
     :data:`plt_optimizer.utils.logging.LOG_LEVEL_ENV_VAR` (``PLT_LOG_LEVEL``)
-    to ``os.environ``. In-process benchmark tests that exercise the child
-    logging setup therefore leak the level into later tests: a subsequent CLI
-    test's ``setup_logging()`` resolves the leaked level (e.g. CRITICAL) and
-    its INFO records never reach ``caplog``. Snapshot and restore the env var
-    around every test so log verbosity is deterministic regardless of test
-    order. (The logger singleton is deliberately left alone: many tests mock
-    ``setup_logging`` and rely on the singleton a previous test built.)
+    to ``os.environ``. The ``generate`` CLI publishes its whole logging
+    policy the same way (``PLT_LOG_LEVEL`` / ``PLT_LOG_CONSOLE`` /
+    ``PLT_LOG_FILE``). Those in-process tests therefore leak the level into
+    later tests: a subsequent CLI test's ``setup_logging()`` resolves the
+    leaked level (e.g. CRITICAL) and its INFO records never reach
+    ``caplog``. Snapshot and restore the env vars around every test so log
+    verbosity is deterministic regardless of test order. (The logger
+    singleton is deliberately left alone: many tests mock ``setup_logging``
+    and rely on the singleton a previous test built.)
     """
-    from plt_optimizer.utils.logging import LOG_LEVEL_ENV_VAR
+    from plt_optimizer.utils.logging import (
+        LOG_CONSOLE_ENV_VAR,
+        LOG_FILE_ENV_VAR,
+        LOG_LEVEL_ENV_VAR,
+    )
 
-    saved_env = os.environ.get(LOG_LEVEL_ENV_VAR)
+    policy_vars = (LOG_LEVEL_ENV_VAR, LOG_CONSOLE_ENV_VAR, LOG_FILE_ENV_VAR)
+    saved_env = {name: os.environ.get(name) for name in policy_vars}
     try:
         yield
     finally:
-        if saved_env is None:
-            os.environ.pop(LOG_LEVEL_ENV_VAR, None)
-        else:
-            os.environ[LOG_LEVEL_ENV_VAR] = saved_env
+        for name, value in saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+@pytest.fixture(autouse=True)
+def isolate_logger_level() -> Any:
+    """Restore the ``plt_optimizer`` logger's level after every test.
+
+    The logger is a process-wide singleton, and its level gates whether a
+    record is *created* at all. A test that retunes it (the CLI tests do,
+    at WARNING) would otherwise leave it quiet for the rest of the
+    session, so a later test's ``caplog`` -- which hooks the root logger
+    and relies on the record propagating -- would never see its INFO
+    records. The level (and the handler levels) are restored on exit, so
+    log verbosity is deterministic regardless of test order.
+    """
+    logger = logging.getLogger("plt_optimizer")
+    saved_level = logger.level
+    saved_handler_levels = [(handler, handler.level) for handler in logger.handlers]
+    try:
+        yield
+    finally:
+        logger.setLevel(saved_level)
+        for handler, level in saved_handler_levels:
+            handler.setLevel(level)

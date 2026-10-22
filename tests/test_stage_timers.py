@@ -15,6 +15,7 @@ from plt_optimizer.utils import stage_timing
 from plt_optimizer.utils.stage_timing import (
     STAGE_LINE_PATTERN,
     STAGE_LOG_FORMAT,
+    StageTimings,
     stage_timer,
 )
 
@@ -92,6 +93,64 @@ class TestStageTimer:
         """The context manager yields None (a plain timed block, no value)."""
         with stage_timer("body", logger) as value:
             assert value is None
+
+
+class TestStageTimings:
+    """The level-independent collector."""
+
+    def test_collects_the_elapsed_seconds(self, logger: logging.Logger) -> None:
+        """The collector receives the stage's elapsed seconds."""
+        timings = StageTimings()
+        clock = iter([100.0, 103.5])
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(stage_timing.time, "perf_counter", lambda: next(clock))
+        try:
+            with stage_timer("timed", logger, timings=timings):
+                pass
+        finally:
+            monkeypatch.undo()
+
+        assert timings.as_dict() == {"timed": pytest.approx(3.5)}
+
+    def test_survives_a_warning_level_logger(self, logger: logging.Logger) -> None:
+        """The measurements survive a logger that drops the INFO record.
+
+        This is the generate CLI's situation: the pipeline runs at WARNING,
+        so the INFO stage *record* never exists -- but the collector still
+        has the numbers.
+        """
+        timings = StageTimings()
+        logger.setLevel(logging.WARNING)
+        try:
+            with stage_timer("timed", logger, timings=timings):
+                pass
+        finally:
+            logger.setLevel(logging.NOTSET)
+
+        assert "timed" in timings.as_dict()
+        assert timings.as_dict()["timed"] >= 0.0
+
+    def test_repeated_stages_are_summed(self) -> None:
+        """A stage measured more than once is summed, like the log readers."""
+        timings = StageTimings()
+        timings.record("export", 1.0)
+        timings.record("export", 2.0)
+        timings.record("parse", 0.5)
+
+        assert timings.as_dict() == {"export": 3.0, "parse": 0.5}
+
+    def test_order_is_first_emission_order(self) -> None:
+        """The stages are reported in the order they were first seen."""
+        timings = StageTimings()
+        timings.record("parse", 0.1)
+        timings.record("export", 0.2)
+        timings.record("parse", 0.3)
+
+        assert list(timings.as_dict()) == ["parse", "export"]
+
+    def test_empty_collector_is_an_empty_mapping(self) -> None:
+        """A collector that never saw a stage is empty."""
+        assert StageTimings().as_dict() == {}
 
 
 class TestStageLineContract:

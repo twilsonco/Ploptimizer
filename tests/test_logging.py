@@ -11,19 +11,53 @@ These tests target specific lines not covered by existing tests:
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from pathlib import Path
 
 import pytest
 
 from plt_optimizer.utils.logging import (
+    LOG_CONSOLE_ENV_VAR,
+    LOG_FILE_ENV_VAR,
     LOG_LEVEL_ENV_VAR,
+    TEXT_LOG_FILE,
     CSVMetricsLogger,
     TextLogger,
     get_metrics_logger,
     get_text_logger,
+    publish_log_policy,
+    resolve_console_stream,
+    resolve_log_file,
     resolve_log_level,
+    setup_child_logging,
     setup_logging,
 )
+
+
+def _spawned_worker_probe(stdout_capture: str) -> None:
+    """Build a logger the way a spawned worker does and log at two levels.
+
+    This mirrors what the optimizer's ensemble worker does: a fresh
+    interpreter that lazily creates its logger through
+    :func:`setup_logging`, which reads the policy out of the environment.
+
+    Args:
+        stdout_capture: Path the child's stdout is redirected to (the
+            console handler writes to stderr under the published policy,
+            so this file stays empty -- which is the point).
+    """
+    from plt_optimizer.utils.logging import setup_logging as _setup_logging
+
+    with open(stdout_capture, "w", encoding="utf-8") as redirected:
+        original_stdout = sys.stdout
+        sys.stdout = redirected
+        try:
+            text_logger, _ = _setup_logging()
+            text_logger.info("WORKER INFO LINE")
+            text_logger.warning("WORKER WARNING LINE")
+        finally:
+            sys.stdout = original_stdout
 
 
 class TestTextLoggerDuplicateHandlers:
@@ -399,3 +433,264 @@ class TestSetupLoggingEnvLevel:
 
         text_logger, _ = setup_logging(level=logging.DEBUG)
         assert text_logger.logger.level == logging.DEBUG
+
+
+class TestResolveConsoleStream:
+    """Tests for resolve_console_stream() -- the console policy."""
+
+    def test_explicit_stream_wins(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An explicit stream beats the environment."""
+        monkeypatch.setenv(LOG_CONSOLE_ENV_VAR, "stderr")
+        sentinel = object()
+        assert resolve_console_stream(sentinel) is sentinel
+
+    def test_env_var_selects_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The environment can redirect the console to stderr."""
+        monkeypatch.setenv(LOG_CONSOLE_ENV_VAR, "stderr")
+        assert resolve_console_stream() is sys.stderr
+
+    def test_defaults_to_stdout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without an explicit value or env var, stdout is used."""
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        assert resolve_console_stream() is sys.stdout
+
+
+class TestResolveLogFile:
+    """Tests for resolve_log_file() -- the log-file policy."""
+
+    def test_explicit_file_wins(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """An explicit path beats the environment."""
+        monkeypatch.setenv(LOG_FILE_ENV_VAR, str(tmp_path / "from_env.log"))
+        explicit = tmp_path / "explicit.log"
+        assert resolve_log_file(explicit) == explicit
+
+    def test_env_var_selects_the_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """The environment can redirect the log file."""
+        target = tmp_path / "from_env.log"
+        monkeypatch.setenv(LOG_FILE_ENV_VAR, str(target))
+        assert resolve_log_file() == target
+
+    def test_defaults_to_the_standard_file(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without an explicit value or env var, the default file is used."""
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+        assert resolve_log_file() == TEXT_LOG_FILE
+
+
+class TestPublishLogPolicy:
+    """Tests for publish_log_policy() -- the parent-to-child handoff."""
+
+    def test_publishes_all_three_settings(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The level, console choice and file are all recorded."""
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+        target = tmp_path / "generate.log"
+
+        publish_log_policy(level=logging.WARNING, console_stream=sys.stderr, log_file=target)
+
+        assert os.environ[LOG_LEVEL_ENV_VAR] == str(logging.WARNING)
+        assert os.environ[LOG_CONSOLE_ENV_VAR] == "stderr"
+        assert os.environ[LOG_FILE_ENV_VAR] == str(target)
+
+    def test_stdout_console_is_published_as_stdout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stdout console is published as such."""
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        publish_log_policy(level=logging.INFO, console_stream=sys.stdout)
+        assert os.environ[LOG_CONSOLE_ENV_VAR] == "stdout"
+
+    def test_absent_console_leaves_the_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No console stream means the child keeps the stdout default."""
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        publish_log_policy(level=logging.INFO)
+        assert os.environ[LOG_CONSOLE_ENV_VAR] == "stdout"
+
+
+class TestSpawnedWorkerInheritsPolicy:
+    """A spawned worker must inherit the parent's logging policy.
+
+    The optimizer's ensemble runs its strategies in a spawned
+    ProcessPoolExecutor pool. A worker starts with a clean interpreter and
+    builds its own logger, so without the environment handoff it logs at
+    the default INFO level to stdout -- flooding the caller's stdout even
+    when the parent runs at WARNING with the console on stderr.
+    """
+
+    def test_worker_logger_honours_the_published_level(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A logger built from the published policy runs at that level."""
+        import plt_optimizer.utils.logging as logging_module
+
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+        monkeypatch.setattr(logging_module, "_text_logger", None)
+        monkeypatch.setattr(logging_module, "_csv_logger", None)
+
+        publish_log_policy(
+            level=logging.WARNING,
+            console_stream=sys.stderr,
+            log_file=tmp_path / "child.log",
+        )
+
+        # A fresh process would build its logger here; the singleton reset
+        # above makes this the equivalent of the child's first call.
+        child_logger, _ = setup_logging()
+        assert child_logger.logger.level == logging.WARNING
+        assert child_logger.console_stream is sys.stderr
+        assert child_logger.log_file == tmp_path / "child.log"
+
+    def test_setup_child_logging_publishes_the_policy(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """setup_child_logging() sets up AND publishes in one step."""
+        import plt_optimizer.utils.logging as logging_module
+
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+        monkeypatch.setattr(logging_module, "_text_logger", None)
+        monkeypatch.setattr(logging_module, "_csv_logger", None)
+
+        target = tmp_path / "pipeline.log"
+        text_logger = setup_child_logging(
+            level=logging.WARNING,
+            console_stream=sys.stderr,
+            log_file=target,
+        )
+
+        assert text_logger.logger.level == logging.WARNING
+        assert os.environ[LOG_LEVEL_ENV_VAR] == str(logging.WARNING)
+        assert os.environ[LOG_CONSOLE_ENV_VAR] == "stderr"
+        assert os.environ[LOG_FILE_ENV_VAR] == str(target)
+
+
+class TestTextLoggerPickling:
+    """A TextLogger must survive being pickled into a subprocess.
+
+    A strategy holds a TextLogger, and the optimizer's benchmark pickles
+    the strategy into a worker process. The console stream object is not
+    picklable (pytest's ``EncodedFile``, for instance), so only its name
+    travels.
+    """
+
+    def test_pickles_with_a_non_picklable_stream(self, tmp_path: Path) -> None:
+        """A logger holding an unpicklable stream still pickles."""
+        import pickle
+
+        logger = TextLogger(name="test_pickle", level=logging.INFO, log_file=tmp_path / "a.log")
+        # A file-backed stream is not picklable.
+        with open(tmp_path / "stream.txt", "w", encoding="utf-8") as handle:
+            logger.console_stream = handle  # type: ignore[assignment]
+            restored = pickle.loads(pickle.dumps(logger))
+
+        assert restored.logger.name == "test_pickle"
+        assert restored.log_file == tmp_path / "a.log"
+
+    def test_restored_logger_keeps_the_level(self, tmp_path: Path) -> None:
+        """The level survives the round trip."""
+        import pickle
+
+        logger = TextLogger(name="test_pickle_level", level=logging.WARNING, log_file=tmp_path / "b.log")
+        restored = pickle.loads(pickle.dumps(logger))
+        assert restored.logger.level == logging.WARNING
+
+    def test_restored_logger_does_not_duplicate_handlers(self, tmp_path: Path) -> None:
+        """Restoring a logger does not re-add the console handler."""
+        import pickle
+
+        logger = TextLogger(name="test_pickle_handlers", level=logging.INFO, log_file=tmp_path / "c.log")
+        handler_count = len(logger.logger.handlers)
+        restored = pickle.loads(pickle.dumps(logger))
+        assert len(restored.logger.handlers) == handler_count
+
+
+class TestSpawnedProcessEndToEnd:
+    """A real spawned process must honour the published policy.
+
+    The unit tests above pin the mechanism; this pins the outcome. The
+    optimizer's ensemble pool spawns worker processes, and a worker that
+    ignores the policy floods the caller's stdout with INFO chatter.
+    """
+
+    def test_spawned_process_does_not_emit_info_to_stdout(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A spawned process at WARNING writes no INFO to stdout."""
+        import subprocess
+
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+
+        child_log = tmp_path / "child.log"
+        publish_log_policy(
+            level=logging.WARNING,
+            console_stream=sys.stderr,
+            log_file=child_log,
+        )
+
+        child_script = (
+            "import sys; sys.path.insert(0, {repo!r}); "
+            "import tests.test_logging as t; "
+            "t._spawned_worker_probe({capture!r})"
+        ).format(repo=str(Path.cwd()), capture=str(tmp_path / "child_stdout.txt"))
+
+        result = subprocess.run(
+            [sys.executable, "-c", child_script],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(os.environ),
+        )
+
+        assert result.returncode == 0, result.stderr
+        captured_stdout = (tmp_path / "child_stdout.txt").read_text(encoding="utf-8")
+        # The console is on stderr, so stdout stays completely empty --
+        # neither the INFO line nor the WARNING line reaches it.
+        assert "WORKER INFO LINE" not in captured_stdout
+        assert "WORKER WARNING LINE" not in captured_stdout
+        # The WARNING still surfaces, on stderr.
+        assert "WORKER WARNING LINE" in result.stderr
+
+    def test_spawned_process_writes_to_the_published_log_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A spawned process appends to the published log file."""
+        import subprocess
+
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+
+        child_log = tmp_path / "child.log"
+        publish_log_policy(
+            level=logging.WARNING,
+            console_stream=sys.stderr,
+            log_file=child_log,
+        )
+
+        child_script = (
+            "import sys; sys.path.insert(0, {repo!r}); "
+            "import tests.test_logging as t; "
+            "t._spawned_worker_probe({capture!r})"
+        ).format(repo=str(Path.cwd()), capture=str(tmp_path / "child_stdout.txt"))
+
+        result = subprocess.run(
+            [sys.executable, "-c", child_script],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(os.environ),
+        )
+
+        assert result.returncode == 0, result.stderr
+        log_text = child_log.read_text(encoding="utf-8")
+        assert "WORKER WARNING LINE" in log_text
+        assert "WORKER INFO LINE" not in log_text

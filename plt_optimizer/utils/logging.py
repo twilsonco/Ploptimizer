@@ -15,7 +15,7 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from plt_optimizer.core.units import units_to_inches
 
@@ -29,6 +29,18 @@ METRICS_LOG_FILE = LOG_DIR / "job_metrics.csv"
 # inherit ``os.environ`` under the ``spawn`` start method) resolve the same
 # verbosity without threading the value through every worker signature.
 LOG_LEVEL_ENV_VAR: str = "PLT_LOG_LEVEL"
+
+# Environment variable consulted by :func:`resolve_console_stream` when no
+# explicit stream is given: ``"stdout"`` or ``"stderr"``. It propagates a
+# CLI's console policy to the processes it spawns, so a worker does not
+# write to stdout when its parent writes to stderr.
+LOG_CONSOLE_ENV_VAR: str = "PLT_LOG_CONSOLE"
+
+# Environment variable consulted by :func:`resolve_log_file` when no explicit
+# file is given: the path of the text log file. It propagates a CLI's log
+# file to the processes it spawns, so a worker appends to the pipeline's
+# own log file instead of creating a second, stray one.
+LOG_FILE_ENV_VAR: str = "PLT_LOG_FILE"
 
 # Recognized level names for :func:`resolve_log_level` (upper-case canonical).
 _VALID_LOG_LEVEL_NAMES: Dict[str, int] = {
@@ -82,6 +94,112 @@ def resolve_log_level(
     )
 
 
+def console_stream_name(stream: Optional[Any] = None) -> str:
+    """Name the console stream the logging policy should use.
+
+    The policy travels to spawned workers as a NAME, not as a stream
+    object: a :class:`logging.Logger` is pickled into the optimizer's
+    subprocesses (a strategy holds one), and a stream object (pytest's
+    ``EncodedFile``, for instance) is not picklable.
+
+    Args:
+        stream: The stream to name. ``None`` means "unset".
+
+    Returns:
+        ``"stdout"``, ``"stderr"`` or ``""`` (unset).
+    """
+    if stream is None:
+        return ""
+    if stream is sys.stdout:
+        return "stdout"
+    if stream is sys.stderr:
+        return "stderr"
+    return "stdout"
+
+
+def resolve_console_stream(explicit: Optional[Any] = None) -> Any:
+    """Resolve the stream the console handler writes to.
+
+    A spawned worker process builds its own logger from scratch, so it
+    cannot inherit the parent's handler configuration. The parent's policy
+    is propagated through the environment instead
+    (:data:`LOG_CONSOLE_ENV_VAR`), which the ``spawn`` start method
+    copies into the child.
+
+    Args:
+        explicit: An explicit stream. When given, it wins.
+
+    Returns:
+        The stream to write to: ``sys.stdout`` by default, ``sys.stderr``
+        when the environment says so.
+    """
+    if explicit is not None:
+        return explicit
+    if os.environ.get(LOG_CONSOLE_ENV_VAR, "").strip().lower() == "stderr":
+        return sys.stderr
+    return sys.stdout
+
+
+def resolve_log_file(explicit: Optional[Path] = None) -> Path:
+    """Resolve the text log file path.
+
+    Mirrors :func:`resolve_console_stream` for the file handler: a spawned
+    worker appends to the pipeline's own log file rather than creating a
+    second, stray one at the default location.
+
+    Args:
+        explicit: An explicit log file path. When given, it wins.
+
+    Returns:
+        The log file path: ``explicit`` when given, else the path in
+        :data:`LOG_FILE_ENV_VAR`, else :data:`TEXT_LOG_FILE`.
+    """
+    if explicit is not None:
+        return explicit
+    env_value = os.environ.get(LOG_FILE_ENV_VAR, "").strip()
+    if env_value:
+        return Path(env_value)
+    return TEXT_LOG_FILE
+
+
+def publish_log_policy(
+    *,
+    level: int,
+    console_stream: Optional[Any] = None,
+    log_file: Optional[Path] = None,
+) -> None:
+    """Publish the logging policy to the processes this one spawns.
+
+    The optimizer's ensemble runs its strategies in a
+    :class:`~concurrent.futures.ProcessPoolExecutor` pool. A spawned
+    worker starts with a clean interpreter: it builds its own logger via
+    :func:`setup_logging` and therefore knows nothing about the parent's
+    handler configuration. Without this, a worker logs at the default
+    INFO level to stdout, even when its parent runs at WARNING with the
+    console on stderr -- the worker's chatter lands on stdout anyway and
+    floods the caller's output.
+
+    Recording the policy in the environment fixes that: the ``spawn``
+    start method copies the parent's environment into the child, and
+    :func:`setup_logging` reads it back. Children therefore inherit the
+    parent's verbosity, console stream and log file.
+
+    Args:
+        level: The numeric level the children should run at.
+        console_stream: The stream the children's console handler should
+            write to. ``None`` leaves the default (stdout).
+        log_file: The file the children's file handler should append to.
+            ``None`` leaves the default.
+    """
+    os.environ[LOG_LEVEL_ENV_VAR] = str(level)
+    stream_name = console_stream_name(console_stream) or "stdout"
+    os.environ[LOG_CONSOLE_ENV_VAR] = stream_name
+    if log_file is not None:
+        # Absolute: the child inherits the cwd, but an absolute path keeps
+        # the file unambiguous even if it does not.
+        os.environ[LOG_FILE_ENV_VAR] = str(Path(log_file).absolute())
+
+
 class TextLogger:
     """Text-based logger using Python's standard logging module.
 
@@ -90,6 +208,8 @@ class TextLogger:
 
     Attributes:
         logger: The underlying Python logger instance.
+        log_file: The resolved path of the text log file.
+        console_stream: The resolved stream of the console handler.
     """
 
     def __init__(
@@ -97,16 +217,22 @@ class TextLogger:
         name: str = "plt_optimizer",
         level: int = logging.INFO,
         log_file: Optional[Path] = None,
+        console_stream: Optional[Any] = None,
     ) -> None:
         """Initialize the text logger.
 
         Args:
             name: Logger name (typically module path).
             level: Minimum logging level.
-            log_file: Path to log file. Defaults to logs/optimizer.log.
+            log_file: Path to log file. Defaults to
+                :func:`resolve_log_file`'s answer.
+            console_stream: Stream the console handler writes to. Defaults to
+                :func:`resolve_console_stream`'s answer.
         """
         self.logger = logging.getLogger(name)
         self.logger.setLevel(level)
+        self.log_file = resolve_log_file(log_file)
+        self.console_stream = resolve_console_stream(console_stream)
 
         # Avoid duplicate handlers
         if not self.logger.handlers:
@@ -116,18 +242,55 @@ class TextLogger:
             )
 
             # Console handler
-            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler = logging.StreamHandler(self.console_stream)
             console_handler.setLevel(level)
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
 
             # File handler
-            file_path = log_file or TEXT_LOG_FILE
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(file_path, encoding="utf-8")
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(self.log_file, encoding="utf-8")
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
+
+    def __getstate__(self) -> Dict[str, Any]:
+        """Return the picklable state of the logger.
+
+        A strategy holds a :class:`TextLogger`, and the optimizer's
+        benchmark pickles it into a subprocess. The stream object is not
+        picklable (pytest's ``EncodedFile``, for instance), so only its
+        NAME travels; the unpickled logger is rebuilt against the
+        process's own stdout/stderr.
+
+        Returns:
+            The picklable state dict.
+        """
+        return {
+            "logger_name": self.logger.name,
+            "level": self.logger.level,
+            "log_file": self.log_file,
+            "console_stream_name": console_stream_name(self.console_stream),
+        }
+
+    def __setstate__(self, state: Dict[str, Any]) -> None:
+        """Restore the logger from its picklable state.
+
+        The restored logger is a plain handle onto the child's own
+        logging setup: the handlers are NOT re-added here (re-adding a
+        stdout handler would duplicate the child's output), and the level
+        is only applied when nothing else has configured it.
+
+        Args:
+            state: The state dict produced by :meth:`__getstate__`.
+        """
+        stream_name = state.get("console_stream_name", "")
+        stream: Any = sys.stderr if stream_name == "stderr" else sys.stdout
+        self.logger = logging.getLogger(state.get("logger_name", "plt_optimizer"))
+        if self.logger.level == logging.NOTSET:
+            self.logger.setLevel(state.get("level", logging.INFO))
+        self.log_file = Path(state.get("log_file", TEXT_LOG_FILE))
+        self.console_stream = stream
 
     def debug(self, message: str) -> None:
         """Log a DEBUG level message."""
@@ -148,6 +311,74 @@ class TextLogger:
     def critical(self, message: str) -> None:
         """Log a CRITICAL level message."""
         self.logger.critical(message)
+
+
+def _set_handler_stream(handler: logging.StreamHandler[Any], stream: Any) -> None:
+    """Point a stream handler at a new stream, tolerating a stale one.
+
+    :meth:`logging.StreamHandler.setStream` flushes the handler's current
+    stream before switching. When that stream has already been closed (a
+    test harness that closed its capture between runs), the flush raises
+    ``ValueError``. The switch must still happen -- the stale stream is
+    exactly what we are moving away from -- so the flush error is
+    swallowed and the stream is assigned directly.
+
+    Args:
+        handler: The stream handler to retarget.
+        stream: The stream the handler should write to.
+    """
+    if handler.stream is stream:
+        return
+    try:
+        handler.setStream(stream)
+    except ValueError:
+        handler.stream = stream
+
+
+def apply_log_levels(
+    text_logger: TextLogger,
+    *,
+    logger_level: Optional[int] = None,
+    console_level: Optional[int] = None,
+    file_level: Optional[int] = None,
+    console_stream: Optional[Any] = None,
+) -> None:
+    """Retune an already-built text logger in place.
+
+    :func:`setup_logging` intentionally never re-initializes its singleton,
+    so a logger built by an earlier call keeps the verbosity and the output
+    streams it was created with. This helper adjusts the logger and its
+    handlers directly, so a CLI can impose its own logging policy (a quiet
+    console, a verbose file) regardless of what ran before it in the same
+    process.
+
+    The console handler is identified by being a
+    :class:`logging.StreamHandler` that is not a
+    :class:`logging.FileHandler`; the file handler is the
+    :class:`logging.FileHandler`. Handlers of any other type are left
+    untouched.
+
+    Args:
+        text_logger: The logger to retune.
+        logger_level: Level for the logger itself. ``None`` keeps it.
+        console_level: Level for the console handler. ``None`` keeps it.
+        file_level: Level for the file handler. ``None`` keeps it.
+        console_stream: Stream the console handler writes to. ``None``
+            keeps the current stream. Use ``sys.stderr`` to keep the
+            console output off stdout.
+    """
+    if logger_level is not None:
+        text_logger.logger.setLevel(logger_level)
+    for handler in text_logger.logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            if file_level is not None:
+                handler.setLevel(file_level)
+            continue
+        if isinstance(handler, logging.StreamHandler):
+            if console_level is not None:
+                handler.setLevel(console_level)
+            if console_stream is not None:
+                _set_handler_stream(handler, console_stream)
 
 
 class CSVMetricsLogger:
@@ -285,6 +516,47 @@ def setup_logging(
         _csv_logger = CSVMetricsLogger(log_file=csv_metrics_file)
 
     return (_text_logger, _csv_logger)
+
+
+def setup_child_logging(
+    *,
+    level: Optional[Union[int, str]] = None,
+    console_stream: Optional[Any] = None,
+    log_file: Optional[Path] = None,
+) -> TextLogger:
+    """Set up the logging system and publish the policy to child processes.
+
+    This is the entry point for a CLI that spawns worker processes (the
+    optimizer's ensemble pool). It does what :func:`setup_logging` does
+    and additionally records the resolved policy in the environment, so
+    the spawned children inherit the parent's verbosity, console stream
+    and log file instead of falling back to the defaults (INFO, stdout,
+    ``logs/optimizer.log``).
+
+    Args:
+        level: Minimum logging level. Accepts a numeric level or a level
+            name (case-insensitive). When ``None``, the
+            :data:`LOG_LEVEL_ENV_VAR` environment variable is consulted,
+            and finally :data:`logging.INFO` is used.
+        console_stream: Stream the console handler writes to. ``None``
+            keeps the default (stdout).
+        log_file: Custom path for the text log file. ``None`` keeps the
+            default.
+
+    Returns:
+        The initialized :class:`TextLogger`.
+    """
+    resolved = resolve_log_level(level)
+    text_logger, _metrics_logger = setup_logging(
+        level=resolved,
+        text_log_file=log_file,
+    )
+    publish_log_policy(
+        level=resolved,
+        console_stream=console_stream,
+        log_file=log_file or text_logger.log_file,
+    )
+    return text_logger
 
 
 def get_text_logger() -> TextLogger:

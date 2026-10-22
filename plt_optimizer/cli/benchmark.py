@@ -119,6 +119,7 @@ from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
 from plt_optimizer.utils.logging import (
     LOG_LEVEL_ENV_VAR,
+    apply_log_levels,
     get_metrics_logger,
     get_text_logger,
     resolve_log_level,
@@ -1799,9 +1800,12 @@ def _apply_log_level(text_logger: Any, log_level: int) -> None:
             returned by :func:`get_text_logger`.
         log_level: Numeric logging level to apply.
     """
-    text_logger.logger.setLevel(log_level)
-    for handler in text_logger.logger.handlers:
-        handler.setLevel(log_level)
+    apply_log_levels(
+        text_logger,
+        logger_level=log_level,
+        console_level=log_level,
+        file_level=log_level,
+    )
 
 
 def _configure_child_logging(log_level: int) -> None:

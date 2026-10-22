@@ -11,6 +11,11 @@ from plt_optimizer.utils.geometry import calculate_distance, calculate_path_leng
 from plt_optimizer.utils.logging import (
     CSVMetricsLogger,
     TextLogger,
+    apply_log_levels,
+    publish_log_policy,
+    resolve_console_stream,
+    resolve_log_file,
+    setup_child_logging,
     setup_logging,
 )
 from plt_optimizer.utils.startup import (
@@ -26,6 +31,11 @@ __all__ = [
     "TextLogger",
     "CSVMetricsLogger",
     "setup_logging",
+    "setup_child_logging",
+    "apply_log_levels",
+    "publish_log_policy",
+    "resolve_console_stream",
+    "resolve_log_file",
     "calculate_distance",
     "calculate_path_length",
     "DEFAULT_CONFIG",

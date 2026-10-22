@@ -1302,17 +1302,70 @@ the value actually used for stacking, so it is what the report shows.
   (`source_label.cutter_downsize_by_line` non-empty), or a label with
   cutter-compensated drill holes (`source_label.hole_adjust_for_cutter`
   with holes — `layout_report._hole_adjust_lines`, a label-level line).
+- `layout_report.collect_line_findings(rendered)` is the **structured**
+  counterpart: it returns the same findings as a list of
+  `layout_report.LineFinding` (a frozen dataclass with one optional field
+  per effect kind — `compression`, `requested_spacing`/`effective_spacing`,
+  `downsize`, `relief`, `bold`, `markup_scale`, `sup_sub`, `font_runs`,
+  `cutter_runs`, `original_cutter`). The text report and the JSON report
+  are both rendered from it, so the two surfaces can never diverge. The
+  text output is **byte-identical** to the pre-`LineFinding` formatter
+  (pinned by `tests/test_layout_report.py`).
+- `plt_optimizer/generate/generation_report.py` builds the **structured
+  job report** the `generate` CLI writes into `<out>/generation_report/`:
+  - `ReportCapture(logging.Handler)` — accumulates the pipeline's
+    WARNING/ERROR records (attached to the `plt_optimizer` logger, so the
+    child loggers propagate into it) and diverts the `stage <name>: <s>s`
+    timing lines into `stage_records`. It is a plain class, NOT a
+    dataclass: a dataclass with `eq=True` is unhashable and
+    `logging.Handler` registers itself in a `weakref.WeakSet`.
+  - `build_report(...)` — assembles the JSON document: `job` (name, id,
+    status, error, paths, timestamps, duration, tools, options), `summary`
+    (counts), `timings` (per-stage wall clock, summed per stage name),
+    `outputs` (written PLT/PDF paths + the packed plate placements),
+    `labels[]` → `lines[]` → `findings[]`, `warnings[]`, `errors[]`. Every
+    float is rounded to 6 decimals so two identical runs are comparable
+    apart from the timestamp fields.
+  - The `timings` section reads the **explicit
+    `utils.stage_timing.StageTimings` collector** when the run provided
+    one, and falls back to the captured stage log records otherwise. The
+    collector is the primary path because the generate pipeline runs at
+    WARNING: the stage timing *records* are INFO and never exist at that
+    level, so the log alone would lose the measurements. The collector is
+    threaded through the export as
+    `export_per_cutter_plts(..., stage_timings=collector)`.
+  - Each finding is a **typed entry** — one per applied effect, so a
+    consumer can filter by `type`: `compression`, `spacing`,
+    `cutter_downsize`, `descender_relief`, `bold_cutter`, `scale_markup`,
+    `sup_sub_shift`, `font_run`, `cutter_markup`, `original_cutter`.
+  - `format_summary(report)` renders the human-readable digest;
+    `write_report(report_dir, report)` writes `report.json` + `summary.txt`
+    (the directory is created on demand).
+  - The report is written on success **and** on failure (the failure
+    report carries `job.status = "failed"`, `job.error = {type, message,
+    stage}` and the warnings collected before the failure). A report-write
+    error is downgraded to an ERROR log line and never changes the exit
+    code.
 - `scripts/run_integration_test.py` prints the full report (`full=True`)
   as the **Phase 3.6: LAYOUT REPORT** section (per label, one line per
   compressed text line: `Line N: '<text>' scale 0.870 (13.0%
   compressed)`, one per gap: `Line N: '<text>' spacing below
   0.120in (requested 0.162in)`, and one per reduced tool: `Line N:
   '<text>' cutter 0.060in -> 0.045in (downsized for compression)`).
-- The `generate` CLI prints the same report after the file summaries
-  (`Layout report:` header), **compact by default** (only labels with
-  findings) and **full under `-v`**; it is skipped silently when the
-  render cache is empty. This is the CLI's only per-label stdout beyond
-  its summary blocks (see [`../cli/AGENTS.md`](../cli/AGENTS.md)).
+- The `generate` CLI prints the same report **only under `-v`** (full
+  table). By default the per-label detail lives in the report files and
+  the CLI's stdout carries a single summary line — see the output contract
+  in [`../cli/AGENTS.md`](../cli/AGENTS.md).
+- **The generate pipeline logs at WARNING, not INFO.** The operational
+  chatter (stage timers, per-plate optimization summaries, the
+  per-strategy benchmark tables, the font-catalog and substitution notes)
+  is INFO, and the report carries everything worth knowing, so the default
+  run keeps it out of the console *and* out of `logs_generate/generate.log`.
+  `-v` escalates the whole pipeline (logger, console handler and file
+  handler) to DEBUG. The per-stage wall clock therefore comes from the
+  `StageTimings` collector rather than the log (see
+  [`../utils/AGENTS.md`](../utils/AGENTS.md)); the profiling harness is
+  unaffected because it runs the pipeline at INFO and reads the records.
 
 ### Job Specification Patterns
 

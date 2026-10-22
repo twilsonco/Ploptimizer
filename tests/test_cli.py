@@ -13,12 +13,15 @@ import argparse
 import csv
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 from unittest.mock import patch
 
 import pytest
+
+from plt_optimizer.generate import vectorize
 
 
 class TestMainEntryPoint:
@@ -389,9 +392,13 @@ class TestCLIIntegration:
 
         assert run(MockArgs()) == 0
 
-        captured = capsys.readouterr()
         # Post-expansion count: 2 instances (tmpl_0000, tmpl_0001), not 1 template.
-        assert "2 unique labels" in captured.out
+        # The count lives in the report (the stdout carries one summary line).
+        report = json.loads(
+            (out_dir / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["summary"]["labels"] == 2
+        assert len(report["labels"]) == 2
 
         plt_files = list((out_dir / "plt").glob("*.plt"))
         assert plt_files, "no per-cutter PLT files written"
@@ -1065,10 +1072,15 @@ class TestGenerateRun:
         assert inventory is None
         assert boundary is None
 
-    def test_inventory_both_keys_returns_values_and_prints(
+    def test_inventory_both_keys_returns_values_and_stays_quiet(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
-        """A full inventory returns both values and prints both notices."""
+        """A full inventory returns both values without printing anything.
+
+        The notices are logged at INFO (they land in the log file and the
+        report's ``job.tools`` section), never printed: the CLI's stdout
+        carries only the final summary line.
+        """
         from plt_optimizer.cli.generate import _load_cutter_inventory
 
         tools = tmp_path / "tools.json"
@@ -1082,8 +1094,7 @@ class TestGenerateRun:
         assert inventory == pytest.approx([0.03, 0.06])
         assert boundary == pytest.approx(0.015)
         captured = capsys.readouterr()
-        assert "Loaded cutter inventory" in captured.out
-        assert "Loaded boundary/hole cutter size: 0.015" in captured.out
+        assert captured.out == ""
 
     def test_inventory_keys_absent_returns_nones_without_prints(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
@@ -1151,8 +1162,110 @@ class TestGenerateRun:
         spec_file = self._write_spec(tmp_path)
         args = self._args(spec_file, verbose=True)
 
+        levels: List[int] = []
+        original_export = vectorize.export_per_cutter_plts
+
+        def _spy(*export_args: Any, **export_kwargs: Any) -> Any:
+            levels.append(logging.getLogger("plt_optimizer").level)
+            return original_export(*export_args, **export_kwargs)
+
+        with patch.object(vectorize, "export_per_cutter_plts", _spy):
+            assert run(args) == 0
+
+        assert levels == [logging.DEBUG]
+
+    def test_default_level_is_warning(self, tmp_path: Path) -> None:
+        """The generate pipeline runs at WARNING, not INFO.
+
+        The operational chatter (stage timers, per-plate optimization
+        summaries, the strategy benchmark tables) is INFO, and the report
+        already carries everything worth knowing -- so the default run
+        keeps it out of the log entirely.
+        """
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        levels: List[int] = []
+        original_export = vectorize.export_per_cutter_plts
+
+        def _spy(*export_args: Any, **export_kwargs: Any) -> Any:
+            levels.append(logging.getLogger("plt_optimizer").level)
+            return original_export(*export_args, **export_kwargs)
+
+        with patch.object(vectorize, "export_per_cutter_plts", _spy):
+            assert run(args) == 0
+
+        assert levels == [logging.WARNING]
+
+    def test_run_restores_the_shared_logger_level(self, tmp_path: Path) -> None:
+        """The command leaves the shared logger at the level it found.
+
+        The ``plt_optimizer`` logger is a process-wide singleton. A CLI
+        must not leave it permanently quieter (or louder) for whatever
+        runs next in the same process -- a later test's ``caplog`` would
+        otherwise never see its INFO records.
+        """
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        logger = logging.getLogger("plt_optimizer")
+        original_level = logger.level
+        try:
+            assert run(args) == 0
+            assert logger.level == original_level
+        finally:
+            logger.setLevel(original_level)
+
+    def test_default_log_file_has_no_info_records(self, tmp_path: Path) -> None:
+        """A default run's log file holds only WARNING and ERROR records."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
         assert run(args) == 0
-        assert logging.getLogger("plt_optimizer").level == logging.DEBUG
+        log_text = (tmp_path / "logs_generate" / "generate.log").read_text(encoding="utf-8")
+        assert "INFO" not in log_text
+
+    def test_spawned_workers_inherit_the_logging_policy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The optimizer's spawned worker pool inherits the log policy.
+
+        The ensemble runs its strategies in a spawned ProcessPoolExecutor
+        pool. A worker starts with a clean interpreter and builds its own
+        logger, so it knows nothing about the parent's handler
+        configuration: without the environment handoff it logs at the
+        default INFO level to stdout, and its "Running <strategy> on N
+        blocks" chatter lands on the caller's stdout even though the
+        parent runs at WARNING with the console on stderr.
+        """
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.utils.logging import (
+            LOG_CONSOLE_ENV_VAR,
+            LOG_FILE_ENV_VAR,
+            LOG_LEVEL_ENV_VAR,
+        )
+
+        monkeypatch.delenv(LOG_LEVEL_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
+        monkeypatch.delenv(LOG_FILE_ENV_VAR, raising=False)
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+
+        # The published policy is what a spawned worker reads back.
+        assert os.environ[LOG_LEVEL_ENV_VAR] == str(logging.WARNING)
+        assert os.environ[LOG_CONSOLE_ENV_VAR] == "stderr"
+        assert Path(os.environ[LOG_FILE_ENV_VAR]) == (
+            tmp_path / "logs_generate" / "generate.log"
+        ).absolute()
 
     # ------------------------------------------------------------------
     # run(): parse-stage error handling
@@ -1172,13 +1285,13 @@ class TestGenerateRun:
         assert run(args) == 1
         assert "Error parsing specification" in capsys.readouterr().err
 
-    def test_root_level_job_without_plates_prints_zero_counts(
+    def test_root_level_job_without_plates_reports_zero_counts(
         self, tmp_path: Path, capsys: pytest.CaptureFixture
     ) -> None:
         """Root-level content jobs exercise the labels/plates None branches.
 
         Pattern 2 (root-level ``content`` + ``count``, no ``labels`` key and
-        no ``plates`` key) must print zero counts and still export onto the
+        no ``plates`` key) must report zero counts and still export onto the
         default plate.
         """
         from plt_optimizer.cli.generate import run
@@ -1199,9 +1312,17 @@ class TestGenerateRun:
 
         assert run(args) == 0
         captured = capsys.readouterr()
-        assert "0 plates" in captured.out
-        assert "0 unique labels" in captured.out
+        assert "0 plates" not in captured.out
+        assert "0 unique labels" not in captured.out
         assert list((tmp_path / "out" / "plt").glob("*.plt"))
+
+        report = json.loads(
+            (tmp_path / "out" / "generation_report" / "report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert report["summary"]["plates"] == 0
+        assert report["summary"]["labels"] == 1
 
     # ------------------------------------------------------------------
     # run(): export-stage error handling
@@ -1227,8 +1348,18 @@ class TestGenerateRun:
         args = self._args(spec_file)
 
         assert run(args) == 1
-        assert "Error: boom" in capsys.readouterr().err
-        assert "Generation aborted: boom" in caplog.text
+        captured = capsys.readouterr()
+        assert "boom" in captured.err
+        assert "Generation FAILED" in captured.err
+        assert "Generation failed: boom" in caplog.text
+
+        report = json.loads(
+            (tmp_path / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["job"]["status"] == "failed"
+        assert report["job"]["error"]["type"] == "LabelRenderError"
+        assert report["job"]["error"]["message"] == "boom"
+        assert report["job"]["error"]["stage"] == "export"
 
     def test_layout_fit_error_aborts_job(
         self,
@@ -1250,8 +1381,15 @@ class TestGenerateRun:
         args = self._args(spec_file)
 
         assert run(args) == 1
-        assert "Error: no room" in capsys.readouterr().err
-        assert "Layout failed: no room" in caplog.text
+        captured = capsys.readouterr()
+        assert "no room" in captured.err
+        assert "Generation failed: no room" in caplog.text
+
+        report = json.loads(
+            (tmp_path / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["job"]["status"] == "failed"
+        assert report["job"]["error"]["type"] == "LayoutFitError"
 
     def test_os_error_during_export_aborts_job(
         self,
@@ -1272,12 +1410,100 @@ class TestGenerateRun:
         args = self._args(spec_file)
 
         assert run(args) == 1
-        assert "Error: disk full" in capsys.readouterr().err
+        captured = capsys.readouterr()
+        assert "disk full" in captured.err
         assert "Generation failed: disk full" in caplog.text
+
+        report = json.loads(
+            (tmp_path / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["job"]["status"] == "failed"
+        assert report["job"]["error"]["type"] == "OSError"
 
     # ------------------------------------------------------------------
     # run(): success reporting
     # ------------------------------------------------------------------
+
+    def test_stdout_carries_exactly_one_summary_line(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """A successful run prints one summary line and nothing else.
+
+        The stdout contract: everything the pipeline learned about the job
+        lives in the report, so an agent driving the CLI is not flooded.
+        """
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+        captured = capsys.readouterr()
+        non_empty = [line for line in captured.out.splitlines() if line.strip()]
+        assert len(non_empty) == 1
+        assert "report:" in non_empty[0]
+        assert "generation_report" in non_empty[0]
+
+    def test_report_directory_holds_both_artifacts(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """A successful run writes report.json and summary.txt."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 0
+        report_dir = tmp_path / "generation_report"
+        assert (report_dir / "report.json").is_file()
+        assert (report_dir / "summary.txt").is_file()
+
+    def test_report_is_written_for_a_failed_job(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A failed run still leaves a report behind, with the reason."""
+        from plt_optimizer.cli.generate import run
+
+        def _boom(*args: Any, **kwargs: Any) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _boom)
+        spec_file = self._write_spec(tmp_path)
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        report_dir = tmp_path / "generation_report"
+        assert (report_dir / "report.json").is_file()
+        assert (report_dir / "summary.txt").is_file()
+
+        report = json.loads((report_dir / "report.json").read_text(encoding="utf-8"))
+        assert report["job"]["status"] == "failed"
+
+    def test_report_is_written_for_a_parse_failure(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """A spec that fails validation still leaves a report behind."""
+        from plt_optimizer.cli.generate import run
+
+        spec_file = tmp_path / "bad.yaml"
+        spec_file.write_text(
+            "job:\n  job_name: Bad\n  count: -1\n  content:\n    - text: Hi\n",
+            encoding="utf-8",
+        )
+        args = self._args(spec_file)
+
+        assert run(args) == 1
+        report = json.loads(
+            (tmp_path / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["job"]["status"] == "failed"
+        assert report["job"]["error"]["stage"] == "parse"
 
     def test_default_output_dir_is_spec_parent(self, tmp_path: Path) -> None:
         """With -o omitted, PLTs land in plt/ next to the spec file.
@@ -1303,13 +1529,17 @@ class TestGenerateRun:
         repo_after = repo_log.stat().st_mtime_ns if repo_log.exists() else None
         assert repo_after == repo_before
 
-    def test_pdf_and_default_plot_paths_are_printed(
+    def test_pdf_and_default_plot_paths_are_reported(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Non-empty pdf/default-pdf path lists are echoed to stdout."""
+        """Non-empty pdf/default-pdf path lists land in the report, not stdout.
+
+        The CLI's stdout carries only the one-line summary; the written
+        file listings live in the report's ``outputs`` section.
+        """
         from plt_optimizer.cli.generate import run
         from plt_optimizer.generate.vectorize import PerCutterExport
 
@@ -1330,12 +1560,14 @@ class TestGenerateRun:
 
         assert run(args) == 0
         captured = capsys.readouterr()
-        assert "Generated 1 per-cutter PLT file(s):" in captured.out
-        assert f"  {plt_path}" in captured.out
-        assert "Generated 1 PDF preview(s):" in captured.out
-        assert f"  {pdf_path}" in captured.out
-        assert "Generated 1 default plot(s):" in captured.out
-        assert f"  {default_pdf}" in captured.out
+        assert "Generated 1 per-cutter PLT file(s):" not in captured.out
+
+        report = json.loads(
+            (tmp_path / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["outputs"]["plt_files"] == [str(plt_path)]
+        assert report["outputs"]["pdf_files"] == [str(pdf_path)]
+        assert report["outputs"]["default_pdf_files"] == [str(default_pdf)]
 
     # ------------------------------------------------------------------
     # run(): LAYOUT REPORT (compression + line spacing)
@@ -1378,13 +1610,13 @@ class TestGenerateRun:
 
         return _fake_export
 
-    def test_layout_report_compact_prints_spacing_finding(
+    def test_layout_report_compact_is_not_printed(
         self,
         tmp_path: Path,
         capsys: pytest.CaptureFixture,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """A clamped spacing gap prints in the compact CLI report."""
+        """The compact layout report is not on stdout; it is in the report."""
         from plt_optimizer.cli.generate import run
 
         plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
@@ -1397,9 +1629,14 @@ class TestGenerateRun:
 
         assert run(args) == 0
         captured = capsys.readouterr()
-        assert "Layout report:" in captured.out
-        assert "Label l1:" in captured.out
-        assert "spacing below 0.200in (requested 0.000in)" in captured.out
+        assert "Layout report:" not in captured.out
+        assert "spacing below" not in captured.out
+
+        report = json.loads(
+            (tmp_path / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        findings = report["labels"][0]["lines"][0]["findings"]
+        assert {"type": "spacing", "requested": 0.0, "effective": 0.2} in findings
 
     def test_layout_report_quiet_when_untouched(
         self,
@@ -1653,7 +1890,13 @@ class TestGenerateRun:
         # 30 labels of 6x4 need more than one 24x16 sheet: the unbounded
         # default plates must overflow rather than abort.
         assert run(args) == 0
-        assert "0 plates" in capsys.readouterr().out
+        report = json.loads(
+            (tmp_path / "out" / "generation_report" / "report.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert report["summary"]["plates"] == 0
+        assert len(report["outputs"]["plates"]) >= 2
         exported = sorted(p.name for p in (tmp_path / "out" / "plt").glob("*.plt"))
         plate_numbers = {name.split("_")[0] for name in exported}
         assert len(plate_numbers) >= 2

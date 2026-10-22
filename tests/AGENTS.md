@@ -24,6 +24,22 @@ autonomously after modifying the codebase.
   without matplotlib) - see [`../plt_optimizer/cli/AGENTS.md`](../plt_optimizer/cli/AGENTS.md).
 - Tests monkeypatch `plt_optimizer.generate.vectorize.export_per_cutter_plts`
   (the source module), not the CLI module attribute.
+- **Logging isolation (`conftest.py`).** Two autouse fixtures keep log
+  verbosity deterministic regardless of test order:
+  `isolate_log_level_env` snapshots/restores the logging-policy env vars
+  (`PLT_LOG_LEVEL` / `PLT_LOG_CONSOLE` / `PLT_LOG_FILE`), and
+  `isolate_logger_level` snapshots/restores the `plt_optimizer` logger's
+  level and its handlers' levels. The second one matters because the
+  logger is a process-wide singleton and its level gates whether a
+  record is *created* at all -- a test that leaves it at WARNING
+  silences the INFO records of every later test, and a `caplog`
+  assertion (which hooks the root logger) then fails only in a full-suite
+  run. A test that fails alone but fails in the suite is almost always
+  this leak.
+- **A CLI must not leave a shared logger retuned.** `cli/generate.py::run`
+  wraps the body in `_run_generate` and restores the logger's level in a
+  `finally`, so the command does not permanently quiet the singleton for
+  whatever runs next in the same process.
 
 ## Known failure patterns
 

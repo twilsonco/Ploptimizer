@@ -39,6 +39,34 @@ This package is the shared operational substrate: every `core/` module imports
   env var is how the CLI level propagates into spawned subprocesses
   (`cli/benchmark.py` sets it before spawning workers). `setup_logging()` /
   `get_text_logger()` / `get_metrics_logger()` are process singletons.
+  `apply_log_levels(text_logger, logger_level=..., console_level=...,
+  file_level=..., console_stream=...)` retunes an **already-built** logger
+  in place: the logger, the console handler and the file handler each take
+  their own level, and the console handler can be retargeted at another
+  stream. This is how the `generate` CLI keeps stdout to a single summary
+  line while the console handler still shows WARNING/ERROR (on stderr) and
+  the log file keeps the full INFO detail. `setup_logging()` never
+  re-initializes its singleton, so a CLI cannot rely on the constructor's
+  levels after an earlier in-process run.
+  - **The spawned-worker handoff.** The optimizer's ensemble runs its
+    strategies in a spawned `ProcessPoolExecutor` pool. A worker starts
+    with a clean interpreter and builds its OWN logger, so it knows
+    nothing about the parent's handler configuration: without a handoff
+    it logs at the default INFO level to stdout, and its "Running
+    `<strategy>` on N blocks" chatter floods the caller's stdout even
+    though the parent runs at WARNING with the console on stderr.
+    `publish_log_policy(level=..., console_stream=..., log_file=...)`
+    records the parent's policy in the environment
+    (`PLT_LOG_LEVEL` / `PLT_LOG_CONSOLE` / `PLT_LOG_FILE`), which the
+    `spawn` start method copies into the child;
+    `resolve_console_stream()` and `resolve_log_file()` read it back when
+    the child builds its logger. `setup_child_logging()` does both steps
+    in one call. The `generate` CLI publishes its policy right after
+    `apply_log_levels()`. The log file is published as an ABSOLUTE path
+    so the child finds the right file even if its cwd differs.
+    `cli/optimize.py` and `cli/watch.py` deliberately keep the console on
+    stdout at INFO (their documented contract) and do not publish a
+    policy.
 - `stage_timing.py` - the machine-parseable pipeline timing contract:
   `stage_timer(name, logger)` emits one INFO line `stage <name>: <s>s` per
   completed stage (`time.perf_counter`, in a `finally`). Stdlib-only, so it
@@ -46,6 +74,17 @@ This package is the shared operational substrate: every `core/` module imports
   Consumed by `scripts/profile_generate.py` and
   `scripts/profile_optimize.py` (`STAGE_LINE_PATTERN`); format pinned by
   `tests/test_stage_timers.py`.
+  - `StageTimings` is the **level-independent** collector: the stage
+    timing line is a log *record*, so the logging level gates it -- a
+    pipeline running at WARNING never creates the INFO record and the
+    measurement is lost to every log-reading consumer. Pass a
+    `StageTimings` to `stage_timer(..., timings=collector)` and the elapsed
+    seconds are recorded directly, whatever the logger's level. Repeated
+    stages are summed (matching the log readers) and `as_dict()` returns
+    them in first-emission order. The `generate` CLI uses it so the
+    report's `timings` section survives the pipeline's WARNING level;
+    the profiling harness reads the log records instead (it runs the
+    pipeline at INFO).
 - `startup.py` - Windows Startup-folder autostart: creates/removes a
   `PLT-Optimizer.lnk` via `win32com` `WScript.Shell` (WindowStyle 7 =
   minimized). Every entry point no-ops off Windows (`create_shortcut` ->
