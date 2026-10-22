@@ -8,6 +8,7 @@ and the text/structural optimization entry points.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from typing import List, Optional, Tuple
 
 import pytest
@@ -306,6 +307,20 @@ class TestTransformChain:
         rendered = _make_rendered((), label=label)
         transform = _label_transform(rendered, label)
         assert transform.shift == pytest.approx(label.height * U / 2)
+
+    def test_hole_aware_shift_lowers_expected_center(self) -> None:
+        """A top-only hole's vertical shift is included in expected_center."""
+        label_no_shift = _make_label(height=1.0)
+        label_shifted = replace(label_no_shift, hole_aware_vertical_shift_inches=0.1)
+        record = _line_record([(0.5, -0.19), (2.5, 0.19)])
+        rendered_no = _make_rendered((record,), label=label_no_shift)
+        rendered_sh = _make_rendered((record,), label=label_shifted)
+
+        transform_no = _label_transform(rendered_no, label_no_shift)
+        transform_sh = _label_transform(rendered_sh, label_shifted)
+
+        # Hole-aware shift subtracts 0.1*U from expected_center, so shift decreases.
+        assert transform_no.shift - transform_sh.shift == pytest.approx(0.1 * U)
 
 
 def _arc_record(

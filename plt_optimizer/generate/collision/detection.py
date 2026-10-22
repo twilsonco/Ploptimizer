@@ -112,10 +112,11 @@ def detect_text_hole_collisions(
     centers the block at ``height / 2`` (``_center_text_layer_vertically``),
     so bounds are shifted by that amount before the check. Band centering
     lowers that target by ``band_center_offset_inches`` (the band, not the ink,
-    lands on the inner-area center), so the shift subtracts it. The export's
-    Y-flip mirrors text and holes across the *same* centerline, which
-    preserves circle/AABB intersection relationships exactly, so the check
-    is valid in this pre-flip frame.
+    lands on the inner-area center), and the hole-aware shift
+    (``label.hole_aware_vertical_shift_inches``) lowers it further for
+    asymmetric top/bottom holes. The export's Y-flip mirrors text and holes
+    across the *same* centerline, which preserves circle/AABB intersection
+    relationships exactly, so the check is valid in this pre-flip frame.
 
     Args:
         label: The resolved label providing hole positions, cutter
@@ -133,7 +134,11 @@ def detect_text_hole_collisions(
         return []
 
     circles = hole_circles_local(label)
-    shift_y = label.height / 2.0 - band_center_offset_inches
+    # Mirrors _center_text_layer_vertically: band offset + hole-aware shift both
+    # lower the expected center, so both are subtracted here.
+    shift_y = (
+        label.height / 2.0 - band_center_offset_inches - label.hole_aware_vertical_shift_inches
+    )
     results: List[CollisionResult] = []
 
     for line_index, line_text, bounds, _scale, _spacing, _cutters in line_entries:

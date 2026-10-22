@@ -5332,6 +5332,62 @@ class TestHoleAwareCenteringDemoExample:
         # If we got here, no errors were raised.
         assert len(labels) == 6
 
+    def test_optimized_text_has_correct_hole_aware_shift(self, tmp_path: Path) -> None:
+        """The optimized text PLT applies the same hole-aware shift as plt_content.
+
+        Regression for the bug where plate_optimizer._label_transform omitted
+        label.hole_aware_vertical_shift_inches from expected_center, causing the
+        optimized text-only PLT to have text at the un-shifted (wrong) position
+        while the combined "all" view (assembled from plt_content) was correct.
+
+        Uses single_top (0.2in top hole, +0.1in shift) in isolation so the shift
+        is not masked by other labels' opposing shifts.
+        """
+        job = parse_yaml(self._SPEC)
+        all_labels = resolve_job_spec(job)
+        # single_top: 0.2in top-only hole -> hole_aware_vertical_shift = +0.1in.
+        top_only = [lbl for lbl in all_labels if lbl.id == "single_top"]
+        assert len(top_only) == 1
+
+        def _do_export(optimize: bool, subdir: str) -> PerCutterExport:
+            return export_per_cutter_plts(
+                top_only,
+                provided_plates=None,
+                output_dir=tmp_path / subdir,
+                job_id="ha",
+                optimize=optimize,
+                plots=False,
+            )
+
+        unopt = _do_export(optimize=False, subdir="unopt")
+        opt = _do_export(optimize=True, subdir="opt")
+
+        def _pd_y_center(result: PerCutterExport) -> float:
+            """Y midpoint of PD cutting coordinates in the text PLT.
+
+            PD (pen-down) coordinates are the actual engraved text positions.
+            PU (pen-up) rapid-travel coordinates are excluded because the optimizer
+            reorders them, changing their distribution without moving the text.
+            """
+            txts = [p for p in result.plt_paths if "_txt_" in p.name]
+            assert txts, "No text PLT found"
+            content = txts[0].read_text(encoding="utf-8")
+            ys: list[int] = []
+            for m in re.finditer(r"PD(-?\d+),(-?\d+)", content):
+                ys.append(int(m.group(2)))
+            assert ys, f"No PD coordinates in {txts[0]}"
+            return (min(ys) + max(ys)) / 2.0
+
+        unopt_center = _pd_y_center(unopt)
+        opt_center = _pd_y_center(opt)
+
+        # Allow ±2 plotter-unit rounding difference. A mismatch of ~100 units
+        # (0.1in) indicates the hole-aware shift is absent from the optimized path.
+        assert abs(unopt_center - opt_center) < 2.0, (
+            f"Optimized text Y center {opt_center:.1f} != "
+            f"unoptimized {unopt_center:.1f} (hole-aware shift not applied)"
+        )
+
 
 class TestEnforceCapLineDemoExample:
     """Regression tests for tests_deps/enforce_cap_line_job.yaml.

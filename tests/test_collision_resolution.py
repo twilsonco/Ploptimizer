@@ -525,3 +525,44 @@ class TestStrokeAwareThreshold:
         )
         assert label.hole_text_collision_distance == pytest.approx(0.15)
         assert label.hole_cutter_diameter == pytest.approx(0.015)
+
+
+class TestHoleAwareShiftInCollisionDetection:
+    """hole_aware_vertical_shift_inches shifts the text check position.
+
+    A top-only hole shifts text DOWN (positive shift), so the hole-aware
+    shift must be subtracted from the text position when checking for
+    collisions -- mirroring _center_text_layer_vertically exactly.
+    Without the fix, text appears at height/2 (too high), causing false
+    positives for top holes and missed collisions for bottom holes.
+    """
+
+    def test_shift_moves_text_away_from_top_hole(self) -> None:
+        """Positive shift (top-only hole) moves text down; top-hole gap widens."""
+        # 3x1in label, top hole, text centered at y=0.5 without shift.
+        # A 0.2in shift moves text center to y=0.3 -- further from the top hole.
+        top_hole = [ResolvedHoleSpec(diameter=0.4, location="top")]
+        base = _label(text="HI", holes=top_hole, height=1.0,
+                      hole_margin=0.05, hole_text_collision_distance=0.0,
+                      hole_cutter_diameter=0.0)
+        _lc, entries = _render_text_local_with_bounds(base)
+
+        # Without shift: text is near the top hole -> collision detected.
+        assert len(detect_text_hole_collisions(base, entries)) >= 1
+
+        # With a 0.2in downward shift: text is lower -> gap to top hole is larger.
+        shifted = replace(base, hole_aware_vertical_shift_inches=0.2)
+        assert detect_text_hole_collisions(shifted, entries) == []
+
+    def test_negative_shift_moves_text_away_from_bottom_hole(self) -> None:
+        """Negative shift (bottom-only hole) moves text up; bottom-hole gap widens."""
+        bottom_hole = [ResolvedHoleSpec(diameter=0.4, location="bottom")]
+        base = _label(text="HI", holes=bottom_hole, height=1.0,
+                      hole_margin=0.0, hole_text_collision_distance=0.0,
+                      hole_cutter_diameter=0.0)
+        _lc, entries = _render_text_local_with_bounds(base)
+
+        assert len(detect_text_hole_collisions(base, entries)) >= 1
+
+        shifted = replace(base, hole_aware_vertical_shift_inches=-0.2)
+        assert detect_text_hole_collisions(shifted, entries) == []
