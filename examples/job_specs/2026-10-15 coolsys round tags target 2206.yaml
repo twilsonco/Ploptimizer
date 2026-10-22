@@ -8,7 +8,7 @@ job:
   cutter_size: 0.02
   margin: 0.2
   line_spacing: 0.2
-  replacement_text_file: 2026-10-15 coolsys round tags target 2206.txt
+  replacement_text_file: 2026-10-15 coolsys round tags target 2206 b.txt
   font: dino sc
   sc_scale: 1.0
   holes:

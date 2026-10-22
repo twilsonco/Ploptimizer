@@ -1,0 +1,42 @@
+GLY;CHARGING;STATION
+CO2;CHARGING;STATION
+System A05;Liquid Line;Valve
+System A06;Liquid Line;Valve
+System A07;Liquid Line;Valve
+System A08;Liquid Line;Valve
+System A09;Liquid Line;Valve
+System A10;Liquid Line;Valve
+System A11;Liquid Line;Valve
+System A12;Liquid Line;Valve
+System A13;Liquid Line;Valve
+System A14;Liquid Line;Valve
+System A15;Liquid Line;Valve
+System A16;Liquid Line;Valve
+System A17;Liquid Line;Valve
+System B10;Liquid Line;Valve
+System B11;Liquid Line;Valve
+System B12;Liquid Line;Valve
+System B13;Liquid Line;Valve
+System B14;Liquid Line;Valve
+System B15;Liquid Line;Valve
+GLY;CHARGING;STATION
+CO2;CHARGING;STATION
+System A05;Liquid Line;Valve
+System A06;Liquid Line;Valve
+System A07;Liquid Line;Valve
+System A08;Liquid Line;Valve
+System A09;Liquid Line;Valve
+System A10;Liquid Line;Valve
+System A11;Liquid Line;Valve
+System A12;Liquid Line;Valve
+System A13;Liquid Line;Valve
+System A14;Liquid Line;Valve
+System A15;Liquid Line;Valve
+System A16;Liquid Line;Valve
+System A17;Liquid Line;Valve
+System B10;Liquid Line;Valve
+System B11;Liquid Line;Valve
+System B12;Liquid Line;Valve
+System B13;Liquid Line;Valve
+System B14;Liquid Line;Valve
+System B15;Liquid Line;Valve
