@@ -32,7 +32,7 @@
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
   "cutter_downsize_global": true,
-  "h_compress_global": false,
+  "h_compress_global": true,
   "h_compress_global_same_height_only": true,
   "optimize_line_content": false,
   "optimize_line_content_max_lines": null,
