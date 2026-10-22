@@ -148,6 +148,18 @@ class JobDefaults(BaseModel):
         fallback_advance_fraction: Default multiplier on the
             bounding-box-width fallback advance for PLT-extracted pairs
             without overlapping height. Unset falls back to 1.0.
+        kern_pos_string: Default manual-kern positive marker string: every
+            occurrence in a text line is stripped (it never engraves) and
+            replaced by a forward cursor shift of ``kern_width_fraction``
+            of the cap height. Unset (``null``) disables the positive
+            marker.
+        kern_neg_string: Default manual-kern negative marker string: every
+            occurrence is stripped and replaced by a backward cursor shift
+            of ``kern_width_fraction`` of the cap height. Unset (``null``)
+            disables the negative marker.
+        kern_width_fraction: Default manual-kern width as a fraction of the
+            rendered cap height (capline - baseline). Unset falls back to
+            0.1.
         text_h_alignment: Default horizontal text alignment.
         holes: Default drill-hole list (injected at the job layer; group
             locations expand exactly like spec-provided holes).
@@ -347,6 +359,36 @@ class JobDefaults(BaseModel):
             "Default fallback-advance multiplier for PLT-extracted glyph "
             "pairs without overlapping height (job layer). Unset falls "
             "back to 1.0."
+        ),
+    )
+    kern_pos_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default manual-kern positive marker string (job layer): every "
+            "occurrence in a text line is stripped and replaced by a "
+            "forward cursor shift of kern_width_fraction of the cap height. "
+            "Validated like the cascading field (non-empty, no newline, not "
+            "markup-shaped). Unset (null) disables the positive marker."
+        ),
+    )
+    kern_neg_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default manual-kern negative marker string (job layer): every "
+            "occurrence in a text line is stripped and replaced by a "
+            "backward cursor shift of kern_width_fraction of the cap height. "
+            "Validated like the cascading field (non-empty, no newline, not "
+            "markup-shaped). Unset (null) disables the negative marker."
+        ),
+    )
+    kern_width_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default manual-kern width as a fraction of the rendered cap "
+            "height (job layer): one marker shifts the cursor by "
+            "fraction * cap height (positive string forward, negative "
+            "backward). Unset falls back to 0.1."
         ),
     )
     sc_scale: Optional[float] = Field(
@@ -822,6 +864,9 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "kerning_recession_scale",
     "kerning_min_gap_fraction",
     "fallback_advance_fraction",
+    "kern_pos_string",
+    "kern_neg_string",
+    "kern_width_fraction",
     "sc_scale",
     "supersubscript_downscale",
     "html_brackets",

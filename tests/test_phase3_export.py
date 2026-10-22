@@ -6109,3 +6109,182 @@ class TestVCenterDemoExample:
             for name in (p.name for p in result.plt_paths if "_txt_" in p.name)
         }
         assert "0.060" in text_cutters
+
+
+class TestKernDemoExample:
+    """Regression tests for tests_deps/kern_job.yaml.
+
+    The fixture pins manual kerning (``kern_pos_string`` / ``kern_neg_string``
+    / ``kern_width_fraction``): every marker occurrence in a text line is
+    stripped (it never engraves) and the FOLLOWING character's cursor shifts
+    by ``kern_width_fraction`` of the cap height (positive forward, negative
+    backward, no clamp). The delta rides the cursor after the pair's envelope
+    kerning, so the pair kerns as if adjacent and the marker adds its exact
+    width; the shift carries forward (consecutive markers accumulate, a
+    marker shifts its glyph AND all following glyphs). Works on PLT and TTF.
+    """
+
+    _SPEC = Path("tests_deps/kern_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="kn",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _width(label: ResolvedLabel) -> float:
+        """Rendered ink width of the label's single text line."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+        )
+
+        block, _words, _glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
+        bounds = block.bounds()
+        return bounds[2] - bounds[0]
+
+    @staticmethod
+    def _ink_lefts(label: ResolvedLabel) -> list[float]:
+        """Rendered ink-box left X of each glyph of the label's single line."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+        )
+
+        block, _words, glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
+        lefts: list[float] = []
+        for group in glyphs:
+            xs = [
+                point.real
+                for index in group
+                for segment in block.strokes[index].segments
+                for point in segment.flattened()
+            ]
+            lefts.append(min(xs))
+        return lefts
+
+    def test_markers_strip_from_plain_text_and_count(self, tmp_path: Path) -> None:
+        """Markers never engrave: plain_text is marker-free, counts attach."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        wide = by_id["plt_wide"].content[0]
+        assert wide.text == "A<+>V"
+        assert wide.plain_text == "AV"
+        assert wide.kern_values == (0, 1)
+        assert wide.has_kern is True
+        # 0.1 * cap (0.44in toolpath) = 0.044in on the V.
+        assert wide.kern_shifts_inches == (0.0, pytest.approx(0.044))
+
+        plain = by_id["plt_wide_plain"].content[0]
+        assert plain.plain_text == "AV"
+        assert plain.has_kern is False
+        assert plain.kern_shifts_inches == ()
+
+    def test_positive_marker_widens_the_pair(self, tmp_path: Path) -> None:
+        """A positive marker widens the line by exactly one kern width."""
+        result = self._export(tmp_path)
+        wide = self._width(result.rendered_labels["plt_wide"].source_label)
+        plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
+        assert wide - plain == pytest.approx(0.044, abs=1e-6)
+
+    def test_negative_marker_narrows_the_pair(self, tmp_path: Path) -> None:
+        """A negative marker narrows the line by exactly one kern width."""
+        result = self._export(tmp_path)
+        narrow = self._width(result.rendered_labels["plt_narrow"].source_label)
+        plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
+        assert plain - narrow == pytest.approx(0.044, abs=1e-6)
+
+    def test_adjacent_markers_accumulate(self, tmp_path: Path) -> None:
+        """Two positive markers cost two kern widths."""
+        result = self._export(tmp_path)
+        acc = self._width(result.rendered_labels["plt_accumulate"].source_label)
+        plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
+        assert acc - plain == pytest.approx(0.088, abs=1e-6)
+
+    def test_zero_width_consumes_the_marker_and_shifts_nothing(
+        self, tmp_path: Path
+    ) -> None:
+        """kern_width_fraction 0.0 strips the marker (plain 'AV') but shifts 0."""
+        result = self._export(tmp_path)
+        zero = by_id_zero = result.rendered_labels["plt_zero_width"].source_label
+        assert zero.content[0].plain_text == "AV"
+        # The marker is stripped, so the width equals the plain control.
+        plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
+        assert self._width(zero) == pytest.approx(plain, abs=1e-6)
+
+    def test_leading_and_trailing_markers_are_no_ops(self, tmp_path: Path) -> None:
+        """A leading marker normalizes away; a trailing marker is dropped."""
+        result = self._export(tmp_path)
+        plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
+        leading = self._width(result.rendered_labels["plt_leading"].source_label)
+        trailing = self._width(result.rendered_labels["plt_trailing"].source_label)
+        assert leading == pytest.approx(plain, abs=1e-6)
+        assert trailing == pytest.approx(plain, abs=1e-6)
+
+    def test_mid_word_marker_kerns_the_pair(self, tmp_path: Path) -> None:
+        """A marker mid-word narrows the enclosing pair (the motivating shape)."""
+        result = self._export(tmp_path)
+        mid = self._width(result.rendered_labels["plt_mid_word"].source_label)
+        plain = self._width(result.rendered_labels["plt_mid_word_plain"].source_label)
+        assert plain - mid == pytest.approx(0.044, abs=1e-6)
+
+    def test_marker_before_a_space_kerns_the_next_word(self, tmp_path: Path) -> None:
+        """A marker before a space attaches to the next word's first glyph."""
+        result = self._export(tmp_path)
+        wb = self._width(result.rendered_labels["plt_word_boundary"].source_label)
+        plain = self._width(result.rendered_labels["plt_word_boundary_plain"].source_label)
+        # The B rides +0.044, widening the line by one width.
+        assert wb - plain == pytest.approx(0.044, abs=1e-6)
+
+    def test_the_ttf_family_kerns_too(self, tmp_path: Path) -> None:
+        """TTF parity: the marker translates the glyph's contours."""
+        result = self._export(tmp_path)
+        wide = self._width(result.rendered_labels["ttf_wide"].source_label)
+        plain = self._width(result.rendered_labels["ttf_wide_plain"].source_label)
+        assert wide - plain == pytest.approx(0.044, abs=1e-6)
+
+    def test_custom_bracket_markers(self, tmp_path: Path) -> None:
+        """Under «» brackets, non-bracket markers strip and kern."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["custom_bracket_markers"].source_label.content[0]
+        assert line.plain_text == "ABC"
+        assert line.kern_values == (0, 1, -1)  # ~~ +1 on B, -- -1 on C
+        # B rides +0.044; C rides B's +0.044 then its own -0.044 = net 0, so
+        # the line's right edge (C's ink) lands back on the plain control's
+        # width -- the documented accumulate/net-out behaviour.
+        plain = self._width(result.rendered_labels["custom_bracket_markers_plain"].source_label)
+        kerned = self._width(result.rendered_labels["custom_bracket_markers"].source_label)
+        assert kerned == pytest.approx(plain, abs=1e-6)
+        # The internal A/B gap grows by one width (B shifted right) and C
+        # returns to its plain position (the running total nets out).
+        kerned_lefts = self._ink_lefts(result.rendered_labels["custom_bracket_markers"].source_label)
+        plain_lefts = self._ink_lefts(
+            result.rendered_labels["custom_bracket_markers_plain"].source_label
+        )
+        assert kerned_lefts[1] - plain_lefts[1] == pytest.approx(0.044, abs=1e-6)
+        assert kerned_lefts[2] == pytest.approx(plain_lefts[2], abs=1e-6)
+
+    def test_the_marker_composes_with_italic(self, tmp_path: Path) -> None:
+        """A marker shifts the sheared glyph (the delta rides the final cursor)."""
+        result = self._export(tmp_path)
+        kerned = self._width(result.rendered_labels["kern_italic"].source_label)
+        plain = self._width(result.rendered_labels["kern_italic_plain"].source_label)
+        assert kerned - plain == pytest.approx(0.044, abs=1e-6)
+
+    def test_the_marker_adds_no_cutter_file_of_its_own(self, tmp_path: Path) -> None:
+        """A pure horizontal shift engraves with the line's tool: no new layer."""
+        result = self._export(tmp_path)
+        for label_id in ("plt_wide", "plt_narrow", "plt_accumulate", "plt_mid_word"):
+            line = result.rendered_labels[label_id].source_label.content[0]
+            assert line.used_cutters == (0.06,)

@@ -47,6 +47,9 @@ _FULL_CONFIG: dict[str, Any] = {
     "kerning_recession_scale": 0.0,
     "kerning_min_gap_fraction": 0.05,
     "fallback_advance_fraction": 0.9,
+    "kern_pos_string": "<+>",
+    "kern_neg_string": "<->",
+    "kern_width_fraction": 0.2,
     "sc_scale": 0.45,
     "supersubscript_downscale": 0.6,
     "html_brackets": "\u00ab\u00bb",
@@ -321,6 +324,15 @@ class TestJobDefaultsModel:
         assert JobDefaults().kerning_recession_scale is None
         assert JobDefaults().kerning_min_gap_fraction is None
         assert JobDefaults().fallback_advance_fraction is None
+        assert "kern_pos_string" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kern_neg_string" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "kern_width_fraction" not in REQUIRED_WHEN_UNCONFIGURED
+        assert JobDefaults().kern_pos_string is None
+        assert JobDefaults().kern_neg_string is None
+        assert JobDefaults().kern_width_fraction is None
+        assert JobDefaults(kern_pos_string="<->").kern_pos_string == "<->"
+        with pytest.raises(Exception):
+            JobDefaults(kern_width_fraction=-0.1)
         assert JobDefaults().sc_scale is None
         assert JobDefaults(sc_scale=0.4).sc_scale == pytest.approx(0.4)
         with pytest.raises(Exception):
@@ -508,6 +520,9 @@ class TestApplyJobConfigDefaults:
         assert filled["kerning_recession_scale"] == 0.0
         assert filled["kerning_min_gap_fraction"] == 0.05
         assert filled["fallback_advance_fraction"] == 0.9
+        assert filled["kern_pos_string"] == "<+>"
+        assert filled["kern_neg_string"] == "<->"
+        assert filled["kern_width_fraction"] == 0.2
         assert filled["sc_scale"] == 0.45
         assert filled["supersubscript_downscale"] == 0.6
         assert filled["html_brackets"] == "\u00ab\u00bb"
@@ -1079,6 +1094,11 @@ class TestParseYamlWithJobConfig:
         assert job.kerning_recession_scale == 1.0
         assert job.kerning_min_gap_fraction == 0.05
         assert job.fallback_advance_fraction == 1.0
+        # The shop ships the manual-kern markers '<+>' / '<->' at 0.1 of the
+        # cap height.
+        assert job.kern_pos_string == "<+>"
+        assert job.kern_neg_string == "<->"
+        assert job.kern_width_fraction == 0.1
         assert job.sc_scale == 0.8
         assert job.supersubscript_downscale == 0.6
         assert job.html_brackets == "<>"

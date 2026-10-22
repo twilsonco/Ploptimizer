@@ -1804,6 +1804,12 @@ def _render_line_core_once(
     # bit-identically; italic_angle 0 is upright by contract (the shear is
     # skipped, italic runs engrave like plain text).
     render_text = line.plain_text
+    # Manual kerning (kern_pos_string/kern_neg_string markers): the resolved
+    # per-character cursor deltas ride both renderers as their own kwarg,
+    # aligned with plain_text (markers are stripped at parse, so plain_text
+    # carries one entry per engraved character). Empty on a line with no
+    # marker, keeping every legacy call shape bit-identical.
+    kern_shifts = line.kern_shifts_inches
     # Cap-line enforcement (strictly pre-markup): both renderers clamp the
     # overshooting alphanumeric glyphs to the capline FIRST, before the
     # small-caps / bold / scale / italic transforms. The kwarg is passed only
@@ -1816,6 +1822,8 @@ def _render_line_core_once(
     # cutter diameters + glyph scales; TTF: per-character glyph scales). Empty
     # dict keeps the historical call shape for every markup-free line.
     plt_kwargs.update(_glyph_render_kwargs(line, plt=True, vc_shifts=vc_shifts))
+    if kern_shifts:
+        plt_kwargs["kern_shifts"] = kern_shifts
 
     if ref.kind == "plt":
         if chunk_mode is TextChunkMode.WORD:
@@ -1875,6 +1883,8 @@ def _render_line_core_once(
         if ref.italic_path is not None:
             ftext_kwargs["italic_face"] = ref.italic_path
     ftext_kwargs.update(_glyph_render_kwargs(line, plt=False, vc_shifts=vc_shifts))
+    if kern_shifts:
+        ftext_kwargs["kern_shifts"] = kern_shifts
     ttf_decorated: Tuple[
         TextBlock,
         Optional[List[Tuple[str, List[int]]]],
@@ -2026,7 +2036,7 @@ def _font_segment_line(
         Run(run.text, replace(run.style, font=None))
         for run in _slice_runs(line.styled_runs, start, end)
     )
-    raw = serialize_runs(stripped, left, right)
+    raw = serialize_runs(stripped, left, right, line.kern_pos_string, line.kern_neg_string)
     clone = line.with_markup(raw)
     if font is None:
         return clone

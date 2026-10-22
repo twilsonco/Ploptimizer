@@ -866,6 +866,85 @@ def _pop_occurrence(occurrences: List[int]) -> int:
     return occurrences.pop(0)
 
 
+def _apply_kern_shifts(
+    scaled: vp.LineCollection,
+    text: str,
+    font_path: Path,
+    shifts: Sequence[float],
+    small_caps: bool = False,
+    small_caps_flags: Optional[Sequence[bool]] = None,
+) -> vp.LineCollection:
+    """Translate each glyph right/left by the cumulative manual-kern delta.
+
+    The line's contours are sliced per character (see :func:`_per_glyph_counts`);
+    walking the glyph slices left to right, each character's
+    :attr:`shifts` entry is added to a running total and every glyph from
+    that point on rides the total -- the exact counterpart of the PLT
+    walker's cursor arithmetic (the delta is applied at placement and
+    ``previous_origin`` carries it forward, so a marker shifts its glyph
+    AND all following glyphs, and consecutive markers accumulate). A pure
+    horizontal translate, the X sibling of :func:`_apply_baseline_shifts`.
+
+    The marker strings themselves never reach this function:
+    ``parse_markup`` strips them, so ``text`` carries one entry per engraved
+    character (spaces included; a space's entry is always ``0.0``).
+
+    Args:
+        scaled: The line's contours in inches (baseline at y=0), before
+            closing-chord removal.
+        text: The line's text (spaces own no contours).
+        font_path: The ``.ttf`` path (per-glyph contour slicing).
+        shifts: One horizontal cursor delta in inches per character of
+            ``text`` (spaces included; 0.0 = no marker before this
+            character). Positive = rightward, negative = leftward (no
+            clamp -- a large negative value lets glyphs overlap).
+        small_caps: True when the render used the small-caps mapped string
+            (the per-glyph slicing then probes the uppercase sources, as in
+            :func:`_apply_small_caps`).
+        small_caps_flags: Per-character small-caps selection aligned with
+            ``text`` (spaces included -- the inline ``<sc>`` tag); only
+            consulted when ``small_caps``. ``None`` = every ASCII lowercase
+            glyph (font-level SC).
+
+    Returns:
+        The line with the kerned glyphs translated. When the per-glyph
+        contour counts do not line up, the line is returned unchanged with a
+        WARNING (the unshifted render is the graceful fallback).
+    """
+    if all(shift == 0.0 for shift in shifts):
+        return scaled
+    pairs = _per_glyph_counts(
+        text, font_path, len(scaled), small_caps=small_caps, small_caps_flags=small_caps_flags
+    )
+    if pairs is None:
+        counts_total = sum(_glyph_contour_count(font_path, ch) for ch in text if ch != " ")
+        logger.warning(
+            "kerned TTF render: per-glyph contour counts (%d) do not sum to the "
+            "whole-line contour count (%d); rendering without kern shifts",
+            counts_total,
+            len(scaled),
+        )
+        return scaled
+
+    occurrences = [index for index, ch in enumerate(text) if ch != " "]
+    lines = [np.asarray(line) for line in scaled]
+    cursor = 0
+    running = 0.0
+    for _char, count in pairs:
+        glyph_indices = list(range(cursor, cursor + count))
+        cursor += count
+        text_index = _pop_occurrence(occurrences)
+        running += shifts[text_index]
+        if running == 0.0:
+            continue
+        # A pure horizontal translate in the final (inch) frame: every
+        # point of the glyph rides the accumulated delta.
+        offset = complex(running, 0.0)
+        for index in glyph_indices:
+            lines[index] = lines[index] + offset
+    return vp.LineCollection(lines)
+
+
 def _apply_cap_line_enforcement(
     scaled: vp.LineCollection,
     text: str,
@@ -1002,6 +1081,7 @@ def render_text_line_ftext(
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     cap_line_enforced: bool = False,
 ) -> vp.LineCollection:
     """Render a single line of text with the Relief Single Line TTF font.
@@ -1082,6 +1162,17 @@ def render_text_line_ftext(
             :func:`_apply_baseline_shifts`. ``None`` (the default) keeps
             every glyph on the baseline, keeping every legacy render
             bit-identical.
+        kern_shifts: Per-character **manual-kern cursor delta** in inches
+            aligned with ``text`` (spaces included; 0.0 = no marker), the
+            ``kern_pos_string`` / ``kern_neg_string`` markers resolved
+            through the cascaded ``kern_width_fraction`` and the line's cap
+            height: walking the glyphs left to right, each entry is added to
+            a running total and every glyph from that point on rides it
+            (the exact counterpart of the PLT walker's cursor shift -- a
+            marker moves its glyph AND all following glyphs; consecutive
+            markers accumulate). A pure horizontal translate, no clamp --
+            see :func:`_apply_kern_shifts`. ``None`` (the default) applies
+            no shift, keeping every legacy render bit-identical.
         cap_line_enforced: Cap-line enforcement (``enforce_cap_line``): when
             ``True``, every ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose
             ink extends above the capline (``target_height_inches`` -- the
@@ -1202,6 +1293,20 @@ def render_text_line_ftext(
             small_caps_flags=small_caps_flags,
         )
 
+    # Slide the kerned glyphs last: the cumulative horizontal translate is
+    # independent of every transform above (X vs Y/scale compose freely),
+    # so it rides the finished geometry exactly like the PLT walker's
+    # per-character cursor delta at placement.
+    if kern_shifts is not None:
+        scaled = _apply_kern_shifts(
+            scaled,
+            render_text,
+            resolved_font,
+            kern_shifts,
+            small_caps=small_caps,
+            small_caps_flags=small_caps_flags,
+        )
+
     # Drop erroneous closing chords forced by TrueType's closed-path outlines,
     # so open strokes like "1", "4", "7" don't get a straight connector back to
     # their start, while genuine loops are preserved.
@@ -1286,6 +1391,7 @@ def render_text_line_ftext_with_words(
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     cap_line_enforced: bool = False,
 ) -> Tuple[vp.LineCollection, List[Tuple[str, List[int]]]]:
     """Render a line of text and partition its contours by whitespace-delimited word.
@@ -1331,6 +1437,8 @@ def render_text_line_ftext_with_words(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`render_text_line_ftext`).
+        kern_shifts: Per-character manual-kern cursor delta in inches
+            (``None`` = off; see :func:`render_text_line_ftext`).
         cap_line_enforced: Alphanumeric cap-line clamping (``False`` = off;
             see :func:`render_text_line_ftext`).
 
@@ -1356,6 +1464,7 @@ def render_text_line_ftext_with_words(
         bold_flags=bold_flags,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        kern_shifts=kern_shifts,
         cap_line_enforced=cap_line_enforced,
     )
     if whole.is_empty():
@@ -1370,6 +1479,7 @@ def render_text_line_ftext_with_words(
         or cap_line_enforced
         or (glyph_scales is not None and any(scale != 1.0 for scale in glyph_scales))
         or (baseline_shifts is not None and any(shift != 0.0 for shift in baseline_shifts))
+        or (kern_shifts is not None and any(shift != 0.0 for shift in kern_shifts))
     ):
         # The signature matcher cannot work: the shrunk/italicized glyphs no
         # longer match their standalone render, so the word groups come from
@@ -1552,6 +1662,7 @@ def render_text_line_ftext_with_glyphs(
     bold_flags: Optional[Sequence[bool]] = None,
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     cap_line_enforced: bool = False,
 ) -> Tuple[
     vp.LineCollection,
@@ -1595,6 +1706,8 @@ def render_text_line_ftext_with_glyphs(
         baseline_shifts: Per-character baseline shift in inches for
             ``<sup>``/``<sub>`` markup (``None`` = off; see
             :func:`render_text_line_ftext`).
+        kern_shifts: Per-character manual-kern cursor delta in inches
+            (``None`` = off; see :func:`render_text_line_ftext`).
         cap_line_enforced: Alphanumeric cap-line clamping (``False`` = off;
             see :func:`render_text_line_ftext`).
 
@@ -1622,6 +1735,7 @@ def render_text_line_ftext_with_glyphs(
         bold_flags=bold_flags,
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
+        kern_shifts=kern_shifts,
         cap_line_enforced=cap_line_enforced,
     )
     if whole.is_empty():

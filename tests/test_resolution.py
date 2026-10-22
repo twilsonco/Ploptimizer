@@ -39,6 +39,9 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_KERNING_PENETRATION_SCALE,
     DEFAULT_KERNING_RECESSION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
+    DEFAULT_KERN_NEG_STRING,
+    DEFAULT_KERN_POS_STRING,
+    DEFAULT_KERN_WIDTH_FRACTION,
     DEFAULT_LABEL_SHAPE,
     DEFAULT_ROUNDED_RECTANGLE_FRACTION,
     DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL,
@@ -7265,3 +7268,170 @@ class TestVCenterFlags:
         line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
         assert line.per_char_cutters == (0.06, 0.06, 0.06)
         assert line.used_cutters == (0.06,)
+
+
+class TestKernStringCascade:
+    """kern_pos_string / kern_neg_string cascade line -> label -> job -> unset."""
+
+    def _job(self, line_kwargs=None, label_kwargs=None, job_kwargs=None):
+        return JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            **(job_kwargs or {}),
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **(label_kwargs or {}),
+                    content=[TextLine(text="A<+>B", **(line_kwargs or {}))],
+                )
+            ],
+        )
+
+    def test_default_unset_when_all_omit(self) -> None:
+        """All levels omitting yields the None (disabled) default."""
+        line = resolve_job_spec(self._job())[0].content[0]
+        assert line.kern_pos_string == DEFAULT_KERN_POS_STRING
+        assert line.kern_neg_string == DEFAULT_KERN_NEG_STRING
+        assert line.kern_width_fraction == DEFAULT_KERN_WIDTH_FRACTION
+
+    def test_job_value_cascades(self) -> None:
+        """A job-level marker reaches the line and strips at parse."""
+        job = self._job(job_kwargs={"kern_pos_string": "<+>", "kern_neg_string": "<->"})
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.kern_pos_string == "<+>"
+        assert line.kern_neg_string == "<->"
+        assert line.plain_text == "AB"
+        assert line.kern_values == (0, 1)
+
+    def test_label_overrides_job(self) -> None:
+        """The label tier outranks the job tier."""
+        job = self._job(
+            job_kwargs={"kern_pos_string": "<+>"},
+            label_kwargs={"kern_pos_string": "++"},
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.kern_pos_string == "++"
+        assert line.plain_text == "A<+>B"  # the job marker no longer strips
+
+    def test_line_overrides_label(self) -> None:
+        """The line tier outranks the label tier."""
+        job = self._job(
+            label_kwargs={"kern_pos_string": "++"},
+            line_kwargs={"kern_pos_string": "<+>"},
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.kern_pos_string == "<+>"
+        assert line.plain_text == "AB"
+
+    def test_with_markup_reparse_keeps_markers(self) -> None:
+        """with_markup (the reflow's text swap) re-strips with the line's strings."""
+        job = self._job(job_kwargs={"kern_pos_string": "<+>", "kern_neg_string": "<->"})
+        line = resolve_job_spec(job)[0].content[0]
+        moved = line.with_markup("C<+>D")
+        assert moved.plain_text == "CD"
+        assert moved.kern_values == (0, 1)
+        assert moved.kern_shifts_inches == (0.0, pytest.approx(line.kern_width_fraction * line.toolpath_text_height))
+
+    def test_kern_shifts_inches_tracks_toolpath_height(self) -> None:
+        """The shift converts through the CURRENT cap height (fraction x toolpath)."""
+        job = self._job(
+            job_kwargs={"kern_pos_string": "<+>", "kern_neg_string": "<->", "kern_width_fraction": 0.2}
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        expected = 0.2 * line.toolpath_text_height
+        assert line.kern_shifts_inches == (0.0, pytest.approx(expected))
+        assert line.has_kern
+
+
+class TestKernWidthFractionCascade:
+    """kern_width_fraction cascades line -> label -> job -> default (0.1)."""
+
+    def _job(self, width=None):
+        return JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            kern_pos_string="<+>",
+            kern_width_fraction=width,
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="A<+>B")],
+                )
+            ],
+        )
+
+    def test_default_is_one_tenth(self) -> None:
+        """Unset everywhere yields the 0.1 code fallback."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.kern_width_fraction == DEFAULT_KERN_WIDTH_FRACTION
+        assert DEFAULT_KERN_WIDTH_FRACTION == 0.1
+
+    def test_job_value_used(self) -> None:
+        """A job-level fraction reaches the line."""
+        line = resolve_job_spec(self._job(width=0.25))[0].content[0]
+        assert math.isclose(line.kern_width_fraction, 0.25)
+
+    def test_explicit_zero_honored(self) -> None:
+        """An explicit 0.0 is honored (markers consume, shift nothing)."""
+        line = resolve_job_spec(self._job(width=0.0))[0].content[0]
+        assert line.kern_width_fraction == 0.0
+        assert line.kern_values == (0, 1)  # the marker still strips
+        assert line.kern_shifts_inches == ()  # ...and shifts nothing
+
+
+class TestKernMarkerValidation:
+    """A marker that is markup under the line's effective brackets aborts."""
+
+    def _job(self, text, brackets, pos, neg=None):
+        return JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            html_brackets=brackets,
+            kern_pos_string=pos,
+            kern_neg_string=neg,
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text=text)])],
+        )
+
+    def test_registered_tag_marker_rejected(self) -> None:
+        """'<s>' as a marker under <> brackets raises MarkupError at resolution."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        # The schema accepts the string (the bracket check is resolution's
+        # job); resolution aborts because the marker is consumed as markup.
+        with pytest.raises(MarkupError, match="kern_pos_string '<s>' is inline markup"):
+            resolve_job_spec(self._job("A<s>B", "<>", "<s>"))
+
+    def test_custom_bracket_marker_legal(self) -> None:
+        """A marker markup-shaped under <> is legal under custom brackets."""
+        job = self._job("A<s>B", "«»", "<s>")
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "AB"
+        assert line.kern_values == (0, 1)
+
+    def test_marker_containing_effective_tag_rejected(self) -> None:
+        """A marker embedding the effective open delimiter + tag aborts."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        # Under «» brackets, the marker «i» is the italic tag: resolution aborts.
+        with pytest.raises(MarkupError):
+            resolve_job_spec(self._job("A«i»B", "«»", "«i»"))
+
+    def test_arrow_marker_allowed_under_default_brackets(self) -> None:
+        """'<->' is a legal marker under <> (the unregistered body survives)."""
+        job = self._job("A<->B", "<>", "<+>", "<->")
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "AB"
+        assert line.kern_values == (0, -1)

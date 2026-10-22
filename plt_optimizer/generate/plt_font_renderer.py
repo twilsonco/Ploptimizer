@@ -752,6 +752,7 @@ def _walk_line(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
 ) -> Tuple[
     TextBlock,
@@ -888,6 +889,25 @@ def _walk_line(
             default) renders every character in :attr:`font_name`, so every
             legacy call site renders bit-identically. TTF run fonts are
             handled by the caller's segment composition, never here.
+        kern_shifts: Per-character **manual-kern cursor delta** in inches
+            (the ``kern_pos_string`` / ``kern_neg_string`` markers, resolved
+            through the cascaded ``kern_width_fraction`` and the line's cap
+            height), aligned with ``text`` (spaces included -- a marker
+            attaches to the next NON-SPACE character, so a space's entry is
+            always ``0.0``; a marker before a space kerns the first glyph of
+            the following word). The marker characters themselves never
+            reach this function -- ``parse_markup`` strips them, so
+            ``text``/``plain_text`` carries one entry per engraved
+            character. A positive value pushes the character's placed origin
+            right, a negative one pulls it left (**no clamp**: a large
+            negative value lets glyphs overlap, the author's decision). The
+            delta rides the cursor AFTER the pair's envelope kerning, so the
+            pair kerns as if the glyphs were adjacent and the marker adds
+            its exact width on top; the shifted glyph becomes the pair
+            reference for the NEXT character (``previous_origin`` carries
+            the shift forward), so consecutive markers accumulate.
+            ``None`` (the default) applies no shift, so every legacy call
+            site renders bit-identically.
         enforce_cap_line: Cap-line enforcement (``enforce_cap_line``): when
             ``True``, every ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose
             ink extends above the capline (the character's own font frame's
@@ -920,8 +940,8 @@ def _walk_line(
             ``font_names`` entry is unknown/not a PLT font, or a character
             has no glyph in its font.
         ValueError: If ``lowercase_flags``, ``italic_flags``,
-            ``cutter_diameters``, ``glyph_scales``, ``baseline_shifts`` or
-            ``font_names`` length differs from ``text``.
+            ``cutter_diameters``, ``glyph_scales``, ``baseline_shifts``,
+            ``font_names`` or ``kern_shifts`` length differs from ``text``.
     """
     canonical = _resolve_plt_font(font_name, library_dir, fonts_dir)
     if not text:
@@ -944,6 +964,8 @@ def _walk_line(
         )
     if font_names is not None and len(font_names) != len(text):
         raise ValueError(f"font_names length {len(font_names)} != text length {len(text)}")
+    if kern_shifts is not None and len(kern_shifts) != len(text):
+        raise ValueError(f"kern_shifts length {len(kern_shifts)} != text length {len(text)}")
 
     library_dir_key = str(library_dir) if library_dir is not None else ""
     # The small-caps variant is a render-time transform: the glyph library
@@ -1137,6 +1159,14 @@ def _walk_line(
                     + character_spacing
                     + min_gap_inches
                 )
+            # Manual kerning (kern_pos_string/kern_neg_string markers): the
+            # resolved cursor delta rides AFTER the pair's envelope kerning,
+            # so the pair kerns as if the glyphs were adjacent and the
+            # marker adds its exact width on top. No clamp (the author's
+            # decision). previous_origin below carries the shift forward,
+            # so consecutive markers accumulate.
+            if kern_shifts is not None:
+                cursor += kern_shifts[char_index]
             placed = geometry.block.scaled(char_scale).translate(cursor, 0.0)
             strokes.extend(placed.strokes)
             glyph_groups.append((char, list(range(char_start, len(strokes)))))
@@ -1173,6 +1203,7 @@ def render_text_line_plt_font_with_words(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
@@ -1233,6 +1264,8 @@ def render_text_line_plt_font_with_words(
             :func:`_walk_line`).
         font_names: Per-character ``<f:...>`` font selection (``None`` =
             off; see :func:`_walk_line`).
+        kern_shifts: Per-character manual-kern cursor delta in inches
+            (``None`` = off; see :func:`_walk_line`).
         enforce_cap_line: Alphanumeric cap-line clamping (``False`` = off;
             see :func:`_walk_line`).
 
@@ -1267,6 +1300,7 @@ def render_text_line_plt_font_with_words(
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
         font_names=font_names,
+        kern_shifts=kern_shifts,
         enforce_cap_line=enforce_cap_line,
     )
     return block, word_groups
@@ -1296,6 +1330,7 @@ def render_text_line_plt_font_with_glyphs(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
 ) -> Tuple[
     TextBlock,
@@ -1348,6 +1383,8 @@ def render_text_line_plt_font_with_glyphs(
             :func:`_walk_line`).
         font_names: Per-character ``<f:...>`` font selection (``None`` =
             off; see :func:`_walk_line`).
+        kern_shifts: Per-character manual-kern cursor delta in inches
+            (``None`` = off; see :func:`_walk_line`).
         enforce_cap_line: Alphanumeric cap-line clamping (``False`` = off;
             see :func:`_walk_line`).
 
@@ -1382,6 +1419,7 @@ def render_text_line_plt_font_with_glyphs(
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
         font_names=font_names,
+        kern_shifts=kern_shifts,
         enforce_cap_line=enforce_cap_line,
     )
 
@@ -1410,6 +1448,7 @@ def render_text_line_plt_font(
     glyph_scales: Optional[Sequence[float]] = None,
     baseline_shifts: Optional[Sequence[float]] = None,
     font_names: Optional[Sequence[Optional[str]]] = None,
+    kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
@@ -1464,6 +1503,8 @@ def render_text_line_plt_font(
             :func:`_walk_line`).
         font_names: Per-character ``<f:...>`` font selection (``None`` =
             off; see :func:`_walk_line`).
+        kern_shifts: Per-character manual-kern cursor delta in inches
+            (``None`` = off; see :func:`_walk_line`).
         enforce_cap_line: Alphanumeric cap-line clamping (``False`` = off;
             see :func:`_walk_line`).
 
@@ -1496,6 +1537,7 @@ def render_text_line_plt_font(
         glyph_scales=glyph_scales,
         baseline_shifts=baseline_shifts,
         font_names=font_names,
+        kern_shifts=kern_shifts,
         enforce_cap_line=enforce_cap_line,
     )
     return block

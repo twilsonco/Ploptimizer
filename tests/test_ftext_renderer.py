@@ -1349,3 +1349,64 @@ class TestApplyCapLineEnforcement:
         covered = sorted(index for _word, indices in groups for index in indices)
         assert covered == list(range(len(whole)))
         assert _extents(whole)[3] == pytest.approx(1.0, abs=1e-9)
+
+
+class TestKernShifts:
+    """The manual-kern cursor deltas (kern_pos_string/kern_neg_string markers)."""
+
+    def test_positive_shift_widens_the_line(self) -> None:
+        """A +0.1 delta on the second glyph widens the line by exactly 0.1."""
+        plain = render_text_line_ftext("AV", 0.5)
+        kerned = render_text_line_ftext("AV", 0.5, kern_shifts=(0.0, 0.1))
+        assert _extents(kerned)[1] - _extents(plain)[1] == pytest.approx(0.1, abs=1e-9)
+
+    def test_negative_shift_narrows_the_line(self) -> None:
+        """A -0.1 delta pulls the second glyph left by 0.1 (no clamp)."""
+        plain = render_text_line_ftext("AV", 0.5)
+        kerned = render_text_line_ftext("AV", 0.5, kern_shifts=(0.0, -0.1))
+        assert _extents(plain)[1] - _extents(kerned)[1] == pytest.approx(0.1, abs=1e-9)
+
+    def test_shift_carries_forward_and_accumulates(self) -> None:
+        """Each entry shifts its glyph AND all following glyphs (running total)."""
+        plain = render_text_line_ftext("ABC", 0.5)
+        kerned = render_text_line_ftext("ABC", 0.5, kern_shifts=(0.0, 0.1, 0.1))
+        # B rides +0.1, C rides +0.1 (its own) + 0.1 (B's) = +0.2.
+        assert _extents(kerned)[1] - _extents(plain)[1] == pytest.approx(0.2, abs=1e-9)
+
+    def test_first_glyph_shift_is_a_whole_line_translate(self) -> None:
+        """A delta on the first glyph slides every glyph (the running total)."""
+        plain = render_text_line_ftext("AB", 0.5)
+        kerned = render_text_line_ftext("AB", 0.5, kern_shifts=(0.1, 0.0))
+        extents = _extents(kerned)
+        assert extents[0] - _extents(plain)[0] == pytest.approx(0.1, abs=1e-9)
+        assert extents[1] - _extents(plain)[1] == pytest.approx(0.1, abs=1e-9)
+
+    def test_none_shifts_render_bit_identically(self) -> None:
+        """kern_shifts=None (and an all-zero array) keep the historical geometry."""
+        plain = render_text_line_ftext("AV", 0.5)
+        explicit_zero = render_text_line_ftext("AV", 0.5, kern_shifts=(0.0, 0.0))
+        assert _extents(explicit_zero) == pytest.approx(_extents(plain))
+
+    def test_y_untouched(self) -> None:
+        """A manual kern is a pure horizontal translate: the vertical box stays."""
+        plain = render_text_line_ftext("AV", 0.5)
+        kerned = render_text_line_ftext("AV", 0.5, kern_shifts=(0.0, 0.1))
+        assert _extents(kerned)[2:] == pytest.approx(_extents(plain)[2:])
+
+    def test_word_groups_route_through_exact_slicing(self) -> None:
+        """A kerned line groups words via the per-glyph slicing (contiguous)."""
+        whole, groups = ftext_renderer.render_text_line_ftext_with_words(
+            "A V", 0.5, DEFAULT_FONT_PATH, kern_shifts=(0.0, 0.0, 0.1)
+        )
+        assert [word for word, _ in groups] == ["A", "V"]
+        covered = sorted(index for _word, indices in groups for index in indices)
+        assert covered == list(range(len(whole)))
+
+    def test_glyph_groups_survive_the_kern(self) -> None:
+        """The per-glyph contour partition is unchanged by the shifts."""
+        whole, _words, glyphs = ftext_renderer.render_text_line_ftext_with_glyphs(
+            "AV", 0.5, DEFAULT_FONT_PATH, kern_shifts=(0.0, 0.1)
+        )
+        assert [char for char, _ in glyphs] == ["A", "V"]
+        covered = sorted(index for _char, indices in glyphs for index in indices)
+        assert covered == list(range(len(whole)))

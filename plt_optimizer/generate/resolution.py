@@ -36,7 +36,13 @@ from plt_optimizer.generate.font_registry import (
     plt_font_stroke_count,
     resolve_font,
 )
-from plt_optimizer.generate.markup import Run, SupSub, parse_markup, split_brackets
+from plt_optimizer.generate.markup import (
+    MarkupError,
+    Run,
+    SupSub,
+    parse_markup,
+    split_brackets,
+)
 from plt_optimizer.generate.schema import JobSpec, LabelShape, LabelSpec
 
 logger = logging.getLogger(__name__)
@@ -206,6 +212,21 @@ DEFAULT_KERNING_MIN_GAP_FRACTION: float = 0.0
 # Multiplier on the bounding-box-width fallback advance (no y-overlap or
 # missing envelopes). 1.0 = the left glyph's own width.
 DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
+# Manual-kern marker strings: every occurrence of ``kern_pos_string`` in a
+# text line is stripped (it never engraves) and replaced by a forward cursor
+# shift, every ``kern_neg_string`` occurrence by a backward one, each of
+# ``kern_width_fraction`` of the rendered cap height (capline - baseline).
+# ``None`` (the code fallback for both strings) disables the marker --
+# ``job-config.json`` supplies the shop default. The schema validates the
+# bracket-agnostic invariants (non-empty, no newline, the two differ at one
+# level); the markup-collision check against the EFFECTIVE ``html_brackets``
+# + the tag registry runs at resolution time (``_validate_kern_markers``).
+DEFAULT_KERN_POS_STRING: Optional[str] = None
+DEFAULT_KERN_NEG_STRING: Optional[str] = None
+# Manual-kern width as a fraction of the rendered cap height (capline -
+# baseline): one marker shifts the cursor by this fraction of the cap height
+# (positive string forward, negative backward; adjacent markers accumulate).
+DEFAULT_KERN_WIDTH_FRACTION: float = 0.1
 # Downscale applied to ASCII lowercase a-z by a small-caps font variant
 # (a ``font`` name ending in `` SC``): the lowercase character renders as
 # the base font's uppercase glyph uniformly shrunk to this fraction of the
@@ -995,6 +1016,30 @@ class ResolvedTextLine:
             lacking envelopes). Cascaded line -> label -> job, default
             ``DEFAULT_FALLBACK_ADVANCE_FRACTION`` (1.0). Explicit ``0.0``
             is honored; only ``None`` means unset.
+        kern_pos_string: Manual-kern positive marker string: every
+            occurrence in the line's raw text is stripped (it never
+            engraves) and the following character carries a +1
+            :attr:`kern_values` count (the cursor advances by
+            :attr:`kern_width_fraction` of the cap height there). Cascaded
+            line -> label -> job, default ``DEFAULT_KERN_POS_STRING``
+            (``None`` = disabled; ``job-config.json`` supplies the shop
+            default). Validated against the effective ``html_brackets`` at
+            resolution (a marker that is markup raises ``MarkupError``).
+        kern_neg_string: Manual-kern negative marker string: every
+            occurrence is stripped and the following character carries a -1
+            :attr:`kern_values` count (the cursor retreats by
+            :attr:`kern_width_fraction` of the cap height, unclamped).
+            Cascaded line -> label -> job, default
+            ``DEFAULT_KERN_NEG_STRING`` (``None`` = disabled).
+        kern_width_fraction: Manual-kern width as a fraction of the
+            rendered cap height (capline - baseline): one marker shifts the
+            cursor by this fraction of the cap height (positive string
+            forward, negative backward; adjacent markers accumulate).
+            Cascaded line -> label -> job, default
+            ``DEFAULT_KERN_WIDTH_FRACTION`` (0.1). Explicit ``0.0`` is
+            honored (markers consume their characters, shift nothing);
+            only ``None`` means unset. Consumed by
+            :attr:`kern_shifts_inches`.
         sc_scale: Downscale applied to ASCII lowercase ``a-z`` by a
             small-caps font variant (a ``font`` name ending in `` SC``):
             the lowercase character renders as the base font's uppercase
@@ -1257,6 +1302,9 @@ class ResolvedTextLine:
     kerning_recession_scale: float = DEFAULT_KERNING_RECESSION_SCALE
     kerning_min_gap_fraction: float = DEFAULT_KERNING_MIN_GAP_FRACTION
     fallback_advance_fraction: float = DEFAULT_FALLBACK_ADVANCE_FRACTION
+    kern_pos_string: Optional[str] = DEFAULT_KERN_POS_STRING
+    kern_neg_string: Optional[str] = DEFAULT_KERN_NEG_STRING
+    kern_width_fraction: float = DEFAULT_KERN_WIDTH_FRACTION
     sc_scale: float = DEFAULT_SC_SCALE
     supersubscript_downscale: float = DEFAULT_SUPERSUBSCRIPT_DOWNSCALE
     html_brackets: str = DEFAULT_HTML_BRACKETS
@@ -1321,7 +1369,14 @@ class ResolvedTextLine:
         if text == self.text:
             return self
         left, right = split_brackets(self.html_brackets)
-        styled = parse_markup(text, left, right, font_resolver=_canonical_font_name)
+        styled = parse_markup(
+            text,
+            left,
+            right,
+            font_resolver=_canonical_font_name,
+            kern_pos=self.kern_pos_string,
+            kern_neg=self.kern_neg_string,
+        )
         return replace(self, text=text, plain_text=styled.plain_text, styled_runs=styled.runs)
 
     @property
@@ -1581,6 +1636,55 @@ class ResolvedTextLine:
         :attr:`underline_offset_inches` for why the conversion happens here.
         """
         return self.kerning_min_gap_fraction * self.toolpath_text_height
+
+    @property
+    def kern_values(self) -> Tuple[int, ...]:
+        """Per-character signed manual-kern marker counts aligned with :attr:`plain_text`.
+
+        ``()`` when the line carries no parsed markup (the renderers' fast
+        path); ``0`` at every position no ``kern_pos_string`` /
+        :attr:`kern_neg_string` marker precedes, ``+1`` per positive marker
+        and ``-1`` per negative one (adjacent markers accumulate). Mirrors
+        :attr:`scale_values`: DERIVED from :attr:`styled_runs` (never a
+        stored positional array), so a pre-pass that rewrites the line's
+        text (:meth:`with_markup`, the line-content reflow) keeps every
+        marker on its own character.
+        """
+        return tuple(
+            style.kern for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_kern(self) -> bool:
+        """True when any character of this line carries a manual-kern marker."""
+        return any(run.style.kern for run in self.styled_runs)
+
+    @property
+    def kern_shifts_inches(self) -> Tuple[float, ...]:
+        """Per-character manual-kern cursor deltas in inches.
+
+        :attr:`kern_values` resolved against this line's
+        :attr:`toolpath_text_height` (the capline - baseline distance) times
+        :attr:`kern_width_fraction`: a positive marker advances the cursor
+        by ``+fraction * cap height``, a negative one retreats it by the
+        same amount (no clamp -- a large negative value lets glyphs
+        overlap). ``()`` when the line carries no marker (the renderers'
+        fast path, bit-identical). The multiplication happens here (not at
+        resolution time) so the width always tracks the CURRENT cap height,
+        including after a compression-driven cutter downsize grows
+        :attr:`toolpath_text_height` (the :attr:`underline_offset_inches`
+        contract).
+        """
+        values = self.kern_values
+        if not any(values):
+            return ()
+        width = self.kern_width_fraction * self.toolpath_text_height
+        shifts = tuple(value * width for value in values)
+        # A zero width (or an all-zero count) yields no shift: return () so
+        # the renderers keep the historical call shape (bit-identical).
+        if not any(shifts):
+            return ()
+        return shifts
 
     @property
     def sup_sub_scales(self) -> Tuple[float, ...]:
@@ -3778,6 +3882,65 @@ def _validate_cutter_markup(
             )
 
 
+def _validate_kern_markers(
+    *,
+    label_id: str,
+    line_index: int,
+    line_text: str,
+    kern_pos: Optional[str],
+    kern_neg: Optional[str],
+    left: str,
+    right: str,
+) -> None:
+    """Reject a manual-kern marker string that is (or contains) markup.
+
+    The schema's field validator rejects a marker with the shape of a
+    DEFAULT-bracket tag (the ``<s>`` footgun); this is the authoritative
+    check against the line's EFFECTIVE ``html_brackets`` and the live tag
+    registry. The test is the real scanner: parsing the marker on its own
+    must find no tag. A marker the scan consumes as markup can never act as
+    a marker -- the kern strip runs after the scan and would never see it --
+    so the job aborts loudly (the fail-loud contract of an unknown font /
+    malformed markup) rather than silently engraving the marker.
+
+    ``<->`` passes with the default brackets (the body ``-`` is not a
+    registered tag, so the scan leaves it literal); a custom-bracket job
+    using ``«k»`` passes too, and a marker that is markup-shaped under
+    ``<>`` is legal there.
+
+    Args:
+        label_id: Identifier used in the error message.
+        line_index: Index of the line (for the message).
+        line_text: The line's raw text (for the message).
+        kern_pos: The resolved positive marker string, or ``None``.
+        kern_neg: The resolved negative marker string, or ``None``.
+        left: The line's resolved left delimiter.
+        right: The line's resolved right delimiter.
+
+    Raises:
+        MarkupError: If a marker parses as (or contains) a registered tag.
+    """
+    for marker, name in ((kern_pos, "kern_pos_string"), (kern_neg, "kern_neg_string")):
+        if marker is None:
+            continue
+        try:
+            probe = parse_markup(marker, left, right)
+            is_markup = probe.has_markup
+        except MarkupError:
+            # An unbalanced marker ('<s>' opens a tag it never closes) is
+            # markup-shaped by definition; report it as the marker error.
+            is_markup = True
+        if is_markup:
+            raise MarkupError(
+                f"label {label_id!r} line {line_index} ({line_text!r}): "
+                f"{name} {marker!r} is inline markup under this line's "
+                f"html_brackets ({left!r}/{right!r}), so it can never act as "
+                f"a kern marker (markers are stripped from literal text only). "
+                f"Choose a marker the tag scan leaves as literal text, e.g. "
+                f"'<->' style with a non-letter body."
+            )
+
+
 def _resolve_content(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
@@ -4113,6 +4276,40 @@ def _resolve_content(
         else:
             line_fallback_advance_fraction = DEFAULT_FALLBACK_ADVANCE_FRACTION
 
+        # Resolve the manual-kern marker strings with the same explicit-None
+        # precedence (line -> label -> job -> unset). ``None`` disables the
+        # marker, so a job that configures nothing keeps every line on the
+        # historical bit-identical render path.
+        if line.kern_pos_string is not None:
+            line_kern_pos_string: Optional[str] = line.kern_pos_string
+        elif label_input.kern_pos_string is not None:
+            line_kern_pos_string = label_input.kern_pos_string
+        elif job.kern_pos_string is not None:
+            line_kern_pos_string = job.kern_pos_string
+        else:
+            line_kern_pos_string = DEFAULT_KERN_POS_STRING
+
+        if line.kern_neg_string is not None:
+            line_kern_neg_string: Optional[str] = line.kern_neg_string
+        elif label_input.kern_neg_string is not None:
+            line_kern_neg_string = label_input.kern_neg_string
+        elif job.kern_neg_string is not None:
+            line_kern_neg_string = job.kern_neg_string
+        else:
+            line_kern_neg_string = DEFAULT_KERN_NEG_STRING
+
+        # Resolve the manual-kern width fraction with the same precedence; an
+        # intentional 0.0 (markers consume their characters, shift nothing)
+        # is honored.
+        if line.kern_width_fraction is not None:
+            line_kern_width_fraction: float = line.kern_width_fraction
+        elif label_input.kern_width_fraction is not None:
+            line_kern_width_fraction = label_input.kern_width_fraction
+        elif job.kern_width_fraction is not None:
+            line_kern_width_fraction = job.kern_width_fraction
+        else:
+            line_kern_width_fraction = DEFAULT_KERN_WIDTH_FRACTION
+
         # Resolve the small-caps downscale with the same explicit-None
         # precedence (line -> label -> job -> default); an explicit 1.0
         # (base-identical rendering) is honored.
@@ -4252,9 +4449,25 @@ def _resolve_content(
         # font resolver canonicalizes every <f:...> argument at open time, so
         # an unknown run font aborts here with the tag position (MarkupError)
         # and the reflow round-trip re-resolves canonical names to identity.
+        # The manual-kern marker strings are validated against the EFFECTIVE
+        # delimiters and stripped by the same parse (they never engrave).
         markup_left, markup_right = split_brackets(line_html_brackets)
+        _validate_kern_markers(
+            label_id=label_id,
+            line_index=line_index,
+            line_text=line.text,
+            kern_pos=line_kern_pos_string,
+            kern_neg=line_kern_neg_string,
+            left=markup_left,
+            right=markup_right,
+        )
         styled = parse_markup(
-            line.text, markup_left, markup_right, font_resolver=_canonical_font_name
+            line.text,
+            markup_left,
+            markup_right,
+            font_resolver=_canonical_font_name,
+            kern_pos=line_kern_pos_string,
+            kern_neg=line_kern_neg_string,
         )
 
         # Scale markup: a ``<scale:N>`` run engraves with the cutter that its
@@ -4434,6 +4647,9 @@ def _resolve_content(
                 kerning_recession_scale=line_kerning_recession_scale,
                 kerning_min_gap_fraction=line_kerning_min_gap_fraction,
                 fallback_advance_fraction=line_fallback_advance_fraction,
+                kern_pos_string=line_kern_pos_string,
+                kern_neg_string=line_kern_neg_string,
+                kern_width_fraction=line_kern_width_fraction,
                 sc_scale=line_sc_scale,
                 supersubscript_downscale=line_supersubscript_downscale,
                 html_brackets=line_html_brackets,

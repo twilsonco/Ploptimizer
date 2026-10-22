@@ -2985,3 +2985,104 @@ class TestVCenterCharsField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, v_center_chars="-:")
         assert plate.v_center_chars == "-:"
+
+
+class TestKernStringField:
+    """The cascading ``kern_pos_string`` / ``kern_neg_string`` marker fields."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Job, label, line and plate all default the markers to None (off)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.kern_pos_string is None
+        assert job.kern_neg_string is None
+        assert TextLine(text="X").kern_pos_string is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).kern_neg_string is None
+
+    def test_inherited_on_the_text_tiers(self) -> None:
+        """The markers live on TextAttributes (so every tier inherits them)."""
+        for name in ("kern_pos_string", "kern_neg_string", "kern_width_fraction"):
+            assert name in TextAttributes.model_fields
+            assert name in TextLine.model_fields
+            assert name in LabelSpec.model_fields
+            assert name in JobSpec.model_fields
+            assert name in PlateSpec.model_fields
+
+    @pytest.mark.parametrize("value", ["<+>", "<->", "->", "~~", "s", "<-><->", "+"])
+    def test_legal_markers_accepted(self, value: str) -> None:
+        """A non-empty, newline-free, non-markup-shaped string is legal."""
+        assert TextLine(text="X", kern_pos_string=value).kern_pos_string == value
+
+    @pytest.mark.parametrize(
+        ("value", "reason"),
+        [
+            ("<s>", "strikethrough tag shape"),
+            ("<i>", "italic tag shape"),
+            ("</i>", "close tag shape"),
+            ("<scale:0.5>", "args tag shape"),
+            ("<sup>", "sup tag shape"),
+        ],
+    )
+    def test_markup_shaped_markers_accepted_by_schema(self, value: str, reason: str) -> None:
+        """Markup-shaped markers pass the schema (the effective-bracket check
+        is resolution's; the field cascades, so the brackets are unknown here)."""
+        assert TextLine(text="X", kern_pos_string=value).kern_pos_string == value
+
+    def test_empty_string_rejected(self) -> None:
+        """An empty marker is rejected (omit the field to disable)."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", kern_neg_string="")
+
+    def test_newline_rejected(self) -> None:
+        """A marker containing a newline is rejected."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", kern_pos_string="a\nb")
+
+    def test_identical_pos_and_neg_rejected(self) -> None:
+        """The two markers set at one level must differ."""
+        with pytest.raises(ValidationError) as excinfo:
+            TextLine(text="X", kern_pos_string="<->", kern_neg_string="<->")
+        assert "must differ" in str(excinfo.value)
+
+    def test_differing_markers_accepted(self) -> None:
+        """Distinct positive and negative markers are legal."""
+        line = TextLine(text="X", kern_pos_string="<+>", kern_neg_string="<->")
+        assert line.kern_pos_string == "<+>"
+        assert line.kern_neg_string == "<->"
+
+    def test_plate_parity_validates_the_same_rule(self) -> None:
+        """The plate parity fields enforce the identical rules."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, kern_pos_string="<->")
+        assert plate.kern_pos_string == "<->"
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p", width=24.0, height=16.0, kern_pos_string="")
+        with pytest.raises(ValidationError):
+            PlateSpec(
+                id="p", width=24.0, height=16.0, kern_pos_string="<->", kern_neg_string="<->"
+            )
+
+
+class TestKernWidthFractionField:
+    """The cascading ``kern_width_fraction`` field."""
+
+    def test_defaults_to_none(self) -> None:
+        """Every tier defaults the width fraction to None (unset -> 0.1)."""
+        assert TextLine(text="X").kern_width_fraction is None
+        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).kern_width_fraction is None
+
+    def test_zero_is_accepted(self) -> None:
+        """An explicit 0.0 is a legal value (markers shift nothing)."""
+        assert TextLine(text="X", kern_width_fraction=0.0).kern_width_fraction == 0.0
+
+    def test_positive_accepted(self) -> None:
+        """A positive fraction is accepted (no upper bound)."""
+        assert TextLine(text="X", kern_width_fraction=0.25).kern_width_fraction == 0.25
+
+    def test_negative_rejected(self) -> None:
+        """A negative fraction is rejected (the sign comes from the string)."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", kern_width_fraction=-0.1)
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, kern_width_fraction=0.2)
+        assert plate.kern_width_fraction == 0.2

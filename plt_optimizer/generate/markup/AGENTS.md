@@ -1310,3 +1310,95 @@ cap band, not hang at its design height.
   (`tests/test_layout_report.py`), the `v_center` JSON entry
   (`tests/test_generation_report.py`), and the `v_center_chars` job-config key
   tests (`tests/test_job_config.py`).
+
+### Manual Kerning (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
+
+Manual kerning is the framework's one **non-tag** markup feature: the
+cascading `kern_pos_string` / `kern_neg_string` fields name *marker strings*
+that the parser strips from the raw text and replaces with a horizontal
+cursor shift (the positive marker widens, the negative narrows, by
+`kern_width_fraction` of the cap height = `toolpath_text_height` = capline −
+baseline). It is NOT tag syntax — there is no open/close pair: `some tex<->t`
+kerns the pair `x`/`t` tighter, and the marker vanishes. Works on **PLT and
+TTF** fonts.
+
+- **Strip-after-scan**: `parse_markup(text, left, right, font_resolver,
+  kern_pos, kern_neg)` runs the tag scan FIRST, then
+  `_strip_kern_markers` removes every marker occurrence from the merged
+  runs' literal text (leftmost-first, positive checked before a shared
+  prefix). The count attaches to the next NON-SPACE character's
+  `Style.kern: int` (signed, so adjacent markers accumulate:
+  `A<+><+>B` = `+2`), which keeps `plain_text` marker-free — every
+  `plain_text`-indexed consumer (`glyph_groups`, `_glyph_boxes`,
+  `_stroke_cutter_map`, the decoration runs, `_run_glyph_positions`) stays
+  1:1 consistent for free. Stripping any marker sets `has_markup=True`
+  (the exact per-character render path, the `enforce_cap_line` gate
+  precedent). A leading marker shifts the line's first glyph (the ink-box
+  normalization cancels the whole-line translate); a trailing marker (no
+  following non-space character) is dropped — documented no-ops.
+- **Because the scan runs first, a marker can never be markup**: `<->` is a
+  legal marker (the body `-` is not a registered tag, so the scan leaves it
+  literal), while `<s>` is consumed as the strikethrough tag and can never
+  act as a marker. The schema field validator
+  (`schema._validate_kern_string_value`) enforces only the bracket-agnostic
+  invariants (non-empty, no newline, the two strings differ at one level —
+  the field cascades, so the effective brackets are unknown at validation
+  time); **resolution** runs the authoritative check against the line's
+  EFFECTIVE `html_brackets` + the live registry
+  (`resolution._validate_kern_markers`: parsing the marker on its own must
+  find no tag) → `MarkupError` → CLI non-zero. A custom-bracket job may
+  therefore legally use `<s>` as a marker (literal under `«»`). Standalone
+  `s` is legal (a terrible choice, but the user's data, the user's decision
+  — it vanishes from the engraved text). The two strings must differ (same
+  level: schema model validator; cross-level: the strip's positive-first
+  order decides the sign).
+- **`StyledText.kern_values` / `ResolvedTextLine.kern_values`** are the
+  per-`plain_text` signed counts (derived from the runs, the
+  `scale_values` idiom — never a stored positional array, so the reflow's
+  `with_markup` swap keeps every marker on its character);
+  `kern_shifts_inches` converts through the CURRENT `toolpath_text_height`
+  (the `underline_offset_inches` contract: a compression-driven cutter
+  downsize moves the cap height, the shifts follow).
+- **Serialization**: `serialize_runs`/`serialize_word` take
+  `kern_pos`/`kern_neg` and re-emit `abs(kern)` copies of the marker INSIDE
+  the run's open tags immediately before its text, so the reflow round-trip
+  (`line_content._word_tokens` / `_join_tokens`,
+  `label_renderer._font_segment_line`) is run-exact (`<i>foo<->bar</i>` →
+  `<i>foo</i><i><->b</i><i>ar</i>` → identical runs). A caller serializing
+  kerned text without the strings DROPS the counts (direct-API contract,
+  documented).
+- **PLT path** (`plt_font_renderer._walk_line` keyword-only `kern_shifts`,
+  inches, aligned with `text`, spaces included): the delta is added to the
+  cursor AFTER the pair's envelope kerning, so the pair kerns as if the
+  glyphs were adjacent and the marker adds its exact width on top;
+  `previous_origin` carries the shift forward (consecutive markers
+  accumulate). **No clamp** (the author's decision — a large negative value
+  lets glyphs overlap). The count attaches to the next NON-SPACE character
+  (a space owns no glyph, so its entry is always `0.0`; a marker before a
+  space kerns the first glyph of the following word).
+- **TTF path** (`ftext_renderer._apply_kern_shifts`, the
+  `_apply_baseline_shifts` sibling): walking the per-glyph contour slices
+  left to right, each entry adds to a running total and every glyph from
+  that point on translates by the cumulative total — the exact counterpart
+  of the cursor shift (matplotlib shaping owns the natural advances, the
+  shift rides on top). A line with any nonzero shift routes through the
+  exact per-glyph slicing path (the signature matcher cannot match shifted
+  glyphs, the `enforce_cap_line` gate precedent).
+- **Cascading fields**: `kern_pos_string` / `kern_neg_string` (str, default
+  `None` = disabled) + `kern_width_fraction` (`ge=0.0`, default `None` →
+  **0.1**, explicit `0.0` honored). Line → label → job (plate parity);
+  `job-config.json` supplies the shop defaults (shipped `<+>` / `<->` /
+  `0.1`); NOT `REQUIRED_WHEN_UNCONFIGURED`. The strings ride
+  `ResolvedTextLine` (a `with_markup` re-parse needs them) and
+  `label_renderer._render_line_core_once` threads `kern_shifts_inches` to
+  both renderers (empty = the historical call shape, bit-identical).
+- Fixture: `tests_deps/kern_job.yaml` pinned by `TestKernDemoExample`
+  (`tests/test_phase3_export.py`). Unit tests: `TestKernMarkers`
+  (`tests/test_markup.py`), `TestKernStringField` /
+  `TestKernWidthFractionField` (`tests/test_schema.py`),
+  `TestKernStringCascade` / `TestKernWidthFractionCascade` /
+  `TestKernMarkerValidation` (`tests/test_resolution.py`),
+  `TestKernShifts` (`tests/test_plt_font_renderer.py`,
+  `tests/test_ftext_renderer.py`), `TestKernAwareReflow`
+  (`tests/test_line_content.py`), the `kern_*` job-config keys
+  (`tests/test_job_config.py`).

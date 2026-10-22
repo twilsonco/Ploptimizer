@@ -1,0 +1,163 @@
+# Fixture for manual kerning (`kern_pos_string`, `kern_neg_string`,
+# `kern_width_fraction`).
+#
+# The marker strings are NOT tags: every occurrence in a text line's raw text
+# is stripped (it never engraves) and the FOLLOWING character's cursor shifts
+# by `kern_width_fraction` of the cap height (capline - baseline =
+# toolpath_text_height) -- the positive marker forward, the negative marker
+# backward (no clamp, so a large negative value lets glyphs overlap).
+# `some tex<->t` kerns the `x`/`t` pair tighter; `A<+>V` widens the A/V pair.
+#
+# The delta rides the cursor AFTER the pair's envelope kerning, so the pair
+# kerns as if the glyphs were adjacent and the marker adds its exact width on
+# top; the shifted glyph becomes the reference for the next pair, so
+# consecutive markers accumulate (`A<+><+>V` = 2 widths) and a marker shifts
+# its glyph AND all following glyphs.
+#
+# A marker that is markup can never act as a marker (the tag scan consumes it
+# first): `<->` is a legal marker (the body `-` is not a registered tag),
+# `<s>` is not (the strikethrough tag) -- resolution validates the marker
+# against the effective `html_brackets` and aborts (MarkupError) when it
+# parses as markup. Standalone `s` is legal (and vanishes from the engraved
+# text). Works on PLT and TTF fonts.
+#
+# The fixture's job (text_height 0.5, Dino -> cutter 0.06, toolpath 0.44)
+# kerns by 0.1 * 0.44 = 0.044in per marker at the default width fraction.
+# No job-config is in play, so the markers are declared at the job level.
+job:
+  job_name: Kern Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+  kern_pos_string: "<+>"
+  kern_neg_string: "<->"
+  kern_width_fraction: 0.1
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Positive kern on the A/V pair: V's origin rides +0.044in past the
+    #    envelope-kerned position, widening the line by exactly one width.
+    - id: plt_wide
+      font: Dino
+      content:
+        - text: "A<+>V"
+
+    # 2. The plain control for label 1 (same glyphs, no marker).
+    - id: plt_wide_plain
+      font: Dino
+      content:
+        - text: "AV"
+
+    # 3. Negative kern on the same pair: V retreats -0.044in (no clamp), so
+    #    the line narrows by exactly one width.
+    - id: plt_narrow
+      font: Dino
+      content:
+        - text: "A<->V"
+
+    # 4. Accumulation: two positive markers on V cost two widths (+0.088in).
+    - id: plt_accumulate
+      font: Dino
+      content:
+        - text: "A<+><+>V"
+
+    # 5. kern_width_fraction 0.0: the marker consumes its characters (the
+    #    plain text is 'AV') but shifts nothing -- the line renders
+    #    bit-identically to the plain control.
+    - id: plt_zero_width
+      font: Dino
+      kern_width_fraction: 0.0
+      content:
+        - text: "A<+>V"
+
+    # 6. Leading marker: shifts the first glyph, and every following glyph
+    #    rides the running total -- a whole-line translate the ink-box
+    #    normalization cancels (documented no-op on the rendered width).
+    - id: plt_leading
+      font: Dino
+      content:
+        - text: "<+>AV"
+
+    # 7. Trailing marker: no following character, dropped at parse (documented
+    #    no-op; renders like the plain control).
+    - id: plt_trailing
+      font: Dino
+      content:
+        - text: "AV<->"
+
+    # 8. Mid-word marker inside a longer word: the pair kerns as if adjacent
+    #    and the marker adds its width on top (the TODO's motivating shape).
+    - id: plt_mid_word
+      font: Dino
+      content:
+        - text: "SOME<->TEXT"
+
+    # 9. The plain control for label 8.
+    - id: plt_mid_word_plain
+      font: Dino
+      content:
+        - text: "SOMETEXT"
+
+    # 10. Marker before a space: a space owns no glyph, so the count attaches
+    #     to the next word's first glyph (B rides +0.044in).
+    - id: plt_word_boundary
+      font: Dino
+      content:
+        - text: "A<+> B"
+
+    # 11. The plain control for label 10.
+    - id: plt_word_boundary_plain
+      font: Dino
+      content:
+        - text: "A B"
+
+    # 12. TTF parity: the marker shifts the glyph's contours (the cumulative
+    #     translate path) -- the line widens by the same 0.044in.
+    - id: ttf_wide
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "A<+>V"
+
+    # 13. The TTF plain control for label 12.
+    - id: ttf_wide_plain
+      font: ReliefSingleLineCAD-Regular
+      content:
+        - text: "AV"
+
+    # 14. Custom brackets: under «» the marker `<->` is plain literal text
+    #     (the chevrons are the delimiters), so a dash-free marker is the
+    #     natural choice -- here '~~' widens and '--' narrows.
+    - id: custom_bracket_markers
+      font: Dino
+      html_brackets: "«»"
+      kern_pos_string: "~~"
+      kern_neg_string: "--"
+      content:
+        - text: "A~~B--C"
+
+    # 15. The plain control for label 14 (A B C, no markers).
+    - id: custom_bracket_markers_plain
+      font: Dino
+      content:
+        - text: "ABC"
+
+    # 16. Kern + italic: the marker shifts the sheared glyph (the delta rides
+    #     the final cursor, so the pair kerns and shears as if adjacent).
+    - id: kern_italic
+      font: Dino
+      content:
+        - text: "A<+><i>V</i>"
+
+    # 17. The italic control for label 16 (no marker).
+    - id: kern_italic_plain
+      font: Dino
+      content:
+        - text: "A<i>V</i>"

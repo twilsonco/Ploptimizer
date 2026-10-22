@@ -164,6 +164,33 @@ JobSpec (job-level defaults)
   (or lacking envelopes) (`ge=0.0`, default `None` → **1.0** = the left
   glyph's own width). Cascades line → label → job (accepted on plates for
   schema parity only); `job-config.json` supplies the shop default.
+- `kern_pos_string` / `kern_neg_string` / `kern_width_fraction`: **manual
+  kerning** via inline marker strings (see
+  [`markup/AGENTS.md`](markup/AGENTS.md) "Manual Kerning"). Every occurrence
+  of the positive marker string in a text line's raw text is stripped (it
+  never engraves) and the following character's cursor advances
+  `+kern_width_fraction * cap height` (capline − baseline); every occurrence
+  of the negative marker retreats it by the same amount (**no clamp** — a
+  large negative value lets glyphs overlap). Multi-character strings are
+  legal (`<->`); the schema rejects an empty value, a newline, a value equal
+  to the other marker, and any markup-shaped value (`<s>`, `</i>`,
+  `<scale:0.5>` — a letters-only body the tag scan consumes first), and
+  resolution re-validates the marker against the line's **effective**
+  `html_brackets` + the tag registry (a marker that parses as markup raises
+  `MarkupError` → CLI non-zero). `kern_width_fraction` is `ge=0.0`
+  (default `None` → **0.1**; explicit `0.0` consumes marker characters while
+  shifting nothing). Adjacent markers accumulate; a leading marker shifts
+  the line's first glyph (the ink-box normalization cancels it) and a
+  trailing marker is a no-op. Works on **PLT and TTF** fonts (the PLT walk
+  adds the delta to the cursor after the pair's envelope kerning; the TTF
+  path translates each glyph by the cumulative suffix total). Cascades
+  line → label → job (accepted on plates for schema parity only);
+  `job-config.json` supplies the shop default (the strings ship as
+  `<+>` / `<->`). The schema validator enforces the bracket-agnostic
+  invariants (non-empty, no newline, the two differ at one level); the
+  markup-collision check runs at resolution against the line's EFFECTIVE
+  `html_brackets` + the tag registry (a custom-bracket job may legally use
+  `<s>` as a marker).
 - `sc_scale`: Downscale applied to ASCII lowercase `a-z` by a **small-caps**
   font — a `font` name ending in ` SC` (e.g. `"Dino SC"`), a synthetic
   registry variant of the base font (`ge=0.2`, `le=1.0`, default `None` →

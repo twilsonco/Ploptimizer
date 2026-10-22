@@ -2361,3 +2361,89 @@ class TestWalkLineCapLineEnforcement:
         enforced = render_text_line_plt_font("0", 0.5, "Dino", enforce_cap_line=True)
         assert plain.bounds()[3] > 0.5 + 1e-6
         assert enforced.bounds()[3] == pytest.approx(0.5, abs=1e-5)
+
+
+class TestKernShifts:
+    """The manual-kern cursor deltas (kern_pos_string/kern_neg_string markers)."""
+
+    def test_positive_shift_widens_the_pair(self, synth_lib: Path) -> None:
+        """A +0.1 delta on the second glyph widens the line by exactly 0.1."""
+        plain = _render("AB", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        kerned = _render(
+            "AB", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            kern_shifts=(0.0, 0.1),
+        )
+        assert kerned.bounds()[2] - plain.bounds()[2] == pytest.approx(0.1, abs=1e-9)
+
+    def test_negative_shift_narrows_the_pair(self, synth_lib: Path) -> None:
+        """A -0.25 delta narrows the pair by exactly 0.25 (no clamp)."""
+        plain = _render("CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        kerned = _render(
+            "CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            kern_shifts=(0.0, -0.25),
+        )
+        # C spans [0, 1.0]; A kerns to origin 0.5 (the diagonal penetration),
+        # spanning [0.5, 1.5]. The -0.25 delta pulls A to [0.25, 1.25].
+        assert plain.bounds()[2] == pytest.approx(1.5, abs=1e-9)
+        assert plain.bounds()[2] - kerned.bounds()[2] == pytest.approx(0.25, abs=1e-9)
+
+    def test_shift_carries_forward_and_accumulates(self, synth_lib: Path) -> None:
+        """The shifted glyph is the next pair's reference: deltas accumulate."""
+        plain = _render("ABC", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        kerned = _render(
+            "ABC", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            kern_shifts=(0.0, 0.1, 0.1),
+        )
+        # B rides +0.1 and C rides B's origin + its own +0.1: total +0.2.
+        assert kerned.bounds()[2] - plain.bounds()[2] == pytest.approx(0.2, abs=1e-9)
+
+    def test_pair_kerns_across_the_marker(self, synth_lib: Path) -> None:
+        """The envelope pair kerns as if adjacent; the delta rides on top."""
+        plain = _render("TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        kerned = _render(
+            "TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            kern_shifts=(0.0, 0.25),
+        )
+        # The T/R pair advance is unchanged by the marker; the marker adds 0.25.
+        assert kerned.bounds()[2] - plain.bounds()[2] == pytest.approx(0.25, abs=1e-9)
+
+    def test_space_entry_shifts_the_next_word(self, synth_lib: Path) -> None:
+        """A marker before a space attaches to the next word's first glyph."""
+        plain = _render("A A", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
+        kerned = _render(
+            "A A", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            kern_shifts=(0.0, 0.0, 0.1),
+        )
+        # The third entry is the second A (markers attach to the next
+        # non-space character): its origin rides +0.1, widening the line.
+        assert kerned.bounds()[2] - plain.bounds()[2] == pytest.approx(0.1, abs=1e-9)
+
+    def test_none_shifts_render_bit_identically(self, synth_lib: Path) -> None:
+        """kern_shifts=None keeps the historical geometry exactly."""
+        plain = _render("AB", 1.0, synth_lib, cutter_diameter=0.04, character_spacing=0.02)
+        explicit_zero = _render(
+            "AB", 1.0, synth_lib, cutter_diameter=0.04, character_spacing=0.02,
+            kern_shifts=(0.0, 0.0),
+        )
+        assert explicit_zero.bounds() == pytest.approx(plain.bounds())
+
+    def test_glyph_groups_exclude_the_marker(self, synth_lib: Path) -> None:
+        """Markers never engrave: one glyph group per engraved character."""
+        _block, _words, glyphs = render_text_line_plt_font_with_glyphs(
+            "AB", 1.0, "Test", library_dir=synth_lib, kern_shifts=(0.0, 0.1)
+        )
+        assert [char for char, _indices in glyphs] == ["A", "B"]
+
+    def test_length_mismatch_raises(self, synth_lib: Path) -> None:
+        """A kern_shifts array of the wrong length is a hard ValueError."""
+        with pytest.raises(ValueError, match="kern_shifts length"):
+            _render("AB", 1.0, synth_lib, kern_shifts=(0.0,))
+
+    def test_wrappers_thread_the_kwarg(self, synth_lib: Path) -> None:
+        """All three public wrappers pass kern_shifts through to the walk."""
+        kwargs = dict(cutter_diameter=0.0, character_spacing=0.0, kern_shifts=(0.0, 0.1))
+        b1 = render_text_line_plt_font("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
+        b2, _ = render_text_line_plt_font_with_words("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
+        b3, _, _ = render_text_line_plt_font_with_glyphs("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
+        assert b2.bounds() == pytest.approx(b1.bounds())
+        assert b3.bounds() == pytest.approx(b1.bounds())

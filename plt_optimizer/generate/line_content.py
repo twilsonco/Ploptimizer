@@ -311,11 +311,16 @@ def _word_tokens(line: ResolvedTextLine) -> List[_WordToken]:
         ``(token, separator_style)`` pairs (each token re-parses standalone).
     """
     left, right = split_brackets(line.html_brackets)
-    styled = parse_markup(line.text, left, right)
+    styled = parse_markup(
+        line.text, left, right, kern_pos=line.kern_pos_string, kern_neg=line.kern_neg_string
+    )
     if not styled.has_markup:
         return [(word, PLAIN) for word in line.text.split()]
     words, separators = split_styled_words_with_separators(styled)
-    tokens = [serialize_word(word, left, right) for word in words]
+    tokens = [
+        serialize_word(word, left, right, line.kern_pos_string, line.kern_neg_string)
+        for word in words
+    ]
     trailing = separators + (PLAIN,)
     return list(zip(tokens, trailing))
 

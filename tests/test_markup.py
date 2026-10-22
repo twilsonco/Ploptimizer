@@ -1892,3 +1892,135 @@ class TestVCenterWords:
         words, separators = split_styled_words_with_separators(styled)
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.v_center for sep in separators)
+
+
+class TestKernMarkers:
+    """The manual-kern marker strings (kern_pos_string / kern_neg_string)."""
+
+    def test_no_markers_keeps_the_historical_shape(self) -> None:
+        """A line parsed without marker strings is untouched."""
+        styled = parse_markup("some text")
+        assert styled.plain_text == "some text"
+        assert styled.kern_values == (0,) * 9
+        assert not styled.has_markup
+
+    def test_markers_disabled_by_default(self) -> None:
+        """Without the kern kwargs, a marker-shaped string stays literal text."""
+        styled = parse_markup("some tex<->t")
+        assert styled.plain_text == "some tex<->t"
+        assert styled.kern_values == (0,) * 12
+
+    def test_negative_marker_stripped_and_counted(self) -> None:
+        """The marker vanishes from plain_text and counts -1 on the next char."""
+        styled = parse_markup("some tex<->t", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "some text"
+        assert styled.kern_values == (0, 0, 0, 0, 0, 0, 0, 0, -1)
+        assert styled.has_markup  # a stripped marker routes the exact path
+
+    def test_positive_marker_counts_plus_one(self) -> None:
+        """The positive marker counts +1 on the following character."""
+        styled = parse_markup("A<+>B", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "AB"
+        assert styled.kern_values == (0, 1)
+
+    def test_adjacent_markers_accumulate(self) -> None:
+        """Consecutive markers stack on the same character (+2 / -3)."""
+        styled = parse_markup("A<+><+>B<-><-><->C", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "ABC"
+        assert styled.kern_values == (0, 2, -3)
+
+    def test_mixed_markers_net_out(self) -> None:
+        """A positive and a negative marker on one character net to 0."""
+        styled = parse_markup("A<+><->B", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "AB"
+        assert styled.kern_values == (0, 0)
+
+    def test_leading_marker_shifts_the_first_glyph(self) -> None:
+        """A marker at position 0 attaches to the first character."""
+        styled = parse_markup("<+>ABC", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "ABC"
+        assert styled.kern_values == (1, 0, 0)
+
+    def test_trailing_marker_is_dropped(self) -> None:
+        """A marker with no following character is a no-op (documented)."""
+        styled = parse_markup("ABC<->", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "ABC"
+        assert styled.kern_values == (0, 0, 0)
+
+    def test_marker_before_a_space_attaches_to_the_next_word(self) -> None:
+        """A space owns no glyph: the count rides the next non-space char."""
+        styled = parse_markup("foo<+> bar", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "foo bar"
+        # f o o ' ' b a r -- the +1 lands on 'b' (index 4), not the space.
+        assert styled.kern_values == (0, 0, 0, 0, 1, 0, 0)
+
+    def test_marker_inside_a_tag_span(self) -> None:
+        """A marker inside an <i> span strips and keeps the span's style."""
+        styled = parse_markup("<i>foo<->bar</i>", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == "foobar"
+        assert styled.italic_flags == (True,) * 6
+        assert styled.kern_values == (0, 0, 0, -1, 0, 0)
+
+    def test_tag_scan_wins_over_the_marker(self) -> None:
+        """A marker that is a registered tag is consumed as markup first."""
+        # <s> opens the strikethrough tag: an unclosed tag is a hard error,
+        # so the marker never strips.
+        with pytest.raises(MarkupError):
+            parse_markup("a<s>b", kern_pos="<s>", kern_neg="<->")
+        closed = parse_markup("a<s>b</s>", kern_pos="<s>", kern_neg="<->")
+        assert closed.strikethrough_flags == (False, True)
+        assert closed.kern_values == (0, 0)  # never a marker: it is markup
+
+    def test_multi_char_non_bracket_marker(self) -> None:
+        """A marker without brackets (e.g. '~~') strips like a bracketed one."""
+        styled = parse_markup("A~~B", kern_pos="~~", kern_neg=None)
+        assert styled.plain_text == "AB"
+        assert styled.kern_values == (0, 1)
+
+    def test_positive_wins_a_shared_prefix(self) -> None:
+        """The documented check order: the positive marker claims a shared prefix."""
+        # pos '<+' is a prefix of neg '<+->': the positive matches first and
+        # the leftover '- >' engraves literally.
+        styled = parse_markup("A<+->B", kern_pos="<+", kern_neg="<+->")
+        assert styled.plain_text == "A->B"
+        assert styled.kern_values == (0, 1, 0, 0)
+
+    def test_serialize_round_trips_markers(self) -> None:
+        """serialize_runs re-emits the markers; re-parsing yields identical runs."""
+        styled = parse_markup("some tex<->t", kern_pos="<+>", kern_neg="<->")
+        raw = serialize_runs(styled.runs, "<", ">", "<+>", "<->")
+        assert raw == "some tex<->t"
+        assert parse_markup(raw, kern_pos="<+>", kern_neg="<->").runs == styled.runs
+
+    def test_serialize_round_trips_inside_tag_spans(self) -> None:
+        """A marker inside a tag span re-emits inside the tags and round-trips."""
+        styled = parse_markup("<i>foo<->bar</i>", kern_pos="<+>", kern_neg="<->")
+        raw = serialize_runs(styled.runs, "<", ">", "<+>", "<->")
+        assert parse_markup(raw, kern_pos="<+>", kern_neg="<->").runs == styled.runs
+
+    def test_serialize_without_strings_drops_the_counts(self) -> None:
+        """Direct-API serialization without the strings drops markers (documented)."""
+        styled = parse_markup("A<+>B", kern_pos="<+>", kern_neg="<->")
+        assert serialize_runs(styled.runs) == "AB"
+
+    def test_serialize_word_round_trips_markers(self) -> None:
+        """A styled word token keeps its markers through serialize_word."""
+        styled = parse_markup("foo A<+>B bar", kern_pos="<+>", kern_neg="<->")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["foo", "AB", "bar"]
+        assert serialize_word(words[1], "<", ">", "<+>", "<->") == "A<+>B"
+        reparsed = parse_markup(serialize_word(words[1], "<", ">", "<+>", "<->"), kern_pos="<+>", kern_neg="<->")
+        assert reparsed.kern_values == (0, 1)
+
+    def test_custom_brackets_marker(self) -> None:
+        """A marker legal under the line's custom brackets strips correctly."""
+        # «» brackets: <s> is literal text under them and acts as a marker.
+        styled = parse_markup("a<s>b", "\u00ab", "\u00bb", kern_pos="<s>", kern_neg="</s>")
+        assert styled.plain_text == "ab"
+        assert styled.kern_values == (0, 1)
+
+    def test_blank_line_with_marker(self) -> None:
+        """A line of only markers yields an empty plain text."""
+        styled = parse_markup("<+><->", kern_pos="<+>", kern_neg="<->")
+        assert styled.plain_text == ""
+        assert styled.kern_values == ()

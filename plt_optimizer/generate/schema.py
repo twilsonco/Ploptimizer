@@ -386,6 +386,34 @@ def _validate_html_brackets_value(v: Optional[str]) -> Optional[str]:
     return v
 
 
+def _validate_kern_string_value(v: Optional[str], name: str) -> Optional[str]:
+    """Validate one manual-kern marker string (shared by all levels).
+
+    Enforces the bracket-agnostic invariants only: non-empty and no
+    newline. The markup-shape check runs at resolution time (the effective
+    ``html_brackets`` + the tag registry are not known at field-validation
+    time -- the field cascades), so a custom-bracket job may legally use a
+    marker that is markup-shaped under the default ``<>``.
+
+    Args:
+        v: The configured marker string, or ``None`` (unset).
+        name: The field name, for the error messages.
+
+    Returns:
+        The validated marker string.
+
+    Raises:
+        ValueError: If the value is empty or contains a newline.
+    """
+    if v is None:
+        return v
+    if not v:
+        raise ValueError(f"{name} must be a non-empty string when set; omit the field to disable")
+    if "\n" in v or "\r" in v:
+        raise ValueError(f"{name} cannot contain a newline")
+    return v
+
+
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -515,6 +543,35 @@ class TextAttributes(BaseModel):
             means unset. Cascades line -> label -> job (and is accepted on
             plates for schema parity, where it is not applied at that
             level).
+        kern_pos_string: Optional manual-kern **positive marker string**.
+            Every occurrence in a text line is stripped (it never engraves)
+            and replaced by a forward cursor shift of
+            ``kern_width_fraction`` of the cap height (capline - baseline)
+            applied to the following character. Multi-character strings are
+            legal (``"A<->B"``); the value must be non-empty, contain no
+            newline, and differ from ``kern_neg_string``. A marker that
+            parses as inline markup under the line's effective
+            ``html_brackets`` (e.g. ``<s>`` with the default brackets) is
+            rejected at resolution (the tag scan consumes it before the kern
+            strip, so it can never act as a marker); ``<->`` is a legal
+            marker.
+            ``None`` (unset) disables the positive marker. Cascades line ->
+            label -> job (``job-config.json`` supplies the shop default;
+            the code fallback is unset); works on PLT and TTF fonts.
+        kern_neg_string: Optional manual-kern **negative marker string**.
+            Every occurrence is stripped and replaced by a backward cursor
+            shift of ``kern_width_fraction`` of the cap height (no clamp,
+            so a large value lets glyphs overlap). Same validation as
+            ``kern_pos_string``; the two must differ. ``None`` (unset)
+            disables the negative marker. Cascades line -> label -> job
+            (``job-config.json`` supplies the shop default).        kern_width_fraction: Optional manual-kern width as a **fraction of
+            the rendered cap height** (capline - baseline): one positive
+            marker advances ``+fraction * cap height`` inches, one negative
+            marker retreats ``-fraction * cap height`` (adjacent markers
+            accumulate). Defaults to ``0.1``; only ``None`` means unset, an
+            explicit ``0.0`` consumes marker characters while shifting
+            nothing. Cascades line -> label -> job (``job-config.json``
+            supplies the shop default).
         sc_scale: Optional downscale applied to ASCII lowercase ``a-z`` by
             a **small-caps** font (a ``font`` name ending in `` SC``, e.g.
             ``"Dino SC"``): the lowercase character renders as its base
@@ -867,6 +924,51 @@ class TextAttributes(BaseModel):
             "PLT-extracted glyph pairs without overlapping height (or "
             "lacking envelopes). Cascades line -> label -> job (fallback "
             "1.0 = the left glyph's own width); explicit 0.0 is honored."
+        ),
+    )
+    kern_pos_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Manual-kern positive marker string: every occurrence in a text "
+            "line is stripped (it never engraves) and replaced by a forward "
+            "cursor shift of kern_width_fraction * cap height (capline - "
+            "baseline) applied to the following character. Multi-character "
+            "strings are legal (e.g. '<->'); the value must be non-empty, "
+            "contain no newline, and differ from kern_neg_string. A marker "
+            "that parses as inline markup under the line's effective "
+            "html_brackets (e.g. '<s>' with the default brackets - the "
+            "strikethrough tag consumes it before the kern strip) is "
+            "rejected at resolution; '<->' is a legal marker. Unset (None) "
+            "disables the positive marker. Cascades line -> label -> job "
+            "(job-config.json supplies the shop default); works on PLT and "
+            "TTF fonts."
+        ),
+    )
+    kern_neg_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Manual-kern negative marker string: every occurrence in a text "
+            "line is stripped (it never engraves) and replaced by a "
+            "backward cursor shift of kern_width_fraction * cap height "
+            "(capline - baseline) applied to the following character (no "
+            "clamp, so a large value lets glyphs overlap). Same validation "
+            "as kern_pos_string; the two strings must differ. Unset (None) "
+            "disables the negative marker. Cascades line -> label -> job "
+            "(job-config.json supplies the shop default); works on PLT and "
+            "TTF fonts."
+        ),
+    )
+    kern_width_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Manual-kern width as a fraction of the rendered cap height "
+            "(capline - baseline): one kern_pos_string marker advances the "
+            "cursor by +fraction * cap height, one kern_neg_string marker "
+            "retreats it by -fraction * cap height (adjacent markers "
+            "accumulate). Cascades line -> label -> job (fallback 0.1); "
+            "explicit 0.0 is honored (markers consume their characters but "
+            "shift nothing)."
         ),
     )
     sc_scale: Optional[float] = Field(
@@ -1258,6 +1360,67 @@ class TextAttributes(BaseModel):
                 alphanumeric character.
         """
         return _validate_html_brackets_value(value)
+
+    @field_validator("kern_pos_string")
+    @classmethod
+    def _validate_kern_pos_string(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the manual-kern positive marker (shared rule with plates).
+
+        Args:
+            value: The configured marker string, or ``None`` (unset).
+
+        Returns:
+            The validated marker string.
+
+        Raises:
+            ValueError: If the value is empty, contains a newline, or has
+                the shape of a default-bracket markup tag.
+        """
+        return _validate_kern_string_value(value, "kern_pos_string")
+
+    @field_validator("kern_neg_string")
+    @classmethod
+    def _validate_kern_neg_string(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the manual-kern negative marker (shared rule with plates).
+
+        Args:
+            value: The configured marker string, or ``None`` (unset).
+
+        Returns:
+            The validated marker string.
+
+        Raises:
+            ValueError: If the value is empty, contains a newline, or has
+                the shape of a default-bracket markup tag.
+        """
+        return _validate_kern_string_value(value, "kern_neg_string")
+
+    @model_validator(mode="after")
+    def _reject_equal_kern_strings(self) -> TextAttributes:
+        """Reject identical positive and negative kern markers.
+
+        Equal strings are ambiguous (the sign of the shift would depend on
+        the strip's check order), so the pair must differ wherever both are
+        set at the same cascade level. A cross-level collision (the job
+        sets one, the label the other) resolves per-field; the strip's
+        documented positive-first order decides the sign there.
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ValueError: If both strings are set and equal.
+        """
+        if (
+            self.kern_pos_string is not None
+            and self.kern_neg_string is not None
+            and self.kern_pos_string == self.kern_neg_string
+        ):
+            raise ValueError(
+                "kern_pos_string and kern_neg_string must differ; both are "
+                f"{self.kern_pos_string!r}"
+            )
+        return self
 
     @field_validator("font")
     @classmethod
@@ -2248,6 +2411,26 @@ class PlateSpec(BaseModel):
             "level)."
         ),
     )
+    kern_pos_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Manual-kern positive marker string (schema parity; not applied at plate level)."
+        ),
+    )
+    kern_neg_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Manual-kern negative marker string (schema parity; not applied at plate level)."
+        ),
+    )
+    kern_width_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Manual-kern width as a fraction of the rendered cap height "
+            "(schema parity; not applied at plate level)."
+        ),
+    )
     sc_scale: Optional[float] = Field(
         default=None,
         ge=0.2,
@@ -2553,6 +2736,61 @@ class PlateSpec(BaseModel):
                 alphanumeric character.
         """
         return _validate_html_brackets_value(value)
+
+    @field_validator("kern_pos_string")
+    @classmethod
+    def _validate_kern_pos_string(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the parity ``kern_pos_string`` field like the cascading one.
+
+        Args:
+            value: The configured marker string, or ``None`` (unset).
+
+        Returns:
+            The validated marker string.
+
+        Raises:
+            ValueError: If the value is empty, contains a newline, or has
+                the shape of a default-bracket markup tag.
+        """
+        return _validate_kern_string_value(value, "kern_pos_string")
+
+    @field_validator("kern_neg_string")
+    @classmethod
+    def _validate_kern_neg_string(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the parity ``kern_neg_string`` field like the cascading one.
+
+        Args:
+            value: The configured marker string, or ``None`` (unset).
+
+        Returns:
+            The validated marker string.
+
+        Raises:
+            ValueError: If the value is empty, contains a newline, or has
+                the shape of a default-bracket markup tag.
+        """
+        return _validate_kern_string_value(value, "kern_neg_string")
+
+    @model_validator(mode="after")
+    def _reject_equal_kern_strings(self) -> PlateSpec:
+        """Reject identical parity kern markers (same rule as TextAttributes).
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ValueError: If both strings are set and equal.
+        """
+        if (
+            self.kern_pos_string is not None
+            and self.kern_neg_string is not None
+            and self.kern_pos_string == self.kern_neg_string
+        ):
+            raise ValueError(
+                "kern_pos_string and kern_neg_string must differ; both are "
+                f"{self.kern_pos_string!r}"
+            )
+        return self
 
     @field_validator("font")
     @classmethod

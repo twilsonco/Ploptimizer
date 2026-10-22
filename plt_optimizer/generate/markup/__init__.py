@@ -62,6 +62,27 @@ The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``,
 tool, immune to markup-induced cutter changes) and ``<vc>`` (vertical
 centering: the wrapped segment's glyphs are raised or lowered so each glyph's
 ink is centred between the baseline and the capline).
+
+Manual kerning
+--------------
+The cascading ``kern_pos_string`` / ``kern_neg_string`` fields add
+**marker strings** (not tags -- there is no open/close form): every
+occurrence of the positive marker in the raw text is stripped and replaced
+by a forward cursor shift, every occurrence of the negative marker by a
+backward one (the width is the cascading ``kern_width_fraction`` of the cap
+height, applied by the pipeline). ``parse_markup`` accepts the two strings
+and performs the stripping after the tag scan, so a marker only matches in
+**literal** text -- ``<->`` is a legal marker (the body ``-`` is not a
+registered tag, so it survives the scan as literal), while ``<s>`` is not
+(the strikethrough tag consumes it first; the schema validator rejects a
+marker that *is* markup). The count attaches to the character the marker
+precedes (:attr:`Style.kern`, a signed int so adjacent markers accumulate),
+which keeps ``plain_text`` marker-free and every per-character array
+aligned with it. A trailing marker (after the last character) has no
+following character and is dropped; a leading marker shifts the line's
+first glyph (the line's ink box normalizes the whole-line translate).
+:func:`serialize_runs` re-emits the markers before the flagged run's text,
+so the line-content reflow round-trips them through the raw text.
 """
 
 from __future__ import annotations
@@ -233,6 +254,17 @@ class Style:
             hyphen, colon, en/em dash, ``=`` ...), so the tag is the manual
             override for any other character. Applying it to an already
             centred run is the identity (a flag tag).
+        kern: The signed **manual-kern marker count** attached to the run's
+            first character (``0`` = unmarked). One ``kern_pos_string``
+            occurrence adds ``+1``, one ``kern_neg_string`` adds ``-1``, and
+            adjacent markers accumulate (``<+><+>`` = ``+2``). The marker
+            strings never engrave -- ``parse_markup`` strips them from the
+            raw text and attaches the count here, so the pipeline converts
+            it into a cursor shift of ``kern * kern_width_fraction * cap
+            height`` inches before the run's first glyph. The count rides
+            the style (never a stored positional array), so a pre-pass that
+            rewrites the line's text (``with_markup``, the line-content
+            reflow) keeps every marker on its own character.
     """
 
     italic: bool = False
@@ -246,6 +278,7 @@ class Style:
     cutter: Optional[float] = None
     original_cutter: bool = False
     v_center: bool = False
+    kern: int = 0
 
 
 #: The style of unmarked text (every field at its default).
@@ -778,6 +811,23 @@ class StyledText:
         """
         return tuple(style.v_center for style in _per_char_styles(self))
 
+    @property
+    def kern_values(self) -> Tuple[int, ...]:
+        """Per-character signed manual-kern marker counts, aligned with
+        :attr:`plain_text`.
+
+        ``0`` at every position no ``kern_pos_string`` / ``kern_neg_string``
+        marker precedes; ``+1`` per positive marker, ``-1`` per negative
+        marker (adjacent markers accumulate). The marker strings themselves
+        never appear in :attr:`plain_text` -- :func:`parse_markup` strips
+        them -- so this array is the exact per-character cursor-delta the
+        pipeline multiplies by ``kern_width_fraction * cap height``. Mirrors
+        :attr:`scale_values`: the count rides the runs, so a pre-pass that
+        rewrites the line's text (``with_markup``, the line-content reflow)
+        keeps every marker on its own character.
+        """
+        return tuple(style.kern for style in _per_char_styles(self))
+
 
 @dataclass(frozen=True)
 class Piece:
@@ -840,6 +890,73 @@ def _per_char_styles(styled: StyledText) -> Tuple[Style, ...]:
     return tuple(styles)
 
 
+def _strip_kern_markers(
+    runs: Sequence[Run],
+    kern_pos: Optional[str],
+    kern_neg: Optional[str],
+) -> Tuple[Tuple[Run, ...], int]:
+    """Strip manual-kern marker strings from runs, attaching signed counts.
+
+    Runs the leftmost-first scan over the runs' concatenated plain text:
+    every ``kern_pos`` occurrence counts ``+1`` and every ``kern_neg``
+    occurrence counts ``-1`` (checked in that order, so a positive marker
+    wins a shared prefix). The marker characters are REMOVED from the text
+    and the accumulated count attaches to the style of the next
+    NON-SPACE character (``Style.kern``), so ``plain_text`` stays
+    marker-free and every per-character array keeps its 1:1 alignment.
+    A marker with no following non-space character (end of line, or only
+    whitespace to the end) is dropped -- there is nothing to kern.
+
+    Args:
+        runs: The merged runs from the tag scan (document order).
+        kern_pos: The positive marker string, or ``None`` (off).
+        kern_neg: The negative marker string, or ``None`` (off).
+
+    Returns:
+        ``(stripped_runs, removed_characters)`` -- the runs rebuilt after
+        the removal (adjacent equal styles merged), and the number of
+        characters removed (0 means the line carried no markers, so callers
+        keep the historical bit-identical path).
+    """
+    plain = "".join(run.text for run in runs)
+    styles: List[Style] = []
+    for run in runs:
+        styles.extend([run.style] * len(run.text))
+    kept_chars: List[str] = []
+    kept_styles: List[Style] = []
+    pending = 0
+    removed = 0
+    index = 0
+    length = len(plain)
+    while index < length:
+        if kern_pos and plain.startswith(kern_pos, index):
+            pending += 1
+            removed += len(kern_pos)
+            index += len(kern_pos)
+            continue
+        if kern_neg and plain.startswith(kern_neg, index):
+            pending -= 1
+            removed += len(kern_neg)
+            index += len(kern_neg)
+            continue
+        style = styles[index]
+        if pending and not plain[index].isspace():
+            style = replace(style, kern=style.kern + pending)
+            pending = 0
+        kept_chars.append(plain[index])
+        kept_styles.append(style)
+        index += 1
+    # A trailing marker (pending != 0) has no following non-space character:
+    # dropped, exactly like a marker at the very end of the line.
+    merged: List[Run] = []
+    for char, style in zip(kept_chars, kept_styles):
+        if merged and merged[-1].style == style:
+            merged[-1] = Run(merged[-1].text + char, style)
+        else:
+            merged.append(Run(char, style))
+    return tuple(merged), removed
+
+
 def split_brackets(html_brackets: str) -> Tuple[str, str]:
     """Split an ``html_brackets`` value into its left/right delimiters.
 
@@ -871,6 +988,8 @@ def parse_markup(
     left: str = "<",
     right: str = ">",
     font_resolver: Optional[Callable[[str], str]] = None,
+    kern_pos: Optional[str] = None,
+    kern_neg: Optional[str] = None,
 ) -> StyledText:
     """Parse one text line's raw text into styled runs.
 
@@ -879,6 +998,17 @@ def parse_markup(
     first right delimiter is a tag only when it matches a registered tag
     name (open) or ``/name`` (close); any other body -- and any left
     delimiter with no right delimiter after it -- is literal text.
+
+    After the tag scan, the manual-kern marker strings (``kern_pos`` /
+    ``kern_neg``, the cascading ``kern_pos_string`` / ``kern_neg_string``
+    fields) are stripped from the literal text by
+    :func:`_strip_kern_markers`: every occurrence is REMOVED and a signed
+    count attaches to the following character's :attr:`Style.kern` (the
+    pipeline turns the count into a cursor shift). Because stripping runs
+    AFTER the scan, a marker only matches literal text -- ``<->`` is a legal
+    marker (unregistered body), while a marker that is itself a registered
+    tag (``<s>``) is consumed as markup and never strips (the schema
+    validator rejects such a marker at spec level).
 
     Args:
         text: The raw line text (may contain markup).
@@ -892,10 +1022,18 @@ def parse_markup(
             :class:`MarkupError` here (fail-loud, like an unclosed tag). A
             resolver's own :class:`ValueError` is wrapped. ``None`` (direct
             API / test callers) keeps the decoded argument verbatim.
+        kern_pos: The positive manual-kern marker string
+            (``kern_pos_string``), or ``None`` (disabled).
+        kern_neg: The negative manual-kern marker string
+            (``kern_neg_string``), or ``None`` (disabled).
 
     Returns:
         The parsed :class:`StyledText`. A text with no parsed tag returns a
-        single plain run with ``has_markup=False``.
+        single plain run with ``has_markup=False``. Stripping at least one
+        kern marker sets ``has_markup=True`` (the line's runs carry
+        :attr:`Style.kern` counts, so it must route through the exact
+        per-character render path, the ``enforce_cap_line`` gate
+        precedent).
 
     Crossing spans are legal: a close tag closes the most recent open tag
     with that name (not necessarily the innermost), and each tag applies to
@@ -1038,6 +1176,10 @@ def parse_markup(
         )
 
     merged = _merge_runs(runs)
+    if kern_pos or kern_neg:
+        merged, removed = _strip_kern_markers(merged, kern_pos, kern_neg)
+        if removed:
+            has_markup = True
     plain = "".join(run.text for run in merged)
     return StyledText(runs=merged, plain_text=plain, has_markup=has_markup)
 
@@ -1046,6 +1188,8 @@ def serialize_runs(
     runs: Sequence[Run],
     left: str = "<",
     right: str = ">",
+    kern_pos: Optional[str] = None,
+    kern_neg: Optional[str] = None,
 ) -> str:
     """Rebuild raw markup text from styled runs (minimal tag nesting).
 
@@ -1058,10 +1202,23 @@ def serialize_runs(
     through the raw text. The nesting order the registry defines re-parses
     to the same runs.
 
+    A run whose style carries a nonzero :attr:`Style.kern` count re-emits
+    ``abs(kern)`` copies of the marker string before the run's text (the
+    positive string for ``kern > 0``, the negative for ``kern < 0``), so a
+    manual-kern marker survives the reflow's raw-text round-trip (the
+    ``<scale:N>`` argument-serializer precedent). The markers emit INSIDE
+    the run's open tags, immediately before its text: re-parsing strips
+    them from the literal span and re-attaches the count to the following
+    character, reproducing the runs exactly. ``kern_pos``/``kern_neg``
+    ``None`` (the direct-API default) drops a kern count with no marker to
+    emit -- callers round-tripping kerned text must pass the strings.
+
     Args:
         runs: The runs to serialize (document order).
         left: Left delimiter to emit.
         right: Right delimiter to emit.
+        kern_pos: The positive manual-kern marker string to re-emit.
+        kern_neg: The negative manual-kern marker string to re-emit.
 
     Returns:
         The raw markup text (no tags when every run is :data:`PLAIN`).
@@ -1098,6 +1255,10 @@ def serialize_runs(
             open_tags.append(spec.name)
             open_styles.append(run.style)
             current = spec.apply(current, arg_text)
+        if run.style.kern:
+            marker = kern_pos if run.style.kern > 0 else kern_neg
+            if marker:
+                out.append(marker * abs(run.style.kern))
         out.append(run.text)
     while open_tags:
         top = open_tags.pop()
@@ -1105,7 +1266,13 @@ def serialize_runs(
     return "".join(out)
 
 
-def serialize_word(word: StyledWord, left: str = "<", right: str = ">") -> str:
+def serialize_word(
+    word: StyledWord,
+    left: str = "<",
+    right: str = ">",
+    kern_pos: Optional[str] = None,
+    kern_neg: Optional[str] = None,
+) -> str:
     """Serialize one styled word back to raw markup text.
 
     A style-uniform word becomes ``<i>word</i>`` (italic) or the bare word
@@ -1117,12 +1284,14 @@ def serialize_word(word: StyledWord, left: str = "<", right: str = ">") -> str:
         word: The styled word to serialize.
         left: Left delimiter to emit.
         right: Right delimiter to emit.
+        kern_pos: The positive manual-kern marker string to re-emit.
+        kern_neg: The negative manual-kern marker string to re-emit.
 
     Returns:
         The raw markup text of the word.
     """
     runs = [Run(piece.text, piece.style) for piece in word.pieces]
-    return serialize_runs(runs, left, right)
+    return serialize_runs(runs, left, right, kern_pos, kern_neg)
 
 
 def split_styled_words(styled: StyledText) -> Tuple[StyledWord, ...]:

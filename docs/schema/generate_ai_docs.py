@@ -108,6 +108,23 @@ _FALLBACK_NOTES: dict[str, str] = {
     "ladder at factor * multiplier, clamped to 0.30 with a WARNING). On single-stroke PLT and "
     "TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is "
     "inert. Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_KERN_POS_STRING": "None = the manual-kern positive marker is disabled (no "
+    "occurrence is stripped). When set (kern_pos_string, cascades line/label/job; job-config "
+    "supplies the shop default), every occurrence of the string in a text line is stripped - "
+    "it never engraves - and the following character's cursor advances by kern_width_fraction "
+    "of the cap height. Multi-character markers are legal ('<->'); the value must be non-empty, "
+    "newline-free, and not markup-shaped (a letters-only body like '<s>' is consumed by the "
+    "tag scan, so the schema rejects it; the resolution-time check validates against the "
+    "effective html_brackets). Works on PLT and TTF fonts.",
+    "DEFAULT_KERN_NEG_STRING": "None = the manual-kern negative marker is disabled. When set "
+    "(kern_neg_string), every occurrence is stripped and the following character's cursor "
+    "retreats by kern_width_fraction of the cap height (no clamp, so a large value lets glyphs "
+    "overlap). Same validation as kern_pos_string; the two strings must differ.",
+    "DEFAULT_KERN_WIDTH_FRACTION": "0.1 = the manual-kern width as a fraction of the rendered "
+    "cap height (capline - baseline): one marker shifts the cursor by this fraction of the cap "
+    "height (positive string forward, negative backward; adjacent markers accumulate). "
+    "Cascades line/label/job; job-config supplies the shop default. Explicit 0.0 is honored "
+    "(markers consume their characters, shift nothing).",
     "DEFAULT_CUTTER_LADDER_TOLERANCE": "3.0 = the narrower/wider snap tolerance the ladder "
     "applies when a <scale:N> run's effective height (N * text_height) has no exact "
     "tools.json rung: it prefers the narrower tool unless that is more than "

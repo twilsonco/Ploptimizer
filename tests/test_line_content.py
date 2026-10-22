@@ -1270,3 +1270,84 @@ def test_v_center_auto_set_follows_the_reflowed_text() -> None:
     for line in moved:
         index = line.plain_text.index("-")
         assert line.v_center_flags[index] is True
+
+
+def _kern_line(
+    text: str,
+    *,
+    kern_pos: str = "<+>",
+    kern_neg: str = "<->",
+    kern_width: float = 0.1,
+    **kwargs: object,
+) -> ResolvedTextLine:
+    """Build an enabled resolved line carrying the manual-kern marker strings.
+
+    The line is parsed the way resolution parses it (``plain_text`` /
+    ``styled_runs`` marker-free), so ``with_markup`` on an unchanged text
+    returns a line whose plain text is already stripped -- the production
+    state the reflow's probe measures.
+    """
+    from dataclasses import replace as _replace
+
+    from plt_optimizer.generate.markup import parse_markup
+
+    base = _replace(
+        _line(text, **kwargs),  # type: ignore[arg-type]
+        kern_pos_string=kern_pos,
+        kern_neg_string=kern_neg,
+        kern_width_fraction=kern_width,
+    )
+    styled = parse_markup(text, "<", ">", kern_pos=kern_pos, kern_neg=kern_neg)
+    return _replace(base, plain_text=styled.plain_text, styled_runs=styled.runs)
+
+
+class TestKernAwareReflow:
+    """Manual-kern markers survive the word-level reflow's raw-text round-trip."""
+
+    def test_word_tokens_strip_the_marker_from_plain_and_reemit_it(self) -> None:
+        """A marker inside a word tokenizes as a stripped, re-emittable token."""
+        tokens = _word_tokens(_kern_line("A<+>B CC"))
+        # The first word carries the marker; the token re-parses to it.
+        assert tokens[0][0] == "A<+>B"
+        assert tokens[1][0] == "CC"
+
+    def test_marker_survives_the_reflow_text_swap(self) -> None:
+        """A kerned word that moves to another line keeps its marker count.
+
+        Widths (plain chars x 0.1 + space x 0.2): line 1 'AAAA' (0.4) +
+        'A<+>BB' (plain 'ABB' = 0.3), line 2 'C' (0.1). The balanced fill
+        moves the kerned word down: [AAAA] / [A<+>BB C] (max 0.6) beats
+        [AAAA A<+>BB] / [C] (max 0.9).
+        """
+        label = _label(
+            "m",
+            _kern_line("AAAA A<+>BB"),
+            _kern_line("C"),
+        )
+        result = _reflow_label(label, _plain_probe())
+        assert result is not None
+        first, second = result.content
+        assert first.text == "AAAA"
+        # The kerned word moved to line 2 with its marker intact.
+        assert second.text == "A<+>BB C"
+        assert second.plain_text == "ABB C"  # marker stripped from plain text
+        assert second.kern_values == (0, 1, 0, 0, 0)  # +1 rides 'B'
+        assert second.kern_shifts_inches[1] == pytest.approx(
+            0.1 * second.toolpath_text_height
+        )
+
+    def test_probe_measures_the_marker_free_width(self) -> None:
+        """A marker contributes no width: the probe sees the plain glyph count."""
+        kerned = _kern_line("A<+>B")
+        plain = _kern_line("AB")
+        probe = _plain_probe()
+        # with_markup strips the marker, so the two measure identically.
+        assert probe(kerned.with_markup(kerned.text)) == probe(plain.with_markup(plain.text))
+
+    def test_kern_free_line_reflows_unchanged(self) -> None:
+        """A line with the markers configured but absent reflows bit-identically."""
+        label = _label("m", _kern_line("AAAA BB"), _kern_line("CC"))
+        result = _reflow_label(label, _plain_probe())
+        assert result is not None
+        for line in result.content:
+            assert line.kern_values in ((), (0,) * len(line.plain_text))
