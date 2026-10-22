@@ -386,6 +386,19 @@
           "description": "Break a strikethrough (<s>) at the spaces between words: false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
           "title": "Strikethrough Break Spaces"
         },
+        "v_center_chars": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character set auto-centred vertically between the baseline and the capline: every text character occurring in this string is raised or lowered (a pure vertical translate) so its own ink is centred on the cap-band midline (half the rendered cap height above the baseline) - the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> markup tag applies the same centering to any other characters it wraps. Empty string '' disables the auto-apply (the <vc> tag keeps working on its own). Cascades line -> label -> job (code fallback '' = auto-apply off; job-config.json ships the shop set '-:\u2013\u2014=<>'); an explicit '' is honored.",
+          "title": "V Center Chars"
+        },
         "cutter_size": {
           "anyOf": [
             {
@@ -1318,6 +1331,19 @@
           "description": "Strikethrough (<s>) break-at-spaces flag (schema parity; not applied at plate level).",
           "title": "Strikethrough Break Spaces"
         },
+        "v_center_chars": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Auto-vertical-centred character set (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "V Center Chars"
+        },
         "cutter_size": {
           "anyOf": [
             {
@@ -2036,6 +2062,19 @@
           "description": "Break a strikethrough (<s>) at the spaces between words: false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
           "title": "Strikethrough Break Spaces"
         },
+        "v_center_chars": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character set auto-centred vertically between the baseline and the capline: every text character occurring in this string is raised or lowered (a pure vertical translate) so its own ink is centred on the cap-band midline (half the rendered cap height above the baseline) - the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> markup tag applies the same centering to any other characters it wraps. Empty string '' disables the auto-apply (the <vc> tag keeps working on its own). Cascades line -> label -> job (code fallback '' = auto-apply off; job-config.json ships the shop set '-:\u2013\u2014=<>'); an explicit '' is honored.",
+          "title": "V Center Chars"
+        },
         "cutter_size": {
           "anyOf": [
             {
@@ -2575,6 +2614,19 @@
       "default": null,
       "description": "Break a strikethrough (<s>) at the spaces between words: false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
       "title": "Strikethrough Break Spaces"
+    },
+    "v_center_chars": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Character set auto-centred vertically between the baseline and the capline: every text character occurring in this string is raised or lowered (a pure vertical translate) so its own ink is centred on the cap-band midline (half the rendered cap height above the baseline) - the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> markup tag applies the same centering to any other characters it wraps. Empty string '' disables the auto-apply (the <vc> tag keeps working on its own). Cascades line -> label -> job (code fallback '' = auto-apply off; job-config.json ships the shop set '-:\u2013\u2014=<>'); an explicit '' is honored.",
+      "title": "V Center Chars"
     },
     "cutter_size": {
       "anyOf": [

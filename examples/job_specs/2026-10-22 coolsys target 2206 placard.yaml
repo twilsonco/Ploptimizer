@@ -1,0 +1,32 @@
+# UV White text on black background
+
+job:
+  job_name: Coolsys Target 2206 Placard
+  width: 6
+  height: 4
+  text_height: 0.25
+  font: dino
+  text_h_alignment: center
+  holes:
+    - location: corners
+
+  labels:
+    - id: a
+      content:
+        - text: "2206 CO 2T"
+        - text: "REFRIGERANT : 1150 LBS R744"
+        - text: "REFRIGERANT OIL : RL68HB 7 GAL"
+        - text: "COOLSYS C&I, INC."
+        - text: "145 S. STATE COLLEGE BLVD., STE. 200"
+        - text: "BREA, CA 92821"
+        - text: "888-473-3715"
+        - text: "START UP : 30-SEPT-2026"
+
+# 2206 CO 2T
+# REFRIGERANT : 1150 LBS R744
+# REFRIGERANT OIL: RL68HB 7 GAL
+# COOLSYS C&I, INC.
+# 145 S. STATE COLLEGE BLVD., STE. 200
+# BREA, CA 92821
+# 888-473-3715
+# START UP : 30-SEPTEMBER-2026

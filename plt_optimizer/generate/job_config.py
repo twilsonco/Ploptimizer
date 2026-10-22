@@ -459,6 +459,19 @@ class JobDefaults(BaseModel):
             "space stays bare. Unset falls back to false."
         ),
     )
+    v_center_chars: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default auto-vertical-centred character set (job layer): every "
+            "text character occurring in this string is raised or lowered so "
+            "its own ink is centred between the baseline and the capline "
+            "(the cap-band midline) -- the characters a font typically draws "
+            "too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline "
+            "<vc>...</vc> tag applies the same centering to any characters it "
+            "wraps. Empty string '' disables the auto-apply. Unset falls back "
+            "to '' (auto-apply off); the shop config ships '-:–—=<>'."
+        ),
+    )
     target_boldness_factor: Optional[float] = Field(
         default=None,
         ge=0.05,
@@ -818,6 +831,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "underline_break_spaces",
     "strikethrough_offset_fraction",
     "strikethrough_break_spaces",
+    "v_center_chars",
     "target_boldness_factor",
     "multistroke_overlap_ratio",
     "bold_boldness_multiplier",

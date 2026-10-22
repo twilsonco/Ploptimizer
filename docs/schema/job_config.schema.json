@@ -471,6 +471,19 @@
       "description": "Default strikethrough (<s>) break-at-spaces flag (job layer): false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Unset falls back to false.",
       "title": "Strikethrough Break Spaces"
     },
+    "v_center_chars": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default auto-vertical-centred character set (job layer): every text character occurring in this string is raised or lowered so its own ink is centred between the baseline and the capline (the cap-band midline) -- the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> tag applies the same centering to any characters it wraps. Empty string '' disables the auto-apply. Unset falls back to '' (auto-apply off); the shop config ships '-:\u2013\u2014=<>'.",
+      "title": "V Center Chars"
+    },
     "target_boldness_factor": {
       "anyOf": [
         {

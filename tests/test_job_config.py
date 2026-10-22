@@ -56,6 +56,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "underline_break_spaces": True,
     "strikethrough_offset_fraction": 0.22,
     "strikethrough_break_spaces": True,
+    "v_center_chars": "-:",
     "target_boldness_factor": 0.18,
     "multistroke_overlap_ratio": 0.35,
     "bold_boldness_multiplier": 2.0,
@@ -312,6 +313,7 @@ class TestJobDefaultsModel:
         assert "underline_break_spaces" not in REQUIRED_WHEN_UNCONFIGURED
         assert "strikethrough_offset_fraction" not in REQUIRED_WHEN_UNCONFIGURED
         assert "strikethrough_break_spaces" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "v_center_chars" not in REQUIRED_WHEN_UNCONFIGURED
         assert JobDefaults().space_width_fraction is None
         assert JobDefaults().min_glyph_width_fraction is None
         assert JobDefaults().kerning_window_fraction is None
@@ -373,6 +375,11 @@ class TestJobDefaultsModel:
         assert JobDefaults().strikethrough_break_spaces is None
         assert JobDefaults(strikethrough_break_spaces=True).strikethrough_break_spaces is True
         assert JobDefaults(strikethrough_break_spaces=False).strikethrough_break_spaces is False
+        # Unset v_center_chars means the shipped default set, so None is the
+        # cascade's "unset"; "" is the meaningful auto-apply-off value.
+        assert JobDefaults().v_center_chars is None
+        assert JobDefaults(v_center_chars="-:").v_center_chars == "-:"
+        assert JobDefaults(v_center_chars="").v_center_chars == ""
 
     def test_bold_boldness_multiplier_defaults_and_bounds(self) -> None:
         """The job layer defaults the multiplier to None and bounds it [1.0, 4.0]."""
@@ -510,6 +517,7 @@ class TestApplyJobConfigDefaults:
         assert filled["underline_break_spaces"] is True
         assert filled["strikethrough_offset_fraction"] == 0.22
         assert filled["strikethrough_break_spaces"] is True
+        assert filled["v_center_chars"] == "-:"
         assert filled["target_boldness_factor"] == 0.18
         assert filled["multistroke_overlap_ratio"] == 0.35
         assert filled["bold_boldness_multiplier"] == 2.0
@@ -1062,11 +1070,14 @@ class TestParseYamlWithJobConfig:
         assert job.min_hole_margin == 0.1875
         assert job.hole_text_collision_distance == 0.1
         assert job.space_width_fraction == 0.6
-        assert job.min_glyph_width_fraction == 0.14
-        assert job.kerning_window_fraction == 0.01
+        # Shop-tuned kerning/width values, re-pinned after the 2026-10-22
+        # job-config.json tuning. tests/AGENTS.md stale-pin pattern -
+        # re-pin, keep config.
+        assert job.min_glyph_width_fraction == 0.25
+        assert job.kerning_window_fraction == 0.1
         assert job.kerning_penetration_scale == 1.0
-        assert job.kerning_recession_scale == 0.0
-        assert job.kerning_min_gap_fraction == 0.045
+        assert job.kerning_recession_scale == 1.0
+        assert job.kerning_min_gap_fraction == 0.05
         assert job.fallback_advance_fraction == 1.0
         assert job.sc_scale == 0.8
         assert job.supersubscript_downscale == 0.6
@@ -1083,6 +1094,9 @@ class TestParseYamlWithJobConfig:
         # stroke.
         assert job.strikethrough_offset_fraction == 0.4
         assert job.strikethrough_break_spaces is False
+        # The shop ships the high-sitting characters (hyphen, colon, en/em dash,
+        # '=', '<', '>') auto-centred between the baseline and the capline.
+        assert job.v_center_chars == "-:–—=<>"
         assert job.target_boldness_factor == 0.14
         assert job.multistroke_overlap_ratio == 0.25
         assert job.bold_boldness_multiplier == 1.5

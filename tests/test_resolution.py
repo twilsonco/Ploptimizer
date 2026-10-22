@@ -65,6 +65,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_UNDERLINE_OFFSET_FRACTION,
     DEFAULT_USE_BASELINE_SPACING,
     DEFAULT_V_CENTER_BY_CONTENT,
+    DEFAULT_V_CENTER_CHARS,
     DESIGN_MULTISTROKE_OVERLAP,
     IDEAL_CUTTER_MAP,
     MAX_TARGET_BOLDNESS_FACTOR,
@@ -7108,4 +7109,159 @@ class TestOriginalCutterResolution:
         assert line.bold_cutter_diameter == pytest.approx(0.09)
         # ...but no character engraves with it, so it is not a layer.
         assert line.per_char_cutters == (0.06,) * 10
+        assert line.used_cutters == (0.06,)
+
+
+class TestVCenterCharsCascade:
+    """v_center_chars must cascade line -> label -> job -> default."""
+
+    def test_default_when_all_omit(self) -> None:
+        """All levels omitting yields the '' code fallback (auto-apply off)."""
+        job = JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
+        )
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.v_center_chars is DEFAULT_V_CENTER_CHARS
+        assert DEFAULT_V_CENTER_CHARS == ""
+
+    def test_explicit_empty_string_is_honored(self) -> None:
+        """An intentional "" (auto-apply disabled) is not treated as unset."""
+        job = JobSpec(
+            job_name="J",
+            v_center_chars="-",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X", v_center_chars="")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].v_center_chars == ""
+
+    def test_job_value_used_when_label_omits(self) -> None:
+        """Job-level value cascades to the line."""
+        job = JobSpec(
+            job_name="J",
+            v_center_chars="=",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
+        )
+        assert resolve_job_spec(job)[0].content[0].v_center_chars == "="
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level value wins over job."""
+        job = JobSpec(
+            job_name="J",
+            v_center_chars="=",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    v_center_chars=":",
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].v_center_chars == ":"
+
+    def test_line_overrides_label(self) -> None:
+        """Text-line value wins over label and job."""
+        job = JobSpec(
+            job_name="J",
+            v_center_chars="=",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    v_center_chars=":",
+                    content=[TextLine(text="X", v_center_chars="-")],
+                )
+            ],
+        )
+        assert resolve_job_spec(job)[0].content[0].v_center_chars == "-"
+
+
+class TestVCenterFlags:
+    """The per-character vertical-centering selection (the <vc> tag ∪ the set)."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label Dino job over ``lines``."""
+        job_kwargs.setdefault("font", "Dino")
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def test_the_tag_selects_its_span(self) -> None:
+        """A <vc> run centres its characters; the rest stay unmarked."""
+        job = self._job(TextLine(text="A<vc>-</vc>C", v_center_chars=""))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "A-C"
+        assert line.has_v_center is True
+        assert line.v_center_flags == (False, True, False)
+
+    def test_the_character_set_auto_selects_without_markup(self) -> None:
+        """A markup-free line auto-centres the characters of the set."""
+        job = self._job(TextLine(text="12-34:56", v_center_chars="-:"))
+        line = resolve_job_spec(job)[0].content[0]
+        # No tags in the raw text: one PLAIN run (the renderers' fast path
+        # is the all-PLAIN style, not the empty tuple, at resolution time).
+        assert all(not run.style.v_center for run in line.styled_runs)
+        assert line.has_v_center is True
+        assert line.v_center_flags == (
+            False,
+            False,
+            True,
+            False,
+            False,
+            True,
+            False,
+            False,
+        )
+
+    def test_the_shop_set_centres_the_high_characters(self) -> None:
+        """The job-config shop set centres the hyphen, colon, dashes, =, <, >."""
+        job = self._job(TextLine(text="-:–—=<>A"), v_center_chars="-:–—=<>")
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.v_center_flags == (True,) * 7 + (False,)
+
+    def test_a_space_is_never_centred(self) -> None:
+        """A space owns no ink, so the set can never select it."""
+        job = self._job(TextLine(text="A B", v_center_chars=" "))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.has_v_center is False
+        assert line.v_center_flags == ()
+
+    def test_an_empty_set_and_no_tag_is_the_fast_path(self) -> None:
+        """v_center_chars="" with no <vc> markup keeps the renderers' fast path."""
+        job = self._job(TextLine(text="A-A", v_center_chars=""))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.has_v_center is False
+        assert line.v_center_flags == ()
+
+    def test_the_selection_survives_the_with_markup_text_swap(self) -> None:
+        """The flags are DERIVED (the <scale:N> staleness rule).
+
+        The line-content reflow rewrites a line's raw text; the centring
+        selection must follow the NEW text, not the old positions.
+        """
+        job = self._job(TextLine(text="A<vc>B</vc>", v_center_chars="-"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.v_center_flags == (False, True)
+        swapped = line.with_markup("-<vc>C</vc>D")
+        assert swapped.plain_text == "-CD"
+        assert swapped.v_center_flags == (True, True, False)
+
+    def test_the_centring_never_moves_the_cutter(self) -> None:
+        """<vc> is a pure translate: no per-character cutter change, no layer."""
+        job = self._job(TextLine(text="A<vc>B</vc>C"))
+        line = resolve_job_spec(job, available_cutters=list(_INVENTORY))[0].content[0]
+        assert line.per_char_cutters == (0.06, 0.06, 0.06)
         assert line.used_cutters == (0.06,)

@@ -618,3 +618,46 @@ class TestUtcNowIso:
 
         assert isinstance(stamp, str)
         assert "T" in stamp
+
+
+class TestVCenterFinding:
+    """The typed ``v_center`` JSON finding entry."""
+
+    def test_the_tag_records_a_typed_entry(self, tmp_path: Path) -> None:
+        """A <vc> run emits {type, char_count, chars} in the JSON report."""
+        line = _line("A-A").with_markup("A<vc>-</vc>A")
+        resolved, rendered = _label("l1", [line])
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        findings = report["labels"][0]["lines"][0]["findings"]
+        assert findings == [{"type": "v_center", "char_count": 1, "chars": ["-"]}]
+
+    def test_has_effect_is_true_for_the_v_center_field(self) -> None:
+        """The v_center field marks the finding as carrying an effect."""
+        assert LineFinding(line_index=0, text="A", v_center=(2, ("-", ":"))).has_effect
+
+    def test_the_summary_names_the_centring(self, tmp_path: Path) -> None:
+        """summary.txt renders the v_center finding line."""
+        line = _line("A-A").with_markup("A<vc>-</vc>A")
+        resolved, rendered = _label("l1", [line])
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        summary = format_summary(report)
+
+        assert "v-centered 1 chars ('-')" in summary

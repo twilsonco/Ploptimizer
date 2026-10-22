@@ -1,0 +1,182 @@
+# Fixture for inline vertical-centering markup (`<vc>`) and the cascading
+# `v_center_chars` field.
+#
+# `<vc>...</vc>` raises or lowers each wrapped character so its OWN ink is
+# vertically centred between the line's baseline and capline -- the ink centre
+# lands on the cap-band midline (toolpath_text_height / 2 above the baseline).
+# It is a pure vertical translate riding the renderers' `baseline_shifts` array
+# (the `<sup>`/`<sub>` plumbing), composed with the existing shift and the
+# engraved-baseline alignment raise. A glyph already centred on the midline is
+# inert (a zero shift emits nothing); a full-height capital is UNCHANGED
+# because its centre already IS the midline.
+#
+# `v_center_chars` (cascades line -> label -> job; the code fallback is "" =
+# auto-apply OFF, job-config.json ships the shop set "-:–—=<>") applies the
+# SAME centering automatically to every character occurring in the string, with
+# no markup -- the characters a font typically draws too high (or, for the
+# underscore, too low). The tag is the manual override for any other character.
+#
+# Dino at text_height 0.5 (cutter 0.060, cap height 0.440, midline 0.220) has
+# these natural ink centres, which the pins below use:
+#   '-' '–' '—'  0.1468  (raised by  0.0732 onto the midline)
+#   ':'          0.1101  (raised by  0.1099)
+#   '='          0.1466  (raised by  0.0734)
+#   'A' 'X'      0.2200  (already centred -- the tag is INERT)
+#   "'" '"'      0.4033  (LOWERED by  0.1833 onto the midline)
+#   '_'         -0.0523  (raised by  0.2723)
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix. `<vc>` adds NO cutter of its own: every
+# label here engraves with the single 0.060in tool.
+job:
+  job_name: V-Center Demo
+
+  width: 3.0
+  height: 1.0
+  margin: 0.1
+  text_height: 0.5
+  line_spacing: 0.15
+  auto_descending_character_adjustment: false
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The headline case: a hyphen centred by the tag. Its ink centre rides
+    #    the cap-band midline (0.220in), the plain twin leaves it at 0.1468in.
+    - id: plt_tag
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A<vc>-</vc>A"
+
+    # 2. The plain control for label 1 (same text, no markup, no set).
+    - id: plt_plain
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A-A"
+
+    # 3. The auto-apply: the SAME centring with no markup at all, driven by
+    #    v_center_chars. Every hyphen on the line is centred; the caps are not.
+    - id: plt_auto
+      font: Dino
+      v_center_chars: "-"
+      content:
+        - text: "A-A A-A"
+
+    # 4. The shop set: every high-sitting character of the shipped default is
+    #    centred, the letters stay put.
+    - id: plt_shop_set
+      font: Dino
+      v_center_chars: "-:–—=<>"
+      content:
+        - text: "12-34:56"
+
+    # 5. A centred colon (the set selects it) vs its plain twin.
+    - id: plt_colon
+      font: Dino
+      v_center_chars: ":"
+      content:
+        - text: "10:30"
+
+    # 6. The plain control for label 5.
+    - id: plt_colon_plain
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "10:30"
+
+    # 7. LOWERING: an apostrophe drawn near the capline is brought DOWN onto
+    #    the midline (the tag centres, it never only raises).
+    - id: plt_lower
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A<vc>'</vc>A"
+
+    # 8. The underscore sits BELOW the baseline; centring raises it the most.
+    - id: plt_underline_char
+      font: Dino
+      v_center_chars: "_"
+      content:
+        - text: "A_A"
+
+    # 9. An already-centred glyph: a full-height capital's centre IS the
+    #    midline, so the tag is inert (the render equals its plain twin).
+    - id: plt_inert_cap
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "<vc>A</vc>"
+
+    # 10. Per-character selection: only the flagged hyphen moves, the letters
+    #     and the space keep their baseline placement.
+    - id: plt_partial
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A-<vc>:</vc>-A"
+
+    # 11. Empty string disables the auto-apply (the tag keeps working alone):
+    #     the hyphen stays low, the tagged colon centres.
+    - id: plt_empty_set_tag_works
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A-<vc>:</vc>"
+
+    # 12. `<vc>` + `<i>` compose: the run shears AND centres.
+    - id: plt_italic
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A<vc><i>-</i></vc>A"
+
+    # 13. `<vc>` + `<u>`: the underline keeps its baseline-relative depth (the
+    #     centring raise does not drag the decoration with it).
+    - id: plt_underline_markup
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "<u>A<vc>:</vc>A</u>"
+
+    # 14. `<vc>` + `<scale:N>`: the shrunken glyph centres on the midline.
+    - id: plt_scale
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A<vc><scale:0.5>:</scale></vc>A"
+
+    # 15. `<vc>` + `<sup>`: the shifts compose into one translate (the centre
+    #     lands on the midline, the superscript downscale stays).
+    - id: plt_sup
+      font: Dino
+      v_center_chars: ""
+      content:
+        - text: "A<vc><sup>:</sup></vc>A"
+
+    # 16. Crossing spans: the per-character intersection rules (the colon is
+    #     centred by <vc>, the '=' by the set, the '-' by both).
+    - id: plt_crossing
+      font: Dino
+      v_center_chars: "="
+      content:
+        - text: "<vc>-:</vc>="
+
+    # 17. The TTF family: the same centring, the same midline (the centerline
+    #     geometry is the single contract for both families).
+    - id: plt_ttf
+      font: ReliefSingleLineCAD-Regular
+      v_center_chars: "-"
+      content:
+        - text: "A-A"
+
+    # 18. The TTF plain control for label 17.
+    - id: plt_ttf_plain
+      font: ReliefSingleLineCAD-Regular
+      v_center_chars: ""
+      content:
+        - text: "A-A"

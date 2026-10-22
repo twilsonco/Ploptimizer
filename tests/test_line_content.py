@@ -44,6 +44,7 @@ def _line(
     max_h_compress: float = 0.0,
     new_line: bool = False,
     html_brackets: str = "<>",
+    v_center_chars: str = "",
 ) -> ResolvedTextLine:
     """Build a resolved line with the reflow permission defaulting to enabled."""
     return ResolvedTextLine(
@@ -59,6 +60,7 @@ def _line(
         optimize_line_content_max_lines=max_lines,
         new_line=new_line,
         html_brackets=html_brackets,
+        v_center_chars=v_center_chars,
     )
 
 
@@ -1223,3 +1225,48 @@ class TestReliefFreeScaleProbeEquivalence:
         assert rendered.descender_adjustments_by_line
         assert rendered.compression_by_line  # ...and the lines compress.
         assert _default_scale_probe(label) == rendered.compression_by_line
+
+
+def test_v_center_tag_survives_the_reflow() -> None:
+    """A ``<vc>`` word keeps its centering when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; the flag tag must re-parse to the centred style (and the
+    auto-centred characters must follow the NEW text, not the old positions).
+    """
+    label = _label(
+        "m",
+        _line("<vc>AAAA</vc> BB", v_center_chars="-"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    # The centred token is the widest word, so it stays alone on line 1 and
+    # the plain 'BB' moves down beside 'CC' (the balanced fill).
+    assert first.text == "<vc>AAAA</vc>"
+    assert first.plain_text == "AAAA"
+    assert first.v_center_flags == (True, True, True, True)
+    assert second.text == "BB CC"
+    assert second.has_v_center is False
+
+
+def test_v_center_auto_set_follows_the_reflowed_text() -> None:
+    """A hyphen that MOVES into a line is centred there (the staleness rule).
+
+    The flags derive from ``plain_text`` + the set (never a stored positional
+    array), so the reflow's ``with_markup`` text swap keeps every centred
+    character centred.
+    """
+    label = _label(
+        "m",
+        _line("AAAA -BB", v_center_chars="-"),
+        _line("CC", v_center_chars="-"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    moved = [line for line in result.content if "-" in line.plain_text]
+    assert moved
+    for line in moved:
+        index = line.plain_text.index("-")
+        assert line.v_center_flags[index] is True

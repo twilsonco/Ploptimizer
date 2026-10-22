@@ -370,6 +370,15 @@ def _finding_entries(finding: LineFinding) -> List[Dict[str, Any]]:
                 "cutters": _round_all(cutters),
             }
         )
+    if finding.v_center is not None:
+        count, chars = finding.v_center
+        entries.append(
+            {
+                "type": "v_center",
+                "char_count": count,
+                "chars": list(chars),
+            }
+        )
     return entries
 
 
@@ -683,6 +692,11 @@ def _format_finding_line(label_id: str, line: Dict[str, Any]) -> str:
             parts.append(f"cutter markup {entry['requested']} -> {entry['engraved']}")
         elif kind == "original_cutter":
             parts.append(f"original cutter ({entry['char_count']} chars)")
+        elif kind == "v_center":
+            parts.append(
+                f"v-centered {entry['char_count']} chars "
+                f"({', '.join(repr(char) for char in entry['chars'])})"
+            )
     if not parts:
         return ""
     return f"  Label {label_id} line {line['index']} {line['plain_text']!r}: " + "; ".join(parts)

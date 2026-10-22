@@ -68,7 +68,7 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
-  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c` (each tag registers
+  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc` (each tag registers
   last so every earlier tag's serialization stays bit-identical). The font tag
   (`<f:font name>`, see Inline Font Selection below) is the one tag whose
   argument needs pipeline knowledge (the font catalog): `parse_markup` accepts
@@ -1214,3 +1214,99 @@ cutter</scale></oc>`).
   (`tests/test_resolution.py`), `TestOriginalCutterFollowsDownsize`
   (`tests/test_cutter_downsize.py`), and `TestOriginalCutterFindings`
   (`tests/test_layout_report.py`).
+
+
+### Inline Vertical Centering (`v_center_chars`, `<vc>`)
+
+`<vc>...</vc>` is the twelfth shipped markup tag: each wrapped character is
+**raised or lowered** so its own ink is vertically centred between the line's
+**baseline and capline** (the ink centre lands on the cap-band midline
+`toolpath_text_height / 2` above the baseline). It is a pure vertical translate
+riding the renderers' existing `baseline_shifts` array (the `<sup>`/`<sub>` +
+`<b>`/`<scale:N>` engraved-baseline-raise plumbing) — the geometry is otherwise
+untouched, so a `<vc>` run adds **no** cutter, **no** pen layer, **no**
+per-cutter file, and never moves `text_height`, the pen map, or the file names
+(the italic/`<sc>` contract). The motivating case: a hyphen/colon/dash that a
+font draws high (or an underscore drawn low) should sit optically centred in the
+cap band, not hang at its design height.
+
+- **The cascading `v_center_chars` field auto-applies the same centering** to
+  every `plain_text` character occurring in the string, with **no markup** — the
+  characters a font typically draws too high (hyphen, colon, en/em dash, `=`,
+  `<`, `>`). Cascades line → label → job (plate parity, `job-config.json` shop
+  default, `JobDefaults` key, not `REQUIRED_WHEN_UNCONFIGURED`). The **code
+  fallback is `""`** (auto-apply OFF — every pre-feature line renders
+  bit-identically, the `strikethrough_break_spaces` precedent);
+  `job-config.json` ships the shop set `"-:–—=<>"`. `""` is a meaningful value
+  (auto-apply disabled, the `<vc>` tag keeps working on its own); only `None`
+  means unset. The tag is the **manual override** for any character the set does
+  not list.
+- **The selection is per-character** (each glyph centred on its OWN ink box, not
+  a run's union box), so a `<vc>` run's glyphs are not necessarily aligned to
+  each other — the deliberate contrast with the per-run underline/strike span
+  model. `ResolvedTextLine.v_center_flags` is the per-character view: the `<vc>`
+  spans (from `styled_runs`) **union** the `v_center_chars` set (scanned over
+  `plain_text`, so a markup-free line auto-centres too). A space is never
+  selected (it owns no ink). DERIVED from the style + the set (never a stored
+  positional array — the `<scale:N>` staleness rule), so the reflow's
+  `with_markup` text swap keeps every centred character centred. `has_v_center`
+  is the gate.
+- **The two-pass render** (`label_renderer._render_line_core`): a line with **no**
+  selection renders exactly once (the historical call shape, bit-identical); a
+  selected line renders pass 1 (no vc term), `_v_center_shifts` measures each
+  selected glyph's ink box from the `_cached_glyph_boxes` partition (which never
+  sees decoration strokes), computes `shift = cap/2 − (y_min + y_max)/2`, and
+  re-renders with the shift composed onto `baseline_shifts`
+  (`_baseline_shift_inches(line, vc_shifts)`). The loop is bounded at two passes
+  by construction (the shifts are measured from pass 1 only, never fed back).
+  The centerline ink box is the right target: the engraved silhouette is the
+  centerline box swept by `cutter/2` symmetrically, so the cutter cancels out of
+  the centering.
+- **A zero shift is inert**: a glyph already centred on the midline (a
+  full-height capital) produces no vc term, so the render equals the untagged
+  line (the `all(shift == 0.0) → None` gate). The transform raises AND lowers as
+  each glyph needs (an apostrophe near the capline is brought DOWN).
+- **It composes with every other transform**: the vc term adds to the `<sup>`
+  shift + the engraved-baseline raise in the one `baseline_shifts` array (the
+  FINAL ink is centred, the downscale/shear stay), the PLT walker bakes the
+  composed shift into the geometry before kerning (so a centred glyph kerns at
+  its true height), and the TTF `_apply_baseline_shifts` translates the glyph
+  contours last. The underline/strikethrough keep their baseline-relative depth
+  (the `<b>` precedent — the raise never drags the decoration with it).
+- **The tag carries no argument** (a plain flag tag, the `<i>`/`<b>`/`<s>`/`<sc>`/
+  `<oc>` idiom): `Style.v_center: bool = False`, set-to-True (idempotent),
+  registered **LAST** in `TAG_REGISTRY` so every earlier tag's emitted markup
+  stays byte-identical. A bare `<vc>` IS markup, `<vc:0.5>` is **literal text**,
+  and an unclosed `<vc>` is a `MarkupError` → CLI non-zero (the fail-loud
+  contract). Crossing spans intersect per character like every tag.
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' v-centered 2 chars ('-', ':')` (the centred character count +
+  the distinct characters, ascending — invisible in the YAML for the auto-centred
+  set, so the finding is the only place it shows; the 14th slot of the findings
+  tuple; reads `plain_text`, compact-mode finding). `generation_report.py` emits
+  the typed `{"type": "v_center", "char_count", "chars"}` entry.
+- **Accepted staleness**: a centred run's ink box grows toward the midline, so a
+  glyph raised past the capline (an underscore centred from below) can cross the
+  top margin — the band-centering margin clamp charges the per-font cap height
+  (the `<scale:N>` upscale / `<sup>` precedent; the relief and border checks
+  measure the rendered geometry, so they see it). A cross-family `<f:>` line
+  centres in each segment's own frame (the one-rung staleness the `<f:>`/`<oc>`
+  sections document; the all-PLT path is exact).
+- Fixture: `tests_deps/v_center_job.yaml` (18 labels) pinned by
+  `TestVCenterDemoExample` — the tagged hyphen vs its plain twin (the centre
+  rides `cap/2`), the auto-centred set on a markup-free line, the shop set on a
+  mixed line, a centred colon vs its twin, a HIGH glyph lowered (the apostrophe),
+  the underscore raised from below the baseline, an already-centred capital
+  (inert), per-character selection, `v_center_chars: ""` (auto-apply off, the tag
+  alone centres), `<vc>`+`<i>`, `<vc>`+`<u>` (the underline keeps its depth),
+  `<vc>`+`<scale:0.5>`, `<vc>`+`<sup>` (one composed translate), crossing spans,
+  and the TTF pair; the export test pins that the centring adds **no** cutter
+  file. Unit tests: `TestVCenterRegistry` / `TestVCenterParse` /
+  `TestVCenterSerialize` / `TestVCenterWords` (`tests/test_markup.py`),
+  `TestVCenterCharsCascade` / `TestVCenterFlags` (`tests/test_resolution.py`),
+  `TestVCenterCharsField` (`tests/test_schema.py`), `TestVCenterRenderDispatch`
+  (`tests/test_label_renderer_gaps.py`), the `<vc>` reflow round-trips
+  (`tests/test_line_content.py`), `TestVCenterFindings`
+  (`tests/test_layout_report.py`), the `v_center` JSON entry
+  (`tests/test_generation_report.py`), and the `v_center_chars` job-config key
+  tests (`tests/test_job_config.py`).

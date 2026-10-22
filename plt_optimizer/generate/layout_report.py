@@ -136,6 +136,10 @@ class LineFinding:
             cutter run.
         original_cutter: The ``(char_count, cutters)`` a line's ``<oc>``
             run pins. ``None`` when the line has no ``<oc>`` run.
+        v_center: The ``(char_count, chars)`` a line vertically centres --
+            the ``<vc>`` spans plus the characters of the cascading
+            ``v_center_chars`` set (the count and the distinct centred
+            characters, ascending). ``None`` when the line centres nothing.
     """
 
     line_index: int
@@ -151,6 +155,7 @@ class LineFinding:
     font_runs: Optional[tuple[tuple[str, ...], tuple[float, ...]]] = None
     cutter_runs: Optional[tuple[tuple[float, ...], tuple[float, ...]]] = None
     original_cutter: Optional[tuple[int, tuple[float, ...]]] = None
+    v_center: Optional[tuple[int, tuple[str, ...]]] = None
 
     @property
     def has_effect(self) -> bool:
@@ -175,6 +180,7 @@ class LineFinding:
                 self.font_runs,
                 self.cutter_runs,
                 self.original_cutter,
+                self.v_center,
             )
         )
 
@@ -252,6 +258,21 @@ def _original_cutter_run_info(line: ResolvedTextLine) -> tuple[int, tuple[float,
     return sum(1 for flag in flags if flag), tuple(sorted(used))
 
 
+def _v_center_info(line: ResolvedTextLine) -> tuple[int, tuple[str, ...]]:
+    """Return the ``(count, chars)`` a line vertically centres.
+
+    The number of characters the ``<vc>`` spans and the cascading
+    ``v_center_chars`` set select, plus the distinct centred characters
+    (ascending). The centring is invisible in the YAML for the auto-centred
+    set (it rides the shop default), exactly like the ``<oc>`` finding's
+    rationale.
+    """
+    flags = line.v_center_flags
+    text = line.plain_text
+    chars = {text[index] for index, flag in enumerate(flags) if flag and index < len(text)}
+    return sum(1 for flag in flags if flag), tuple(sorted(chars))
+
+
 def _cutter_run_info(line: ResolvedTextLine) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Return the ``(requested, engraved)`` cutters a line's ``<c:...>`` runs use.
 
@@ -306,7 +327,7 @@ def _hole_adjust_lines(label: ResolvedLabel) -> list[str]:
 def collect_line_findings(
     rendered: RenderedLabel,
 ) -> list[LineFinding]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter / v-center).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -329,7 +350,9 @@ def collect_line_findings(
         carrying a ``<f:...>`` run; ``cutter_runs`` is the ``(requested,
         engraved)`` cutter pairs only for lines carrying a ``<c:...>`` run;
         ``original_cutter`` is the ``(count, cutters)`` pair only for lines
-        carrying an ``<oc>`` run.
+        carrying an ``<oc>`` run; ``v_center`` is the ``(count, chars)`` pair
+        only for lines vertically centring characters (the ``<vc>`` spans plus
+        the cascading ``v_center_chars`` set).
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -346,6 +369,7 @@ def collect_line_findings(
         | {index for index, line in enumerate(content) if line.has_font_runs}
         | {index for index, line in enumerate(content) if line.has_cutter_runs}
         | {index for index, line in enumerate(content) if line.has_original_cutter}
+        | {index for index, line in enumerate(content) if line.has_v_center}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -379,6 +403,9 @@ def collect_line_findings(
         original_cutter: tuple[int, tuple[float, ...]] | None = None
         if line.has_original_cutter:
             original_cutter = _original_cutter_run_info(line)
+        v_center: tuple[int, tuple[str, ...]] | None = None
+        if line.has_v_center:
+            v_center = _v_center_info(line)
         finding = LineFinding(
             line_index=line_index,
             text=line.plain_text,
@@ -393,6 +420,7 @@ def collect_line_findings(
             font_runs=font_runs,
             cutter_runs=cutter_runs,
             original_cutter=original_cutter,
+            v_center=v_center,
         )
         if not finding.has_effect:
             continue
@@ -575,6 +603,18 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"original cutter {cutter_text} ({count} chars pinned)"
+                )
+            v_center = entry.v_center
+            if v_center is not None:
+                count, chars = v_center
+                # The centring rides the <vc> tag and the shop-default
+                # v_center_chars set -- both invisible in the YAML -- so name
+                # the characters the render raised/lowered onto the cap-band
+                # midline.
+                char_text = ", ".join(repr(char) for char in chars)
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"v-centered {count} chars ({char_text})"
                 )
             if entry.relief:
                 for fix in entry.relief:

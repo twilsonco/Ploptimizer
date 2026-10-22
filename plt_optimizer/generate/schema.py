@@ -631,6 +631,19 @@ class TextAttributes(BaseModel):
             words stays bare. Cascades line -> label -> job (and is accepted
             on plates for schema parity, where it is not applied at that
             level); explicit ``False`` is honored.
+        v_center_chars: The character set **auto-centred vertically** between
+            the baseline and the capline. Every text character occurring in
+            this string is raised or lowered (a pure vertical translate) so
+            its own ink is centred on the cap-band midline (half the rendered
+            cap height above the baseline) -- the characters a font typically
+            draws too high (hyphen, colon, en/em dash, ``=``, ``<``, ``>``).
+            The inline ``<vc>...</vc>`` markup tag applies the same centering
+            to any other characters it wraps. ``""`` disables the auto-apply
+            (the ``<vc>`` tag keeps working on its own). Cascades
+            line -> label -> job (and is accepted on plates for schema
+            parity, where it is not applied at that level); an explicit
+            ``""`` is honored. The code fallback is ``""`` (auto-apply off);
+            ``job-config.json`` ships the shop set ``"-:–—=<>"``.
         cutter_size: Optional cutter diameter in inches to use for the text
             instead of the tool auto-selected from ``text_height``. When set,
             the requested diameter is snapped to the shop inventory
@@ -993,6 +1006,23 @@ class TextAttributes(BaseModel):
             "every word gets its own strike and the inter-word space stays "
             "bare. Cascades line -> label -> job (fallback false); explicit "
             "false is honored."
+        ),
+    )
+    v_center_chars: Optional[str] = Field(
+        default=None,
+        description=(
+            "Character set auto-centred vertically between the baseline and "
+            "the capline: every text character occurring in this string is "
+            "raised or lowered (a pure vertical translate) so its own ink is "
+            "centred on the cap-band midline (half the rendered cap height "
+            "above the baseline) - the characters a font typically draws too "
+            "high (hyphen, colon, en/em dash, '=', '<', '>'). The inline "
+            "<vc>...</vc> markup tag applies the same centering to any other "
+            "characters it wraps. Empty string '' disables the auto-apply "
+            "(the <vc> tag keeps working on its own). Cascades "
+            "line -> label -> job (code fallback '' = auto-apply off; "
+            "job-config.json ships the shop set '-:–—=<>'); an explicit '' is "
+            "honored."
         ),
     )
     cutter_size: Optional[float] = Field(
@@ -2288,6 +2318,13 @@ class PlateSpec(BaseModel):
         default=None,
         description=(
             "Strikethrough (<s>) break-at-spaces flag (schema parity; not applied at plate level)."
+        ),
+    )
+    v_center_chars: Optional[str] = Field(
+        default=None,
+        description=(
+            "Auto-vertical-centred character set (schema parity; not applied "
+            "at plate level -- labels render before packing)."
         ),
     )
     cutter_size: Optional[float] = Field(

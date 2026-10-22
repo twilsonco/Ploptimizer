@@ -657,6 +657,7 @@ class TestUnderlineRegistry:
             "f",
             "c",
             "oc",
+            "vc",
         ]
 
 
@@ -758,6 +759,7 @@ class TestScaleRegistry:
             "f",
             "c",
             "oc",
+            "vc",
         ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
@@ -914,6 +916,7 @@ class TestSupSubRegistry:
             "f",
             "c",
             "oc",
+            "vc",
         ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
@@ -1222,6 +1225,7 @@ class TestStrikethroughRegistry:
             "f",
             "c",
             "oc",
+            "vc",
         ]
 
     def test_nested_strike_serializes_flat(self) -> None:
@@ -1336,6 +1340,7 @@ class TestSmallCapsRegistry:
             "f",
             "c",
             "oc",
+            "vc",
         ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
@@ -1532,7 +1537,7 @@ class TestCutterRegistry:
         assert spec.args_optional is False
         # The <oc> flag tag was registered after <c>, so <c> is no longer last.
         assert list(TAG_REGISTRY).index("c") == list(TAG_REGISTRY).index("f") + 1
-        assert list(TAG_REGISTRY)[-1] == "oc"
+        assert list(TAG_REGISTRY)[-1] == "vc"
         assert spec.apply(PLAIN, "0.06") == CUTTER
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(CUTTER, "0.06") == CUTTER
@@ -1568,6 +1573,7 @@ class TestCutterRegistry:
             "f",
             "c",
             "oc",
+            "vc",
         ]
 
 
@@ -1671,12 +1677,12 @@ class TestOriginalCutterRegistry:
     """The <oc> registry entry (the original-cutter flag tag)."""
 
     def test_original_cutter_is_registered_as_a_flag(self) -> None:
-        """The tag takes no args and is registered last (the serialization order)."""
+        """The tag takes no args and sits after every value tag (order pin)."""
         spec = TAG_REGISTRY["oc"]
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-1] == "oc"
+        assert list(TAG_REGISTRY)[-2] == "oc"
         assert spec.apply(PLAIN, "") == Style(original_cutter=True)
         # Set-to-True: re-applying is idempotent (nesting <oc> in <oc> is a no-op).
         assert spec.apply(Style(original_cutter=True), "") == Style(original_cutter=True)
@@ -1775,3 +1781,114 @@ class TestOriginalCutterWords:
         words, separators = split_styled_words_with_separators(styled)
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.original_cutter for sep in separators)
+
+
+class TestVCenterRegistry:
+    """The <vc> registry entry (the vertical-centering flag tag)."""
+
+    def test_v_center_is_registered_as_a_flag(self) -> None:
+        """The tag takes no args and is registered last (the serialization order)."""
+        spec = TAG_REGISTRY["vc"]
+        assert spec.accepts_args is False
+        assert spec.args_optional is False
+        assert spec.arg is None
+        assert list(TAG_REGISTRY)[-1] == "vc"
+        assert spec.apply(PLAIN, "") == Style(v_center=True)
+        # Set-to-True: re-applying is idempotent (nesting <vc> in <vc> is a no-op).
+        assert spec.apply(Style(v_center=True), "") == Style(v_center=True)
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly when the segment is centred."""
+        spec = TAG_REGISTRY["vc"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(Style(v_center=True)) is True
+
+    def test_v_center_composes_with_the_other_tags(self) -> None:
+        """Applying <vc> inside <i>/<b> composes (idempotent per field)."""
+        spec = TAG_REGISTRY["vc"]
+        assert spec.apply(ITALIC, "") == Style(italic=True, v_center=True)
+        assert spec.apply(BOLD, "") == Style(bold=True, v_center=True)
+
+
+class TestVCenterParse:
+    """Parsing the <vc> tag (the vertical centering)."""
+
+    def test_v_center_flags_align_with_the_plain_text(self) -> None:
+        """The run carries the centring and the per-char flags align."""
+        styled = parse_markup("A<vc>-</vc>C")
+        assert styled.plain_text == "A-C"
+        assert styled.v_center_flags == (False, True, False)
+
+    def test_a_bare_open_tag_is_markup(self) -> None:
+        """The tag carries no argument, so the bare <vc> IS markup."""
+        styled = parse_markup("<vc>x</vc>")
+        assert styled.plain_text == "x"
+        assert styled.v_center_flags == (True,)
+
+    def test_an_argument_form_is_literal_text(self) -> None:
+        """<vc:0.5> is not a legal form (the tag takes no argument)."""
+        styled = parse_markup("a <vc:0.5> b")
+        assert styled.plain_text == "a <vc:0.5> b"
+        assert styled.has_markup is False
+
+    def test_an_unclosed_tag_is_a_hard_error(self) -> None:
+        """An opener never closed raises MarkupError (the fail-loud contract)."""
+        with pytest.raises(MarkupError, match="Unclosed tag"):
+            parse_markup("<vc>text")
+
+    def test_the_centring_composes_with_a_scale_run(self) -> None:
+        """<vc> and <scale:N> are separate fields (they compose)."""
+        styled = parse_markup("<vc><scale:2.0>x</scale></vc>")
+        assert styled.v_center_flags == (True,)
+        assert styled.scale_values == (2.0,)
+
+    def test_crossing_spans_intersect_like_every_tag(self) -> None:
+        """<vc> crossing <b> follows the per-character intersection rule."""
+        styled = parse_markup("<b>ab<vc>c</b>d</vc>")
+        assert styled.plain_text == "abcd"
+        assert styled.bold_flags == (True, True, True, False)
+        assert styled.v_center_flags == (False, False, True, True)
+
+
+class TestVCenterSerialize:
+    """The <vc> serialization round-trip (the reflow depends on it)."""
+
+    def test_the_tag_round_trips(self) -> None:
+        """serialize_runs re-emits <vc>/</vc> and re-parses to the same runs."""
+        styled = parse_markup("A<vc>B</vc>C")
+        raw = serialize_runs(styled.runs)
+        assert raw == "A<vc>B</vc>C"
+        assert parse_markup(raw).runs == styled.runs
+
+    def test_a_nested_centre_restores_the_outer_style(self) -> None:
+        """A nested <vc> restores the outer run for the trailing text."""
+        styled = parse_markup("<vc>a<vc>b</vc>c</vc>")
+        assert styled.v_center_flags == (True, True, True)
+        raw = serialize_runs(styled.runs)
+        assert parse_markup(raw).v_center_flags == styled.v_center_flags
+
+    def test_the_centre_survives_a_scale_composition(self) -> None:
+        """The <vc> tag nests inside the <scale:N> tag and round-trips."""
+        styled = parse_markup("<vc><scale:2.0>x</scale></vc>")
+        raw = serialize_runs(styled.runs)
+        assert "<vc>" in raw
+        assert parse_markup(raw).runs == styled.runs
+
+
+class TestVCenterWords:
+    """The <vc> reflow tokens (the line-content reflow round-trip)."""
+
+    def test_styled_word_keeps_the_centring(self) -> None:
+        """A styled word token round-trips with the centring."""
+        styled = parse_markup("plain <vc>centred</vc>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["plain", "centred"]
+        assert serialize_word(words[1]) == "<vc>centred</vc>"
+        assert serialize_word(words[0]) == "plain"
+
+    def test_space_spanning_centre_run_keeps_the_separator(self) -> None:
+        """<vc>foo bar</vc> tokenizes with the centred separator."""
+        styled = parse_markup("<vc>foo bar</vc>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        assert all(sep.v_center for sep in separators)

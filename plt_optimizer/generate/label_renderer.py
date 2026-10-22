@@ -1555,12 +1555,144 @@ def _word_local_glyph_groups(
     return tuple(groups)
 
 
+def _v_center_shifts(
+    line: ResolvedTextLine,
+    rendered: Tuple[
+        TextBlock,
+        Optional[List[Tuple[str, List[int]]]],
+        Tuple[Tuple[int, ...], ...],
+    ],
+) -> Optional[Tuple[float, ...]]:
+    """Return the pass-1 ``<vc>`` centering shifts for one rendered line.
+
+    The measurement half of the vertical-centering **two-pass render**: pass 1
+    (the plain render) is measured per glyph, and each selected character
+    (the ``<vc>`` span or the cascading ``v_center_chars`` set) gets the pure
+    vertical translate that lands its ink centre on the **cap-band midline**
+    ``toolpath_text_height / 2`` above the baseline:
+
+    ``shift = cap / 2 - (y_min + y_max) / 2``
+
+    ``[y_min, y_max]`` is the glyph's own centerline ink box (the
+    :func:`_cached_glyph_boxes` partition, which never sees decoration
+    strokes). The engraved silhouette is the centerline box swept by
+    ``cutter / 2`` symmetrically, so the centerline centre is the engraved
+    centre -- the cutter cancels out of the centering. The shift composes
+    onto the existing ``baseline_shifts`` entry (the ``<sup>``/``<sub>``
+    shift + the engraved-baseline raise), so the FINAL ink is centred and
+    unselected characters are untouched.
+
+    Args:
+        line: The resolved line carrying a vertical-centering selection.
+        rendered: The pass-1 ``(block, word_groups, glyph_groups)`` triple.
+
+    Returns:
+        One shift in inches per character of ``plain_text`` (0.0 for every
+        unselected character), or ``None`` when nothing measurable moved
+        (no partition, no selection, a zero cap height, or every selected
+        glyph already centred within :data:`_INK_EMISSION_FLOOR`) -- the
+        caller then keeps the pass-1 render.
+    """
+    flags = line.v_center_flags
+    _block, _words, glyph_groups = rendered
+    if not flags or not glyph_groups:
+        return None
+    cap = line.toolpath_text_height
+    if cap <= 0.0:
+        return None
+    text = line.plain_text
+    boxes = _cached_glyph_boxes(_block, glyph_groups, text)
+    if len(boxes) != len(glyph_groups):
+        # A degenerate partition (an empty/ink-less group): the glyph-index
+        # mapping below is only exact when every group produced a box.
+        return None
+    midline = 0.5 * cap
+    # Glyph k is the k-th non-space character (the renderers' partition
+    # contract, see _glyph_chars).
+    positions = [index for index, char in enumerate(text) if char != " "]
+    shifts: List[float] = [0.0] * len(text)
+    moved = False
+    for box in boxes:
+        if box.glyph_index >= len(positions):
+            continue  # pragma: no cover - the partition is built from the text
+        index = positions[box.glyph_index]
+        if index >= len(flags) or not flags[index]:
+            continue
+        _x_min, y_min, _x_max, y_max = box.bounds
+        shift = midline - 0.5 * (y_min + y_max)
+        if abs(shift) <= _INK_EMISSION_FLOOR:
+            continue  # already centred within the emission grid
+        shifts[index] = shift
+        moved = True
+    if not moved:
+        return None
+    return tuple(shifts)
+
+
 def _render_line_core(
     line: ResolvedTextLine,
     chunk_mode: TextChunkMode,
     *,
     check_glyph_coverage: bool = True,
     skip_decorations: bool = False,
+) -> Tuple[
+    TextBlock,
+    Optional[List[Tuple[str, List[int]]]],
+    Tuple[Tuple[int, ...], ...],
+]:
+    """Render one resolved text line, running the ``<vc>`` two-pass when needed.
+
+    Thin wrapper over :func:`_render_line_core_once` implementing the
+    vertical-centering (**``<vc>`` / ``v_center_chars``**) measurement loop: a
+    line with no selection renders exactly ONCE (the historical call shape,
+    bit-identical output); a selected line renders pass 1, measures the
+    per-glyph ink boxes (:func:`_v_center_shifts`), and re-renders with the
+    raise/lower composed onto the renderers' ``baseline_shifts`` array. The
+    loop is bounded at two passes by construction (the shift array is
+    computed from pass 1 only, never fed back into a third measurement).
+
+    Args:
+        line: The resolved text line.
+        chunk_mode: When ``WORD``, request per-word stroke groups.
+        check_glyph_coverage: Forwarded to the render (TTF glyph coverage).
+        skip_decorations: Forwarded (the segment-composition caller applies
+            the whole-line decorations once on the composed block).
+
+    Returns:
+        ``(block, word_groups, glyph_groups)`` -- see
+        :func:`_render_line_core_once`.
+
+    Raises:
+        PltFontRenderError: If a PLT font lacks a glyph.
+        FtextRenderError: If a TrueType font lacks a glyph.
+    """
+    result = _render_line_core_once(
+        line,
+        chunk_mode,
+        check_glyph_coverage=check_glyph_coverage,
+        skip_decorations=skip_decorations,
+    )
+    if not line.has_v_center:
+        return result
+    shifts = _v_center_shifts(line, result)
+    if shifts is None:
+        return result
+    return _render_line_core_once(
+        line,
+        chunk_mode,
+        check_glyph_coverage=check_glyph_coverage,
+        skip_decorations=skip_decorations,
+        vc_shifts=shifts,
+    )
+
+
+def _render_line_core_once(
+    line: ResolvedTextLine,
+    chunk_mode: TextChunkMode,
+    *,
+    check_glyph_coverage: bool = True,
+    skip_decorations: bool = False,
+    vc_shifts: Optional[Tuple[float, ...]] = None,
 ) -> Tuple[
     TextBlock,
     Optional[List[Tuple[str, List[int]]]],
@@ -1595,6 +1727,15 @@ def _render_line_core(
             appended (the segment-composition caller applies the whole-line
             decorations once on the composed block, so a run spanning two
             fonts stays one continuous stroke).
+        vc_shifts: Per-character ``<vc>``/``v_center_chars`` centering shifts
+            in inches (aligned with ``plain_text``), composed into the
+            renderers' ``baseline_shifts`` array. ``None`` on a line carrying
+            a vertical-centering selection triggers the **two-pass render**:
+            pass 1 renders without the vc term, the per-glyph ink boxes are
+            measured from it, and the raise/lower centring each selected
+            glyph on the cap-band midline rides pass 2. ``None`` on a line
+            with no selection (and any tuple on the second pass) keeps the
+            historical single render, bit-identical output.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``word_groups`` is
@@ -1674,7 +1815,7 @@ def _render_line_core(
     # cutter diameter and a baseline-anchored uniform scale (PLT: per-character
     # cutter diameters + glyph scales; TTF: per-character glyph scales). Empty
     # dict keeps the historical call shape for every markup-free line.
-    plt_kwargs.update(_glyph_render_kwargs(line, plt=True))
+    plt_kwargs.update(_glyph_render_kwargs(line, plt=True, vc_shifts=vc_shifts))
 
     if ref.kind == "plt":
         if chunk_mode is TextChunkMode.WORD:
@@ -1733,7 +1874,7 @@ def _render_line_core(
         # glyphs; without it the shear fallback runs (PLT parity).
         if ref.italic_path is not None:
             ftext_kwargs["italic_face"] = ref.italic_path
-    ftext_kwargs.update(_glyph_render_kwargs(line, plt=False))
+    ftext_kwargs.update(_glyph_render_kwargs(line, plt=False, vc_shifts=vc_shifts))
     ttf_decorated: Tuple[
         TextBlock,
         Optional[List[Tuple[str, List[int]]]],
@@ -2717,10 +2858,13 @@ def _stroke_cutter_map(
     return resolved
 
 
-def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]]:
+def _baseline_shift_inches(
+    line: ResolvedTextLine,
+    vc_shifts: Optional[Tuple[float, ...]] = None,
+) -> Optional[Tuple[float, ...]]:
     """Return the per-character baseline shift in inches, or ``None`` when unset.
 
-    The composition of the two per-character vertical translates, both riding
+    The composition of the three per-character vertical translates, all riding
     the renderers' single ``baseline_shifts`` array:
 
     * the ``<sup>``/``<sub>`` baseline shift (cap-height units, from
@@ -2732,7 +2876,11 @@ def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]
       engraving with a cutter ``d`` other than the line's ``cutter`` by
       ``(d - cutter) / 2`` so its **engraved** baseline matches the plain
       run's (and, for a ``<b>`` run, its **engraved** capline too -- the two
-      alignments reduce to the same half-decrease).
+      alignments reduce to the same half-decrease);
+    * the ``<vc>``/``v_center_chars`` vertical-centering shift (inches, from
+      the two-pass measurement in :func:`_v_center_shifts`), which raises or
+      lowers each selected glyph so its ink centre lands on the cap-band
+      midline. ``None`` (the default) contributes nothing.
 
     The PLT renderer bakes these shifts into each glyph's geometry (block +
     bbox + both envelopes) **before** kerning, so a pair's penetration is
@@ -2746,6 +2894,8 @@ def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]
 
     Args:
         line: The resolved text line.
+        vc_shifts: Optional per-character vertical-centering shifts in inches
+            (aligned with ``plain_text``), added to the composed array.
 
     Returns:
         One shift in inches per character of ``plain_text``, or ``None``.
@@ -2755,19 +2905,25 @@ def _baseline_shift_inches(line: ResolvedTextLine) -> Optional[Tuple[float, ...]
     if line.has_sup_sub:
         cap = line.toolpath_text_height
         sup_sub = tuple(shift * cap for shift in line.sup_sub_shifts)
-    if not sup_sub and not raises:
+    if not sup_sub and not raises and not vc_shifts:
         return None
     shifts: List[float] = []
     for index in range(len(line.plain_text)):
         shift = sup_sub[index] if index < len(sup_sub) else 0.0
         shift += raises[index] if index < len(raises) else 0.0
+        shift += vc_shifts[index] if vc_shifts is not None and index < len(vc_shifts) else 0.0
         shifts.append(shift)
     if all(shift == 0.0 for shift in shifts):
         return None
     return tuple(shifts)
 
 
-def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]:
+def _glyph_render_kwargs(
+    line: ResolvedTextLine,
+    *,
+    plt: bool,
+    vc_shifts: Optional[Tuple[float, ...]] = None,
+) -> dict[str, Any]:
     """Return the per-glyph (cutter, scale, shift) renderer kwargs for one resolved line.
 
     The unified gate for the ``<b>``, ``<scale:N>`` and ``<sup>``/``<sub>``
@@ -2787,6 +2943,9 @@ def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]
             ``glyph_scales``), False for a TTF line (``glyph_scales`` only
             -- the TTF pen advance stays with matplotlib shaping, and the
             cutter never changes the TTF geometry beyond the scale).
+        vc_shifts: Optional per-character vertical-centering shifts (inches)
+            composed into the ``baseline_shifts`` array (the second pass of
+            the ``<vc>`` two-render loop, see :func:`_render_line_core`).
 
     Returns:
         ``{"cutter_diameters": ..., "glyph_scales": ...}`` for a PLT line,
@@ -2794,7 +2953,7 @@ def _glyph_render_kwargs(line: ResolvedTextLine, *, plt: bool) -> dict[str, Any]
         line whose plan is all-unity -- the top-of-inventory bold fallback).
     """
     plan = glyph_render_plan(line)
-    shifts = _baseline_shift_inches(line)
+    shifts = _baseline_shift_inches(line, vc_shifts)
     font_kwargs = _font_names_kwargs(line)
     if plan is None:
         if shifts is None:

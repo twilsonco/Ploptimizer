@@ -886,3 +886,45 @@ class TestOriginalCutterFindings:
         resolved, rendered = _label("l1", [_line("PLAIN")])
 
         assert format_layout_report([resolved], {"l1": rendered}) == []
+
+
+class TestVCenterFindings:
+    """A vertically-centred line (``<vc>`` / ``v_center_chars``) is a finding."""
+
+    def test_the_tag_is_a_compact_finding(self) -> None:
+        """A <vc> run prints the centred character count and the characters."""
+        line = _line("A-A").with_markup("A<vc>-</vc>A")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'A-A' v-centered 1 chars ('-')" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_the_auto_centred_set_is_a_finding(self) -> None:
+        """Characters centred by the cascaded set (no markup) are reported."""
+        from dataclasses import replace as dc_replace
+
+        line = dc_replace(_line("12-34:56"), v_center_chars="-:")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "v-centered 2 chars ('-', ':')" in text
+
+    def test_the_finding_strips_markup(self) -> None:
+        """The finding reports the plain text, never the tags."""
+        line = _line("A-A").with_markup("A<vc>-</vc>A")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "<vc" not in text
+
+    def test_an_empty_set_and_no_tag_is_not_a_finding(self) -> None:
+        """A plain line centres nothing and produces no finding."""
+        line = _line("ABC")
+        resolved, rendered = _label("l1", [line])
+
+        assert format_layout_report([resolved], {"l1": rendered}, full=False) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False

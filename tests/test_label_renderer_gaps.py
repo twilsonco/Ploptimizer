@@ -1212,3 +1212,129 @@ class TestInlineCutterDispatch:
         # The underlined span covers the plain 'b' (0.06) and the overridden
         # 'c' (0.03), so it splits into two runs.
         assert len(runs) == 2
+
+
+class TestVCenterRenderDispatch:
+    """The ``<vc>`` / ``v_center_chars`` two-pass centering render."""
+
+    @staticmethod
+    def _ink_centers(line: ResolvedTextLine) -> dict[str, float]:
+        """Return each rendered character's ink-box centre Y (baseline frame)."""
+        block, _words, glyphs = label_renderer._render_line_block(
+            line, label_renderer.TextChunkMode.LINE
+        )
+        chars = label_renderer._glyph_chars(line.plain_text)
+        centers: dict[str, float] = {}
+        for glyph_index, group in enumerate(glyphs):
+            if not group:
+                continue
+            ys = [
+                point.imag
+                for stroke_index in group
+                for segment in block.strokes[stroke_index].segments
+                for point in segment.flattened()
+            ]
+            centers[chars[glyph_index]] = 0.5 * (min(ys) + max(ys))
+        return centers
+
+    def test_markup_free_line_with_an_empty_set_is_the_fast_path(self) -> None:
+        """No tag and no set: the line renders exactly once (bit-identical)."""
+        line = _markup_line("A-A", font="Dino", v_center_chars="")
+        calls: list[int] = []
+        real = label_renderer._render_line_core_once
+
+        def counting(*args: object, **kwargs: object) -> object:
+            calls.append(1)
+            return real(*args, **kwargs)  # type: ignore[call-arg]
+
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            monkeypatch.setattr(label_renderer, "_render_line_core_once", counting)
+            label_renderer._render_line_core(line, label_renderer.TextChunkMode.LINE)
+        finally:
+            monkeypatch.undo()
+        assert len(calls) == 1
+
+    def test_a_selected_line_renders_exactly_twice(self) -> None:
+        """The two-pass is bounded: the shifts are measured from pass 1 only."""
+        line = _markup_line("A-A", font="Dino", v_center_chars="-")
+        calls: list[int] = []
+        real = label_renderer._render_line_core_once
+
+        def counting(*args: object, **kwargs: object) -> object:
+            calls.append(1)
+            return real(*args, **kwargs)  # type: ignore[call-arg]
+
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            monkeypatch.setattr(label_renderer, "_render_line_core_once", counting)
+            label_renderer._render_line_core(line, label_renderer.TextChunkMode.LINE)
+        finally:
+            monkeypatch.undo()
+        assert len(calls) == 2
+
+    def test_the_auto_centred_glyph_lands_on_the_cap_band_midline(self) -> None:
+        """The hyphen's ink centre rides cap/2 above the baseline."""
+        cap = 0.44
+        centred = self._ink_centers(_markup_line("A-A", font="Dino", v_center_chars="-"))
+        assert centred["-"] == pytest.approx(cap / 2, abs=1e-9)
+        # The unselected caps are untouched.
+        plain = self._ink_centers(_markup_line("A-A", font="Dino", v_center_chars=""))
+        assert centred["A"] == pytest.approx(plain["A"])
+
+    def test_the_tag_centres_a_glyph_the_set_does_not_list(self) -> None:
+        """<vc> is the manual override: a full-height capital is LOWERED."""
+        cap = 0.44
+        plain = self._ink_centers(_markup_line("A", font="Dino", v_center_chars=""))
+        assert plain["A"] == pytest.approx(cap / 2)
+        centred = self._ink_centers(_markup_line("<vc>:</vc>", font="Dino", v_center_chars=""))
+        assert centred[":"] == pytest.approx(cap / 2, abs=1e-9)
+
+    def test_an_already_centred_glyph_renders_once(self) -> None:
+        """A zero shift emits no vc term: the pass-1 render is returned."""
+        cap = 0.44
+        # Dino's capital sits exactly on the cap band, so its centre IS the
+        # midline -- the measurement produces no move.
+        line = _markup_line("<vc>A</vc>", font="Dino", v_center_chars="")
+        calls: list[int] = []
+        real = label_renderer._render_line_core_once
+
+        def counting(*args: object, **kwargs: object) -> object:
+            calls.append(1)
+            return real(*args, **kwargs)  # type: ignore[call-arg]
+
+        monkeypatch = pytest.MonkeyPatch()
+        try:
+            monkeypatch.setattr(label_renderer, "_render_line_core_once", counting)
+            block, _words, glyphs = label_renderer._render_line_core(
+                line, label_renderer.TextChunkMode.LINE
+            )
+            assert block.bounds() is not None
+        finally:
+            monkeypatch.undo()
+        assert len(calls) == 1
+        assert self._ink_centers(line)["A"] == pytest.approx(cap / 2)
+
+    def test_the_centring_composes_with_the_superscript_shift(self) -> None:
+        """The vc term adds to the <sup> shift + the engraved-baseline raise."""
+        line = _markup_line("A<vc><sup>-</sup></vc>A", font="Dino", v_center_chars="")
+        shifts = label_renderer._baseline_shift_inches(line, (0.05, 0.07, 0.05))
+        assert shifts is not None
+        base = label_renderer._baseline_shift_inches(line)
+        assert base is not None
+        assert shifts[1] == pytest.approx(base[1] + 0.07)
+        assert shifts[0] == pytest.approx(base[0] + 0.05)
+        assert shifts[2] == pytest.approx(base[2] + 0.05)
+
+    def test_no_vc_shifts_keeps_the_historical_array(self) -> None:
+        """``vc_shifts=None`` is the shipped two-term composition."""
+        line = _markup_line("A-A", font="Dino", v_center_chars="-")
+        assert label_renderer._baseline_shift_inches(line) is None
+
+    def test_the_centring_never_adds_a_cutter_layer(self) -> None:
+        """A pure translate: the line engraves with one tool, one pen."""
+        line = _markup_line("A-A", font="Dino", v_center_chars="-")
+        block, _words, glyphs = label_renderer._render_line_block(
+            line, label_renderer.TextChunkMode.LINE
+        )
+        assert label_renderer._stroke_cutter_map(line, block, glyphs) == ()

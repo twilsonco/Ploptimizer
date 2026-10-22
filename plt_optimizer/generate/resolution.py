@@ -291,6 +291,17 @@ DEFAULT_STRIKETHROUGH_OFFSET_FRACTION: Optional[float] = None
 # The code fallback is ``False``; job-config.json supplies the shop default.
 # See ``plt_optimizer.generate.label_renderer._strikethrough_render_gate``.
 DEFAULT_STRIKETHROUGH_BREAK_SPACES: bool = False
+# The character set that is **auto-centred** vertically between the baseline
+# and the capline (raised or lowered so each glyph's own ink is centred on the
+# cap-band midline) with no markup: every ``plain_text`` character occurring in
+# this string rides the ``<vc>`` transform. The code fallback is ``""`` (the
+# auto-apply OFF -- every pre-feature line renders bit-identically, the
+# ``strikethrough_break_spaces`` precedent); job-config.json supplies the shop
+# default (``"-:–—=<>"`` -- the characters typographic fonts draw high).
+# The ``<vc>`` tag keeps working on its own at any value. Cascades
+# line -> label -> job. See ``generate/markup/AGENTS.md``
+# "Inline Vertical Centering (``v_center_chars``, ``<vc>``)".
+DEFAULT_V_CENTER_CHARS: str = ""
 # Multiplier applied to ``target_boldness_factor`` by inline ``<b>`` markup on
 # a **multi-stroke (bold)** PLT font: the bold run re-runs the boldness ladder
 # at ``target_boldness_factor * this`` (clamped to
@@ -1173,6 +1184,15 @@ class ResolvedTextLine:
             True ends the stroke at each space, so every word gets its own
             strike spanning its own ink and the inter-word space stays bare.
             An explicit ``False`` is honored.
+        v_center_chars: The character set auto-centred vertically between the
+            baseline and the capline (cascaded line -> label -> job, default
+            ``DEFAULT_V_CENTER_CHARS`` (``""`` = the auto-apply OFF; job-config
+            ships the shop set ``"-:–—=<>"``)): every ``plain_text``
+            character occurring in this string rides the ``<vc>`` transform
+            (raised or lowered -- a pure vertical translate on the renderers'
+            ``baseline_shifts`` array -- so its ink centre lands on the
+            cap-band midline ``toolpath_text_height / 2``). ``""`` disables
+            the auto-apply; the ``<vc>`` tag keeps working on its own.
         bold_boldness_multiplier: Multiplier applied to
             :attr:`target_boldness_factor` by inline ``<b>`` markup on a
             multi-stroke (bold) PLT font (cascaded line -> label -> job,
@@ -1246,6 +1266,7 @@ class ResolvedTextLine:
     underline_break_spaces: bool = DEFAULT_UNDERLINE_BREAK_SPACES
     strikethrough_offset_fraction: Optional[float] = DEFAULT_STRIKETHROUGH_OFFSET_FRACTION
     strikethrough_break_spaces: bool = DEFAULT_STRIKETHROUGH_BREAK_SPACES
+    v_center_chars: str = DEFAULT_V_CENTER_CHARS
     bold_boldness_multiplier: float = DEFAULT_BOLD_BOLDNESS_MULTIPLIER
     bold_cutter_diameter: Optional[float] = None
     bold_toolpath_text_height: Optional[float] = None
@@ -1462,6 +1483,45 @@ class ResolvedTextLine:
     def has_original_cutter(self) -> bool:
         """True when any markup run of this line carries an ``<oc>`` tag."""
         return any(run.style.original_cutter for run in self.styled_runs)
+
+    @property
+    def v_center_flags(self) -> Tuple[bool, ...]:
+        """Per-character vertical-centering selection aligned with :attr:`plain_text`.
+
+        ``True`` where the character is wrapped in a ``<vc>`` span **or**
+        occurs in :attr:`v_center_chars` (the auto-centred set -- the hyphen,
+        colon, dashes, ``=`` ...). The transform centres the glyph's own ink
+        between the baseline and the capline (a pure vertical translate
+        riding the renderers' ``baseline_shifts`` array). The set membership
+        is scanned over :attr:`plain_text` (so a markup-free line auto-centres
+        too), with the ``<vc>`` runs layered on top; DERIVED from
+        :attr:`styled_runs` and the character set (never a stored positional
+        array), so a pre-pass that rewrites the line's text
+        (:meth:`with_markup`, the line-content reflow) keeps every run
+        centred. A space is never selected (it owns no ink). ``()`` when the
+        line carries neither (the renderers' fast path).
+        """
+        chars = self.v_center_chars
+        flags = [char in chars and char != " " for char in self.plain_text]
+        if self.styled_runs:
+            index = 0
+            for run in self.styled_runs:
+                if run.style.v_center:
+                    # A space owns no ink, so it is never centred (the
+                    # reflow's styled-separator rule keeps the flag arrays
+                    # space-free).
+                    for offset, char in enumerate(run.text):
+                        if char != " ":
+                            flags[index + offset] = True
+                index += len(run.text)
+        if not any(flags):
+            return ()
+        return tuple(flags)
+
+    @property
+    def has_v_center(self) -> bool:
+        """True when any character of this line is vertically centred."""
+        return bool(self.v_center_flags)
 
     @property
     def strikethrough_cap(self) -> float:
@@ -4162,6 +4222,18 @@ def _resolve_content(
         else:
             line_strikethrough_break_spaces = DEFAULT_STRIKETHROUGH_BREAK_SPACES
 
+        # Resolve the auto-centred character set with the same explicit-None
+        # precedence (line -> label -> job -> default); an intentional ""
+        # (auto-apply disabled, the <vc> tag alone) is honored.
+        if line.v_center_chars is not None:
+            line_v_center_chars: str = line.v_center_chars
+        elif label_input.v_center_chars is not None:
+            line_v_center_chars = label_input.v_center_chars
+        elif job.v_center_chars is not None:
+            line_v_center_chars = job.v_center_chars
+        else:
+            line_v_center_chars = DEFAULT_V_CENTER_CHARS
+
         # Resolve the bold markup's boldness multiplier with the same
         # explicit-None precedence (line -> label -> job -> default); an
         # intentional 1.0 (no boost on multi-stroke fonts) is honored.
@@ -4371,6 +4443,7 @@ def _resolve_content(
                 underline_break_spaces=line_underline_break_spaces,
                 strikethrough_offset_fraction=line_strikethrough_offset_fraction,
                 strikethrough_break_spaces=line_strikethrough_break_spaces,
+                v_center_chars=line_v_center_chars,
                 bold_boldness_multiplier=line_bold_boldness_multiplier,
                 bold_cutter_diameter=bold_cutter,
                 bold_toolpath_text_height=bold_toolpath,

@@ -57,9 +57,11 @@ one-line registry entry plus the render-side handling of the new
 :class:`Style` field; the parser, cascade, and serialization need no change.
 
 The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``,
-``<c:D>`` (the explicit cutter diameter in inches for the wrapped segment)
-and ``<oc>`` (the original cutter: the wrapped segment keeps the line's own
-tool, immune to markup-induced cutter changes).
+``<c:D>`` (the explicit cutter diameter in inches for the wrapped segment),
+``<oc>`` (the original cutter: the wrapped segment keeps the line's own
+tool, immune to markup-induced cutter changes) and ``<vc>`` (vertical
+centering: the wrapped segment's glyphs are raised or lowered so each glyph's
+ink is centred between the baseline and the capline).
 """
 
 from __future__ import annotations
@@ -218,6 +220,19 @@ class Style:
             downsize), and the pinned segment follows it. An explicit
             ``<c:D>`` tool still wins over this tag (an explicit tool is a
             human decision, never overridden automatically).
+        v_center: True when the run is wrapped in a registered vertical-
+            centering tag (``<vc>`` with the default brackets). The wrapped
+            characters engrave **raised or lowered** so each glyph's own ink
+            is vertically centred between the line's baseline and capline
+            (the cap-band midline ``toolpath_text_height / 2`` above the
+            baseline) -- a pure vertical translate riding the renderers'
+            ``baseline_shifts`` array (the ``<sup>``/``<sub>`` plumbing),
+            composed with the existing shift and the engraved-baseline
+            raise. The pipeline also auto-applies the same centering to
+            every character of the cascading ``v_center_chars`` set (the
+            hyphen, colon, en/em dash, ``=`` ...), so the tag is the manual
+            override for any other character. Applying it to an already
+            centred run is the identity (a flag tag).
     """
 
     italic: bool = False
@@ -230,6 +245,7 @@ class Style:
     font: Optional[str] = None
     cutter: Optional[float] = None
     original_cutter: bool = False
+    v_center: bool = False
 
 
 #: The style of unmarked text (every field at its default).
@@ -618,6 +634,16 @@ register_tag(
 # outer run for the trailing text. The pipeline resolves the pin against
 # the line's own cutter (which the compression-driven downsize may move).
 register_tag("oc", lambda style, arg: replace(style, original_cutter=True))
+# Registered LAST so every existing serialization order stays bit-identical.
+# The vertical-centering tag: a plain flag tag (no args -- the target is the
+# line's own cap-band midline, so there is nothing to spell out; <vc:0.5> is
+# literal text). apply is set-to-True (idempotent), so nesting <vc> inside
+# <vc> has no additional effect and the close pops the pre-open Style,
+# restoring the outer run for the trailing text. The pipeline measures each
+# flagged glyph's rendered ink box (a two-pass render) and rides the
+# existing baseline_shifts array with the raise/lower that centres it
+# between the baseline and the capline.
+register_tag("vc", lambda style, arg: replace(style, v_center=True))
 
 
 @dataclass(frozen=True)
@@ -737,6 +763,20 @@ class StyledText:
         line-content reflow) keeps every run pinned.
         """
         return tuple(style.original_cutter for style in _per_char_styles(self))
+
+    @property
+    def v_center_flags(self) -> Tuple[bool, ...]:
+        """Per-character ``<vc>`` vertical-centering flags, aligned with
+        :attr:`plain_text`.
+
+        ``True`` at every position the character is wrapped in a
+        ``<vc>...</vc>`` span (and therefore engraves raised or lowered so
+        its ink is centred between the baseline and the capline). Mirrors
+        :attr:`original_cutter_flags`: the selection is DERIVED from the
+        runs, so a pre-pass that rewrites the line's text (``with_markup``,
+        the line-content reflow) keeps every run centred.
+        """
+        return tuple(style.v_center for style in _per_char_styles(self))
 
 
 @dataclass(frozen=True)

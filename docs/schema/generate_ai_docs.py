@@ -223,6 +223,16 @@ _FALLBACK_NOTES: dict[str, str] = {
     "True ends the stroke at each space, so every word gets its own strike spanning its "
     "own ink and the space stays bare. Cascades line/label/job; job-config supplies the "
     "shop default.",
+    "DEFAULT_V_CENTER_CHARS": "'' = the auto-apply is OFF by default (every "
+    "pre-feature line renders bit-identically); job-config.json ships the shop set "
+    "'-:–—=<>' = the characters auto-centred vertically between the baseline and "
+    "the capline: every text character occurring in this string is raised "
+    "or lowered (a pure vertical translate) so its own ink is centred on the cap-band "
+    "midline (half the rendered cap height above the baseline) -- the characters a font "
+    "typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline "
+    "<vc>...</vc> markup tag applies the same centering to any other characters it wraps. "
+    "An empty string disables the auto-apply (the <vc> tag keeps working on its own). "
+    "Cascades line/label/job; job-config supplies the shop default.",
 }
 
 

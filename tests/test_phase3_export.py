@@ -5814,3 +5814,298 @@ class TestHoleAdjustForCutterDemoExample:
         result = self._export(tmp_path)
         bh_files = [p.name for p in result.plt_paths if "_bh_" in p.name]
         assert bh_files == ["0.015_bh_hafc.plt"]
+
+
+class TestVCenterDemoExample:
+    """Regression tests for tests_deps/v_center_job.yaml.
+
+    The fixture pins inline vertical-centering markup (``<vc>``) and the
+    cascading ``v_center_chars`` field: each selected character is raised or
+    lowered -- a pure vertical translate riding the renderers'
+    ``baseline_shifts`` array -- so its OWN ink is centred between the line's
+    baseline and capline (the ink centre lands on the cap-band midline
+    ``toolpath_text_height / 2``). ``v_center_chars`` applies the same
+    centering automatically to every character occurring in the set (the code
+    fallback is ``""`` = auto-apply off; job-config.json ships the shop set);
+    the tag is the manual override for any other character. A glyph already
+    centred on the midline (a full-height capital) is inert, and the centring
+    adds NO cutter of its own.
+    """
+
+    _SPEC = Path("tests_deps/v_center_job.yaml")
+    _INVENTORY = [0.01, 0.015, 0.02, 0.03, 0.045, 0.06, 0.09, 0.125, 0.25]
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled (against the inventory)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=self._INVENTORY)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="vc",
+            optimize=False,
+            plots=False,
+            available_cutters=self._INVENTORY,
+        )
+
+    @staticmethod
+    def _centers(line: object) -> dict[str, float]:
+        """Return each rendered character's ink-box centre Y (baseline frame)."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _glyph_chars,
+            _render_line_block,
+        )
+
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)  # type: ignore[arg-type]
+        chars = _glyph_chars(line.plain_text)  # type: ignore[attr-defined]
+        centers: dict[str, float] = {}
+        for glyph_index, group in enumerate(glyphs):
+            if not group:
+                continue
+            ys = [
+                point.imag
+                for index in group
+                for segment in block.strokes[index].segments
+                for point in segment.flattened()
+            ]
+            centers[chars[glyph_index]] = 0.5 * (min(ys) + max(ys))
+        return centers
+
+    def test_markup_parses_to_plain_text_and_flags(self, tmp_path: Path) -> None:
+        """Tags never engrave: plain_text strips them, the run carries the flag."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        tagged = by_id["plt_tag"].content[0]
+        assert tagged.text == "A<vc>-</vc>A"
+        assert tagged.plain_text == "A-A"
+        assert tagged.has_v_center is True
+        assert tagged.v_center_flags == (False, True, False)
+
+        plain = by_id["plt_plain"].content[0]
+        assert plain.plain_text == "A-A"
+        assert plain.has_v_center is False
+
+    def test_the_tag_centres_the_hyphen_vs_its_plain_twin(self, tmp_path: Path) -> None:
+        """The centred hyphen's ink centre rides the cap-band midline.
+
+        Dino at text_height 0.5 (cutter 0.060) has a 0.440in cap height, so the
+        midline is 0.220in; the plain hyphen sits at 0.1468in (the font draws
+        it low) and the centred one is RAISED by the difference.
+        """
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        centred = self._centers(by_id["plt_tag"].content[0])
+        plain = self._centers(by_id["plt_plain"].content[0])
+        assert centred["-"] == pytest.approx(0.22, abs=1e-3)
+        assert plain["-"] == pytest.approx(0.1468, abs=1e-3)
+        # The unselected capitals are byte-identical between the two renders.
+        assert centred["A"] == pytest.approx(plain["A"], abs=1e-9)
+
+    def test_the_character_set_centres_without_markup(self, tmp_path: Path) -> None:
+        """v_center_chars applies the same centering to a markup-free line."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        auto = by_id["plt_auto"].content[0]
+        assert auto.styled_runs  # resolution always parses
+        assert all(not run.style.v_center for run in auto.styled_runs)
+        # "A-A A-A": the two hyphens (indices 1 and 5) are centred, the rest
+        # (letters and the space) are not.
+        assert auto.v_center_flags == (False, True, False, False, False, True, False)
+
+        centers = self._centers(auto)
+        assert centers["-"] == pytest.approx(0.22, abs=1e-3)
+        assert centers["A"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_the_shop_set_centres_every_listed_character(self, tmp_path: Path) -> None:
+        """The shipped set centres the hyphen and the colon on one line."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_shop_set"].source_label.content[0]
+        assert line.v_center_chars == "-:–—=<>"
+        # '1','2','3','4','5','6' unmarked; '-' and ':' centred.
+        assert line.v_center_flags == (
+            False,
+            False,
+            True,
+            False,
+            False,
+            True,
+            False,
+            False,
+        )
+        centers = self._centers(line)
+        assert centers["-"] == pytest.approx(0.22, abs=1e-3)
+        assert centers[":"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_a_centred_colon_rises_vs_its_plain_twin(self, tmp_path: Path) -> None:
+        """The colon (centre 0.1101in) is raised onto the midline."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        centred = self._centers(by_id["plt_colon"].content[0])
+        plain = self._centers(by_id["plt_colon_plain"].content[0])
+        assert centred[":"] == pytest.approx(0.22, abs=1e-3)
+        assert plain[":"] == pytest.approx(0.1101, abs=1e-3)
+        assert centred["1"] == pytest.approx(plain["1"], abs=1e-9)
+
+    def test_a_high_glyph_is_lowered(self, tmp_path: Path) -> None:
+        """Centring LOWERS a glyph drawn near the capline (it centres, not lifts).
+
+        Dino's apostrophe sits at 0.4033in; centring brings it down to the
+        midline, so the transform is a raise OR a lower as the glyph needs.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_lower"].source_label.content[0]
+        centers = self._centers(line)
+        assert centers["'"] == pytest.approx(0.22, abs=1e-3)
+        assert centers["A"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_the_underscore_is_raised_from_below_the_baseline(self, tmp_path: Path) -> None:
+        """A glyph hanging below the baseline (centre -0.0523in) is raised."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_underline_char"].source_label.content[0]
+        centers = self._centers(line)
+        assert centers["_"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_an_already_centred_glyph_is_inert(self, tmp_path: Path) -> None:
+        """A full-height capital's centre IS the midline: the tag moves nothing."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+        )
+
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_inert_cap"].source_label.content[0]
+        assert line.has_v_center is True
+        # The zero shift emits no vc term, so the render equals the SAME text
+        # untagged (the block is the single capital 'A', centre 0.220in).
+        block, _words, _glyphs = _render_line_block(line, TextChunkMode.LINE)
+        centers = self._centers(line)
+        assert centers["A"] == pytest.approx(0.22, abs=1e-3)
+        assert block.bounds() is not None
+        assert block.bounds()[1] == pytest.approx(0.0, abs=1e-3)
+        assert block.bounds()[3] == pytest.approx(0.44, abs=1e-3)
+
+    def test_the_selection_is_per_character(self, tmp_path: Path) -> None:
+        """Only the tagged colon centres; the plain hyphens stay low."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_partial"].source_label.content[0]
+        assert line.v_center_flags == (False, False, True, False, False)
+        centers = self._centers(line)
+        assert centers[":"] == pytest.approx(0.22, abs=1e-3)
+        assert centers["-"] == pytest.approx(0.1468, abs=1e-3)
+
+    def test_an_empty_set_disables_the_auto_apply_and_keeps_the_tag(self, tmp_path: Path) -> None:
+        """v_center_chars="" centres nothing by itself; <vc> still works."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_empty_set_tag_works"].source_label.content[0]
+        assert line.v_center_chars == ""
+        assert line.v_center_flags == (False, False, True)
+        centers = self._centers(line)
+        assert centers["-"] == pytest.approx(0.1468, abs=1e-3)
+        assert centers[":"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_the_centring_composes_with_italic(self, tmp_path: Path) -> None:
+        """A <vc><i> run shears AND centres (the transforms are independent)."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_italic"].source_label.content[0]
+        assert line.has_v_center is True
+        assert any(run.style.italic for run in line.styled_runs)
+        centers = self._centers(line)
+        assert centers["-"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_the_centring_does_not_move_the_underline(self, tmp_path: Path) -> None:
+        """The decoration keeps its baseline-relative depth (the <b> precedent).
+
+        The centred colon rises, the underline stays at its own
+        ``cutter + offset`` depth below the baseline, so the raise never drags
+        the stroke with the glyph.
+        """
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_underline_markup"].source_label.content[0]
+        centers = self._centers(line)
+        assert centers[":"] == pytest.approx(0.22, abs=1e-3)
+        # The underline's centerline is the lowest ink on the block, and it
+        # sits one cutter + offset BELOW the baseline -- not raised with the
+        # colon.
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+        )
+
+        block, _words, _glyphs = _render_line_block(line, TextChunkMode.LINE)
+        bounds = block.bounds()
+        assert bounds is not None
+        assert bounds[1] == pytest.approx(-(0.06 + line.underline_offset_inches), abs=1e-3)
+
+    def test_the_centred_downscale_composes_with_scale(self, tmp_path: Path) -> None:
+        """<vc><scale:0.5> centres the SHRUNKEN glyph on the midline."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_scale"].source_label.content[0]
+        assert line.scale_values == (1.0, 0.5, 1.0)
+        centers = self._centers(line)
+        assert centers[":"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_the_centring_composes_with_the_superscript_shift(self, tmp_path: Path) -> None:
+        """<vc><sup> composes into ONE translate landing on the midline."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_sup"].source_label.content[0]
+        assert line.has_sup_sub is True
+        assert line.has_v_center is True
+        centers = self._centers(line)
+        # The FINAL ink is centred (the vc term is measured on pass 1, which
+        # already carries the sup shift + the engraved-baseline raise).
+        assert centers[":"] == pytest.approx(0.22, abs=1e-3)
+
+    def test_crossing_spans_intersect_per_character(self, tmp_path: Path) -> None:
+        """The tag span and the set union select per character (HTML-style)."""
+        result = self._export(tmp_path)
+        line = result.rendered_labels["plt_crossing"].source_label.content[0]
+        assert line.plain_text == "-:="
+        # '-' and ':' are inside <vc>; '=' is in the set.
+        assert line.v_center_flags == (True, True, True)
+        centers = self._centers(line)
+        for char in "-:=":
+            assert centers[char] == pytest.approx(0.22, abs=1e-3)
+
+    def test_the_ttf_family_centres_too(self, tmp_path: Path) -> None:
+        """The TTF path centres on the same midline (PLT parity by construction)."""
+        result = self._export(tmp_path)
+        by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
+
+        centred = self._centers(by_id["plt_ttf"].content[0])
+        plain = self._centers(by_id["plt_ttf_plain"].content[0])
+        cap = by_id["plt_ttf"].content[0].toolpath_text_height
+        assert centred["-"] == pytest.approx(cap / 2, abs=1e-3)
+        # The centring moved the hyphen; the unselected capital is untouched.
+        assert not math.isclose(centred["-"], plain["-"], abs_tol=1e-6)
+        assert centred["A"] == pytest.approx(plain["A"], abs=1e-3)
+
+    def test_the_tag_adds_no_cutter_file_of_its_own(self, tmp_path: Path) -> None:
+        """A pure translate engraves with the line's tool: one text file each.
+
+        The centring itself never moves the cutter (the ``<sup>`` label is
+        excluded: its DOWNSCALE steps to the ladder's tool, the ``<scale:N>``
+        contract -- not the centering).
+        """
+        result = self._export(tmp_path)
+        for label_id in ("plt_tag", "plt_auto", "plt_shop_set", "plt_lower", "plt_crossing"):
+            line = result.rendered_labels[label_id].source_label.content[0]
+            assert line.used_cutters == (0.06,)
+        # The centred PLT labels contribute exactly ONE text file (the line's
+        # own 0.060in tool) -- the tag adds no per-cutter layer of its own.
+        tag_files = sorted(
+            p.name for p in result.plt_paths if "_txt_" in p.name and p.name.startswith("0.060_")
+        )
+        assert tag_files  # the 0.060 text layer exists
+        # No second text cutter was introduced by the centring labels: the
+        # only text cutters in the job are the PLT 0.060 and the TTF family's.
+        text_cutters = {
+            name.split("_txt_")[0]
+            for name in (p.name for p in result.plt_paths if "_txt_" in p.name)
+        }
+        assert "0.060" in text_cutters

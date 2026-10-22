@@ -2956,3 +2956,32 @@ class TestRoundLabelDimensions:
         JobSpec(job_name="J", type="round", width=3.0, content=[TextLine(text="X")])
         with pytest.raises(ValidationError, match="round labels require"):
             JobSpec(job_name="J", type="round", content=[TextLine(text="X")])
+
+
+class TestVCenterCharsField:
+    """The cascading ``v_center_chars`` field (line -> label -> job + plate)."""
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults v_center_chars to None (unset = shipped default)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert job.v_center_chars is None
+        assert TextLine(text="X").v_center_chars is None
+        assert PlateSpec(id="p", width=24.0, height=16.0).v_center_chars is None
+
+    def test_inherited_on_the_text_tiers(self) -> None:
+        """v_center_chars lives on TextAttributes (so TextLine inherits it)."""
+        assert "v_center_chars" in TextAttributes.model_fields
+        assert "v_center_chars" in TextLine.model_fields
+        assert "v_center_chars" in LabelSpec.model_fields
+        assert "v_center_chars" in JobSpec.model_fields
+        assert "v_center_chars" in PlateSpec.model_fields
+
+    @pytest.mark.parametrize("value", ["", "-", "-:–—=<>", "=", "ab"])
+    def test_string_accepted(self, value: str) -> None:
+        """Any string is accepted -- including the '' auto-apply-off value."""
+        assert TextLine(text="X", v_center_chars=value).v_center_chars == value
+
+    def test_plate_parity_accepts_the_field(self) -> None:
+        """The plate tier carries the field for schema parity."""
+        plate = PlateSpec(id="p", width=24.0, height=16.0, v_center_chars="-:")
+        assert plate.v_center_chars == "-:"
