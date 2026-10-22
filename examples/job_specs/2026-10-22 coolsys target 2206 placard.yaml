@@ -14,13 +14,13 @@ job:
     - id: a
       content:
         - text: "2206 CO 2T"
-        - text: "REFRIGERANT : 1150 LBS R744"
-        - text: "REFRIGERANT OIL : RL68HB 7 GAL"
+        - text: "REFRIGERANT<+><+>: 1150 LBS R744"
+        - text: "REFRIGERANT OIL<+><+>: RL68HB 7 GAL"
         - text: "COOLSYS C&I, INC."
         - text: "145 S. STATE COLLEGE BLVD., STE. 200"
         - text: "BREA, CA 92821"
         - text: "888-473-3715"
-        - text: "START UP : 30-SEPT-2026"
+        - text: "START UP: 30-SEPT-2026"
 
 # 2206 CO 2T
 # REFRIGERANT : 1150 LBS R744

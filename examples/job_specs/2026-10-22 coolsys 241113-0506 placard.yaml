@@ -1,0 +1,25 @@
+# UV White text on black background
+
+job:
+  job_name: Coolsys 241113-0506 placard
+  width: 9
+  height: 6
+  text_height: 0.5
+  font: dino
+  holes:
+    - location: corners
+
+  labels:
+    - id: a
+      content:
+        - text: "PACU-01B - HEBX554"
+        - text: "CIRCUIT 1 - 10 LBS OF R-410A"
+        - text: "CIRCUIT 2 - 10 LBS OF R-410A"
+        - text: "CHARGE SIZE ADJ DATE: 5/21/26"
+        - text: "COOLSYS"
+
+#         PACU-01B - HEBX554
+# CIRCUIT 1 – 10 LBS OF R-410A
+# CIRCUIT 2 – 10 LBS OF R-410A
+# CHARGE SIZE ADJ DATE: 5/21/26
+#                 COOLSYS
