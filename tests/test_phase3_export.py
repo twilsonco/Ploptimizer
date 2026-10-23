@@ -1580,8 +1580,11 @@ class TestArcPreserveCompressionDemoExample:
         # It really compressed (the point of the fixture).
         assert sorted(preserved.compression_by_line) == [0]
         arcs, lines = self._segments(preserved.plt_content)
-        assert arcs == 100
-        assert lines == 404
+        # Near-straight arcs stay native AA (only a sub-half-plotter-unit span
+        # collapses to a chord), so the compressed line carries ~1.05 arcs per
+        # source arc -- 460 arcs vs the polygonized label's 1341 lines.
+        assert arcs == 460
+        assert lines == 44
 
     def test_opt_out_polygonizes_the_same_line(self, tmp_path: Path) -> None:
         """arc_preserve_compression false restores the polygonized output."""
@@ -1601,8 +1604,8 @@ class TestArcPreserveCompressionDemoExample:
         result = self._export(tmp_path)
         italic_arcs, _ = self._segments(result.rendered_labels["italic"].plt_content)
         clamped_arcs, _ = self._segments(result.rendered_labels["clamped"].plt_content)
-        assert italic_arcs == 148
-        assert clamped_arcs == 160
+        assert italic_arcs == 378
+        assert clamped_arcs == 354
 
     def test_per_line_opt_out_inside_one_label(self, tmp_path: Path) -> None:
         """The mixed label: line 0 preserves, line 1 (explicit false) polygonizes.
@@ -1614,9 +1617,9 @@ class TestArcPreserveCompressionDemoExample:
         result = self._export(tmp_path)
         mixed = result.rendered_labels["mixed"]
         arcs, lines = self._segments(mixed.plt_content)
-        # Line 0 preserved (100 arcs) + line 1 polygonized (0 arcs, ~937 lines).
-        assert arcs == 100
-        assert lines == 1741
+        # Line 0 preserved (460 arcs) + line 1 polygonized (0 arcs, 1341 lines).
+        assert arcs == 460
+        assert lines == 1381
 
 
 class TestOptimizeLineContentDemoExample:

@@ -367,9 +367,11 @@ class ArcSeg:
         """Apply one non-uniform map, returning ``(segments, declined_arcs)``.
 
         ``declined_arcs`` is 1 only when the ellipse refit was requested and
-        returned ``None`` (the arc flattened to a chord-bounded polyline). A
-        refit that collapses a near-straight arc to a single chord is a
-        SUCCESS (0 declined) -- it emits fewer commands than the source arc.
+        returned ``None`` (the arc flattened to a chord-bounded polyline).
+        Near-straight arcs are NOT flattened -- the refit keeps them as one
+        ``AA`` (a sub-quantization arc draws through the same integer plotter
+        units as its chord), so a preserved line's arc count tracks the
+        source's.
         """
         if preserve_arcs:
             fitted = self._fit(
@@ -924,7 +926,6 @@ class TextBlock:
         for the polygonizing fallback. Arcs the refit declines (a degenerate
         geometry, a span past :data:`~plt_optimizer.generate.arc_fit.ARC_FIT_MAX_ARCS`)
         flatten at :data:`ARC_FLATTEN_CHORD_TOL_INCHES`; a WARNING names them.
-
         Args:
             scale: Horizontal scale factor in ``(0, 1]``; ``>= 1`` is a no-op.
             context: Optional description for the WARNING (label/line ids).

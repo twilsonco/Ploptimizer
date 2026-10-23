@@ -1489,13 +1489,18 @@ class TestPltFontDemoExample:
         compression now refit each arc's ellipse image with a short chain of
         circular ``AA`` arcs instead of polygonizing. The clamped digits and
         round capitals that the previous pin counted as flattened are native
-        again, so both PLT labels multiply (dino_banner 15 -> 138, mixed_tag
-        92 -> 265). The TTF label has no arcs to preserve and stays 0.
+        again, so both PLT labels multiply. The TTF label has no arcs to
+        preserve and stays 0.
+
+        Re-pinned UP again after the chord pre-check was removed: a near-straight
+        arc now stays a native ``AA`` (only a sub-half-plotter-unit span
+        collapses to a chord), so the refits that previously emitted a ``PD``
+        vertex emit an arc (dino_banner 138 -> 177, mixed_tag 265 -> 383).
         """
         rendered = self._rendered()
         counts = {key: content.plt_content.count("AA") for key, (_rl, content) in rendered.items()}
-        assert counts["dino_banner"] == 138
-        assert counts["mixed_tag"] == 265
+        assert counts["dino_banner"] == 177
+        assert counts["mixed_tag"] == 383
         assert counts["ttf_card"] == 0
 
 

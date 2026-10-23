@@ -487,14 +487,25 @@ contract).
   circumcircle fit is only C0 and kinks up to ~11° at interior junctions. `k`
   is the smallest value meeting `ARC_FIT_DEV_TOL_INCHES` (0.0005in), estimated
   closed-form from the max curvature radius then verified numerically. A
-  **chord pre-check** runs first: a large share of glyph arcs (42–78% by scale)
-  are near-straight enough that a single `PD` vertex beats an `AA` command, and
-  the fitter emits a line there.
+  **degenerate-span check** runs first: a span whose endpoints sit within half a
+  plotter unit (the emission floor) carries no resolvable ink and emits as a
+  single `PD` vertex. Near-straight arcs are **not** collapsed — an earlier
+  version collapsed every arc whose sagitta fell under the tolerance (34 of a
+  compressed `S`'s 44 arcs became line segments), which polygonized the very
+  toolpaths this module exists to keep native. EngraveLab keeps arcs as arcs
+  through the same compression (44 → 49 `AA` on that `S`), and an `AA` whose
+  deviation from its chord is below coordinate quantization draws through the
+  same integer plotter units as the chord — preserving it costs nothing on the
+  plate and keeps the preview arc-native.
 
 - **Measured on the shipped library** (59,670 arcs, median sweep ~10°, max 90°,
-  none past 180°): **1.01–1.09 fitted arcs per source arc** at 0.0005in —
-  99% need exactly one; the 90° arcs split. **2.1–2.8× fewer emitted commands**
-  than flattening at equal tolerance. The **emitted** deviation (integer plotter
+  none past 180°): **~1.05 emitted segments per source arc** at 0.0005in —
+  99% need exactly one (arc or chord); the 90° arcs split. **2.1–2.8× fewer
+  emitted commands** than flattening at equal tolerance. Because a chord
+  collapse and a 1-arc refit are each a single command, the command-count win
+  is unchanged by the arc-native policy — only the AA/PD mix shifts (a
+  preserved line's `AA` count now tracks the source's, ~1:1, matching
+  EngraveLab). The **emitted** deviation (integer plotter
   units, `AA` radius implicit from `|pen − center|`) sits at ~0.002in ≈ 2 units
   at *every* tolerance: coordinate quantization, not the fit, is the floor —
   which is why 0.0005in is the right constant (asking for 0.0002in buys
@@ -519,9 +530,9 @@ contract).
 - **The primitives** (`text_geometry.py`): `ArcSeg._xform` / `Stroke._xform`
   return `(segments, declined_arcs)`; `declined_arcs` is 1 **only** when the
   refit returned `None` (a degenerate geometry, a span past
-  `ARC_FIT_MAX_ARCS`=8) and the arc flattened. A refit that collapses a
-  near-straight arc to a chord is a **success** (0 declined) — it emits fewer
-  commands than the source arc. This is the metric that gates the log:
+  `ARC_FIT_MAX_ARCS`=8) and the arc flattened. Near-straight arcs stay native
+  `AA` (only a sub-half-plotter-unit span collapses to a chord), so a
+  preserved line's arc count tracks the source's. This is the metric that gates the log:
   `compress_x` warns on the **declined** count (WARNING — compression is an
   authoring compromise), `scaled_y`/`sheared` log the declined count at DEBUG
   (routine render-time transforms). The public `scaled_x`/`scaled_y`/`sheared`

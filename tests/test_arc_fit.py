@@ -3,7 +3,7 @@
 Covers the pure geometry that lets non-uniform glyph transforms keep native
 ``AA`` arcs: the affine image of a circular arc (the parametric ellipse,
 ``t`` = the source center angle), the tangent-continuous (C0 + G1) chain
-construction, the chord pre-check, the tolerance guarantee, and every
+construction, the degenerate-span collapse, the tolerance guarantee, and every
 degenerate branch that must return ``None`` so the caller flattens.
 """
 
@@ -366,26 +366,44 @@ class TestFitTolerance:
             assert len(chain) == expect, f"sweep={sweep}"
 
 
-class TestChordPreCheck:
-    """Near-straight arcs emit a line, not an AA."""
+class TestDegenerateSpanCheck:
+    """Only a sub-half-plotter-unit span collapses to a chord; curves stay AA."""
 
-    def test_huge_radius_shallow_arc_is_a_line(self) -> None:
-        """A single-line font's near-straight strokes collapse to chords.
+    def test_near_straight_arc_stays_native(self) -> None:
+        """A huge-radius shallow arc refits to ONE arc, not a line.
 
         The 100 in osculating radius over a 0.3 deg sweep has a ~0.00014in
-        sagitta -- under the 0.0005in tolerance -- so the chord pre-check wins
-        and the arc emits as one ``PD`` vertex, not an ``AA`` command.
+        sagitta -- under the 0.0005in tolerance -- but the span is far longer
+        than the plotter resolves, so the arc emits as a native ``AA`` (an
+        arc that deviates from its chord by less than coordinate
+        quantization draws through the same integer units as the chord --
+        collapsing it used to polygonize 34 of a compressed S's 44 arcs).
         """
         arc = ellipse_from_arc(0j, 50.0, 0.0, 0.3, scale_x=0.5)
+        chain = fit_ellipse_arc(arc)
+        assert chain is not None
+        assert len(chain) == 1
+        assert chain[0].is_arc
+
+    def test_sub_plotter_unit_span_is_a_line(self) -> None:
+        """A span shorter than half a plotter unit carries no resolvable ink."""
+        from plt_optimizer.generate.arc_fit import _MIN_CHORD_INCHES
+
+        # r=0.5in over 0.01 deg: chord ~8.7e-5in, under the 4.9e-4in floor.
+        arc = ellipse_from_arc(0j, 0.5, 0.0, 0.01, scale_x=0.5)
+        assert abs(arc.end - arc.start) < _MIN_CHORD_INCHES
         chain = fit_ellipse_arc(arc)
         assert chain is not None
         assert len(chain) == 1
         assert not chain[0].is_arc
 
     def test_line_endpoints_are_exact(self) -> None:
-        arc = ellipse_from_arc(0j, 50.0, 0.0, 0.3, scale_x=0.5)
+        from plt_optimizer.generate.arc_fit import _MIN_CHORD_INCHES
+
+        arc = ellipse_from_arc(0j, 0.5, 0.0, 0.01, scale_x=0.5)
         chain = fit_ellipse_arc(arc)
         assert chain is not None
+        assert abs(arc.end - arc.start) < _MIN_CHORD_INCHES
         assert chain[0].start == pytest.approx(arc.start, abs=1e-14)
         assert chain[0].end == pytest.approx(arc.end, abs=1e-14)
 
@@ -393,7 +411,7 @@ class TestChordPreCheck:
         arc = ellipse_from_arc(0j, 0.3, 0.0, 90.0, scale_x=0.5)
         chain = fit_ellipse_arc(arc)
         assert chain is not None
-        assert any(seg.is_arc for seg in chain)
+        assert all(seg.is_arc for seg in chain)
 
 
 class TestDegenerateAndFallback:
@@ -406,8 +424,7 @@ class TestDegenerateAndFallback:
     def test_zero_scale_x(self) -> None:
         """A fully collapsed ellipse has no fit (the caller flattens)."""
         arc = ellipse_from_arc(0j, 0.3, 0.0, 90.0, scale_x=0.0)
-        chain = fit_ellipse_arc(arc)
-        assert chain is None or all(not seg.is_arc for seg in chain)
+        assert fit_ellipse_arc(arc) is None
 
     def test_negative_scale_flips_sweep_and_is_rejected(self) -> None:
         """A mirrored map (negative determinant) is out of scope: the sweep
@@ -425,7 +442,32 @@ class TestDegenerateAndFallback:
         assert fit_ellipse_arc(arc, tol_inches=1e-6, max_arcs=ARC_FIT_MAX_ARCS) is None
 
     def test_collapsed_radius(self) -> None:
+        """A zero-area ellipse (u = v = 0) is a point: no fit, caller flattens."""
         arc = EllipseArc(c=0j, u=0j, v=0j, t0_deg=0.0, sweep_deg=90.0)
+        assert fit_ellipse_arc(arc) is None
+
+    def test_full_circle_collapsed_axis(self) -> None:
+        """A 360 deg span whose endpoints meet declines (a chord erases the loop)."""
+        arc = ellipse_from_arc(0j, 0.4, 0.0, 360.0, scale_x=1.0)
+        assert abs(arc.end - arc.start) < 1e-12
+        assert fit_ellipse_arc(arc) is None
+
+    def test_near_closed_loop_declines(self) -> None:
+        """A 359.9 deg span also declines: its chord is sub-unit, its ink is not."""
+        arc = ellipse_from_arc(0j, 0.4, 0.0, 359.9, scale_x=0.5)
+        assert fit_ellipse_arc(arc) is None
+
+    def test_sub_unit_sub_chords_decline(self) -> None:
+        """A span whose every k-probed chain has a sub-floor chord declines.
+
+        A 0.0003in-radius circle over 181 deg: the whole span is above the
+        emission floor (so the degenerate-span guard does not fire), but every
+        multi-arc split produces a chord shorter than half a plotter unit, so
+        :func:`_fit_chain` returns ``None`` for every probe and the fitter
+        declines (the caller flattens).
+        """
+        arc = ellipse_from_arc(0j, 0.0003, 0.0, 181.0, scale_x=1.0)
+        assert abs(arc.end - arc.start) > 0.5 / 1016.0
         assert fit_ellipse_arc(arc) is None
 
     def test_line_segment_radius_is_zero(self) -> None:
@@ -561,28 +603,26 @@ class TestDegenerateHelpers:
         assert _estimate_k(EllipseArc(0j, 1 + 0j, 1j, 0.0, 0.0), 5e-4) == 1
         assert _estimate_k(EllipseArc(0j, 0j, 0j, 0.0, 90.0), 5e-4) == 1
 
-    def test_chord_check_zero_length_chord_is_close(self) -> None:
-        """A point ellipse (zero chord) is trivially "straight enough"."""
-        from plt_optimizer.generate.arc_fit import _chord_is_close_enough
-
+    def test_zero_area_ellipse_declines(self) -> None:
+        """A point ellipse (u = v = 0, zero cross product) has no fit."""
         arc = EllipseArc(c=1j, u=0j, v=0j, t0_deg=0.0, sweep_deg=90.0)
-        assert _chord_is_close_enough(arc, 5e-4) is True
+        assert fit_ellipse_arc(arc) is None
 
-    def test_chord_check_samples_beyond_the_chord_end(self) -> None:
-        """A near-straight arc whose far samples project past the chord end.
+    def test_degenerate_span_emits_chord(self) -> None:
+        """A span under half a plotter unit emits a single chord line.
 
-        Exercises the ``rel >= 1.0`` branch (distance measured to ``b``): the
-        span runs past 180 deg so late samples overshoot the endpoint, while
-        the whole arc stays within the (loose) tolerance of the chord.
+        Exercises the degenerate-span guard in :func:`fit_ellipse_arc`: the
+        endpoints are within the emission floor, so the arc collapses to one
+        non-arc :class:`FittedSegment` (a real sub-unit sliver, not a loop).
         """
-        from plt_optimizer.generate.arc_fit import _chord_is_close_enough
+        from plt_optimizer.generate.arc_fit import _MIN_CHORD_INCHES
 
-        # u=(1,0), v=(0,0.001): a hair-thin ellipse, 190 deg span. The chord
-        # runs (1,0) -> (-0.985,-0.00017); the t=180 sample projects rel > 1 and
-        # sits 0.0152 from the end, while the mid-arc sagitta is 0.001.
-        arc = EllipseArc(c=0j, u=1.0 + 0j, v=0.001j, t0_deg=0.0, sweep_deg=190.0)
-        assert _chord_is_close_enough(arc, 0.05) is True
-        assert _chord_is_close_enough(arc, 5e-4) is False
+        arc = EllipseArc(c=0j, u=0.5 + 0j, v=0.5j, t0_deg=0.0, sweep_deg=0.01)
+        assert abs(arc.end - arc.start) < _MIN_CHORD_INCHES
+        chain = fit_ellipse_arc(arc)
+        assert chain is not None
+        assert len(chain) == 1
+        assert not chain[0].is_arc
 
     def test_sweep_sign_ok_skips_line_segments(self) -> None:
         """Lines carry no orientation, so they never fail the sign check."""

@@ -61,13 +61,16 @@ estimated in closed form from the ellipse's maximum curvature radius and then
 verified numerically (the estimate is cheap and almost always exact; the
 verification keeps the tolerance a hard guarantee).
 
-Measured on the shipped library, **99% of glyph arcs need exactly one arc** at
-:data:`ARC_FIT_DEV_TOL_INCHES` -- the median source sweep is ~10 degrees, and a
-10-degree arc of a 0.4-aspect ellipse deviates from the true ellipse by ~1e-4
-inches. The arcs that split are the 90-degree ones. A **chord pre-check** runs
-first: 42-78% of arcs (depending on the scale) are already straight enough that
-a single ``PD`` vertex beats an ``AA`` command, and emitting a line there is
-both cheaper and exact-by-construction.
+A **degenerate-span check** runs first: a span whose endpoints sit within half
+a plotter unit of each other carries no ink that the device can resolve, so it
+emits as a single ``PD`` vertex. Near-straight arcs are *not* collapsed -- a
+previous version collapsed every arc whose sagitta fell under the tolerance
+(34 of a compressed ``S``'s 44 arcs), which polygonized the very toolpaths this
+module exists to keep native. EngraveLab keeps arcs as arcs through the same
+compression (44 -> 49 ``AA`` on that ``S``), and an ``AA`` arc whose deviation
+from its chord is below coordinate quantization draws through the same integer
+plotter units as the chord itself, so preserving it costs nothing on the plate
+and keeps the preview arc-native.
 
 :func:`fit_ellipse_arc` returns ``None`` when it cannot guarantee the
 tolerance (a degenerate geometry, an orientation flip, a span too wide for
@@ -451,36 +454,6 @@ def _estimate_k(arc: EllipseArc, tol: float) -> int:
     return max(1, math.ceil(phi * math.sqrt(radius / (8.0 * tol))))
 
 
-def _chord_is_close_enough(arc: EllipseArc, tol: float) -> bool:
-    """True when a single straight line meets the tolerance.
-
-    Runs before any fitting: a ``PD`` vertex is cheaper to emit than an ``AA``
-    command, and on the shipped library a large share of glyph arcs (42-78%
-    depending on the scale) are near-straight enough that the chord is the
-    optimal answer.
-    """
-    a = arc.start
-    b = arc.end
-    chord = b - a
-    len2 = chord.real * chord.real + chord.imag * chord.imag
-    if len2 <= 0.0:
-        return True
-    t0 = math.radians(arc.t0_deg)
-    span = math.radians(arc.sweep_deg)
-    for i in range(1, _VERIFY_SAMPLES):
-        p = arc.point(t0 + span * i / _VERIFY_SAMPLES)
-        rel = ((p - a).real * chord.real + (p - a).imag * chord.imag) / len2
-        if rel <= 0.0:
-            d = abs(p - a)
-        elif rel >= 1.0:
-            d = abs(p - b)
-        else:
-            d = abs(_cross(chord, p - a)) / math.sqrt(len2)
-        if d > tol:
-            return False
-    return True
-
-
 def _sweep_sign_ok(arc: EllipseArc, segments: List[FittedSegment]) -> bool:
     """True when every fitted arc turns the same way as the source.
 
@@ -514,14 +487,29 @@ def fit_ellipse_arc(
         The chain (one :class:`FittedSegment` per emitted segment, arcs and
         lines mixed), ordered and tip-to-tail. ``None`` when the tolerance
         cannot be guaranteed -- the caller must then fall back to flattening.
+        A span whose endpoints sit within :data:`_MIN_CHORD_INCHES` (half a
+        plotter unit -- the emission floor) emits as a single line; near-straight
+        spans are NOT collapsed, so the chain keeps ``AA`` commands wherever the
+        source arc had one.
     """
     if arc.sweep_deg == 0.0 or tol_inches <= 0.0:
         return None
-    if abs(arc.end - arc.start) <= 0.0:
-        # Fully collapsed geometry (a zero-area ellipse whose endpoints meet):
-        # there is no curve to fit, and a zero-length segment is not emittable.
+    if _cross(arc.u, arc.v) == 0.0:
+        # Zero-area ellipse (a collapsed axis, or a circle centred on the
+        # baseline under shear): the image is a straight segment, there is no
+        # curve to fit, and a circular arc cannot represent it.
         return None
-    if _chord_is_close_enough(arc, tol_inches):
+    if abs(arc.end - arc.start) <= _MIN_CHORD_INCHES:
+        if abs(arc.sweep_deg) >= 180.0:
+            # A (near-)closed loop: its endpoints meet within the emission
+            # floor, but a chord would erase the whole loop's ink. The span is
+            # beyond what a capped chain can close, so the caller flattens it
+            # into a closed polyline.
+            return None
+        # Degenerate span: the endpoints sit within half a plotter unit, so no
+        # resolvable ink exists between them (a sub-unit sliver of a real
+        # curve). The chord carries the span; a zero-length segment is not
+        # emittable.
         return (FittedSegment(start=arc.start, end=arc.end),)
 
     # Probe 1, 2, 4, 8 from the closed-form estimate, then bisect between the

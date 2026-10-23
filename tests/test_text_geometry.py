@@ -206,13 +206,29 @@ class TestArcSeg:
         # X halves, Y untouched: the chain starts at the affine image of (1,0).
         assert segs[0].start == pytest.approx(complex(0.5, 0.0), abs=1e-12)
 
-    def test_scaled_x_collapses_near_straight_arc_to_a_line(self) -> None:
-        """A huge-radius shallow arc refits to a single chord (a LineSeg).
+    def test_scaled_x_keeps_near_straight_arc_native(self) -> None:
+        """A huge-radius shallow arc refits to a single arc (an ArcSeg).
 
-        Exercises the chord pre-check inside :meth:`ArcSeg._fit`: the emitted
-        chain is one line, not an arc, and the arc is NOT counted as declined.
+        The arc's sagitta sits under the fit tolerance, but the span is far
+        longer than the plotter resolves, so the refit keeps it native -- an
+        ``AA`` that deviates from its chord by less than coordinate
+        quantization draws through the same integer units as the chord.
+        (The old chord pre-check collapsed these to ``PD`` vertices and
+        polygonized 34 of a compressed S's 44 arcs.)
         """
         arc = ArcSeg(start=50 + 0j, center=0j, sweep_deg=0.3)
+        segs = arc.scaled_x(0.5, 0.0)
+        assert len(segs) == 1
+        assert isinstance(segs[0], ArcSeg)
+
+    def test_scaled_x_collapses_sub_unit_span_to_a_line(self) -> None:
+        """A span shorter than half a plotter unit carries no ink: one LineSeg.
+
+        Exercises the degenerate-span guard inside :meth:`ArcSeg._fit`: the
+        emitted chain is one line, not an arc, and the arc is NOT counted as
+        declined.
+        """
+        arc = ArcSeg(start=0.5 + 0j, center=0j, sweep_deg=0.01)
         segs = arc.scaled_x(0.5, 0.0)
         assert len(segs) == 1
         assert isinstance(segs[0], LineSeg)
