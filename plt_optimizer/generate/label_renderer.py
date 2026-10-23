@@ -1404,6 +1404,8 @@ def compress_line_to_width(
     max_h_compress: float,
     label_id: str,
     line_text: Optional[str] = None,
+    *,
+    preserve_arcs: bool = True,
 ) -> TextBlock:
     """Uniformly compress a rendered text line horizontally to fit the margin box.
 
@@ -1416,9 +1418,12 @@ def compress_line_to_width(
     where compression is disabled (``max_h_compress == 0.0``), are returned
     unchanged.
 
-    Arcs cannot survive the non-uniform X scale, so a compressed line's
-    arcs are flattened to polylines (bounded chord error, see
-    :meth:`TextBlock.compress_x`) with a WARNING naming the label/line.
+    Arcs cannot survive the non-uniform X scale exactly, so a compressed
+    line's arcs are refit with a chain of circular ``AA`` arcs (bounded
+    deviation, see :meth:`TextBlock.compress_x`) when ``preserve_arcs`` (the
+    default), keeping the line arc-native; only arcs the refit cannot bound
+    flatten to polylines, with a WARNING naming the label/line. Pass
+    ``preserve_arcs=False`` to restore the historical polygonized output.
 
     Args:
         line_block: The rendered text block for a single text line.
@@ -1428,6 +1433,8 @@ def compress_line_to_width(
         label_id: Identifier used in log messages.
         line_text: Optional rendered text of the line, included in log
             messages so warnings identify the offending line.
+        preserve_arcs: Refit the compressed arcs with circular arcs (the
+            default); ``False`` polygonizes them.
 
     Returns:
         The original block when no compression is needed or allowed,
@@ -1472,18 +1479,25 @@ def compress_line_to_width(
     # untouched so glyph height and vertical stacking are unaffected. The
     # caller re-centers the compressed line horizontally afterwards.
     context = f"of label {label_id}{line_desc}" if line_desc else f"of label {label_id}"
-    return line_block.compress_x(scale, context=context)
+    return line_block.compress_x(scale, context=context, preserve_arcs=preserve_arcs)
 
 
-def _apply_collision_compress(line_block: TextBlock, scale: float, context: str = "") -> TextBlock:
+def _apply_collision_compress(
+    line_block: TextBlock,
+    scale: float,
+    context: str = "",
+    *,
+    preserve_arcs: bool = True,
+) -> TextBlock:
     """Uniformly scale a rendered line horizontally by a collision-avoidance factor.
 
     Unlike :func:`compress_line_to_width` (which only engages when a line
     overflows the inner content area), this applies an unconditional uniform
     X scale produced by the text-hole collision resolution sweep. Y is
     untouched and the line's left edge is kept fixed; the caller re-aligns
-    the compressed line afterwards. Arcs on a compressed line are flattened
-    (bounded chord error) with a WARNING.
+    the compressed line afterwards. Arcs on a compressed line are refit with
+    circular arcs (bounded deviation) when ``preserve_arcs``, and flatten
+    (with a WARNING) only when the refit declines them.
 
     Args:
         line_block: The rendered text block for a single text line.
@@ -1497,7 +1511,7 @@ def _apply_collision_compress(line_block: TextBlock, scale: float, context: str 
     """
     if scale >= 1.0:
         return line_block
-    return line_block.compress_x(scale, context=context)
+    return line_block.compress_x(scale, context=context, preserve_arcs=preserve_arcs)
 
 
 def _validated_glyph_groups(
@@ -1816,6 +1830,11 @@ def _render_line_core_once(
     # when enabled, so every opted-out line keeps the historical call shape.
     if line.enforce_cap_line:
         plt_kwargs["enforce_cap_line"] = True
+    # Arc-preserving non-uniform transforms: the flag reaches the PLT renderer
+    # only when the line opts OUT (False), so every default-True line keeps the
+    # historical call shape and the renderer's own default (True).
+    if not line.arc_preserve_compression:
+        plt_kwargs["preserve_arcs"] = False
     italic_kwargs = _italic_render_kwargs(line)
     # Bold / scale markup: the flagged characters render with a per-glyph
     # cutter diameter and a baseline-anchored uniform scale (PLT: per-character
@@ -3746,6 +3765,7 @@ def _apply_glyph_ramps(
     raise_fraction: float,
     reciprocal_ramps: Optional[Mapping[int, float]] = None,
     reciprocal_scale: float = 1.0,
+    preserve_arcs: bool = True,
 ) -> Tuple[TextBlock, List[Tuple[int, str, float, float, float]]]:
     """Scale and raise the triggered glyphs of one line (local frame).
 
@@ -3772,6 +3792,8 @@ def _apply_glyph_ramps(
             top-down (they collide with a descender on the line above).
         reciprocal_scale: Smallest permitted top-down scale
             (``descending_character_reciprocal_scale``).
+        preserve_arcs: Refit the Y-scaled ellipse arcs with circular arcs
+            (``False`` polygonizes, the historical behaviour).
 
     Returns:
         ``(new_block, applied)`` where ``applied`` lists
@@ -3795,7 +3817,9 @@ def _apply_glyph_ramps(
             continue
         descender = max(0.0, -bounds[1])
         scale_y, raise_amount = apply_ramp(descender, v_scale, raise_fraction, ramp)
-        transformed = glyph_block.scaled_y(scale_y).translate(0.0, raise_amount)
+        transformed = glyph_block.scaled_y(scale_y, preserve_arcs=preserve_arcs).translate(
+            0.0, raise_amount
+        )
         recip_scale_y = reciprocal_scale_y(recip_ramp, reciprocal_scale)
         if recip_scale_y < 1.0:
             # Top-down about the (post-raise) lowest ink point: the bottom is
@@ -3805,7 +3829,7 @@ def _apply_glyph_ramps(
                 anchor = new_bounds[1]
                 transformed = (
                     transformed.translate(0.0, -anchor)
-                    .scaled_y(recip_scale_y)
+                    .scaled_y(recip_scale_y, preserve_arcs=preserve_arcs)
                     .translate(0.0, anchor)
                 )
         for position, stroke_index in enumerate(indices):
@@ -4491,6 +4515,7 @@ def _apply_descender_relief(
                 label.descending_character_raise,
                 per_glyph_recip,
                 label.descending_character_reciprocal_scale,
+                preserve_arcs=label.content[line_indices[index]].arc_preserve_compression,
             )
             current_blocks.append(rebuilt)
         geometry = _local_line_extents(current_blocks, pitch_basis)
@@ -5054,7 +5079,9 @@ def _render_positioned_lines(
         # lines get compressed; non-colliding lines remain at full width.
         compression_scale = label.collision_compress_by_line.get(line_index, 1.0)
         line_desc = f"of label {label.id} line {line_index} ({line.plain_text!r})"
-        block = _apply_collision_compress(block, compression_scale, context=line_desc)
+        block = _apply_collision_compress(
+            block, compression_scale, context=line_desc, preserve_arcs=line.arc_preserve_compression
+        )
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured just above
             continue
@@ -5212,6 +5239,7 @@ def _render_positioned_lines(
             max_h_compress,
             label.id,
             line_text=line.plain_text,
+            preserve_arcs=line.arc_preserve_compression,
         )
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass

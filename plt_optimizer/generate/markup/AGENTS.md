@@ -106,13 +106,15 @@ rebuilding raw markup.
   kerns exactly and an italic overhang widens the pair's advance with no fudge
   factor. Shearing both glyphs of a pair shifts both edges by `y * tan`, so the
   pair's advance is the plain pair's (the line widens by one overhang, not two).
-  Arcs **flatten** at `ARC_FLATTEN_CHORD_TOL_INCHES` (a sheared circular arc is
-  a *rotated* ellipse, which `ArcSeg` cannot represent) and log at DEBUG — the
-  `scaled_y` policy (italic is a routine render-time transform), not the
-  `compress_x` WARNING. `TextBlock.sheared(tan, context)` /
+  A sheared circular arc is a *rotated* ellipse, which the refit keeps native as
+  a chain of circular `AA` arcs (see the generate AGENTS.md "Arc-Preserving
+  Non-Uniform Transforms" section, `ARC_FIT_DEV_TOL_INCHES`); only arcs the
+  refit declines flatten at `ARC_FLATTEN_CHORD_TOL_INCHES` and log at DEBUG —
+  the `scaled_y` policy (italic is a routine render-time transform), not the
+  `compress_x` WARNING. `TextBlock.sheared(tan, context, preserve_arcs=…)` /
   `Stroke.sheared` / `LineSeg.sheared` / `ArcSeg.sheared` are the primitives;
   the pen-up rapid target shears with the geometry, so a plunge stays on its
-  slanted stroke.
+  slanted stroke. `preserve_arcs` rides the line's `arc_preserve_compression`.
 - **TTF path** (`_apply_italic`): the whole-line render is kept and the flagged
   glyph contours are italicized in the pre-chord-removal slicing frame (the
   `_apply_small_caps` idiom, `_per_glyph_counts` probing the mapped counts under

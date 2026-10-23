@@ -405,6 +405,14 @@ DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
 # most-compressed (minimum) scale, clamped to each receiver's own
 # ``1 - max_h_compress`` budget floor.
 DEFAULT_H_COMPRESS_GLOBAL: bool = False
+# Arc-preserving non-uniform text transforms. ``True`` (the default) refits
+# each PLT glyph arc's ellipse image (horizontal compression, the cap-line
+# clamp, the descender relief, the italic shear) with a short chain of
+# circular ``AA`` arcs (see :mod:`plt_optimizer.generate.arc_fit`) instead of
+# polygonizing, so compressed/italic/clamped lines engrave far faster. ``False``
+# restores the historical polygonized output. Consumed by
+# :mod:`plt_optimizer.generate.text_geometry` through the renderers.
+DEFAULT_ARC_PRESERVE_COMPRESSION: bool = True
 # The grouping scope of the shared horizontal compression (see
 # ``plt_optimizer.generate.h_compress``). ``True`` (the default) shares the
 # compression only between the lines of the SAME nominal text height within
@@ -1118,6 +1126,15 @@ class ResolvedTextLine:
             engraves at one glyph density throughout. Consumed by
             :mod:`plt_optimizer.generate.h_compress`. Explicit ``False`` is
             honored; only ``None`` means unset.
+        arc_preserve_compression: Whether the non-uniform text transforms
+            (horizontal compression, the cap-line clamp, the descender relief,
+            the italic shear) keep PLT glyph arcs native by refitting each
+            arc's ellipse image with a short chain of circular ``AA`` arcs
+            (cascaded line -> label -> job, default
+            ``DEFAULT_ARC_PRESERVE_COMPRESSION`` (``True``); see
+            :mod:`plt_optimizer.generate.arc_fit`). ``False`` restores the
+            historical polygonized output. Explicit ``False`` is honored;
+            only ``None`` means unset.
         optimize_line_content: Whether this line's words may be
             redistributed across the consecutive lines that also enable the
             option (cascaded line -> label -> job, default
@@ -1330,6 +1347,7 @@ class ResolvedTextLine:
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
     h_compress_global_same_height_only: bool = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
+    arc_preserve_compression: bool = DEFAULT_ARC_PRESERVE_COMPRESSION
     optimize_line_content: bool = DEFAULT_OPTIMIZE_LINE_CONTENT
     optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
     new_line: bool = False
@@ -4595,6 +4613,17 @@ def _resolve_content(
         else:
             line_h_compress_global_same_height_only = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
 
+        # Resolve the arc-preserving-transforms flag with the same precedence;
+        # an intentional ``False`` (polygonize) is honored.
+        if line.arc_preserve_compression is not None:
+            line_arc_preserve_compression: bool = line.arc_preserve_compression
+        elif label_input.arc_preserve_compression is not None:
+            line_arc_preserve_compression = label_input.arc_preserve_compression
+        elif job.arc_preserve_compression is not None:
+            line_arc_preserve_compression = job.arc_preserve_compression
+        else:
+            line_arc_preserve_compression = DEFAULT_ARC_PRESERVE_COMPRESSION
+
         # Resolve the word-level line-content reflow permission with the same
         # precedence; an intentional ``True`` (opt-in) is honored.
         if line.optimize_line_content is not None:
@@ -4675,6 +4704,7 @@ def _resolve_content(
                 cutter_downsize_global=line_cutter_downsize_global,
                 h_compress_global=line_h_compress_global,
                 h_compress_global_same_height_only=line_h_compress_global_same_height_only,
+                arc_preserve_compression=line_arc_preserve_compression,
                 optimize_line_content=line_optimize_line_content,
                 optimize_line_content_max_lines=line_max_lines,
                 new_line=line.new_line,

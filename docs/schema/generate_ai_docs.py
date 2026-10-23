@@ -155,6 +155,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "compression is shared across EVERY eligible line of the label, whatever its text_height, "
     "so one label engraves at one glyph density throughout. Cascades line/label/job; job-config "
     "supplies the shop default.",
+    "DEFAULT_ARC_PRESERVE_COMPRESSION": "True = the non-uniform PLT glyph transforms (horizontal "
+    "compression, the cap-line clamp, the descender relief, the italic shear) keep native AA arcs: "
+    "each arc's ellipse image is refit with a short chain of circular arcs (bounded deviation, "
+    "plt_optimizer/generate/arc_fit.py), so a compressed line emits ~1.05 arcs per source arc "
+    "instead of ~2.8 polygonized line segments and engraves faster. False restores the historical "
+    "polygonized output. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
     "DEFAULT_OPTIMIZE_LINE_CONTENT": "False = every text line keeps its authored words. True = "

@@ -1,0 +1,65 @@
+# Fixture for arc-preserving non-uniform text transforms
+# (`arc_preserve_compression`, default true).
+#
+# A PLT-extracted glyph is natively PU/PD/AA: its curves are circular arcs. A
+# non-uniform transform (horizontal compression, the cap-line clamp, the
+# descender relief, the italic shear) maps each arc to an ellipse arc, which the
+# pipeline refits with a short chain of circular arcs (arc_fit.py) so the
+# toolpath KEEPS its AA commands instead of polygonizing into line segments.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate prefix: [<cutter>]_txt_<job>.plt per distinct cutter plus
+# one bh file.
+job:
+  job_name: Arc Preserve Compression Demo
+
+  width: 3.0
+  height: 1.2
+  margin: 0.1
+  text_height: 0.5
+  font: Dino
+
+  # Compression budget for the over-wide lines.
+  max_h_compress: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. Arcs survive: an over-wide PLT line compresses to fit, and its
+    #    round capitals keep native AA arcs (the refit), so the file is dense
+    #    with AA commands.
+    - id: preserved
+      content:
+        - text: "OOCCSS88 LONG TEXT"
+
+    # 2. Polygonized: the same line with the feature off flattens every
+    #    compressed arc into line segments (few AA, many PD vertices).
+    - id: polygonized
+      arc_preserve_compression: false
+      content:
+        - text: "OOCCSS88 LONG TEXT"
+
+    # 3. Italic: a shear maps each arc to a rotated ellipse; the refit keeps
+    #    the arcs native (the italic run's AA count is well above the
+    #    polygonized twin's).
+    - id: italic
+      content:
+        - text: "<i>OOCCSS88</i>"
+
+    # 4. Cap-line clamp: the shipped Dino sheet's digits and round capitals
+    #    overshoot the capline, so the vertical-only clamp fires on every glyph
+    #    here and the refit keeps the arcs native.
+    - id: clamped
+      content:
+        - text: "0088OOCC"
+
+    # 5. Per-line opt-out inside one label: the first line preserves arcs, the
+    #    second line's explicit false polygonizes it.
+    - id: mixed
+      content:
+        - text: "OOCCSS88 LONG TEXT"
+        - text: "OOCCSS88 LONG TEXT"
+          arc_preserve_compression: false

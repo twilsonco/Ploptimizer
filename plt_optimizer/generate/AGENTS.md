@@ -39,7 +39,10 @@ JobSpec (job-level defaults)
   `fonts/VP-EL-fonts/catalog/*.json` `font_name` key (one JSON file per font,
   rendered **arc-native** through
   `plt_font_renderer.py`: PU/PD/AA glyphs keep their native `AA` arcs
-  end-to-end — only X-compression may flatten them, with a WARNING) or a
+  end-to-end — the non-uniform transforms (compression, the cap-line clamp,
+  the descender relief, the italic shear) refit each arc's ellipse image with
+  circular `AA` arcs (see Arc-Preserving Non-Uniform Transforms); only arcs the
+  refit declines flatten, with a WARNING) or a
   `fonts/**.ttf` basename (extension stripped, rendered through the
   matplotlib `ftext_renderer` path). Case-insensitive, canonicalized at
   validation (`font_registry.resolve_font`); unknown names are rejected.
@@ -438,6 +441,114 @@ line → label → job (accepted on plates for schema parity only).
 - The *applied* per-line scale is reported (not stored on the schema) via
   `RenderedLabel.compression_by_line` — see Applied Layout Reporting.
 
+### Arc-Preserving Non-Uniform Transforms (`arc_fit`, `arc_preserve_compression`)
+
+A PLT-extracted glyph is natively `PU`/`PD`/`AA`: its curves are **circular**
+arcs. A uniform scale maps a circle to a circle, so `TextBlock.scaled` keeps
+`ArcSeg` sweeps verbatim. A **non-uniform** map — horizontal compression
+(`compress_x`), the cap-line clamp and descender relief (`scaled_y`), the italic
+shear (`sheared`) — maps a circle to an **ellipse**, and an ellipse is not a
+circular arc. Historically every one of those operations **polygonized** its
+arcs into chord-bounded line segments, inflating a 34-arc `O` into ~84–128 line
+segments (measured ~2.8 segments per arc across the shipped library) and
+lengthening the engraved toolpath. `plt_optimizer/generate/arc_fit.py` refits
+each arc's ellipse image with a short chain of **circular** arcs instead, so the
+compressed/italic/clamped line keeps its native `AA` commands and engraves
+faster. This is exactly what EngraveLab/Vision Pro do (see
+`tests_deps/arc_compression/README.md`, the reference exports that pin the
+contract).
+
+- **The math** (the whole feature rests on it): applying an affine map to the
+  circle `z(t) = c + r*(cos t, sin t)` gives the *parametric* ellipse
+  `P(t) = C + cos(t)*U + sin(t)*V`, where **`t` is the source center angle, NOT
+  the eccentric angle**. That identity is what makes the fitted chain chain
+  tip-to-tail: `P(t0)` is algebraically the point-wise affine image of the
+  source arc's start, so the chain's endpoints match the neighbouring
+  transformed segments exactly (verified to 1e-15). The three maps, in
+  `ellipse_from_arc`:
+
+  | transform | `C` | `U` | `V` |
+  |---|---|---|---|
+  | `compress_x(s, anchor)` | `((cx−anchor)·s+anchor, cy)` | `(s·r, 0)` | `(0, r)` |
+  | `scaled_y(f)` | `(cx, f·cy)` | `(r, 0)` | `(0, f·r)` |
+  | `sheared(tan)` | `(cx + cy·tan, cy)` | `(r, 0)` | `(tan·r, r)` |
+
+  The shear is the general case (a **rotated** ellipse), which is why `U`/`V`
+  are complex vectors, not axis semi-diameters. All three have positive
+  determinant, so every fitted arc's sweep sign equals the source's
+  (`_sweep_sign_ok` asserts it and declines the fit on disagreement).
+
+- **The fitter** (`fit_ellipse_arc`): splits the parametric span into `k`
+  sub-arcs, each a circular arc whose centre is the intersection of the
+  **ellipse normal at its start** with the **chord's perpendicular bisector**;
+  every later centre chains along the shared normal (`prev_center → junction`),
+  so consecutive arcs meet with equal tangents — the chain is **C0 + G1**
+  (tangent-continuous) with exact tip-to-tail endpoints. A plain 3-point
+  circumcircle fit is only C0 and kinks up to ~11° at interior junctions. `k`
+  is the smallest value meeting `ARC_FIT_DEV_TOL_INCHES` (0.0005in), estimated
+  closed-form from the max curvature radius then verified numerically. A
+  **chord pre-check** runs first: a large share of glyph arcs (42–78% by scale)
+  are near-straight enough that a single `PD` vertex beats an `AA` command, and
+  the fitter emits a line there.
+
+- **Measured on the shipped library** (59,670 arcs, median sweep ~10°, max 90°,
+  none past 180°): **1.01–1.09 fitted arcs per source arc** at 0.0005in —
+  99% need exactly one; the 90° arcs split. **2.1–2.8× fewer emitted commands**
+  than flattening at equal tolerance. The **emitted** deviation (integer plotter
+  units, `AA` radius implicit from `|pen − center|`) sits at ~0.002in ≈ 2 units
+  at *every* tolerance: coordinate quantization, not the fit, is the floor —
+  which is why 0.0005in is the right constant (asking for 0.0002in buys
+  nothing). Swept-box over-measure of the fitted arcs is ≤0.00022in, so
+  `bounds()`, `compression_by_line`, kerning and collision are unaffected.
+  `ARC_FLATTEN_CHORD_TOL_INCHES` (0.0002in) stays for the flatten fallback and
+  the `Ink`/preview polyline views.
+
+- **Enablement**: `arc_preserve_compression` (bool, default **true**, cascades
+  line → label → job → `job-config.json`, plate parity, NOT
+  `REQUIRED_WHEN_UNCONFIGURED`) lands on `ResolvedTextLine`. `False` restores
+  the historical polygonized output **bit-identically** (the escape hatch is
+  exact, not approximate). Threading: `label_renderer._render_line_core_once`
+  adds the `preserve_arcs` kwarg to the PLT render call **only when the line
+  opts out** (the three-tier empty-kwargs gate, so a default-True line keeps
+  the historical call shape); `compress_line_to_width` /
+  `_apply_collision_compress` / `_apply_glyph_ramps` take it from the line;
+  `plt_font_renderer` carries keyword-only `preserve_arcs: bool = True` on
+  `_walk_line` + the three public wrappers, forwarded to `_capline_geometry`
+  and `_shear_geometry`.
+
+- **The primitives** (`text_geometry.py`): `ArcSeg._xform` / `Stroke._xform`
+  return `(segments, declined_arcs)`; `declined_arcs` is 1 **only** when the
+  refit returned `None` (a degenerate geometry, a span past
+  `ARC_FIT_MAX_ARCS`=8) and the arc flattened. A refit that collapses a
+  near-straight arc to a chord is a **success** (0 declined) — it emits fewer
+  commands than the source arc. This is the metric that gates the log:
+  `compress_x` warns on the **declined** count (WARNING — compression is an
+  authoring compromise), `scaled_y`/`sheared` log the declined count at DEBUG
+  (routine render-time transforms). The public `scaled_x`/`scaled_y`/`sheared`
+  return `Tuple[TextSegment, ...]` (no signature churn for callers).
+
+- **Stroke count is preserved 1:1** by every refit (a `Stroke` maps to one
+  `Stroke`), so `glyph_groups`, `TextChunkRecord.glyph_groups` and the
+  intra-chunk glyph sweep stay valid — the same guarantee the exact
+  `scaled`/`translate` transforms give. Only the **segment count within a
+  stroke** can grow (a split arc contributes k segments to its one stroke). The
+  descender relief splices via `replaced_strokes` at the original stroke
+  indices, and the capline clamp rebuilds the per-glyph block whole.
+
+- **Reference parity** (`tests/test_arc_compression_parity.py`): the fixtures in
+  `tests_deps/arc_compression/` pin (1) the compressed outline is the exact
+  affine image (two-sided Hausdorff ≤0.02in) and (2) EngraveLab's arc count
+  grows ≤1.25× under compression (it never polygonizes). Per-arc index pairing
+  is deliberately NOT asserted — EngraveLab re-tessellates the whole outline, so
+  the files compare **as curves**.
+
+- **Out of scope**: TTF arc fitting (TTF blocks are all `LineSeg`, unaffected);
+  the font library itself (glyphs stay as extracted);
+  `Affine._require_similarity` in `fonts/glyph_transforms.py` (an
+  extraction-time dev tool, correct to reject arcs — the derived-glyph recipes
+  are all similarities); the `optimize`/`watch` pipelines (they pass arcs
+  through and already handle `ArcSegment` end-to-end).
+
 ### Alphanumeric Cap-Line Enforcement (`enforce_cap_line`)
 
 `enforce_cap_line` (bool, default **true**, cascades line → label → job →
@@ -462,11 +573,12 @@ off the character, not the font family).
   right after `_glyph_entry`, keyed by the character's own font frame's
   `normalized_ref_height` (the `<f:>` frames tuple carries it). The block,
   bounding box **and both profile envelopes** transform together, so kerning
-  measures the clamped silhouette. The Y-only scale **flattens `AA` arcs** at
-  the chord tolerance (a non-uniform scale maps a circular arc to an ellipse;
-  the `TextBlock.scale_y` policy, DEBUG log) — shipped sheets overshoot on
-  digits/round capitals, so enabling the clamp by default lowers the emitted
-  arc counts of every affected fixture.
+  measures the clamped silhouette. The Y-only scale maps each `AA` arc to an
+  ellipse arc, which the refit keeps native as circular `AA` arcs (see
+  Arc-Preserving Non-Uniform Transforms, the `TextBlock.scaled_y` policy, DEBUG
+  log only on the arcs the refit declines) — shipped sheets overshoot on
+  digits/round capitals, so enabling the clamp by default raises the emitted
+  arc counts of every affected fixture (the clamp no longer polygonizes).
 - **TTF** (`ftext_renderer._apply_cap_line_enforcement`): applied right after
   the normalization scale (the reference `H` is exactly `target_height_inches`
   tall there) and before `_apply_small_caps`/`_apply_italic`/
@@ -1056,8 +1168,9 @@ plate tier is schema parity only, like every render-affecting field.
   relieves a glyph that does not descend and never aborts a job on sub-unit
   deficits. Real descenders are two orders of magnitude deeper.
 - **`TextBlock.scale_y(factor, context)`** mirrors `compress_x`: X untouched,
-  Y scaled about the baseline; arcs flatten at the chord tolerance (DEBUG log —
-  vertical scaling and native arcs are mutually exclusive). Stroke count is
+  Y scaled about the baseline; each arc's ellipse image refits with circular
+  `AA` arcs (see Arc-Preserving Non-Uniform Transforms), flattening only the
+  arcs the refit declines (DEBUG log). Stroke count is
   preserved 1:1, so `glyph_groups`, `TextChunkRecord.glyph_groups` and the
   intra-chunk glyph sweep stay valid. `TextBlock.replaced_strokes` splices one
   glyph back at its original stroke indices.
@@ -1229,9 +1342,11 @@ partitions (the intra-chunk glyph sweep) stay exact.
   `plt_font_renderer._resolve_plt_font` and `scripts/kerning_report.py` do
   (a `"Dino SC"` key does not exist in the library).
 - **The scale must be uniform (x = y)**: `TextBlock.scaled(f)` keeps `ArcSeg`
-  sweeps native (an ellipse is not a circular arc), so PLT small caps stay
-  **arc-native end-to-end**; `scaled_y`/`compress_x` flatten arcs and are
-  never used here. The transform is a uniform scale composed with a pure
+  sweeps native **exactly** (a uniform scale maps a circle to a circle), so PLT
+  small caps stay **arc-native end-to-end** with zero refit cost; the
+  non-uniform `scaled_y`/`compress_x` refit arcs approximately (see
+  Arc-Preserving Non-Uniform Transforms) and are never used here. The transform
+  is a uniform scale composed with a pure
   translation (`y' = y_min + (y - y_min) * f`, `x' = x * f`), which is what
   makes it top-down.
 - **PLT** (`plt_font_renderer.py`, keyword-only `lowercase_scale:

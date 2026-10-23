@@ -606,6 +606,15 @@ class JobDefaults(BaseModel):
             "the label). Unset falls back to True."
         ),
     )
+    arc_preserve_compression: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default arc-preserving non-uniform text transforms (job layer; "
+            "true refits each PLT glyph arc's ellipse image with circular AA "
+            "arcs instead of polygonizing, so compressed/italic/clamped lines "
+            "engrave faster). Unset falls back to True."
+        ),
+    )
     optimize_line_content: Optional[bool] = Field(
         default=None,
         description=(
@@ -885,6 +894,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "cutter_downsize_global",
     "h_compress_global",
     "h_compress_global_same_height_only",
+    "arc_preserve_compression",
     "optimize_line_content",
     "optimize_line_content_max_lines",
     "enforce_cap_line",

@@ -678,6 +678,19 @@
       "description": "Default grouping scope of the shared horizontal compression (job layer; true shares the compression only between the lines of the same text_height, false shares it across every eligible line of the label). Unset falls back to True.",
       "title": "H Compress Global Same Height Only"
     },
+    "arc_preserve_compression": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default arc-preserving non-uniform text transforms (job layer; true refits each PLT glyph arc's ellipse image with circular AA arcs instead of polygonizing, so compressed/italic/clamped lines engrave faster). Unset falls back to True.",
+      "title": "Arc Preserve Compression"
+    },
     "optimize_line_content": {
       "anyOf": [
         {

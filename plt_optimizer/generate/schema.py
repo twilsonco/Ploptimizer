@@ -1258,6 +1258,20 @@ class TextAttributes(BaseModel):
             "(fallback true); explicit false is honored."
         ),
     )
+    arc_preserve_compression: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Keep PLT-font glyphs arc-native through the non-uniform text "
+            "transforms (horizontal compression, the cap-line clamp, the "
+            "descender relief and the italic shear): each arc's ellipse image "
+            "is refit with a short chain of circular AA arcs (bounded "
+            "deviation, see plt_optimizer/generate/arc_fit.py) instead of "
+            "polygonizing into line segments, so a compressed line engraves "
+            "far faster. True (the default) preserves arcs; false restores the "
+            "historical polygonized output. Cascades line -> label -> job "
+            "(fallback true); explicit false is honored."
+        ),
+    )
     optimize_line_content: Optional[bool] = Field(
         default=None,
         description=(
@@ -2577,6 +2591,13 @@ class PlateSpec(BaseModel):
         description=(
             "Grouping scope of the shared horizontal compression (schema "
             "parity; not applied at plate level)."
+        ),
+    )
+    arc_preserve_compression: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Arc-preserving non-uniform text transforms (schema parity; not "
+            "applied at plate level)."
         ),
     )
     optimize_line_content: Optional[bool] = Field(

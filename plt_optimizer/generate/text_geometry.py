@@ -33,10 +33,15 @@ Coordinate conventions match the rest of the render path:
   rotations and translations leave sweeps untouched; a *uniform* scale
   scales centers/radii but never sweeps.
 
-The operations that cannot preserve arcs are the non-uniform scales
-(:meth:`TextBlock.compress_x` and :meth:`TextBlock.scaled_y`): an ellipse is
-not a circular arc, so arc segments on a scaled line are flattened to
-polylines at a bounded chord-error tolerance.
+The operations that cannot preserve arcs *exactly* are the non-uniform scales
+(:meth:`TextBlock.compress_x`, :meth:`TextBlock.scaled_y`) and the italic shear
+(:meth:`TextBlock.sheared`): an ellipse is not a circular arc. They do not have
+to polygonize either -- each arc's ellipse image is refit with a short chain of
+circular arcs by :mod:`plt_optimizer.generate.arc_fit` (tangent-continuous, at
+:data:`~plt_optimizer.generate.arc_fit.ARC_FIT_DEV_TOL_INCHES`), so the emitted
+toolpath keeps its native ``AA`` commands. Flattening at
+:data:`ARC_FLATTEN_CHORD_TOL_INCHES` remains the fallback for the arcs the refit
+cannot bound within tolerance, and for callers that pass ``preserve_arcs=False``.
 """
 
 from __future__ import annotations
@@ -51,6 +56,7 @@ import vpype as vp
 
 from plt_optimizer.core.models import ArcSegment, StrokePath, StrokeSegment
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units
+from plt_optimizer.generate.arc_fit import fit_arc
 from plt_optimizer.generate.geometry import TextBounds, arc_swept_bounds
 
 logger = logging.getLogger(__name__)
@@ -63,6 +69,14 @@ ARC_FLATTEN_CHORD_TOL_INCHES: float = 0.0002
 
 # Guard against absurd tessellation counts on degenerate huge sweeps.
 _MAX_ARC_SEGMENTS: int = 4096
+
+# Pen-position slack (inches) for chaining emitted segments. A fitted arc's
+# derived end point and the next segment's start agree to float noise (~1e-16),
+# not bit-exactly, and complex ``!=`` would insert a spurious ``PU`` rapid
+# between every pair of a chain (splitting one glyph stroke into many). Half a
+# plotter unit is the emission floor -- a gap that small cannot exist in the
+# engraved output, so the pen is "already there".
+_PEN_CHAIN_EPS_INCHES: float = 0.5 / HPGL_UNITS_PER_INCH
 
 # Plotter units per inch used by every HPGL emission in the pipeline
 # (re-exported so this module's transform helpers read self-contained).
@@ -201,12 +215,14 @@ class LineSeg:
         """Return this segment scaled uniformly about the origin."""
         return LineSeg(self.start * factor, self.end * factor)
 
-    def scaled_y(self, factor: float) -> Tuple[TextSegment, ...]:
+    def scaled_y(self, factor: float, *, preserve_arcs: bool = True) -> Tuple[TextSegment, ...]:
         """Return this segment with Y scaled about the baseline ``y = 0``.
 
         A straight segment survives a non-uniform scale exactly, so the
         result is a single :class:`LineSeg` (the tuple keeps the return type
-        uniform with :meth:`ArcSeg.scaled_y`, which must flatten).
+        uniform with :meth:`ArcSeg.scaled_y`, which must refit or flatten).
+        ``preserve_arcs`` is accepted for signature parity with
+        :meth:`ArcSeg.scaled_y` and ignored.
         """
         return (
             LineSeg(
@@ -215,13 +231,31 @@ class LineSeg:
             ),
         )
 
-    def sheared(self, tan: float) -> Tuple[TextSegment, ...]:
+    def scaled_x(
+        self, factor: float, anchor_x: float = 0.0, *, preserve_arcs: bool = True
+    ) -> Tuple[TextSegment, ...]:
+        """Return this segment with X scaled about ``anchor_x``.
+
+        A straight segment survives a non-uniform scale exactly, so the result
+        is a single :class:`LineSeg` (the tuple keeps the return type uniform
+        with :meth:`ArcSeg.scaled_x`, which must refit or flatten).
+        ``preserve_arcs`` is accepted for signature parity and ignored.
+        """
+        return (
+            LineSeg(
+                complex(anchor_x + (self.start.real - anchor_x) * factor, self.start.imag),
+                complex(anchor_x + (self.end.real - anchor_x) * factor, self.end.imag),
+            ),
+        )
+
+    def sheared(self, tan: float, *, preserve_arcs: bool = True) -> Tuple[TextSegment, ...]:
         """Return this segment sheared about the baseline ``y = 0``.
 
         A straight segment survives a shear exactly (a shear maps lines to
         lines), so the result is a single :class:`LineSeg` (the tuple keeps
-        the return type uniform with :meth:`ArcSeg.sheared`, which must
-        flatten). The mapping is ``x' = x + y * tan``, ``y' = y``.
+        the return type uniform with :meth:`ArcSeg.sheared`, which must refit
+        or flatten). The mapping is ``x' = x + y * tan``, ``y' = y``.
+        ``preserve_arcs`` is accepted for signature parity and ignored.
         """
 
         def _shear(z: complex) -> complex:
@@ -287,28 +321,116 @@ class ArcSeg:
         """Return this arc scaled uniformly about the origin (sweep untouched)."""
         return ArcSeg(self.start * factor, self.center * factor, self.sweep_deg)
 
-    def scaled_y(self, factor: float) -> Tuple[TextSegment, ...]:
+    def _fit(
+        self,
+        *,
+        scale_x: Optional[float] = None,
+        anchor_x: float = 0.0,
+        scale_y: Optional[float] = None,
+        shear_tan: Optional[float] = None,
+    ) -> Optional[Tuple[TextSegment, ...]]:
+        """Refit this arc's affine image with a chain of circular arcs.
+
+        Returns the fitted :class:`TextSegment` chain, or ``None`` when
+        :func:`~plt_optimizer.generate.arc_fit.fit_arc` cannot guarantee the
+        tolerance (the caller must then flatten).
+        """
+        chain = fit_arc(
+            self.center,
+            self.radius,
+            arc_start_angle(self.start, self.center),
+            self.sweep_deg,
+            scale_x=scale_x,
+            anchor_x=anchor_x,
+            scale_y=scale_y,
+            shear_tan=shear_tan,
+        )
+        if chain is None:
+            return None
+        segments: List[TextSegment] = []
+        for piece in chain:
+            if piece.center is None:
+                segments.append(LineSeg(piece.start, piece.end))
+            else:
+                segments.append(ArcSeg(piece.start, piece.center, piece.sweep_deg))
+        return tuple(segments)
+
+    def _xform(
+        self,
+        *,
+        scale_x: Optional[float] = None,
+        anchor_x: float = 0.0,
+        scale_y: Optional[float] = None,
+        shear_tan: Optional[float] = None,
+        preserve_arcs: bool,
+    ) -> Tuple[Tuple[TextSegment, ...], int]:
+        """Apply one non-uniform map, returning ``(segments, declined_arcs)``.
+
+        ``declined_arcs`` is 1 only when the ellipse refit was requested and
+        returned ``None`` (the arc flattened to a chord-bounded polyline). A
+        refit that collapses a near-straight arc to a single chord is a
+        SUCCESS (0 declined) -- it emits fewer commands than the source arc.
+        """
+        if preserve_arcs:
+            fitted = self._fit(
+                scale_x=scale_x,
+                anchor_x=anchor_x,
+                scale_y=scale_y,
+                shear_tan=shear_tan,
+            )
+            if fitted is not None:
+                return fitted, 0
+        if scale_x is not None:
+            points = [
+                complex(anchor_x + (p.real - anchor_x) * scale_x, p.imag) for p in self.flattened()
+            ]
+        elif scale_y is not None:
+            points = [complex(p.real, p.imag * scale_y) for p in self.flattened()]
+        else:
+            tan = shear_tan or 0.0
+            points = [complex(p.real + p.imag * tan, p.imag) for p in self.flattened()]
+        return tuple(LineSeg(a, b) for a, b in zip(points[:-1], points[1:])), 1
+
+    def scaled_x(
+        self, factor: float, anchor_x: float = 0.0, *, preserve_arcs: bool = True
+    ) -> Tuple[TextSegment, ...]:
+        """Return this arc with X scaled about ``anchor_x`` (Y untouched).
+
+        With ``preserve_arcs`` the ellipse arc is refit with a tangent-continuous
+        chain of circular arcs (:mod:`plt_optimizer.generate.arc_fit`), so the
+        emitted toolpath keeps ``AA`` commands. Without it -- or when the fit
+        cannot meet the tolerance -- the arc is flattened to a chord-bounded
+        polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened
+        vertices are X-scaled (the historical behaviour).
+        """
+        segments, _ = self._xform(scale_x=factor, anchor_x=anchor_x, preserve_arcs=preserve_arcs)
+        return segments
+
+    def scaled_y(self, factor: float, *, preserve_arcs: bool = True) -> Tuple[TextSegment, ...]:
         """Return this arc with Y scaled about the baseline ``y = 0``.
 
-        A circular arc cannot survive a non-uniform scale (an ellipse is not
-        a circular arc), so it is flattened to a chord-bounded polyline at
-        :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened vertices are
+        A circular arc cannot survive a non-uniform scale exactly: with
+        ``preserve_arcs`` the ellipse arc is refit with circular arcs (see
+        :meth:`scaled_x`), otherwise it is flattened to a chord-bounded polyline
+        at :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened vertices are
         Y-scaled -- the same contract as :meth:`TextBlock.compress_x`.
         """
-        points = [complex(p.real, p.imag * factor) for p in self.flattened()]
-        return tuple(LineSeg(a, b) for a, b in zip(points[:-1], points[1:]))
+        segments, _ = self._xform(scale_y=factor, preserve_arcs=preserve_arcs)
+        return segments
 
-    def sheared(self, tan: float) -> Tuple[TextSegment, ...]:
+    def sheared(self, tan: float, *, preserve_arcs: bool = True) -> Tuple[TextSegment, ...]:
         """Return this arc sheared about the baseline ``y = 0``.
 
         A shear is not a similarity: a circular arc maps to a *rotated*
-        ellipse, which :class:`ArcSeg` cannot represent, so it is flattened
+        ellipse. With ``preserve_arcs`` the rotated ellipse arc is refit with
+        circular arcs (the general conjugate-diameter form in
+        :mod:`plt_optimizer.generate.arc_fit`); otherwise the arc is flattened
         to a chord-bounded polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES`
         and the flattened vertices are sheared -- the same contract as
         :meth:`scaled_y`.
         """
-        points = [complex(p.real + p.imag * tan, p.imag) for p in self.flattened()]
-        return tuple(LineSeg(a, b) for a, b in zip(points[:-1], points[1:]))
+        segments, _ = self._xform(shear_tan=tan, preserve_arcs=preserve_arcs)
+        return segments
 
     def mirrored_y(self, span: float) -> ArcSeg:
         """Return this arc with Y mirrored; the sweep sign is negated."""
@@ -386,37 +508,87 @@ class Stroke:
             segments=tuple(seg.scaled(factor) for seg in self.segments),
         )
 
-    def scaled_y(self, factor: float) -> Stroke:
+    def _xform(
+        self,
+        *,
+        scale_x: Optional[float] = None,
+        anchor_x: float = 0.0,
+        scale_y: Optional[float] = None,
+        shear_tan: Optional[float] = None,
+        preserve_arcs: bool,
+    ) -> Tuple[Stroke, int]:
+        """Apply one non-uniform map, returning ``(stroke, declined_arcs)``.
+
+        Line segments map point-wise; each :class:`ArcSeg` refits (or flattens,
+        counted in ``declined_arcs``) via :meth:`ArcSeg._xform`. The pen-up
+        rapid target follows the same map as the geometry.
+        """
+        segments: List[TextSegment] = []
+        declined = 0
+        for seg in self.segments:
+            if isinstance(seg, ArcSeg):
+                pieces, lost = seg._xform(
+                    scale_x=scale_x,
+                    anchor_x=anchor_x,
+                    scale_y=scale_y,
+                    shear_tan=shear_tan,
+                    preserve_arcs=preserve_arcs,
+                )
+                declined += lost
+                segments.extend(pieces)
+            elif scale_x is not None:
+                segments.extend(seg.scaled_x(scale_x, anchor_x))
+            elif scale_y is not None:
+                segments.extend(seg.scaled_y(scale_y))
+            else:
+                segments.extend(seg.sheared(shear_tan or 0.0))
+        if scale_x is not None:
+            pen_up = complex(anchor_x + (self.pen_up.real - anchor_x) * scale_x, self.pen_up.imag)
+        elif scale_y is not None:
+            pen_up = complex(self.pen_up.real, self.pen_up.imag * scale_y)
+        else:
+            tan = shear_tan or 0.0
+            pen_up = complex(self.pen_up.real + self.pen_up.imag * tan, self.pen_up.imag)
+        return Stroke(pen_up=pen_up, segments=tuple(segments)), declined
+
+    def scaled_y(self, factor: float, *, preserve_arcs: bool = True) -> Stroke:
         """Return this stroke with Y scaled about the baseline ``y = 0``.
 
         X is untouched, so the glyph keeps its width and its horizontal
-        position; only its height around the baseline changes. Arcs flatten
-        (see :meth:`ArcSeg.scaled_y`), so the segment count may grow.
+        position; only its height around the baseline changes. Arcs are refit
+        with circular arcs when ``preserve_arcs`` (see :meth:`ArcSeg.scaled_y`),
+        otherwise flattened; either way the segment count may grow.
         """
-        segments: List[TextSegment] = []
-        for seg in self.segments:
-            segments.extend(seg.scaled_y(factor))
-        return Stroke(
-            pen_up=complex(self.pen_up.real, self.pen_up.imag * factor),
-            segments=tuple(segments),
-        )
+        stroke, _ = self._xform(scale_y=factor, preserve_arcs=preserve_arcs)
+        return stroke
 
-    def sheared(self, tan: float) -> Stroke:
+    def scaled_x(
+        self, factor: float, anchor_x: float = 0.0, *, preserve_arcs: bool = True
+    ) -> Stroke:
+        """Return this stroke with X scaled about ``anchor_x`` (Y untouched).
+
+        The horizontal counterpart of :meth:`scaled_y`: the glyph keeps its
+        height and vertical position and narrows toward ``anchor_x``. Line
+        segments scale exactly; arcs are refit with circular arcs when
+        ``preserve_arcs`` (see :meth:`ArcSeg.scaled_x`), otherwise flattened, so
+        the segment count may grow. The pen-up rapid target's X scales with the
+        geometry, so a plunge stays on its glyph.
+        """
+        stroke, _ = self._xform(scale_x=factor, anchor_x=anchor_x, preserve_arcs=preserve_arcs)
+        return stroke
+
+    def sheared(self, tan: float, *, preserve_arcs: bool = True) -> Stroke:
         """Return this stroke sheared about the baseline ``y = 0``.
 
         The italic shear ``x' = x + y * tan`` keeps the baseline fixed and
-        leans the glyph right. Line segments shear exactly; arcs flatten
-        (see :meth:`ArcSeg.sheared`), so the segment count may grow. The
-        pen-up rapid target shears with the geometry, so a plunge stays on
-        its glyph's slanted stroke.
+        leans the glyph right. Line segments shear exactly; arcs are refit with
+        circular arcs when ``preserve_arcs`` (see :meth:`ArcSeg.sheared`),
+        otherwise flattened, so the segment count may grow. The pen-up rapid
+        target shears with the geometry, so a plunge stays on its glyph's
+        slanted stroke.
         """
-        segments: List[TextSegment] = []
-        for seg in self.segments:
-            segments.extend(seg.sheared(tan))
-        return Stroke(
-            pen_up=complex(self.pen_up.real + self.pen_up.imag * tan, self.pen_up.imag),
-            segments=tuple(segments),
-        )
+        stroke, _ = self._xform(shear_tan=tan, preserve_arcs=preserve_arcs)
+        return stroke
 
     def mirrored_y(self, span: float) -> Stroke:
 
@@ -464,7 +636,7 @@ class Stroke:
             nonlocal pen
             if not line_run:
                 return
-            if line_run[0] != pen:
+            if abs(line_run[0] - pen) > _PEN_CHAIN_EPS_INCHES:
                 parts.append(f"PU{_units(line_run[0].real)},{_units(line_run[0].imag)}")
             rest = line_run[1:]
             if rest:  # pragma: no branch - a flushed run always has >= 2 points
@@ -480,7 +652,7 @@ class Stroke:
                 line_run.append(seg.end)
             else:
                 _flush_line()
-                if seg.start != pen:
+                if abs(seg.start - pen) > _PEN_CHAIN_EPS_INCHES:
                     parts.append(f"PU{_units(seg.start.real)},{_units(seg.start.imag)}")
                 # The bare PD opens/keeps the cutting path (parser: PD without
                 # coordinates followed by an AA token); the leading PU already
@@ -592,7 +764,9 @@ class TextBlock:
         """Return this block scaled uniformly about the origin."""
         return TextBlock(strokes=tuple(s.scaled(factor) for s in self.strokes))
 
-    def scaled_y(self, factor: float, context: str = "") -> TextBlock:
+    def scaled_y(
+        self, factor: float, context: str = "", *, preserve_arcs: bool = True
+    ) -> TextBlock:
         """Return this block with Y uniformly scaled about the baseline ``y = 0``.
 
         The vertical counterpart of :meth:`compress_x`: X (and therefore the
@@ -600,33 +774,41 @@ class TextBlock:
         above and below the baseline shrinks by ``factor``. Used by the
         automatic descending-character relief, which squeezes a glyph about
         its own baseline so a deep descender reaches less far into the gap
-        below. Line segments scale exactly; arcs CANNOT survive a
-        non-uniform scale, so each arc is flattened to a polyline at
-        :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened vertices are
-        Y-scaled. A DEBUG log records when arcs were flattened.
+        below, and by the cap-line clamp. Line segments scale exactly; arcs
+        become ellipse arcs, which :meth:`ArcSeg.scaled_y` refits with circular
+        arcs when ``preserve_arcs`` (the default) so the toolpath keeps its
+        ``AA`` commands. A DEBUG log records the arcs the refit declined and
+        had to flatten.
 
         Args:
             factor: Vertical scale factor in ``(0, 1]``; ``>= 1`` is a no-op.
             context: Optional description for the arc-flattening log.
+            preserve_arcs: Refit ellipse arcs with circular arcs (see
+                :mod:`plt_optimizer.generate.arc_fit`); ``False`` restores the
+                historical polygonization.
 
         Returns:
-            The (possibly flattened + vertically scaled) block.
+            The vertically scaled block.
         """
         if factor >= 1.0:
             return self
-        flattened_any = any(
-            isinstance(seg, ArcSeg) for stroke in self.strokes for seg in stroke.segments
-        )
-        strokes = tuple(stroke.scaled_y(factor) for stroke in self.strokes)
-        if flattened_any:
+        strokes: List[Stroke] = []
+        declined = 0
+        for stroke in self.strokes:
+            new_stroke, lost = stroke._xform(scale_y=factor, preserve_arcs=preserve_arcs)
+            strokes.append(new_stroke)
+            declined += lost
+        if declined:
             logger.debug(
-                "Text arcs flattened to polylines during vertical scaling%s "
-                "(chord error <= %gin); vertical scaling and native arcs are "
-                "mutually exclusive.",
+                "%d text arc%s flattened to polylines during vertical scaling%s "
+                "(chord error <= %gin); the ellipse refit declined %s.",
+                declined,
+                "s" if declined > 1 else "",
                 f" {context}" if context else "",
                 ARC_FLATTEN_CHORD_TOL_INCHES,
+                "it" if declined == 1 else "them",
             )
-        return TextBlock(strokes=strokes)
+        return TextBlock(strokes=tuple(strokes))
 
     def replaced_strokes(self, replacements: Mapping[int, Stroke]) -> TextBlock:
         """Return this block with the given stroke indices swapped out.
@@ -652,42 +834,47 @@ class TextBlock:
                 strokes[index] = stroke
         return TextBlock(strokes=tuple(strokes))
 
-    def sheared(self, tan: float, context: str = "") -> TextBlock:
+    def sheared(self, tan: float, context: str = "", *, preserve_arcs: bool = True) -> TextBlock:
         """Return this block sheared about the baseline ``y = 0``.
 
         The italic shear ``x' = x + y * tan`` keeps the baseline (and every
         point on it) fixed and leans the glyph right by ``tan`` per unit of
         height -- the classic oblique transform. Line segments shear exactly;
-        arcs CANNOT survive a shear (a circular arc maps to a *rotated*
-        ellipse, which :class:`ArcSeg` cannot represent), so each arc is
-        flattened to a polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and
-        the flattened vertices are sheared. A DEBUG log records when arcs
-        were flattened (the same policy as :meth:`scaled_y`: italic is a
-        routine render-time transform, not an authoring compromise like
-        :meth:`compress_x`).
+        a circular arc maps to a *rotated* ellipse, which
+        :meth:`ArcSeg.sheared` refits with circular arcs when ``preserve_arcs``
+        (the default) so the toolpath keeps its ``AA`` commands. A DEBUG log
+        records the arcs the refit declined and had to flatten (the same policy
+        as :meth:`scaled_y`: italic is a routine render-time transform, not an
+        authoring compromise like :meth:`compress_x`).
 
         Args:
             tan: Shear factor ``tan(angle)``; ``0.0`` is a no-op.
             context: Optional description for the arc-flattening log.
+            preserve_arcs: Refit ellipse arcs with circular arcs; ``False``
+                restores the historical polygonization.
 
         Returns:
-            The (possibly flattened + sheared) block.
+            The (possibly refit +) sheared block.
         """
         if tan == 0.0:
             return self
-        flattened_any = any(
-            isinstance(seg, ArcSeg) for stroke in self.strokes for seg in stroke.segments
-        )
-        strokes = tuple(stroke.sheared(tan) for stroke in self.strokes)
-        if flattened_any:
+        strokes: List[Stroke] = []
+        declined = 0
+        for stroke in self.strokes:
+            new_stroke, lost = stroke._xform(shear_tan=tan, preserve_arcs=preserve_arcs)
+            strokes.append(new_stroke)
+            declined += lost
+        if declined:
             logger.debug(
-                "Text arcs flattened to polylines during italic shear%s "
-                "(chord error <= %gin); italic and native arcs are mutually "
-                "exclusive.",
+                "%d text arc%s flattened to polylines during italic shear%s "
+                "(chord error <= %gin); the ellipse refit declined %s.",
+                declined,
+                "s" if declined > 1 else "",
                 f" {context}" if context else "",
                 ARC_FLATTEN_CHORD_TOL_INCHES,
+                "it" if declined == 1 else "them",
             )
-        return TextBlock(strokes=strokes)
+        return TextBlock(strokes=tuple(strokes))
 
     def mirrored_y(self, span: float) -> TextBlock:
         """Return this block with Y mirrored across ``y' = span - y``."""
@@ -724,21 +911,29 @@ class TextBlock:
             strokes.append(Stroke(pen_up=_rot(stroke.pen_up), segments=tuple(segments)))
         return TextBlock(strokes=tuple(strokes))
 
-    def compress_x(self, scale: float, context: str = "") -> TextBlock:
+    def compress_x(
+        self, scale: float, context: str = "", *, preserve_arcs: bool = True
+    ) -> TextBlock:
         """Return this block with X uniformly scaled about its left edge.
 
-        Line segments scale exactly. Arcs CANNOT survive a non-uniform
-        scale (an ellipse is not a circular arc), so each arc is flattened
-        to a polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the
-        flattened vertices are X-scaled. A WARNING is logged when arcs were
-        flattened.
+        Line segments scale exactly. A circular arc becomes an ellipse arc,
+        which :meth:`ArcSeg.scaled_x` refits with a tangent-continuous chain of
+        circular arcs when ``preserve_arcs`` (the default), so the compressed
+        line keeps its native ``AA`` commands -- measured on the shipped
+        library at ~1.05 arcs per source arc, versus ~2.8 line segments per arc
+        for the polygonizing fallback. Arcs the refit declines (a degenerate
+        geometry, a span past :data:`~plt_optimizer.generate.arc_fit.ARC_FIT_MAX_ARCS`)
+        flatten at :data:`ARC_FLATTEN_CHORD_TOL_INCHES`; a WARNING names them.
 
         Args:
             scale: Horizontal scale factor in ``(0, 1]``; ``>= 1`` is a no-op.
             context: Optional description for the WARNING (label/line ids).
+            preserve_arcs: Refit ellipse arcs with circular arcs (see
+                :mod:`plt_optimizer.generate.arc_fit`); ``False`` restores the
+                historical polygonization (every arc flattens, WARNING).
 
         Returns:
-            The (possibly flattened + compressed) block.
+            The (possibly refit +) compressed block.
         """
         if scale >= 1.0:
             return self
@@ -746,41 +941,23 @@ class TextBlock:
         if block_bounds is None:  # pragma: no cover - callers check emptiness
             return self
         min_x = block_bounds[0]
-
-        def _sx(x: float) -> float:
-            return min_x + (x - min_x) * scale
-
-        flattened_any = False
         strokes: List[Stroke] = []
+        declined = 0
         for stroke in self.strokes:
-            segments: List[TextSegment] = []
-            for seg in stroke.segments:
-                if isinstance(seg, LineSeg):
-                    segments.append(
-                        LineSeg(
-                            complex(_sx(seg.start.real), seg.start.imag),
-                            complex(_sx(seg.end.real), seg.end.imag),
-                        )
-                    )
-                else:
-                    flattened_any = True
-                    chain = seg.flattened()
-                    points = [complex(_sx(p.real), p.imag) for p in chain]
-                    for a, b in zip(points[:-1], points[1:]):
-                        segments.append(LineSeg(a, b))
-            strokes.append(
-                Stroke(
-                    pen_up=complex(_sx(stroke.pen_up.real), stroke.pen_up.imag),
-                    segments=tuple(segments),
-                )
+            new_stroke, lost = stroke._xform(
+                scale_x=scale, anchor_x=min_x, preserve_arcs=preserve_arcs
             )
-        if flattened_any:
+            strokes.append(new_stroke)
+            declined += lost
+        if declined > 0:
             logger.warning(
-                "Text arcs flattened to polylines during horizontal compression%s "
-                "(chord error <= %gin); compression and native arcs are mutually "
-                "exclusive.",
+                "%d text arc%s flattened to polylines during horizontal compression%s "
+                "(chord error <= %gin); the ellipse refit declined %s.",
+                declined,
+                " was" if declined == 1 else "s were",
                 f" {context}" if context else "",
                 ARC_FLATTEN_CHORD_TOL_INCHES,
+                "it" if declined == 1 else "them",
             )
         return TextBlock(strokes=tuple(strokes))
 

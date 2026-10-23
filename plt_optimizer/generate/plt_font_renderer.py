@@ -558,7 +558,9 @@ def _scale_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphGeometry:
     )
 
 
-def _shear_geometry(geometry: _GlyphGeometry, tan: float) -> _GlyphGeometry:
+def _shear_geometry(
+    geometry: _GlyphGeometry, tan: float, *, preserve_arcs: bool = True
+) -> _GlyphGeometry:
     """Return ``geometry`` sheared about the baseline ``y = 0`` (italic).
 
     The transform is ``x' = x + y * tan``, ``y' = y`` -- the classic oblique:
@@ -568,13 +570,17 @@ def _shear_geometry(geometry: _GlyphGeometry, tan: float) -> _GlyphGeometry:
     shared baseline frame: an italic glyph's overhang to the right of its
     neighbour widens the pair's advance automatically, with no fudge factor.
 
-    Arcs flatten inside :meth:`~plt_optimizer.generate.text_geometry.TextBlock.sheared`
-    (a sheared circular arc is a rotated ellipse), at the standard chord
-    tolerance.
+    Arcs are refit with circular arcs inside
+    :meth:`~plt_optimizer.generate.text_geometry.TextBlock.sheared` (a sheared
+    circular arc is a rotated ellipse) at the ellipse-fit tolerance, so the
+    slanted glyph keeps its native ``AA`` commands; only arcs the refit cannot
+    bound flatten (DEBUG log).
 
     Args:
         geometry: Cached glyph geometry in design units.
         tan: Shear factor ``tan(angle)``; ``0.0`` returns ``geometry`` itself.
+        preserve_arcs: Refit the sheared ellipse arcs with circular arcs
+            (``False`` polygonizes, the historical behaviour).
 
     Returns:
         The sheared geometry, or ``geometry`` unchanged at ``0.0``.
@@ -592,7 +598,7 @@ def _shear_geometry(geometry: _GlyphGeometry, tan: float) -> _GlyphGeometry:
     new_max_x = max(max_x + min_y * tan, max_x + max_y * tan)
 
     return _GlyphGeometry(
-        block=geometry.block.sheared(tan),
+        block=geometry.block.sheared(tan, preserve_arcs=preserve_arcs),
         bounding_box=(new_min_x, min_y, new_max_x, max_y),
         left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
         right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
@@ -679,7 +685,9 @@ def _scale_baseline_geometry(geometry: _GlyphGeometry, factor: float) -> _GlyphG
     )
 
 
-def _capline_geometry(geometry: _GlyphGeometry, cap: float) -> _GlyphGeometry:
+def _capline_geometry(
+    geometry: _GlyphGeometry, cap: float, *, preserve_arcs: bool = True
+) -> _GlyphGeometry:
     """Return ``geometry`` with its ink clamped down to the capline ``cap``.
 
     The cap-line enforcement's top-down vertical downscale: the transform is
@@ -691,10 +699,13 @@ def _capline_geometry(geometry: _GlyphGeometry, cap: float) -> _GlyphGeometry:
     whose top already sits at or below ``cap`` (and a degenerate zero-height
     glyph) is returned unchanged.
 
-    Arcs flatten inside :meth:`~plt_optimizer.generate.text_geometry.TextBlock.scaled_y`
-    (a non-uniform scale maps a circular arc to an ellipse), at the standard
-    chord tolerance -- the ``scale_y`` policy (a routine render-time
-    transform, DEBUG log), not the :meth:`compress_x` WARNING.
+    Arcs are refit with circular arcs inside
+    :meth:`~plt_optimizer.generate.text_geometry.TextBlock.scaled_y` (a
+    non-uniform scale maps a circular arc to an ellipse) at the ellipse-fit
+    tolerance, so the clamped glyph keeps its native ``AA`` commands; only arcs
+    the refit cannot bound flatten at the chord tolerance -- the ``scale_y``
+    policy (a routine render-time transform, DEBUG log), not the
+    :meth:`compress_x` WARNING.
 
     The block, bounding box and both profile envelopes transform together,
     so kerning measures the *clamped* silhouette in the shared baseline
@@ -705,6 +716,8 @@ def _capline_geometry(geometry: _GlyphGeometry, cap: float) -> _GlyphGeometry:
         cap: Capline height in the same design frame (the font's
             ``normalized_ref_height``; the reference character is exactly
             this tall).
+        preserve_arcs: Refit the clamped ellipse arcs with circular arcs
+            (``False`` polygonizes, the historical behaviour).
 
     Returns:
         The clamped geometry, or ``geometry`` unchanged when it does not
@@ -721,7 +734,9 @@ def _capline_geometry(geometry: _GlyphGeometry, cap: float) -> _GlyphGeometry:
     # Pure Y translation carrying the baseline-scaled glyph onto its own
     # bottom: (y - min_y) * factor + min_y keeps min_y exactly in place.
     return _GlyphGeometry(
-        block=geometry.block.translate(0.0, -min_y).scaled_y(factor).translate(0.0, min_y),
+        block=geometry.block.translate(0.0, -min_y)
+        .scaled_y(factor, preserve_arcs=preserve_arcs)
+        .translate(0.0, min_y),
         bounding_box=(min_x, min_y, max_x, min_y + (max_y - min_y) * factor),
         left_envelope=tuple(_point(x, y) for x, y in geometry.left_envelope),
         right_envelope=tuple(_point(x, y) for x, y in geometry.right_envelope),
@@ -754,6 +769,7 @@ def _walk_line(
     font_names: Optional[Sequence[Optional[str]]] = None,
     kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
+    preserve_arcs: bool = True,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -1107,7 +1123,7 @@ def _walk_line(
             # it. Non-alphanumerics and glyphs at/below the capline are
             # returned unchanged.
             if enforce_cap_line and source.isascii() and source.isalnum():
-                geometry = _capline_geometry(geometry, char_ref_height)
+                geometry = _capline_geometry(geometry, char_ref_height, preserve_arcs=preserve_arcs)
             if source != char and lowercase_scale is not None:
                 geometry = _scale_geometry(geometry, lowercase_scale)
             # Bold markup: the thicker-cutter glyphs shrink uniformly about
@@ -1125,7 +1141,7 @@ def _walk_line(
             # baseline BEFORE kerning, so the slanted silhouette kerns
             # exactly (mirrors the small-caps transform contract).
             if italic_tan is not None and (italic_flags is None or italic_flags[char_index]):
-                geometry = _shear_geometry(geometry, italic_tan)
+                geometry = _shear_geometry(geometry, italic_tan, preserve_arcs=preserve_arcs)
             # <sup>/<sub> baseline shift + the engraved-baseline alignment
             # raise: bake the shift into the geometry (block + bbox + both
             # envelopes) as the LAST transform, so kerning measures the
@@ -1205,6 +1221,7 @@ def render_text_line_plt_font_with_words(
     font_names: Optional[Sequence[Optional[str]]] = None,
     kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
+    preserve_arcs: bool = True,
 ) -> Tuple[TextBlock, List[Tuple[str, List[int]]]]:
     """Render a text line in a PLT-extracted font, partitioned by word.
 
@@ -1302,6 +1319,7 @@ def render_text_line_plt_font_with_words(
         font_names=font_names,
         kern_shifts=kern_shifts,
         enforce_cap_line=enforce_cap_line,
+        preserve_arcs=preserve_arcs,
     )
     return block, word_groups
 
@@ -1332,6 +1350,7 @@ def render_text_line_plt_font_with_glyphs(
     font_names: Optional[Sequence[Optional[str]]] = None,
     kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
+    preserve_arcs: bool = True,
 ) -> Tuple[
     TextBlock,
     List[Tuple[str, List[int]]],
@@ -1421,6 +1440,7 @@ def render_text_line_plt_font_with_glyphs(
         font_names=font_names,
         kern_shifts=kern_shifts,
         enforce_cap_line=enforce_cap_line,
+        preserve_arcs=preserve_arcs,
     )
 
 
@@ -1450,6 +1470,7 @@ def render_text_line_plt_font(
     font_names: Optional[Sequence[Optional[str]]] = None,
     kern_shifts: Optional[Sequence[float]] = None,
     enforce_cap_line: bool = False,
+    preserve_arcs: bool = True,
 ) -> TextBlock:
     """Render a text line in a PLT-extracted font (arcs preserved).
 
@@ -1539,5 +1560,6 @@ def render_text_line_plt_font(
         font_names=font_names,
         kern_shifts=kern_shifts,
         enforce_cap_line=enforce_cap_line,
+        preserve_arcs=preserve_arcs,
     )
     return block

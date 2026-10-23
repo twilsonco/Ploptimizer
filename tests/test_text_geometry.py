@@ -198,6 +198,40 @@ class TestArcSeg:
             pytest.approx(arc.end, abs=1e-12)
         )
 
+    def test_scaled_x_public_wrapper_refits(self) -> None:
+        """The segment-level public entry point mirrors the block-level map."""
+        arc = _quarter_arc()
+        segs = arc.scaled_x(0.5, 0.0)
+        assert any(isinstance(seg, ArcSeg) for seg in segs)
+        # X halves, Y untouched: the chain starts at the affine image of (1,0).
+        assert segs[0].start == pytest.approx(complex(0.5, 0.0), abs=1e-12)
+
+    def test_scaled_x_collapses_near_straight_arc_to_a_line(self) -> None:
+        """A huge-radius shallow arc refits to a single chord (a LineSeg).
+
+        Exercises the chord pre-check inside :meth:`ArcSeg._fit`: the emitted
+        chain is one line, not an arc, and the arc is NOT counted as declined.
+        """
+        arc = ArcSeg(start=50 + 0j, center=0j, sweep_deg=0.3)
+        segs = arc.scaled_x(0.5, 0.0)
+        assert len(segs) == 1
+        assert isinstance(segs[0], LineSeg)
+
+    def test_scaled_x_public_wrapper_flattens_when_declined(self) -> None:
+        """preserve_arcs=False on the public entry point polygonizes."""
+        segs = _quarter_arc().scaled_x(0.5, 0.0, preserve_arcs=False)
+        assert segs and all(isinstance(seg, LineSeg) for seg in segs)
+
+    def test_scaled_y_public_wrapper_refits(self) -> None:
+        """The Y-scaled public entry point refits native arcs."""
+        segs = _quarter_arc().scaled_y(0.5)
+        assert any(isinstance(seg, ArcSeg) for seg in segs)
+
+    def test_sheared_public_wrapper_refits(self) -> None:
+        """The sheared public entry point refits native arcs."""
+        segs = _quarter_arc().sheared(0.4)
+        assert any(isinstance(seg, ArcSeg) for seg in segs)
+
 
 class TestStroke:
     """Tests for the pen-up-led stroke container."""
@@ -253,6 +287,20 @@ class TestStroke:
         assert stroke.translate(1.0, 2.0).pen_up == pytest.approx(1 + 2j)
         assert stroke.scaled(3.0).segments[0].end == pytest.approx(3 + 3j)
         assert stroke.mirrored_y(2.0).segments[0].end == pytest.approx(1 + 1j)
+
+    def test_scaled_x_maps_pen_up_and_arcs(self) -> None:
+        """The stroke-level X scale narrows the rapid target and refits arcs."""
+        stroke = Stroke(pen_up=2 + 1j, segments=(_quarter_arc(),))
+        scaled = stroke.scaled_x(0.5, 0.0)
+        assert scaled.pen_up == pytest.approx(1 + 1j)
+        assert any(isinstance(seg, ArcSeg) for seg in scaled.segments)
+
+    def test_scaled_x_flattens_when_declined(self) -> None:
+        """preserve_arcs=False on the stroke entry point polygonizes."""
+        stroke = Stroke(pen_up=2 + 1j, segments=(_quarter_arc(),))
+        scaled = stroke.scaled_x(0.5, 0.0, preserve_arcs=False)
+        assert scaled.pen_up == pytest.approx(1 + 1j)
+        assert all(isinstance(seg, LineSeg) for seg in scaled.segments)
 
 
 class TestStrokeBoundsMemoization:
@@ -373,6 +421,30 @@ class TestStrokeHpgl:
         hpgl = stroke.to_hpgl()
         u = int(HPGL_UNITS_PER_INCH)
         assert hpgl.endswith(f";PD{5 * u},{5 * u}")
+
+    def test_detached_line_run_gets_leading_pu(self) -> None:
+        """A line run starting away from the pen emits a rapid PU first.
+
+        The pen-chain test is a tolerance, not ``!=``: a fitted chain's derived
+        end and the next segment's start agree to float noise, so a sub-unit
+        gap chains and a real gap splits.
+        """
+        u = int(HPGL_UNITS_PER_INCH)
+        arc = _quarter_arc()  # pen lands on 0+1j
+        stroke = Stroke(pen_up=1 + 0j, segments=(arc, LineSeg(5 + 5j, 6 + 6j)))
+        hpgl = stroke.to_hpgl()
+        assert hpgl == f"PU{u},0;PD;AA0,0,90.000;PU{5 * u},{5 * u};PD{6 * u},{6 * u}"
+
+    def test_pen_gap_within_epsilon_chains(self) -> None:
+        """A sub-plotter-unit pen gap chains (no spurious PU rapid)."""
+        eps = 0.25 / HPGL_UNITS_PER_INCH  # a quarter unit, under the floor
+        arc = _quarter_arc()  # ends at 0+1j
+        stroke = Stroke(
+            pen_up=1 + 0j,
+            segments=(arc, LineSeg(arc.end + eps, arc.end + 2 * eps)),
+        )
+        hpgl = stroke.to_hpgl()
+        assert hpgl.count("PU") == 1  # only the leading rapid
 
     def test_roundtrip_through_parser(self) -> None:
         """Emitted geometry re-parses to the same swept bounds."""
@@ -577,21 +649,58 @@ class TestCompressX:
         compressed = block.compress_x(0.5)
         assert compressed.bounds() == pytest.approx((0.0, 0.0, 2.0, 2.0))
 
-    def test_arcs_flattened_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Arc-bearing lines flatten to chords and log a WARNING."""
+    def test_arcs_are_refit_not_flattened(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A compressed line keeps native arcs and logs no WARNING."""
         block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),)),))
         with caplog.at_level("WARNING"):
             compressed = block.compress_x(0.5, context="label_1 line 0")
+        assert any(isinstance(seg, ArcSeg) for seg in compressed.strokes[0].segments)
+        assert "flattened" not in caplog.text
+
+    def test_declined_arc_flattens_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An arc the refit cannot bound flattens to chords and logs a WARNING."""
+        # r=0.2 over 120 deg at s=0.2 needs >8 arcs -> the fitter declines it.
+        arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=120.0)
+        block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
+        with caplog.at_level("WARNING"):
+            compressed = block.compress_x(0.2, context="label_1 line 0")
         assert all(isinstance(seg, LineSeg) for seg in compressed.strokes[0].segments)
         assert "flattened" in caplog.text
         assert "label_1 line 0" in caplog.text
 
-    def test_arcs_flattened_without_context(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_declined_arc_warns_without_context(self, caplog: pytest.LogCaptureFixture) -> None:
         """The WARNING works without a context string."""
+        arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=120.0)
+        block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
+        with caplog.at_level("WARNING"):
+            block.compress_x(0.2)
+        assert "flattened" in caplog.text
+
+    def test_preserve_arcs_false_is_the_historical_flatten(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """preserve_arcs=False polygonizes every arc (the escape hatch)."""
         block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),)),))
         with caplog.at_level("WARNING"):
-            block.compress_x(0.5)
+            compressed = block.compress_x(0.5, preserve_arcs=False)
+        assert all(isinstance(seg, LineSeg) for seg in compressed.strokes[0].segments)
         assert "flattened" in caplog.text
+
+    def test_compressed_arcs_stay_on_the_true_ellipse(self) -> None:
+        """Every fitted arc's endpoints are the affine image of the source's."""
+        arc = _quarter_arc()
+        block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
+        compressed = block.compress_x(0.5)
+        # The chain starts at the X-scaled source start and ends at the
+        # X-scaled source end (the ellipse's axis vertices, exact under the map).
+        segs = compressed.strokes[0].segments
+        assert segs[0].start == pytest.approx(
+            complex(arc.start.real * 0.5, arc.start.imag), abs=1e-12
+        )
+        assert segs[-1].end == pytest.approx(complex(arc.end.real * 0.5, arc.end.imag), abs=1e-12)
+        # Bounds match the flattened result to well within a plotter unit.
+        flat = block.compress_x(0.5, preserve_arcs=False)
+        assert compressed.bounds() == pytest.approx(flat.bounds(), abs=1e-3)
 
 
 class TestScaleY:
@@ -627,22 +736,30 @@ class TestScaleY:
         scaled = block.scaled_y(0.6)
         assert [len(s.segments) for s in scaled.strokes] == [1, 2]
 
-    def test_arcs_flatten_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Arcs flatten (an ellipse is not a circular arc) and log at DEBUG."""
+    def test_arcs_are_refit_not_flattened(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A vertically scaled line keeps native arcs (no DEBUG flatten log)."""
         block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),)),))
-        # Pin the emitting logger: the suite configures logging globally, and
-        # the module logger's effective level then hides the DEBUG record.
         caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
         scaled = block.scaled_y(0.5, context="label_1 line 0")
+        assert any(isinstance(seg, ArcSeg) for seg in scaled.strokes[0].segments)
+        assert "flattened" not in caplog.text
+
+    def test_declined_arc_flattens_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An arc the refit declines flattens and logs at DEBUG."""
+        # r=0.2 over 90 deg at scale_y 0.2 needs >8 arcs -> the fitter declines.
+        arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=90.0)
+        block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
+        caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
+        scaled = block.scaled_y(0.2, context="label_1 line 0")
         assert all(isinstance(seg, LineSeg) for seg in scaled.strokes[0].segments)
         assert "flattened" in caplog.text
         assert "label_1 line 0" in caplog.text
 
     def test_flattened_arc_stays_on_the_scaled_circle(self) -> None:
-        """Every flattened vertex is the original vertex with Y halved."""
+        """preserve_arcs=False: every flattened vertex is the original with Y halved."""
         arc = _quarter_arc()
         block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(arc,)),))
-        scaled = block.scaled_y(0.5)
+        scaled = block.scaled_y(0.5, preserve_arcs=False)
         expected = [complex(p.real, p.imag * 0.5) for p in arc.flattened()]
         got = [scaled.strokes[0].segments[0].start] + [
             seg.end for seg in scaled.strokes[0].segments
@@ -837,22 +954,32 @@ class TestSheared:
         sheared = block.sheared(0.25)
         assert [len(s.segments) for s in sheared.strokes] == [1, 2]
 
-    def test_arcs_flatten_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Arcs flatten (a sheared arc is a rotated ellipse) and log at DEBUG."""
+    def test_arcs_are_refit_not_flattened(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A sheared line keeps native arcs (a rotated ellipse refits)."""
         block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(_quarter_arc(),)),))
         caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
         sheared = block.sheared(0.5, context="label_1 line 0")
+        assert any(isinstance(seg, ArcSeg) for seg in sheared.strokes[0].segments)
+        assert "flattened" not in caplog.text
+
+    def test_declined_arc_flattens_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An arc the refit declines flattens and logs at DEBUG."""
+        # r=0.2 over 150 deg at shear 0.9 needs >8 arcs -> the fitter declines.
+        arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=150.0)
+        block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
+        caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
+        sheared = block.sheared(0.9, context="label_1 line 0")
         assert all(isinstance(seg, LineSeg) for seg in sheared.strokes[0].segments)
         assert "flattened" in caplog.text
         assert "italic" in caplog.text
         assert "label_1 line 0" in caplog.text
 
     def test_flattened_arc_vertices_are_sheared(self) -> None:
-        """Every flattened vertex is the original vertex mapped by the shear."""
+        """preserve_arcs=False: every flattened vertex is the shear of the original."""
         arc = _quarter_arc()
         block = TextBlock(strokes=(Stroke(pen_up=1 + 0j, segments=(arc,)),))
         tan = 0.4
-        sheared = block.sheared(tan)
+        sheared = block.sheared(tan, preserve_arcs=False)
         expected = [complex(p.real + p.imag * tan, p.imag) for p in arc.flattened()]
         got = [sheared.strokes[0].segments[0].start] + [
             seg.end for seg in sheared.strokes[0].segments

@@ -1123,7 +1123,10 @@ class TestParseYamlWithJobConfig:
         assert job.cutter_downsize is True
         assert job.max_cutter_downsizes == 1
         assert job.cutter_downsize_global is True
-        assert job.h_compress_global is False
+        # Shop-tuned: the 2026-10-22 tuning commit enabled label-wide
+        # compression (job-config.json `h_compress_global` false -> true).
+        # tests/AGENTS.md stale-pin pattern - re-pin, keep config.
+        assert job.h_compress_global is True
         assert job.h_compress_global_same_height_only is True
         assert job.optimize_line_content is False
         assert job.optimize_line_content_max_lines is None

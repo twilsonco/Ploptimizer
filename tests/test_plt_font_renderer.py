@@ -850,7 +850,31 @@ class TestGlyphGroups:
 
 
 class TestCompressionInteraction:
-    """Horizontal compression flattens arcs with a bounded chord error."""
+    """Horizontal compression refits arcs (and flattens only what it must)."""
+
+    def test_compress_x_refits_real_glyph_arcs(self) -> None:
+        """Compressing a shipped-library line keeps native ``AA`` arcs.
+
+        The Dino ``O`` is a chain of ~10-30 deg best-fit arcs; each ellipse
+        image needs exactly one circular arc at the fit tolerance, so
+        compression preserves the arc (the whole point of ``arc_fit``).
+        """
+        block = render_text_line_plt_font("OO", 0.5, "Dino", cutter_diameter=0.04)
+        arcs_before = _count_arcs(block)
+        assert arcs_before > 0
+        compressed = block.compress_x(0.5)
+        arcs_after = _count_arcs(compressed)
+        # Arcs survive (not polygonized) and the chain stays compact.
+        assert arcs_after > 0
+        assert arcs_after <= arcs_before * 1.5
+        assert "AA" in compressed.to_hpgl()
+        # The compressed width is exact to the fitted arcs' swept-box
+        # over-measure (a fitted arc's axis-aligned extent can sit a hair
+        # outside the true ellipse; measured <= 3e-5in here, vs the 1e-3in
+        # the flattening path's chord quantization allows).
+        b0, b1 = block.bounds(), compressed.bounds()
+        assert b0 is not None and b1 is not None
+        assert (b1[2] - b1[0]) == pytest.approx((b0[2] - b0[0]) * 0.5, abs=1e-4)
 
     def test_compress_x_flattens_arcs_with_warning(
         self, synth_lib: Path, caplog: pytest.LogCaptureFixture
@@ -1458,11 +1482,20 @@ class TestPltFontDemoExample:
         the ``TextBlock.scale_y`` policy. The counts drop accordingly; a label
         of exact-cap glyphs (or an ``enforce_cap_line: false`` line) keeps its
         arcs.
+
+        Re-pinned UP sharply for arc-preserving non-uniform transforms
+        (``arc_fit`` + ``arc_preserve_compression``, default true): the cap-line
+        clamp, the descender relief, the italic shear and horizontal
+        compression now refit each arc's ellipse image with a short chain of
+        circular ``AA`` arcs instead of polygonizing. The clamped digits and
+        round capitals that the previous pin counted as flattened are native
+        again, so both PLT labels multiply (dino_banner 15 -> 138, mixed_tag
+        92 -> 265). The TTF label has no arcs to preserve and stays 0.
         """
         rendered = self._rendered()
         counts = {key: content.plt_content.count("AA") for key, (_rl, content) in rendered.items()}
-        assert counts["dino_banner"] == 15
-        assert counts["mixed_tag"] == 92
+        assert counts["dino_banner"] == 138
+        assert counts["mixed_tag"] == 265
         assert counts["ttf_card"] == 0
 
 
@@ -1627,12 +1660,26 @@ class TestItalicShear:
         assert italic[2] - plain[2] == pytest.approx(1.0 * self._TAN, abs=1e-9)
 
     def test_arcs_flatten_under_the_shear(self, synth_lib: Path) -> None:
-        """A sheared circular arc is a rotated ellipse: it must flatten."""
+        """A sheared full-circle arc is a rotated ellipse the refit declines."""
         plain = _render("C", 1.0, synth_lib)
         italic = _render("C", 1.0, synth_lib, italic_tan=self._TAN)
         assert _count_arcs(plain) == 1
         assert _count_arcs(italic) == 0
         assert _count_lines(italic) > _count_lines(plain)
+
+    def test_real_glyph_arcs_survive_the_shear(self) -> None:
+        """A sheared shipped-library line keeps native ``AA`` arcs.
+
+        The synthetic 360 deg circle above exercises the fallback; the shipped
+        library's per-stroke best-fit arcs exercise the refit.
+        """
+        plain = render_text_line_plt_font("OO", 0.5, "Dino", cutter_diameter=0.04)
+        italic = render_text_line_plt_font(
+            "OO", 0.5, "Dino", cutter_diameter=0.04, italic_tan=self._TAN
+        )
+        assert _count_arcs(plain) > 0
+        assert _count_arcs(italic) > 0
+        assert "AA" in italic.to_hpgl()
 
     def test_stroke_count_is_preserved_for_polylines(self, synth_lib: Path) -> None:
         """The per-glyph stroke partition survives (the glyph sweep stays valid)."""
@@ -2225,6 +2272,45 @@ class TestCapLineGeometryHelper:
         bounds = clamped.block.bounds()
         assert bounds is not None
         assert bounds[3] <= 1000.0 + 1e-6
+
+    def test_multi_arc_circle_survives_the_clamp(self) -> None:
+        """A circle stored as 4x90 deg arcs refits (stays native) under the clamp.
+
+        The single 360 deg arc above exercises the flatten fallback; a circle
+        split into quadrant arcs (how real fonts store them) is what the
+        cap-line clamp meets on the shipped library, and each 90 deg ellipse
+        image refits to a short arc chain.
+        """
+        # Inch-space glyph: a 1in-wide circle overshooting a 1in capline.
+        quads = tuple(
+            ArcSeg(
+                complex(
+                    0.5 + 0.5 * math.cos(math.radians(a)),
+                    0.525 + 0.5 * math.sin(math.radians(a)),
+                ),
+                complex(0.5, 0.525),
+                90.0,
+            )
+            for a in (180.0, 270.0, 0.0, 90.0)
+        )
+        geometry = _GlyphGeometry(
+            block=TextBlock(strokes=(Stroke(pen_up=quads[0].start, segments=quads),)),
+            bounding_box=(0.0, 0.025, 1.0, 1.025),
+            left_envelope=(),
+            right_envelope=(),
+        )
+        clamped = _capline_geometry(geometry, 1.0)
+        arcs_after = sum(
+            1
+            for stroke in clamped.block.strokes
+            for seg in stroke.segments
+            if isinstance(seg, ArcSeg)
+        )
+        # Native arcs survive the vertical clamp (no polygonization).
+        assert arcs_after >= 4
+        bounds = clamped.block.bounds()
+        assert bounds is not None
+        assert bounds[3] <= 1.0 + 1e-3
 
 
 class TestWalkLineCapLineEnforcement:

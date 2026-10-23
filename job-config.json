@@ -34,6 +34,7 @@
   "cutter_downsize_global": true,
   "h_compress_global": true,
   "h_compress_global_same_height_only": true,
+  "arc_preserve_compression": true,
   "optimize_line_content": false,
   "optimize_line_content_max_lines": null,
   "enforce_cap_line": true,

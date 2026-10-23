@@ -1529,6 +1529,96 @@ class TestHCompressGlobalDemoExample:
         ]
 
 
+class TestArcPreserveCompressionDemoExample:
+    """Regression tests for tests_deps/arc_preserve_job.yaml.
+
+    The fixture exercises the arc-preserving non-uniform transforms
+    (``arc_preserve_compression``, default true): a compressed / italic /
+    capline-clamped PLT line refits each arc's ellipse image with circular
+    ``AA`` arcs instead of polygonizing. The counts below pin the whole
+    feature end-to-end -- a regression that re-introduces flattening collapses
+    the ``AA`` counts, and one that over-fits explodes them.
+    """
+
+    _SPEC = Path("tests_deps/arc_preserve_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="apc",
+            optimize=False,
+            plots=False,
+        )
+
+    @staticmethod
+    def _segments(content: str) -> tuple[int, int]:
+        """Return ``(arc_count, line_count)`` parsed back from emitted HPGL."""
+        from plt_optimizer.core.models import ArcSegment, StrokeSegment
+        from plt_optimizer.core.parser import PLTParser
+
+        doc = PLTParser().parse_string(content)
+        arcs = sum(
+            1 for path in doc.stroke_paths for seg in path.segments if isinstance(seg, ArcSegment)
+        )
+        lines = sum(
+            1
+            for path in doc.stroke_paths
+            for seg in path.segments
+            if isinstance(seg, StrokeSegment)
+        )
+        return arcs, lines
+
+    def test_compressed_line_keeps_native_arcs(self, tmp_path: Path) -> None:
+        """The over-wide line compresses AND stays arc-native."""
+        result = self._export(tmp_path)
+        preserved = result.rendered_labels["preserved"]
+        # It really compressed (the point of the fixture).
+        assert sorted(preserved.compression_by_line) == [0]
+        arcs, lines = self._segments(preserved.plt_content)
+        assert arcs == 100
+        assert lines == 404
+
+    def test_opt_out_polygonizes_the_same_line(self, tmp_path: Path) -> None:
+        """arc_preserve_compression false restores the polygonized output."""
+        result = self._export(tmp_path)
+        polygonized = result.rendered_labels["polygonized"]
+        arcs, lines = self._segments(polygonized.plt_content)
+        # Every compressed arc flattened: no arcs survive the compression.
+        assert arcs == 0
+        assert lines == 1341
+        # The escape hatch is a large command-count increase on the same text.
+        preserved = result.rendered_labels["preserved"]
+        p_arcs, p_lines = self._segments(preserved.plt_content)
+        assert lines > (p_arcs + p_lines) * 2
+
+    def test_italic_and_capline_keep_arcs(self, tmp_path: Path) -> None:
+        """The shear and the vertical clamp both preserve arcs natively."""
+        result = self._export(tmp_path)
+        italic_arcs, _ = self._segments(result.rendered_labels["italic"].plt_content)
+        clamped_arcs, _ = self._segments(result.rendered_labels["clamped"].plt_content)
+        assert italic_arcs == 148
+        assert clamped_arcs == 160
+
+    def test_per_line_opt_out_inside_one_label(self, tmp_path: Path) -> None:
+        """The mixed label: line 0 preserves, line 1 (explicit false) polygonizes.
+
+        The two lines share one label, so the emitted per-label content carries
+        the preserved line's arcs plus the polygonized line's flattened
+        segments -- the total sits between the two single-mode labels.
+        """
+        result = self._export(tmp_path)
+        mixed = result.rendered_labels["mixed"]
+        arcs, lines = self._segments(mixed.plt_content)
+        # Line 0 preserved (100 arcs) + line 1 polygonized (0 arcs, ~937 lines).
+        assert arcs == 100
+        assert lines == 1741
+
+
 class TestOptimizeLineContentDemoExample:
     """Regression tests for tests_deps/optimize_line_content_job.yaml.
 
