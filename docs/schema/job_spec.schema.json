@@ -491,6 +491,19 @@
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
         },
+        "cutter_downsize_global_job_wide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same text_height in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires cutter_downsize_global true; a line with this flag false keeps exactly the per-label behaviour (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Cutter Downsize Global Job Wide"
+        },
         "h_compress_global": {
           "anyOf": [
             {
@@ -1217,6 +1230,19 @@
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
         },
+        "cutter_downsize_global_job_wide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same text_height in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires cutter_downsize_global true; a line with this flag false keeps exactly the per-label behaviour (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Cutter Downsize Global Job Wide"
+        },
         "h_compress_global": {
           "anyOf": [
             {
@@ -1932,6 +1958,19 @@
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
         },
+        "cutter_downsize_global_job_wide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same text_height in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires cutter_downsize_global true; a line with this flag false keeps exactly the per-label behaviour (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Cutter Downsize Global Job Wide"
+        },
         "h_compress_global": {
           "anyOf": [
             {
@@ -2617,6 +2656,19 @@
           "default": null,
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
+        },
+        "cutter_downsize_global_job_wide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same text_height in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires cutter_downsize_global true; a line with this flag false keeps exactly the per-label behaviour (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Cutter Downsize Global Job Wide"
         },
         "h_compress_global": {
           "anyOf": [
@@ -3695,6 +3747,19 @@
           "description": "Per-label sharing of compression-driven cutter downsizes (schema parity; not applied at plate level).",
           "title": "Cutter Downsize Global"
         },
+        "cutter_downsize_global_job_wide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Job-wide scope of the shared compression-driven cutter downsizes (schema parity; not applied at plate level).",
+          "title": "Cutter Downsize Global Job Wide"
+        },
         "h_compress_global": {
           "anyOf": [
             {
@@ -4558,6 +4623,19 @@
           "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize Global"
         },
+        "cutter_downsize_global_job_wide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same text_height in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires cutter_downsize_global true; a line with this flag false keeps exactly the per-label behaviour (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Cutter Downsize Global Job Wide"
+        },
         "h_compress_global": {
           "anyOf": [
             {
@@ -5242,6 +5320,19 @@
       "default": null,
       "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
       "title": "Cutter Downsize Global"
+    },
+    "cutter_downsize_global_job_wide": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same text_height in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires cutter_downsize_global true; a line with this flag false keeps exactly the per-label behaviour (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored.",
+      "title": "Cutter Downsize Global Job Wide"
     },
     "h_compress_global": {
       "anyOf": [

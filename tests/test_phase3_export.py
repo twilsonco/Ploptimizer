@@ -1502,6 +1502,86 @@ class TestCutterDownsizeGlobalDemoExample:
             assert rendered.source_label.cutter_downsize_by_line == {}
 
 
+class TestCutterDownsizeGlobalJobWideDemoExample:
+    """Regression tests for tests_deps/cutter_downsize_global_job_wide_job.yaml.
+
+    The fixture opts in to ``cutter_downsize_global_job_wide``: a trigger
+    label's swap is shared with the fitting lines of the same text height in
+    OTHER labels (one text size, one tool job-wide), while opted-out labels
+    keep exactly the per-label behaviour and explicit cutters are untouched.
+    """
+
+    _INVENTORY = [0.03, 0.045, 0.06, 0.09, 0.125]
+    _SPEC = Path("tests_deps/cutter_downsize_global_job_wide_job.yaml")
+
+    def _export(self, tmp_path: Path, inventory: Optional[list[float]]) -> PerCutterExport:
+        """Export the demo job with plotting disabled against ``inventory``."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job, available_cutters=inventory)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="cdjw",
+            optimize=False,
+            plots=False,
+            available_cutters=inventory,
+        )
+
+    def test_trigger_label_downsizes(self, tmp_path: Path) -> None:
+        """The over-wide label triggers the swap (0.06 -> 0.045)."""
+        result = self._export(tmp_path, self._INVENTORY)
+        trigger = result.rendered_labels["trigger"].source_label
+        assert list(trigger.cutter_downsize_by_line) == [0]
+        original, final = trigger.cutter_downsize_by_line[0]
+        assert math.isclose(original, 0.06)
+        assert math.isclose(final, 0.045)
+        assert math.isclose(trigger.content[0].cutter_diameter, 0.045)
+
+    def test_fitting_line_in_another_label_receives_the_swap(self, tmp_path: Path) -> None:
+        """The job-wide swap crosses the label boundary (per-label cannot)."""
+        result = self._export(tmp_path, self._INVENTORY)
+        other = result.rendered_labels["other_label"].source_label
+        assert list(other.cutter_downsize_by_line) == [0]
+        original, final = other.cutter_downsize_by_line[0]
+        assert math.isclose(original, 0.06)
+        assert math.isclose(final, 0.045)
+        line = other.content[0]
+        assert math.isclose(line.cutter_diameter, 0.045)
+        assert math.isclose(line.nominal_text_height, 0.5)
+        assert math.isclose(line.toolpath_text_height, 0.5 - 0.045)
+
+    def test_opted_out_label_keeps_the_per_label_behaviour(self, tmp_path: Path) -> None:
+        """cutter_downsize_global_job_wide false: the fitting line keeps 0.06in."""
+        result = self._export(tmp_path, self._INVENTORY)
+        opted_out = result.rendered_labels["opted_out"].source_label
+        assert opted_out.cutter_downsize_by_line == {}
+        assert math.isclose(opted_out.content[0].cutter_diameter, 0.06)
+
+    def test_explicit_cutter_label_is_never_touched(self, tmp_path: Path) -> None:
+        """An explicit cutter_size neither follows nor sets the job minimum."""
+        result = self._export(tmp_path, self._INVENTORY)
+        explicit = result.rendered_labels["explicit"].source_label
+        assert explicit.cutter_downsize_by_line == {}
+        assert math.isclose(explicit.content[0].cutter_diameter, 0.09)
+
+    def test_job_wide_layers_split_by_final_cutter(self, tmp_path: Path) -> None:
+        """The pen map sees the shared cutter, so 0.045/0.060 files split as expected."""
+        result = self._export(tmp_path, self._INVENTORY)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "30_bh_cdjw.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
+            "45_txt_cdjw.plt",  # trigger + job-wide receiver
+            "60_txt_cdjw.plt",  # opted_out label
+            "90_txt_cdjw.plt",  # explicit cutter_size
+        ]
+
+    def test_pre_pass_is_a_noop_without_inventory(self, tmp_path: Path) -> None:
+        """No tools.json inventory means no ladder: nothing shares job-wide."""
+        result = self._export(tmp_path, None)
+        for rendered in result.rendered_labels.values():
+            assert rendered.source_label.cutter_downsize_by_line == {}
+
+
 class TestHCompressGlobalDemoExample:
     """Regression tests for tests_deps/h_compress_global_job.yaml.
 

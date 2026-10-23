@@ -42,6 +42,16 @@ directions) with ``cutter_downsize_global: false``; the eligibility opt-outs
 below apply to receivers too. Sharing is always per-label -- the job level
 only enables the option for its labels.
 
+Job-wide sharing (``cutter_downsize_global_job_wide``, off by default): widens
+the sharing group from the label to the whole job. When a trigger line has it
+enabled (together with ``cutter_downsize_global``), every *eligible* line of
+the same nominal text height in ANY label of the job receives the swap, so one
+text size engraves with one tool job-wide (one per-cutter text layer per size).
+A line with the flag ``false`` keeps exactly the per-label behaviour (it
+neither shares to nor receives from the job-wide group). The pass runs after
+every label's per-label pass and converges the same way (see
+:func:`_share_downsizes_job_wide`).
+
 Scope guards (the pass is a no-op, and costs nothing, when any of these
 apply):
 
@@ -160,6 +170,7 @@ def _reduce_line(
     inventory: Sequence[float],
     initial_scale: float,
     forced_cutter: Optional[float] = None,
+    share_scope: str = "label",
 ) -> Tuple[ResolvedLabel, Optional[Tuple[float, float]]]:
     """Walk one line down the cutter ladder as far as its compression justifies.
 
@@ -177,6 +188,9 @@ def _reduce_line(
             line's trigger). The step consumes one unit of the line's budget
             and the toolpath floor still applies; the remaining steps follow
             the normal midpoint rule. ``None`` = trigger-driven reduction only.
+        share_scope: Wording of the sharing scope in the seed-step log
+            (``"label"`` for the per-label group, ``"job"`` for the job-wide
+            group); only the seed step's message is affected.
 
     Returns:
         ``(label, (original, final))`` when at least one step was applied,
@@ -217,12 +231,13 @@ def _reduce_line(
         )
         if is_seed:
             logger.warning(
-                "Label %s line %d (%r): sharing the label's cutter downsize, "
+                "Label %s line %d (%r): sharing the %s's cutter downsize, "
                 "swapping the automatic cutter from %.3fin to %.3fin "
                 "(toolpath height %.3fin)%s.",
                 working.id,
                 line_index,
                 working.content[line_index].text,
+                share_scope,
                 current_cutter,
                 candidate,
                 toolpath_height,
@@ -278,6 +293,145 @@ def _height_groups(content: Sequence[ResolvedTextLine]) -> List[List[int]]:
         else:
             groups.append((line.nominal_text_height, [index]))
     return [members for _, members in groups]
+
+
+def _job_height_groups(
+    labels: Sequence[ResolvedLabel],
+) -> List[List[Tuple[int, int]]]:
+    """Bucket ``(label_index, line_index)`` pairs by nominal text height.
+
+    The job-wide counterpart of :func:`_height_groups`: one group per distinct
+    ``nominal_text_height`` across every label of the job, so a shared
+    downsize reaches every label engraved at that text size.
+
+    Args:
+        labels: The job's resolved labels, in content order.
+
+    Returns:
+        Lists of ``(label_index, line_index)`` pairs whose
+        ``nominal_text_height`` matches within ``_HEIGHT_TOLERANCE``, in
+        first-appearance order (label order, then content order).
+    """
+    groups: List[Tuple[float, List[Tuple[int, int]]]] = []
+    for label_index, label in enumerate(labels):
+        for line_index, line in enumerate(label.content):
+            for key, members in groups:
+                if math.isclose(
+                    key,
+                    line.nominal_text_height,
+                    rel_tol=_HEIGHT_TOLERANCE,
+                    abs_tol=_HEIGHT_TOLERANCE,
+                ):
+                    members.append((label_index, line_index))
+                    break
+            else:
+                groups.append((line.nominal_text_height, [(label_index, line_index)]))
+    return [members for _, members in groups]
+
+
+def _shares_job_wide(line: ResolvedTextLine) -> bool:
+    """Return whether a line takes part in the job-wide sharing group.
+
+    Job-wide sharing is the per-label mechanism widened to the job, so it
+    requires the per-label permission too: a line with
+    ``cutter_downsize_global`` false never shares (in either scope), and a
+    line with ``cutter_downsize_global_job_wide`` false keeps exactly the
+    per-label behaviour (it neither shares to nor receives from the job
+    group). The mechanism eligibility of :func:`_is_eligible` applies on top.
+
+    Args:
+        line: The resolved text line to classify.
+
+    Returns:
+        ``True`` when the line is eligible for job-wide sharing.
+    """
+    return (
+        line.cutter_downsize_global and line.cutter_downsize_global_job_wide and _is_eligible(line)
+    )
+
+
+def _share_downsizes_job_wide(
+    labels: Sequence[ResolvedLabel],
+    probe: ScaleProbe,
+    inventory: Sequence[float],
+) -> List[ResolvedLabel]:
+    """Propagate cutter downsizes to same-height lines across the whole job.
+
+    The job-wide counterpart of :func:`_share_downsizes`, run after every
+    label's per-label pass. Each job height group containing a sharing trigger
+    (a line whose downsize is recorded in ``cutter_downsize_by_line`` and which
+    has job-wide sharing enabled) converges to the group's smallest final
+    cutter. Receivers get the shared cutter applied directly (seed step, the
+    midpoint trigger check bypassed), consume one unit of their own budget, and
+    continue their own monotone loop -- a receiver whose compression deepens
+    below the shared tool lowers the group minimum and the pass repeats.
+    Termination: every step strictly decreases some line's cutter on a finite
+    ladder within each line's step budget.
+
+    The propagated swaps land in each receiver's own
+    ``cutter_downsize_by_line`` (original = the receiver's pre-swap tool), so
+    the pen map, per-cutter layers, PLT file names and the layout report see
+    them for free.
+
+    Args:
+        labels: The job's labels with the per-label downsizes already applied
+            (each carrying its own ``cutter_downsize_by_line``).
+        probe: The render probe used by the receivers' step loops.
+        inventory: Shop cutter diameters in inches (non-empty).
+
+    Returns:
+        The labels with the job-wide swaps folded in; labels needing no change
+        are returned as the same objects.
+    """
+    working = list(labels)
+    while True:
+        propagated = False
+        for members in _job_height_groups(working):
+            shares = any(
+                line_index in working[label_index].cutter_downsize_by_line
+                and _shares_job_wide(working[label_index].content[line_index])
+                for label_index, line_index in members
+            )
+            if not shares:
+                continue
+            # Only job-wide-sharing *and* mechanism-eligible lines join the
+            # group; per-label-only lines (job_wide false), explicit-cutter,
+            # budget-less and cutter_downsize-false lines keep their tool and
+            # never set (nor follow) the group minimum.
+            eligible = [
+                (label_index, line_index)
+                for label_index, line_index in members
+                if _shares_job_wide(working[label_index].content[line_index])
+            ]
+            if len(eligible) < 2:
+                continue
+            group_min = min(
+                working[label_index].content[line_index].cutter_diameter
+                for label_index, line_index in eligible
+            )
+            for label_index, line_index in eligible:
+                line = working[label_index].content[line_index]
+                if line.cutter_diameter <= group_min + _CUTTER_TOLERANCE:
+                    continue  # Already at (or below) the shared tool.
+                label, delta = _reduce_line(
+                    working[label_index],
+                    line_index,
+                    probe,
+                    inventory,
+                    _measure_scale(probe, working[label_index], line_index),
+                    forced_cutter=group_min,
+                    share_scope="job",
+                )
+                if delta is None:
+                    continue
+                downsized = dict(label.cutter_downsize_by_line)
+                original = downsized[line_index][0] if line_index in downsized else delta[0]
+                downsized[line_index] = (original, delta[1])
+                working[label_index] = dataclasses.replace(label, cutter_downsize_by_line=downsized)
+                propagated = True
+        if not propagated:
+            break
+    return working
 
 
 def _share_downsizes(
@@ -432,7 +586,10 @@ def apply_compression_cutter_downsize(
 
     When a downsized line has ``cutter_downsize_global`` enabled, the swap is
     shared with the label's other eligible same-height lines (see
-    :func:`_share_downsizes`) before the label is returned.
+    :func:`_share_downsizes`) before the label is returned. When it also has
+    ``cutter_downsize_global_job_wide`` enabled, a second pass
+    (:func:`_share_downsizes_job_wide`) widens the sharing group from the
+    label to the whole job, so one text size engraves with one tool job-wide.
 
     Args:
         resolved_labels: The job's resolved labels, in content order.
@@ -494,4 +651,13 @@ def apply_compression_cutter_downsize(
             continue
         working, downsized = _share_downsizes(working, downsized, scale_probe, inventory)
         result.append(dataclasses.replace(working, cutter_downsize_by_line=downsized))
+
+    # Job-wide sharing: only when at least one downsized line enables it (the
+    # per-label default keeps existing jobs bit-identical and pays nothing).
+    if any(
+        _shares_job_wide(label.content[line_index])
+        for label in result
+        for line_index in label.cutter_downsize_by_line
+    ):
+        result = _share_downsizes_job_wide(result, scale_probe, inventory)
     return result

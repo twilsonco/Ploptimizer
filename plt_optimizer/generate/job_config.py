@@ -595,6 +595,15 @@ class JobDefaults(BaseModel):
             "of the same text_height in the same label)."
         ),
     )
+    cutter_downsize_global_job_wide: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default job-wide scope of the shared compression-driven cutter "
+            "downsizes (job layer; true widens a trigger line's sharing group "
+            "from its label to every eligible line of the same text_height "
+            "across the whole job, so one text size engraves with one tool)."
+        ),
+    )
     h_compress_global: Optional[bool] = Field(
         default=None,
         description=(
@@ -946,6 +955,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "cutter_downsize",
     "max_cutter_downsizes",
     "cutter_downsize_global",
+    "cutter_downsize_global_job_wide",
     "h_compress_global",
     "h_compress_global_same_height_only",
     "arc_preserve_compression",

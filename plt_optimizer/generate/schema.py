@@ -1256,6 +1256,20 @@ class TextAttributes(BaseModel):
             "explicit false is honored."
         ),
     )
+    cutter_downsize_global_job_wide: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Widen the scope of the shared cutter downsize from the label to "
+            "the whole job: when a line's compression triggers a swap, every "
+            "eligible line of the same text_height in ANY label of the job "
+            "receives the same swap (the job converges on one tool per text "
+            "size). Requires cutter_downsize_global true; a line with this "
+            "flag false keeps exactly the per-label behaviour (it neither "
+            "shares to nor receives from the job-wide group). The same "
+            "eligibility opt-outs apply. Cascades line -> label -> job "
+            "(fallback false); explicit true is honored."
+        ),
+    )
     h_compress_global: Optional[bool] = Field(
         default=None,
         description=(
@@ -2874,6 +2888,13 @@ class PlateSpec(BaseModel):
         default=None,
         description=(
             "Per-label sharing of compression-driven cutter downsizes "
+            "(schema parity; not applied at plate level)."
+        ),
+    )
+    cutter_downsize_global_job_wide: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Job-wide scope of the shared compression-driven cutter downsizes "
             "(schema parity; not applied at plate level)."
         ),
     )

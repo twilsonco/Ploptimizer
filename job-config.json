@@ -32,6 +32,7 @@
   "cutter_downsize": true,
   "max_cutter_downsizes": 1,
   "cutter_downsize_global": true,
+  "cutter_downsize_global_job_wide": true,
   "h_compress_global": true,
   "h_compress_global_same_height_only": true,
   "arc_preserve_compression": true,

@@ -35,6 +35,7 @@ def _line(
     cutter_downsize: bool = True,
     max_cutter_downsizes: int = 1,
     cutter_downsize_global: bool = True,
+    cutter_downsize_global_job_wide: bool = False,
 ) -> ResolvedTextLine:
     """Build a resolved line with a compression budget and automatic cutter."""
     return ResolvedTextLine(
@@ -49,6 +50,7 @@ def _line(
         cutter_downsize=cutter_downsize,
         max_cutter_downsizes=max_cutter_downsizes,
         cutter_downsize_global=cutter_downsize_global,
+        cutter_downsize_global_job_wide=cutter_downsize_global_job_wide,
     )
 
 
@@ -99,6 +101,28 @@ def _probe_by_line(scales_by_line: Dict[int, Dict[float, float]]) -> object:
             if scale is not None and scale < 1.0:
                 found[index] = scale
         return found
+
+    return probe
+
+
+def _probe_by_label(scales_by_label: Dict[str, float]) -> object:
+    """Build a probe compressing line 0 of the named labels at every cutter.
+
+    The job-wide counterpart of ``_probe_by_line``: only the labels keyed in
+    ``scales_by_label`` compress (line 0, at any cutter), so a sibling
+    label's swap can only come from job-wide sharing.
+
+    Args:
+        scales_by_label: Label id -> the effective scale reported for its
+            line 0.
+
+    Returns:
+        A probe for :func:`apply_compression_cutter_downsize`.
+    """
+
+    def probe(label: ResolvedLabel) -> Dict[int, float]:
+        scale = scales_by_label.get(label.id)
+        return {0: scale} if scale is not None and scale < 1.0 else {}
 
     return probe
 
@@ -608,6 +632,268 @@ class TestGlobalSharing:
         labels = [_label("l1", _line("WIDE", cutter=0.09), _line("OK", cutter=0.09))]
         out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
         assert out[0] is labels[0]
+
+
+class TestJobWideSharing:
+    """cutter_downsize_global_job_wide shares a trigger's swap across the job.
+
+    The job-wide flag widens the per-label group to every eligible line of the
+    same nominal text height in ANY label, so one text size engraves with one
+    tool job-wide. The default (False) keeps the per-label behaviour exactly.
+    """
+
+    def test_default_keeps_the_per_label_boundary(self) -> None:
+        """job_wide false (the default): a sibling label is never touched."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09)),
+            _label("b", _line("OK", cutter=0.09)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert out[1] is labels[1]
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+
+    def test_trigger_reaches_a_same_height_line_in_another_label(self) -> None:
+        """The Sunwest shape: one line per label, one job-wide tool."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label("b", _line("SHORT", cutter=0.09, cutter_downsize_global_job_wide=True)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.06)
+        assert math.isclose(out[1].content[0].toolpath_text_height, 0.5 - 0.06)
+        assert out[0].cutter_downsize_by_line == {0: (0.09, 0.06)}
+        assert out[1].cutter_downsize_by_line == {0: (0.09, 0.06)}
+
+    def test_receiver_skips_the_midpoint_check(self) -> None:
+        """A receiver whose own compression never triggers still follows."""
+
+        def probe(label: ResolvedLabel) -> Dict[int, float]:
+            # Label "a" triggers (0.80 < 0.8333); label "b" compresses only to
+            # 0.95, far above the midpoint: its swap can only come from sharing.
+            return {0: 0.80} if label.id == "a" else {0: 0.95}
+
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label("b", _line("OK", cutter=0.09, cutter_downsize_global_job_wide=True)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.06)
+        assert out[1].cutter_downsize_by_line == {0: (0.09, 0.06)}
+
+    def test_other_text_height_is_untouched(self) -> None:
+        """The job-wide group is keyed by nominal text height only."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label(
+                "a", _line("WIDE", nominal=0.5, cutter=0.09, cutter_downsize_global_job_wide=True)
+            ),
+            _label(
+                "b", _line("TALL", nominal=0.75, cutter=0.09, cutter_downsize_global_job_wide=True)
+            ),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+        assert out[1] is labels[1]
+
+    def test_receiver_opt_out_keeps_its_tool(self) -> None:
+        """job_wide false on the receiver keeps it out of the job group."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label("b", _line("OK", cutter=0.09, cutter_downsize_global_job_wide=False)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+
+    def test_trigger_opt_out_shares_nothing_job_wide(self) -> None:
+        """job_wide false on the trigger keeps the swap per-label."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=False)),
+            _label("b", _line("OK", cutter=0.09, cutter_downsize_global_job_wide=True)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert out[0].cutter_downsize_by_line == {0: (0.09, 0.06)}
+        assert out[1] is labels[1]
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+
+    def test_per_label_opt_out_blocks_job_wide_sharing(self) -> None:
+        """cutter_downsize_global false wins in both scopes (the flag gates it)."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label(
+                "a",
+                _line(
+                    "WIDE",
+                    cutter=0.09,
+                    cutter_downsize_global=False,
+                    cutter_downsize_global_job_wide=True,
+                ),
+            ),
+            _label("b", _line("OK", cutter=0.09, cutter_downsize_global_job_wide=True)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        # The trigger keeps its own per-line swap (the seed is the trigger's
+        # own midpoint reduction), but shares nothing.
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+        assert out[1] is labels[1]
+
+    def test_explicit_cutter_sibling_is_never_touched(self) -> None:
+        """A sibling declaring cutter_size stays out of the job group."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label(
+                "b",
+                _line(
+                    "PINNED",
+                    cutter=0.09,
+                    cutter_size=0.09,
+                    cutter_downsize_global_job_wide=True,
+                ),
+            ),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+        assert out[1] is labels[1]
+
+    def test_budget_zero_sibling_is_never_touched(self) -> None:
+        """max_cutter_downsizes 0 on a sibling keeps its tool."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label(
+                "b",
+                _line(
+                    "OK",
+                    cutter=0.09,
+                    max_cutter_downsizes=0,
+                    cutter_downsize_global_job_wide=True,
+                ),
+            ),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+        assert out[1] is labels[1]
+
+    def test_no_compression_budget_sibling_is_never_touched(self) -> None:
+        """max_h_compress 0.0 on a sibling keeps it out of the group."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label(
+                "b",
+                _line("OK", cutter=0.09, max_h_compress=0.0, cutter_downsize_global_job_wide=True),
+            ),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.09)
+        assert out[1] is labels[1]
+
+    def test_job_converges_to_the_deepest_final_cutter(self) -> None:
+        """A receiver stepping deeper lowers the job minimum for everyone."""
+        # "a" triggers 0.09 -> 0.06 (budget 1). "b" (budget 2) receives the
+        # seed 0.06, then its own compression at 0.06 drives it to 0.045, and
+        # the fixpoint pulls "a" down to the job's new minimum.
+        probe = _probe_by_line({0: {0.09: 0.80, 0.06: 0.80}})
+        labels = [
+            _label(
+                "a",
+                _line(
+                    "WIDE",
+                    cutter=0.09,
+                    max_cutter_downsizes=1,
+                    cutter_downsize_global_job_wide=True,
+                ),
+            ),
+            _label(
+                "b",
+                _line(
+                    "OK", cutter=0.09, max_cutter_downsizes=2, cutter_downsize_global_job_wide=True
+                ),
+            ),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.045)
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.045)
+        assert out[0].cutter_downsize_by_line == {0: (0.09, 0.045)}
+        assert out[1].cutter_downsize_by_line == {0: (0.09, 0.045)}
+
+    def test_per_label_and_job_wide_coexist(self) -> None:
+        """A multi-line label shares per-label first, then the job widens it."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label(
+                "a",
+                _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True),
+                _line("OK", cutter=0.09, cutter_downsize_global_job_wide=True),
+            ),
+            _label("b", _line("SOLO", cutter=0.09, cutter_downsize_global_job_wide=True)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert [round(ln.cutter_diameter, 3) for ln in out[0].content] == [0.06, 0.06]
+        assert math.isclose(out[1].content[0].cutter_diameter, 0.06)
+        assert out[0].cutter_downsize_by_line == {0: (0.09, 0.06), 1: (0.09, 0.06)}
+        assert out[1].cutter_downsize_by_line == {0: (0.09, 0.06)}
+
+    def test_untouched_labels_keep_their_identity(self) -> None:
+        """A label with no eligible line is returned as the same object."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            _label("b", _line("X", cutter=0.09, cutter_downsize=False)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        assert math.isclose(out[0].content[0].cutter_diameter, 0.06)
+        assert out[1] is labels[1]
+
+    def test_noop_without_any_job_wide_line(self) -> None:
+        """No job-wide line: the pass costs nothing and changes nothing."""
+        probe = _probe_by_label({"a": 0.80})
+        labels = [
+            _label("a", _line("WIDE", cutter=0.09), _line("OK", cutter=0.09)),
+            _label("b", _line("SOLO", cutter=0.09)),
+        ]
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=probe)
+        # Per-label sharing still applies inside "a"; "b" is untouched.
+        assert [round(ln.cutter_diameter, 3) for ln in out[0].content] == [0.06, 0.06]
+        assert out[1] is labels[1]
+
+    def test_propagation_logs_warning(self) -> None:
+        """A job-wide shared swap logs a WARNING naming the job scope."""
+        captured: List[str] = []
+
+        class _Capture:
+            def warning(self, msg: str, *args: object) -> None:
+                captured.append(msg % args)
+
+        import plt_optimizer.generate.cutter_downsize as cd
+
+        original = cd.logger
+        cd.logger = _Capture()  # type: ignore[assignment]
+        try:
+            labels = [
+                _label("a", _line("WIDE", cutter=0.09, cutter_downsize_global_job_wide=True)),
+                _label("b", _line("OK", cutter=0.09, cutter_downsize_global_job_wide=True)),
+            ]
+            apply_compression_cutter_downsize(
+                labels, _INVENTORY, probe=_probe_by_label({"a": 0.80})
+            )
+        finally:
+            cd.logger = original
+        sharing = [message for message in captured if "sharing the job's cutter" in message]
+        assert len(sharing) == 1
+        assert "'OK'" in sharing[0]
+        assert "0.090in to 0.060in" in sharing[0]
 
 
 @pytest.mark.parametrize(

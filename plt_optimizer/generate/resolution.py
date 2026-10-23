@@ -411,6 +411,13 @@ DEFAULT_MAX_CUTTER_DOWNSIZES: int = 1
 # line of the same nominal text height *within the same label* (sharing is
 # always per-label; the job tier only enables the option for its labels).
 DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
+# Job-wide scope of the shared cutter downsize. ``False`` (the default) keeps
+# sharing per-label (the historical behaviour, bit-identical output); ``True``
+# widens a trigger line's sharing group from its label to every eligible line
+# of the same nominal text height across the whole job, so one text size
+# engraves with one tool job-wide. Requires ``cutter_downsize_global`` true;
+# a line with this flag ``False`` keeps exactly the per-label behaviour.
+DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE: bool = False
 # Per-label sharing of horizontal compression. ``False`` (the default) keeps
 # the historical per-line behaviour; ``True`` propagates a trigger line's
 # compression scale to every other eligible line of the same nominal text
@@ -1139,6 +1146,17 @@ class ResolvedTextLine:
             neither shares its own downsize nor receives a sibling's.
             Consumed by :mod:`plt_optimizer.generate.cutter_downsize`.
             Explicit ``False`` is honored; only ``None`` means unset.
+        cutter_downsize_global_job_wide: Whether the shared cutter downsize
+            is scoped to the whole job instead of the label (cascaded line ->
+            label -> job, default ``DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE``
+            (``False``)). When true (and :attr:`cutter_downsize_global` is
+            true), a trigger line's swap reaches every *eligible* line of the
+            same ``nominal_text_height`` in ANY label of the job, so one text
+            size engraves with one tool job-wide; a line with this flag
+            ``False`` keeps exactly the per-label behaviour (it neither shares
+            to nor receives from the job-wide group). Consumed by
+            :mod:`plt_optimizer.generate.cutter_downsize`. Explicit ``False``
+            is honored; only ``None`` means unset.
         h_compress_global: Whether horizontal compression is shared across
             the lines of the label (cascaded line -> label -> job, default
             ``DEFAULT_H_COMPRESS_GLOBAL`` (``False``)). When a trigger line
@@ -1380,6 +1398,7 @@ class ResolvedTextLine:
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
     max_cutter_downsizes: int = DEFAULT_MAX_CUTTER_DOWNSIZES
     cutter_downsize_global: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
+    cutter_downsize_global_job_wide: bool = DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE
     h_compress_global: bool = DEFAULT_H_COMPRESS_GLOBAL
     h_compress_global_same_height_only: bool = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
     arc_preserve_compression: bool = DEFAULT_ARC_PRESERVE_COMPRESSION
@@ -4823,6 +4842,17 @@ def _resolve_content(
         else:
             line_cutter_downsize_global = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
 
+        # Resolve the job-wide sharing scope with the same precedence; an
+        # intentional ``False`` (per-label sharing) is honored.
+        if line.cutter_downsize_global_job_wide is not None:
+            line_cutter_downsize_global_job_wide: bool = line.cutter_downsize_global_job_wide
+        elif label_input.cutter_downsize_global_job_wide is not None:
+            line_cutter_downsize_global_job_wide = label_input.cutter_downsize_global_job_wide
+        elif job.cutter_downsize_global_job_wide is not None:
+            line_cutter_downsize_global_job_wide = job.cutter_downsize_global_job_wide
+        else:
+            line_cutter_downsize_global_job_wide = DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE
+
         # Resolve the per-label horizontal-compression-sharing flag with the
         # same precedence; an intentional ``True`` (opt-in) is honored.
         if line.h_compress_global is not None:
@@ -4935,6 +4965,7 @@ def _resolve_content(
                 cutter_downsize=line_cutter_downsize,
                 max_cutter_downsizes=line_max_cutter_downsizes,
                 cutter_downsize_global=line_cutter_downsize_global,
+                cutter_downsize_global_job_wide=line_cutter_downsize_global_job_wide,
                 h_compress_global=line_h_compress_global,
                 h_compress_global_same_height_only=line_h_compress_global_same_height_only,
                 arc_preserve_compression=line_arc_preserve_compression,

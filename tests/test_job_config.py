@@ -575,6 +575,40 @@ class TestApplyJobConfigDefaults:
         filled = apply_job_config_defaults(_minimal_job(cutter_downsize_global=True), config)
         assert filled["cutter_downsize_global"] is True
 
+    def test_cutter_downsize_global_job_wide_config_field(self) -> None:
+        """cutter_downsize_global_job_wide is a legal shop default (opt-in configurable)."""
+        assert (
+            JobDefaults(cutter_downsize_global_job_wide=True).cutter_downsize_global_job_wide
+            is True
+        )
+        assert (
+            JobDefaults(cutter_downsize_global_job_wide=False).cutter_downsize_global_job_wide
+            is False
+        )
+        assert JobDefaults().cutter_downsize_global_job_wide is None
+
+    def test_cutter_downsize_global_job_wide_not_required(self) -> None:
+        """The sharing-scope field keeps its in-code fallback when unconfigured."""
+        assert "cutter_downsize_global_job_wide" not in REQUIRED_WHEN_UNCONFIGURED
+
+    def test_cutter_downsize_global_job_wide_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured sharing-scope default lands as a job-level value."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["cutter_downsize_global_job_wide"] = True
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["cutter_downsize_global_job_wide"] is True
+
+    def test_cutter_downsize_global_job_wide_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared value is never overridden by the config."""
+        config_data = dict(_FULL_CONFIG)
+        config_data["cutter_downsize_global_job_wide"] = True
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(
+            _minimal_job(cutter_downsize_global_job_wide=False), config
+        )
+        assert filled["cutter_downsize_global_job_wide"] is False
+
     def test_h_compress_global_job_layer_fill(self, tmp_path: Path) -> None:
         """The configured compression-sharing default lands as a job-level value."""
         config_data = dict(_FULL_CONFIG)

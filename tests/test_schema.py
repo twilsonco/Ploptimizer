@@ -1608,6 +1608,62 @@ class TestCutterDownsizeGlobal:
         assert plate.cutter_downsize_global is False
 
 
+class TestCutterDownsizeGlobalJobWide:
+    """Tests for the cutter_downsize_global_job_wide sharing-scope field."""
+
+    def test_inherited_on_all_levels(self) -> None:
+        """TextLine, LabelSpec and JobSpec expose cutter_downsize_global_job_wide."""
+        assert (
+            TextLine(text="X", cutter_downsize_global_job_wide=True).cutter_downsize_global_job_wide
+            is True
+        )
+        label = LabelSpec(
+            id="lbl", cutter_downsize_global_job_wide=True, content=[TextLine(text="X")]
+        )
+        assert label.cutter_downsize_global_job_wide is True
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            cutter_downsize_global_job_wide=True,
+            content=[TextLine(text="X")],
+        )
+        assert job.cutter_downsize_global_job_wide is True
+        # The opt-out direction works on every level too.
+        assert (
+            TextLine(
+                text="X", cutter_downsize_global_job_wide=False
+            ).cutter_downsize_global_job_wide
+            is False
+        )
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the False fallback."""
+        assert TextLine(text="X").cutter_downsize_global_job_wide is None
+        assert (
+            LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_downsize_global_job_wide
+            is None
+        )
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).cutter_downsize_global_job_wide
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1",
+            width=24.0,
+            height=12.0,
+            left_clearance=0.25,
+            top_clearance=0.25,
+            cutter_downsize_global_job_wide=True,
+        )
+        assert plate.cutter_downsize_global_job_wide is True
+
+
 class TestHCompressGlobal:
     """Tests for the h_compress_global per-label sharing field."""
 

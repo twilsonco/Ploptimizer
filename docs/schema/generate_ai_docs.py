@@ -145,6 +145,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "converges to the smallest). Explicit cutter_size / cutter_downsize false / "
     "max_cutter_downsizes 0 / max_h_compress 0.0 lines are never touched. Cascades "
     "line/label/job; job-config supplies the shop default.",
+    "DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE": "False = the shared cutter downsize stays "
+    "per-label. True = the sharing group widens from the label to the whole job: every "
+    "eligible line of the same text_height in ANY label receives the trigger's final cutter, "
+    "so one text size engraves with one tool job-wide. Requires cutter_downsize_global true; "
+    "a line with this flag false keeps exactly the per-label behaviour. Cascades "
+    "line/label/job; job-config supplies the shop default.",
     "DEFAULT_H_COMPRESS_GLOBAL": "False = horizontal compression stays per-line. True = a "
     "compressed line's scale is shared across the label: every other eligible line of the same "
     "text_height in the same label is compressed to the group's most-compressed (minimum) "

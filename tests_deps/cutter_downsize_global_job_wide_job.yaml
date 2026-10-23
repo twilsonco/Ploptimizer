@@ -1,0 +1,63 @@
+# Fixture for job-wide sharing of compression-driven cutter downsizes
+# (`cutter_downsize_global_job_wide`).
+#
+# The per-label mechanism (cutter_downsize_global, default true) converges one
+# label's same-height lines onto one tool. The job-wide flag widens the group
+# to the whole job: one text size engraves with one tool across EVERY label,
+# so a job of single-line labels (the hot-plate shop shape) emits ONE text
+# layer per text size instead of one per trigger outcome.
+#
+# Inventory used by the tests: [0.03, 0.045, 0.06, 0.09, 0.125].
+# 0.5in text auto-selects the 0.06in cutter; the next size down is 0.045in
+# (ratio 0.75, midpoint 0.875): a line compressed below 87.5% width takes it.
+#
+# No plate declares a material and the job packs onto one sheet, so emitted
+# names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
+# cutter plus one bh file.
+job:
+  job_name: Cutter Downsize Job Wide Demo
+
+  width: 3.0
+  height: 1.2
+  margin: 0.1
+  text_height: 0.5
+
+  # Compression budget for the over-wide lines (see the sibling fixtures
+  # cutter_downsize_job.yaml / cutter_downsize_global_job.yaml for the
+  # per-line and per-label mechanics).
+  max_h_compress: 0.5
+
+  # Every label enables job-wide sharing (the flag cascades job -> label ->
+  # line); the per-label permission it builds on is the default true.
+  cutter_downsize_global_job_wide: true
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. TRIGGER: compresses past the 0.06 -> 0.045 midpoint and downsizes.
+    - id: trigger
+      content:
+        - text: "LONG TEXT"
+
+    # 2. A fitting line in ANOTHER label receives the job-wide 0.045in cutter
+    #    (this is the whole point: per-label sharing cannot reach across).
+    - id: other_label
+      content:
+        - text: "OK"
+
+    # 3. Opt-out: this label keeps exactly the per-label behaviour, so its
+    #    fitting line stays on the automatic 0.06in cutter.
+    - id: opted_out
+      cutter_downsize_global_job_wide: false
+      content:
+        - text: "OK"
+
+    # 4. Explicit cutter_size is a human decision: compressed hard, never
+    #    reduced, and it neither joins nor sets the job group minimum.
+    - id: explicit
+      cutter_size: 0.09
+      content:
+        - text: "EXPLICIT CUTTER"

@@ -293,11 +293,26 @@ JobSpec (job-level defaults)
   `max_cutter_downsizes: 0`, `max_h_compress: 0.0`, or
   `cutter_downsize_global: false` are never touched — in either direction
   (such a line neither shares its own downsize nor receives a sibling's).
-  Sharing is always per-label: setting the option at the job level simply
-  enables it for every label (plate = parity-only, like every render-affecting
-  field — plate identity does not exist when the export pre-pass runs).
+  Sharing is per-label by default; `cutter_downsize_global_job_wide` widens
+  the group to the whole job (see below). Setting the option at the job level
+  simply enables it for every label (plate = parity-only, like every
+  render-affecting field — plate identity does not exist when the export
+  pre-pass runs).
   Cascades line → label → job → default (plate parity only);
   `job-config.json` supplies the shop default.
+- `cutter_downsize_global_job_wide`: Boolean scope knob for **job-wide
+  sharing** of compression-driven cutter downsizes (`default None` →
+  **false**). When a trigger line has it enabled (together with
+  `cutter_downsize_global`), its swap reaches every *eligible* line of the
+  same `text_height` in ANY label of the job, so one text size engraves with
+  one tool job-wide (one per-cutter text layer per size — the shop's
+  many-single-line-labels shape, where per-label sharing is inert). A line
+  with this flag `false` keeps exactly the per-label behaviour (it neither
+  shares to nor receives from the job-wide group); the same eligibility
+  opt-outs apply. The pass runs after every label's per-label pass and
+  converges the same way (`_share_downsizes_job_wide`).
+  Cascades line → label → job → default (plate parity only);
+  `job-config.json` supplies the shop default (currently **true**).
 - `h_compress_global`: Boolean gate for **per-label sharing** of horizontal
   compression (`default None` → **false**). When a text line is horizontally
   compressed, every other *eligible* line of the same `text_height` **within
@@ -800,6 +815,29 @@ parity only); `max_cutter_downsizes: 0` disables the mechanism.
   names and the layout report see them for free; each propagation logs a
   WARNING naming the label id, line index, text and both cutters. The flag
   rides resolved lines, so no export/CLI threading changes are needed.
+- **Job-wide sharing (`cutter_downsize_global_job_wide`, default false):**
+  the same mechanism widened from the label to the job — for the shop's
+  many-single-line-labels jobs (e.g. the Sunwest hot-plate run) per-label
+  sharing is inert because every height group has a single member, so the
+  same-height labels split across two per-cutter text layers whenever their
+  compressions straddle the midpoint. After the per-label loop,
+  `apply_compression_cutter_downsize` runs `_share_downsizes_job_wide` (only
+  when at least one downsized line enables the flag — the default pays
+  nothing and stays bit-identical): each job-wide `nominal_text_height`
+  group (built by `_job_height_groups` over all labels) containing a
+  job-wide sharing trigger converges to the group's smallest final cutter,
+  with the same seed-step contract (midpoint bypassed, toolpath floor
+  enforced, own budget consumed, own monotone loop after) and the same
+  termination argument. Receivers land in their own label's
+  `cutter_downsize_by_line`, so the pen map, layers, file names and the
+  layout report see them for free; each propagation logs a WARNING naming
+  the label id, line index, text and both cutters ("sharing the job's cutter
+  downsize"). Job-wide sharing requires `cutter_downsize_global` true (the
+  per-label permission gates both scopes); a line with the job-wide flag
+  false keeps exactly the per-label behaviour in both directions. Pinned by
+  `tests/test_cutter_downsize.py::TestJobWideSharing` and
+  `tests/test_phase3_export.py::TestCutterDownsizeGlobalJobWideDemoExample`
+  (fixture `tests_deps/cutter_downsize_global_job_wide_job.yaml`).
 - Accepted staleness: `_resolve_auto_line_spacing` / `_fit_content_to_margins`
   size vertical spacing against the *original* toolpath height; the
   render-time `fit_line_spacing_to_margins` re-clamp preserves the margins.
