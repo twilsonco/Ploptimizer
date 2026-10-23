@@ -675,7 +675,8 @@ class TestCompressX:
 
     def test_declined_arc_flattens_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """An arc the refit cannot bound flattens to chords and logs a WARNING."""
-        # r=0.2 over 120 deg at s=0.2 needs >8 arcs -> the fitter declines it.
+        # r=0.2 over 120 deg at s=0.2: no probe of the ladder meets the
+        # tolerance (the chain dev is non-monotonic in k) -> the fitter declines it.
         arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=120.0)
         block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
         with caplog.at_level("WARNING"):
@@ -762,7 +763,8 @@ class TestScaleY:
 
     def test_declined_arc_flattens_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         """An arc the refit declines flattens and logs at DEBUG."""
-        # r=0.2 over 90 deg at scale_y 0.2 needs >8 arcs -> the fitter declines.
+        # r=0.2 over 90 deg at scale_y 0.2 needs 13 arcs -> past
+        # ARC_FIT_MAX_ARCS=12, the fitter declines.
         arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=90.0)
         block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
         caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
@@ -980,8 +982,9 @@ class TestSheared:
 
     def test_declined_arc_flattens_at_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         """An arc the refit declines flattens and logs at DEBUG."""
-        # r=0.2 over 150 deg at shear 0.9 needs >8 arcs -> the fitter declines.
-        arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=150.0)
+        # r=0.2 over 170 deg at shear 0.9 needs 13 arcs -> past
+        # ARC_FIT_MAX_ARCS=12, the fitter declines.
+        arc = ArcSeg(start=0.2 + 0j, center=0j, sweep_deg=170.0)
         block = TextBlock(strokes=(Stroke(pen_up=arc.start, segments=(arc,)),))
         caplog.set_level("DEBUG", logger="plt_optimizer.generate.text_geometry")
         sheared = block.sheared(0.9, context="label_1 line 0")

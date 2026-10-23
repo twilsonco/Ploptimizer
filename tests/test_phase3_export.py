@@ -1581,9 +1581,9 @@ class TestArcPreserveCompressionDemoExample:
         assert sorted(preserved.compression_by_line) == [0]
         arcs, lines = self._segments(preserved.plt_content)
         # Near-straight arcs stay native AA (only a sub-half-plotter-unit span
-        # collapses to a chord), so the compressed line carries ~1.05 arcs per
-        # source arc -- 460 arcs vs the polygonized label's 1341 lines.
-        assert arcs == 460
+        # collapses to a chord), so the compressed line carries ~1.07 arcs per
+        # source arc -- 470 arcs vs the polygonized label's 1341 lines.
+        assert arcs == 470
         assert lines == 44
 
     def test_opt_out_polygonizes_the_same_line(self, tmp_path: Path) -> None:
@@ -1604,7 +1604,7 @@ class TestArcPreserveCompressionDemoExample:
         result = self._export(tmp_path)
         italic_arcs, _ = self._segments(result.rendered_labels["italic"].plt_content)
         clamped_arcs, _ = self._segments(result.rendered_labels["clamped"].plt_content)
-        assert italic_arcs == 378
+        assert italic_arcs == 386
         assert clamped_arcs == 354
 
     def test_per_line_opt_out_inside_one_label(self, tmp_path: Path) -> None:
@@ -1617,8 +1617,8 @@ class TestArcPreserveCompressionDemoExample:
         result = self._export(tmp_path)
         mixed = result.rendered_labels["mixed"]
         arcs, lines = self._segments(mixed.plt_content)
-        # Line 0 preserved (460 arcs) + line 1 polygonized (0 arcs, 1341 lines).
-        assert arcs == 460
+        # Line 0 preserved (470 arcs) + line 1 polygonized (0 arcs, 1341 lines).
+        assert arcs == 470
         assert lines == 1381
 
 
@@ -6305,9 +6305,7 @@ class TestKernDemoExample:
         plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
         assert acc - plain == pytest.approx(0.088, abs=1e-6)
 
-    def test_zero_width_consumes_the_marker_and_shifts_nothing(
-        self, tmp_path: Path
-    ) -> None:
+    def test_zero_width_consumes_the_marker_and_shifts_nothing(self, tmp_path: Path) -> None:
         """kern_width_fraction 0.0 strips the marker (plain 'AV') but shifts 0."""
         result = self._export(tmp_path)
         zero = by_id_zero = result.rendered_labels["plt_zero_width"].source_label
@@ -6361,7 +6359,9 @@ class TestKernDemoExample:
         assert kerned == pytest.approx(plain, abs=1e-6)
         # The internal A/B gap grows by one width (B shifted right) and C
         # returns to its plain position (the running total nets out).
-        kerned_lefts = self._ink_lefts(result.rendered_labels["custom_bracket_markers"].source_label)
+        kerned_lefts = self._ink_lefts(
+            result.rendered_labels["custom_bracket_markers"].source_label
+        )
         plain_lefts = self._ink_lefts(
             result.rendered_labels["custom_bracket_markers_plain"].source_label
         )

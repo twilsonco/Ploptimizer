@@ -357,9 +357,11 @@ class TestFitTolerance:
         """Pinned arc counts for the shipped library's sweep range (s=0.5).
 
         The median source sweep is ~10 deg and needs exactly one arc; the 90 deg
-        arcs (the widest in the library) split into five.
+        arcs (the widest in the library) split into six. Re-pinned for the
+        0.0002in tolerance (EngraveLab reference parity): 30 deg now splits
+        into 2, 45 into 3, 90 into 5 -> 6.
         """
-        for sweep, expect in ((5.0, 1), (10.0, 1), (20.0, 1), (30.0, 1), (45.0, 2), (90.0, 5)):
+        for sweep, expect in ((5.0, 1), (10.0, 1), (20.0, 1), (30.0, 2), (45.0, 3), (90.0, 6)):
             arc = ellipse_from_arc(0j, 0.35, 0.0, sweep, scale_x=0.5)
             chain = fit_ellipse_arc(arc)
             assert chain is not None
@@ -373,7 +375,7 @@ class TestDegenerateSpanCheck:
         """A huge-radius shallow arc refits to ONE arc, not a line.
 
         The 100 in osculating radius over a 0.3 deg sweep has a ~0.00014in
-        sagitta -- under the 0.0005in tolerance -- but the span is far longer
+        sagitta -- under the 0.0002in tolerance -- but the span is far longer
         than the plotter resolves, so the arc emits as a native ``AA`` (an
         arc that deviates from its chord by less than coordinate
         quantization draws through the same integer units as the chord --

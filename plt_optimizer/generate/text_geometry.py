@@ -922,7 +922,7 @@ class TextBlock:
         which :meth:`ArcSeg.scaled_x` refits with a tangent-continuous chain of
         circular arcs when ``preserve_arcs`` (the default), so the compressed
         line keeps its native ``AA`` commands -- measured on the shipped
-        library at ~1.05 arcs per source arc, versus ~2.8 line segments per arc
+        library at ~1.07 arcs per source arc, versus ~2.8 line segments per arc
         for the polygonizing fallback. Arcs the refit declines (a degenerate
         geometry, a span past :data:`~plt_optimizer.generate.arc_fit.ARC_FIT_MAX_ARCS`)
         flatten at :data:`ARC_FLATTEN_CHORD_TOL_INCHES`; a WARNING names them.

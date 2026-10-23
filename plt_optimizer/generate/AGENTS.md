@@ -485,7 +485,7 @@ contract).
   so consecutive arcs meet with equal tangents — the chain is **C0 + G1**
   (tangent-continuous) with exact tip-to-tail endpoints. A plain 3-point
   circumcircle fit is only C0 and kinks up to ~11° at interior junctions. `k`
-  is the smallest value meeting `ARC_FIT_DEV_TOL_INCHES` (0.0005in), estimated
+  is the smallest value meeting `ARC_FIT_DEV_TOL_INCHES` (0.0002in), estimated
   closed-form from the max curvature radius then verified numerically. A
   **degenerate-span check** runs first: a span whose endpoints sit within half a
   plotter unit (the emission floor) carries no resolvable ink and emits as a
@@ -499,17 +499,24 @@ contract).
   plate and keeps the preview arc-native.
 
 - **Measured on the shipped library** (59,670 arcs, median sweep ~10°, max 90°,
-  none past 180°): **~1.05 emitted segments per source arc** at 0.0005in —
-  99% need exactly one (arc or chord); the 90° arcs split. **2.1–2.8× fewer
+  none past 180°): **~1.07 emitted segments per source arc** at 0.0002in
+  (all arcs x scales 0.5/0.3) — 95% need exactly one (arc or chord); the 90°
+  arcs split into six, the measured maximum is 10 (`ARC_FIT_MAX_ARCS`=12).
+  **2.1–2.8× fewer
   emitted commands** than flattening at equal tolerance. Because a chord
   collapse and a 1-arc refit are each a single command, the command-count win
   is unchanged by the arc-native policy — only the AA/PD mix shifts (a
   preserved line's `AA` count now tracks the source's, ~1:1, matching
   EngraveLab). The **emitted** deviation (integer plotter
   units, `AA` radius implicit from `|pen − center|`) sits at ~0.002in ≈ 2 units
-  at *every* tolerance: coordinate quantization, not the fit, is the floor —
-  which is why 0.0005in is the right constant (asking for 0.0002in buys
-  nothing). Swept-box over-measure of the fitted arcs is ≤0.00022in, so
+  at *every* tolerance: coordinate quantization, not the fit, is the engraving
+  floor. 0.0002in is the **EngraveLab-parity** constant — measured on the
+  reference exports, its compression splits exactly the arcs whose 1-arc fit
+  deviates from the true ellipse by more than ~0.0002in (the compressed `S`'
+  three 19–26° arcs: 44 → 47–49 `AA`), so the tighter tolerance reproduces
+  EngraveLab's arc count and sub-quantization curve shape (preview fidelity),
+  at a small command-count cost on the widest arcs.
+  Swept-box over-measure of the fitted arcs is ≤0.00022in, so
   `bounds()`, `compression_by_line`, kerning and collision are unaffected.
   `ARC_FLATTEN_CHORD_TOL_INCHES` (0.0002in) stays for the flatten fallback and
   the `Ink`/preview polyline views.
@@ -530,7 +537,7 @@ contract).
 - **The primitives** (`text_geometry.py`): `ArcSeg._xform` / `Stroke._xform`
   return `(segments, declined_arcs)`; `declined_arcs` is 1 **only** when the
   refit returned `None` (a degenerate geometry, a span past
-  `ARC_FIT_MAX_ARCS`=8) and the arc flattened. Near-straight arcs stay native
+  `ARC_FIT_MAX_ARCS`=12) and the arc flattened. Near-straight arcs stay native
   `AA` (only a sub-half-plotter-unit span collapses to a chord), so a
   preserved line's arc count tracks the source's. This is the metric that gates the log:
   `compress_x` warns on the **declined** count (WARNING — compression is an

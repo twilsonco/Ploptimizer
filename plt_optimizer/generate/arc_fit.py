@@ -100,22 +100,26 @@ __all__ = [
 # Maximum allowed deviation, in inches, between a fitted circular arc and the
 # true ellipse arc it replaces.
 #
-# Why 0.0005in and not the 0.0002in used for flattening: an HPGL ``AA`` carries
-# no radius -- the plotter derives it from the (integer) pen position and the
-# (integer) centre, so an emitted arc's radius is quantized to ~1 plotter unit
-# (1/1016 = 0.00098in). Measured end-to-end on the shipped library, the
-# *emitted* deviation of a fitted chain sits at ~0.002in (2 units) at every
-# tolerance from 0.0002in up: coordinate quantization, not the fit, is the
-# floor. Tightening this constant below ~0.0005in buys arc count, not accuracy.
-# 0.0005in is ~30x finer than the smallest cutter in a typical tool set
-# (0.015in), so the refit is invisible on the finished part.
-ARC_FIT_DEV_TOL_INCHES: float = 0.0005
+# 0.0002in matches EngraveLab's emitted toolpaths: measured on the reference
+# exports, its compression splits exactly the arcs whose 1-arc fit deviates
+# from the true ellipse by more than ~0.0002in (the compressed `S`'s three
+# 19-26 deg arcs -> 44 becomes 47-49 `AA`), and keeps every tighter arc single.
+# Note the physical floor: an HPGL ``AA`` carries no radius -- the plotter
+# derives it from the (integer) pen position and the (integer) centre, so an
+# emitted arc's radius is quantized to ~1 plotter unit (1/1016 = 0.00098in),
+# and the *emitted* deviation of a fitted chain measures ~0.002in (2 units) at
+# every fit tolerance from 0.0002in up. The sub-quantization refinement buys
+# preview/curve fidelity (and reference parity), not engraving accuracy;
+# 0.0002in is still ~75x finer than the smallest cutter in a typical tool set
+# (0.015in).
+ARC_FIT_DEV_TOL_INCHES: float = 0.0002
 
-# Hard cap on the arcs one source arc may expand into. The measured maximum
-# needed on the shipped library is 4-5 (at scale 0.02, far below the
-# ``max_h_compress`` floor of 0.0); 8 leaves headroom, and a span that needs
-# more than that is a degenerate input best served by flattening.
-ARC_FIT_MAX_ARCS: int = 8
+# Hard cap on the arcs one source arc may expand into. Measured on the shipped
+# library at :data:`ARC_FIT_DEV_TOL_INCHES` (all arcs x scales 0.5/0.3), the
+# maximum needed is 10 (the widest sweeps at the deepest compression); 12
+# leaves headroom, and a span that needs more than that is a degenerate input
+# best served by flattening.
+ARC_FIT_MAX_ARCS: int = 12
 
 # Samples used to verify a fit's deviation and to bound the curvature radius.
 _VERIFY_SAMPLES: int = 32
