@@ -23,6 +23,12 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
   the emission/read-back path goes through here; never hardcode 1000 (root
   AGENTS.md §4; pinned by `tests/test_units.py` +
   `tests/test_phase3_export.py::TestDeviceScaleRegression`).
+- `filenames.py` - THE plotter-controller filename cap:
+  `MAX_PLOT_FILENAME_CHARS = 39` + `ensure_plot_filename_length(path, logger)`
+  (stem shortened from the right, extension preserved). Shared by
+  `writer.PLTWriter._ensure_filename_length` (optimize/watch) and the
+  `generate/vectorize` PLT write sites - the controller errors on longer
+  names; pinned by `tests/test_filenames.py`.
 - `profiler.py` - baseline extent (95th percentile, not max) + structural
   classification.
 - `chunker.py` - chronological clustering of strokes into `MacroBlock`s by

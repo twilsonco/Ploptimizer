@@ -310,7 +310,7 @@ for display. Not a `job-config.json` key — per-job decision only.
   material at expansion (`substitution`), the only point where the plate →
   label direction is applied (labels resolve before plate assignment).
 - Output filenames gain the material tag (see
-  [`../../cli/AGENTS.md`](../../cli/AGENTS.md)): `wbuv_0.045_txt_<job>.plt`.
+  [`../../cli/AGENTS.md`](../../cli/AGENTS.md)): `wbuv_45_txt_<job>.plt`.
 - A material-less job is one `None` group: bit-identical to the historical
   single-pass packing (constrained leftovers keep the generic error, unbounded
   bins keep `default_plate_{i}` ids).

@@ -4,6 +4,32 @@
 
 ### Features
 
+* **generate:** output PLT names now obey the plotter controller's **39-character
+  filename limit** (the same constraint the optimize/watch pipeline has always
+  enforced) and carry a **shorter cutter token**. The shop controller errors on
+  any filename longer than 39 characters, so a long `job_name` produced
+  unrunnable files from the generate path.
+  - **The cap** is a new shared source of truth,
+    `plt_optimizer/core/filenames.py` (`MAX_PLOT_FILENAME_CHARS = 39` +
+    `ensure_plot_filename_length(path, logger)`): the stem is shortened from the
+    right, the extension is preserved, and the change logs a WARNING.
+    `PLTWriter._ensure_filename_length` (optimize/watch) delegates to it
+    byte-identically; `export_per_cutter_plts` applies it at both PLT write
+    sites. The mirrored PDF previews follow the shortened stem.
+  - **The cutter token** is now the diameter in integer thousandths of an inch,
+    unpadded (`0.030` -> `30`, `0.187` -> `187`), saving three characters per
+    file and delaying the cap. `_parse_plt_stem` re-anchors on the `txt`/`bh`
+    kind token (the plate number is now also all-digits, so the old
+    dotted-numeric scan breaks); plot titles and the physical-width PDFs convert
+    the mils token back to inches for readability.
+  - **Pins**: `tests/test_filenames.py` (the helper + the writer delegation),
+    `tests/test_phase3_export.py::TestFilenameCap` (a long job id truncates every
+    PLT to <= 39 with intact content; a short id is untouched) +
+    `TestCutterTokenFormatting`, and the whole per-cutter naming suite re-pinned
+    to the integer tokens.
+
+### Features
+
 * **generate:** `<vc>...</vc>` inline vertical-centering markup - the twelfth shipped tag - plus the cascading `v_center_chars` field. Each wrapped character is **raised or lowered** so its own ink is centred between the line's **baseline and capline** (the ink centre lands on the cap-band midline `toolpath_text_height / 2`) - the motivating case: a hyphen/colon/dash a font draws high (or an underscore drawn low) should sit optically centred in the cap band, not at its design height
   - A **pure vertical translate** riding the renderers' existing `baseline_shifts` array (the `<sup>`/`<sub>` + engraved-baseline-raise plumbing): **no** new renderer kwarg, no cutter change, no pen layer, no per-cutter file, and `text_height` / the pen map / the file names never move (the italic/`<sc>` contract). The PLT walker bakes the composed shift in before kerning (a centred glyph kerns at its true engraved height); the TTF path translates the glyph contours last; the underline/strikethrough keep their baseline-relative depth (the `<b>` precedent)
   - **`v_center_chars`** (cascades line -> label -> job, plate parity, `job-config.json` shop default `"-:–—=<>"`, `JobDefaults` key, not `REQUIRED_WHEN_UNCONFIGURED`) **auto-applies the same centering** to every text character occurring in the string, with no markup; the code fallback is `""` (auto-apply OFF - every pre-feature line renders bit-identically), so `job-config.json` carries the shop behaviour. `""` is a meaningful value (auto-apply disabled, the tag keeps working alone); the tag is the manual override for any other character

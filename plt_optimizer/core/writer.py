@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from plt_optimizer.core.filenames import ensure_plot_filename_length
 from plt_optimizer.core.models import (
     ArcSegment,
     Coordinate,
@@ -91,15 +92,7 @@ class PLTWriter:
         Returns:
             Possibly modified file path with filename <= 39 characters.
         """
-        if len(file_path.name) > 39:
-            stem = file_path.stem[: 39 - len(file_path.suffix)]
-            new_file_path = file_path.with_name(stem + file_path.suffix)
-            self._logger.warning(
-                f"Filename '{file_path.name}' exceeds 39 characters. "
-                f"Shortened to '{new_file_path.name}' for compatibility."
-            )
-            return new_file_path
-        return file_path
+        return ensure_plot_filename_length(file_path, self._logger)
 
     def write_file(
         self,

@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
     from plt_optimizer.generate.schema import JobSpec
 
+from plt_optimizer.core.filenames import ensure_plot_filename_length
 from plt_optimizer.core.models import PLTDocument, Segment
 from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.core.units import inches_to_units
@@ -437,15 +438,21 @@ class PerCutterExport:
 
 
 def _format_cutter(cutter_diameter: float) -> str:
-    """Format a cutter diameter for file names (3-decimal inches).
+    """Format a cutter diameter for file names (integer thousandths of an inch).
+
+    The plotter-controller filename cap (see
+    :func:`plt_optimizer.core.filenames.ensure_plot_filename_length`) makes
+    every character count, so the diameter is emitted in mils as a plain
+    integer -- no leading zeros, no padding, no decimal point
+    (``0.03`` -> ``"30"``, ``0.187`` -> ``"187"``, ``0.005`` -> ``"5"``).
 
     Args:
         cutter_diameter: Cutter diameter in inches.
 
     Returns:
-        Fixed-precision string, e.g. ``0.03`` -> ``"0.030"``.
+        Integer-mils string, e.g. ``0.03`` -> ``"30"``.
     """
-    return f"{cutter_diameter:.3f}"
+    return str(int(round(cutter_diameter * 1000)))
 
 
 def _format_text_layer(cutter_diameter: float, text_color: str) -> str:
@@ -454,7 +461,7 @@ def _format_text_layer(cutter_diameter: float, text_color: str) -> str:
     The implicit ``"none"`` color keeps the historical cutter-only name
     (bit-identical output for color-less jobs); a real stroke color gains
     its single-letter tag so color-split layers never collide
-    (``0.04`` + ``magenta`` -> ``"0.040_m"``).
+    (``0.04`` + ``magenta`` -> ``"40_m"``).
 
     Args:
         cutter_diameter: Cutter diameter in inches.
@@ -462,7 +469,7 @@ def _format_text_layer(cutter_diameter: float, text_color: str) -> str:
             :class:`~plt_optimizer.generate.schema.TextColor` value).
 
     Returns:
-        File-name component, e.g. ``"0.030"`` or ``"0.030_m"``.
+        File-name component, e.g. ``"30"`` or ``"30_m"``.
     """
     cutter_str = _format_cutter(cutter_diameter)
     if text_color == TextColor.NONE.value:
@@ -568,8 +575,8 @@ def _format_plate_prefix(
 # Layer-kind tokens appearing in per-cutter file names.
 _KIND_TOKENS: tuple[str, ...] = ("txt", "bh")
 
-# Cutter file-name token: fixed 3-decimal inches (see _format_cutter).
-_CUTTER_TOKEN_RE = re.compile(r"^\d+\.\d{3,}$")
+# Cutter file-name token: integer thousandths of an inch (see _format_cutter).
+_CUTTER_TOKEN_RE = re.compile(r"^\d+$")
 
 
 @dataclass(frozen=True)
@@ -580,7 +587,8 @@ class _StemParts:
         plate: Plate-number token (``"02"``), or ``None`` when the plate's
             material spans a single sheet.
         material: Material tag token (``"wbuv"``), or ``None``.
-        cutter: Cutter-diameter token (``"0.040"``), or ``None``.
+        cutter: Cutter-diameter token in integer mils (``"40"``), or
+            ``None``.
         kind: Layer kind (``"txt"`` / ``"bh"``), or ``None`` when the stem
             does not follow the naming scheme.
         color: Stroke-color tag (``"m"``), or ``None``.
@@ -597,16 +605,28 @@ def _parse_plt_stem(stem: str) -> _StemParts:
     """Parse a per-cutter PLT file-name stem into its components.
 
     The naming scheme is
-    ``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>``. Parsing
-    anchors on the cutter token (the only dotted numeric token) because
-    ``job_id`` may itself contain underscores, and the plate number is
-    optional:
+    ``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`` where
+    ``<cutter>`` is an integer-mils token (see :func:`_format_cutter`).
+    Because the cutter token is now plain digits -- exactly like the
+    zero-padded plate number -- parsing anchors on the layer-kind token
+    (``txt`` / ``bh``) and reads the cutter leftward from it:
 
-    - cutter at index 0 -> no plate, no material;
-    - cutter at index 1 -> the leading token is the plate when it is all
-      digits (the plate number is zero-padded), otherwise the material;
-    - cutter at index >= 2 -> index 0 is the plate, the tokens between are
-      the material.
+    - the token before the kind is all digits -> that is the cutter and
+      there is no color tag;
+    - otherwise the token two before the kind is all digits -> that is the
+      cutter and the token between is the color tag;
+    - otherwise the stem carries no parsable cutter (kind only).
+
+    Then, relative to the cutter index: index 0 -> no plate, no material;
+    index 1 -> the leading token is the plate when it is all digits, else
+    the material; index >= 2 -> index 0 is the plate and the tokens between
+    are the material.
+
+    Known limitations (both degrade gracefully to the thin-line plot /
+    fallback title): a stem shortened by the 39-character filename cap can
+    lose trailing cutter digits (``187`` -> ``18``), and an unknown numeric
+    color tag (``40_123_txt_job``) reads as the cutter. ``job_id`` may
+    itself contain underscores; the kind token is the anchor that avoids it.
 
     Args:
         stem: File-name stem (``Path(...).stem``).
@@ -619,12 +639,18 @@ def _parse_plt_stem(stem: str) -> _StemParts:
     kind_index = next((index for index, token in enumerate(tokens) if token in _KIND_TOKENS), None)
     if kind_index is None:
         return _StemParts()
-    cutter_index = next(
-        (index for index, token in enumerate(tokens[:kind_index]) if _CUTTER_TOKEN_RE.match(token)),
-        None,
-    )
+    kind = tokens[kind_index]
+    if kind_index == 0:
+        return _StemParts(kind=kind)
+    cutter_index: Optional[int] = None
+    color: Optional[str] = None
+    if _CUTTER_TOKEN_RE.match(tokens[kind_index - 1]):
+        cutter_index = kind_index - 1
+    elif kind_index >= 2 and _CUTTER_TOKEN_RE.match(tokens[kind_index - 2]):
+        cutter_index = kind_index - 2
+        color = tokens[kind_index - 1]
     if cutter_index is None:
-        return _StemParts(kind=tokens[kind_index])
+        return _StemParts(kind=kind)
     if cutter_index >= 2:
         plate: Optional[str] = tokens[0]
         material: Optional[str] = "_".join(tokens[1:cutter_index])
@@ -634,13 +660,12 @@ def _parse_plt_stem(stem: str) -> _StemParts:
         plate, material = None, tokens[0]
     else:
         plate, material = None, None
-    color_index = cutter_index + 1
     return _StemParts(
         plate=plate,
         material=material,
         cutter=tokens[cutter_index],
-        kind=tokens[kind_index],
-        color=tokens[color_index] if color_index < kind_index else None,
+        kind=kind,
+        color=color,
     )
 
 
@@ -655,6 +680,21 @@ def _is_structural_stem(stem: str) -> bool:
         that do not follow the naming scheme.
     """
     return _parse_plt_stem(stem).kind == "bh"
+
+
+def _cutter_token_to_inches(cutter_token: str) -> float:
+    """Convert an integer-mils cutter token back to inches.
+
+    The inverse of :func:`_format_cutter` (``"40"`` -> ``0.040``).
+
+    Args:
+        cutter_token: All-digit file-name token produced by
+            :func:`_format_cutter`.
+
+    Returns:
+        Cutter diameter in inches.
+    """
+    return int(cutter_token) / 1000.0
 
 
 def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None = None) -> str:
@@ -673,20 +713,26 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     Returns:
         A descriptive title string, e.g. ``"My Job 0.5 text (0.040 cutter)"``
         or ``"My Job borders and holes (0.015 cutter)"``. The material tag,
-        when present, is included as ``" [wbuv]"``.
+        when present, is included as ``" [wbuv]"``. The cutter is rendered in
+        inches for readability even though the file name carries integer mils.
     """
     parts = _parse_plt_stem(plt_path.stem)
     if parts.kind is None:
         # Fallback for unexpected format
         return f"{job_name} {plt_path.stem}"
 
+    cutter_label = (
+        f"{_cutter_token_to_inches(parts.cutter):.3f} cutter"
+        if parts.cutter is not None
+        else "no cutter"
+    )
     material_suffix = f" [{parts.material}]" if parts.material else ""
     if parts.kind == "bh":
-        return f"{job_name} borders and holes ({parts.cutter} cutter){material_suffix}"
+        return f"{job_name} borders and holes ({cutter_label}){material_suffix}"
     text_height_str = f"{text_height:.3g}" if text_height is not None else ""
     if text_height_str:
-        return f"{job_name} {text_height_str} text ({parts.cutter} cutter){material_suffix}"
-    return f"{job_name} text ({parts.cutter} cutter){material_suffix}"
+        return f"{job_name} {text_height_str} text ({cutter_label}){material_suffix}"
+    return f"{job_name} text ({cutter_label}){material_suffix}"
 
 
 def export_per_cutter_plts(
@@ -722,7 +768,7 @@ def export_per_cutter_plts(
     - **text** gets one file per distinct cutter/color layer, named
       ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt`` (the
       ``<color>`` tag appears when the layer carries a ``text_color``,
-      e.g. ``wbuv_0.040_m_txt_job.plt`` for magenta). A text cutter equal
+      e.g. ``wbuv_40_m_txt_job.plt`` for magenta). A text cutter equal
       to the boundary/hole cutter still gets its own file (separate run).
       Lines sharing a cutter but differing in ``text_color`` split into
       separate files so the cutter depth can change between runs (3-layer
@@ -743,8 +789,12 @@ def export_per_cutter_plts(
       ``[<plate>_][<material>_]all_<job_id>.pdf`` preview.
 
     PLT files are written under ``output_dir/plt/`` and PDFs under
-    ``output_dir/pdf/``. Cutter diameters are formatted with 3 decimals
-    (inches). Empty pen groups are skipped.
+    ``output_dir/pdf/``. Cutter diameters are formatted as integer
+    thousandths of an inch, unpadded (see :func:`_format_cutter`). Every
+    written PLT name is capped at 39 characters including the extension
+    (the plotter controller rejects longer names; see
+    :func:`plt_optimizer.core.filenames.ensure_plot_filename_length`).
+    Empty pen groups are skipped.
 
     Args:
         resolved_labels: List of resolved labels from Phase 2 resolution.
@@ -1010,6 +1060,10 @@ def export_per_cutter_plts(
                 )
 
             structure_path = plt_dir / f"{prefix}{_format_cutter(hole_cutter)}_bh_{job_id}.plt"
+            # Plotter-controller cap: the machine rejects names longer than
+            # 39 characters, so the name is shortened from the right (the
+            # mirrored PDF previews inherit the shortened stem).
+            structure_path = ensure_plot_filename_length(structure_path, _LOG)
             structure_path.write_text(bh_content + "\n", encoding="utf-8")
             result.plt_paths.append(structure_path)
 
@@ -1051,6 +1105,8 @@ def export_per_cutter_plts(
                 )
 
             text_path = plt_dir / f"{prefix}{layer_tag}_txt_{job_id}.plt"
+            # Plotter-controller cap (see the structural write above).
+            text_path = ensure_plot_filename_length(text_path, _LOG)
             text_path.write_text(written_content + "\n", encoding="utf-8")
             result.plt_paths.append(text_path)
 
@@ -1153,7 +1209,7 @@ def _write_simple_plots(
         if cutter_token is None:
             return None
         try:
-            width = float(cutter_token)
+            width = _cutter_token_to_inches(cutter_token)
         except ValueError:
             return None
         return width if width > 0.0 else None

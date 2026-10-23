@@ -8,12 +8,12 @@ rendering/assembly.
 
 Output layout (under ``-o``, defaulting to the spec's parent directory)::
 
-    <out>/plt/0.030_txt_<job_id>.plt     # one file per text cutter (single sheet)
-    <out>/plt/wbuv_0.030_m_txt_<job_id>.plt  # ... per material/color tag
-    <out>/plt/01_wbuv_0.030_txt_<job_id>.plt  # ... plate number only when a
+    <out>/plt/30_txt_<job_id>.plt        # one file per text cutter (single sheet)
+    <out>/plt/wbuv_30_m_txt_<job_id>.plt  # ... per material/color tag
+    <out>/plt/01_wbuv_30_txt_<job_id>.plt  # ... plate number only when a
     #                                        material spans several sheets
-    <out>/plt/0.015_bh_<job_id>.plt      # borders + holes together
-    <out>/pdf/0.030_txt_<job_id>.pdf     # simple-outline previews
+    <out>/plt/15_bh_<job_id>.plt         # borders + holes together
+    <out>/pdf/30_txt_<job_id>.pdf        # simple-outline previews
     <out>/pdf/all_<job_id>.pdf           # combined preview per plate
     <out>/generation_report/report.json  # the machine-readable job report
     <out>/generation_report/summary.txt  # the human-readable job summary

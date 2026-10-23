@@ -208,19 +208,22 @@ Outputs land in `test_output/integration_test/`:
 ```
 test_output/integration_test/
 ├── plt/
-│   ├── 0.060_txt_Test_123_-_Single_Column.plt    # one per text cutter
-│   └── 0.015_bh_Test_123_-_Single_Column.plt     # borders + holes together
+│   ├── 60_txt_Test_123_-_Single_Column.plt      # one per text cutter
+│   └── 15_bh_Test_123_-_Single_Column.plt       # borders + holes together
 └── pdf/
-    ├── 0.060_txt_Test_123_-_Single_Column.pdf    # simple-outline previews
-    ├── 0.015_bh_Test_123_-_Single_Column.pdf
+    ├── 60_txt_Test_123_-_Single_Column.pdf      # simple-outline previews
+    ├── 15_bh_Test_123_-_Single_Column.pdf
     └── all_Test_123_-_Single_Column.pdf          # combined per plate
 ```
 
 File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.<ext>`
 where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
-diameter in inches (3-decimal). The plate number appears only when a material
+diameter in integer thousandths of an inch, unpadded (`0.060` -> `60`). The
+plate number appears only when a material
 spans more than one plate; the material tag (sanitized, e.g. `wbuv`) appears
-only for material-declared output. With a spec override, the same tree appears
+only for material-declared output. PLT names are capped at 39 characters
+including the extension (the plotter controller rejects longer names; the
+stem is shortened from the right). With a spec override, the same tree appears
 under `test_output/integration_test/<spec-stem>/`.
 
 Note: Phase 3 runs the export with `optimize=False` — travel optimization of
@@ -232,7 +235,7 @@ Parses every exported PLT and asserts all `PA`/`PU`/`PD` coordinates are
 non-negative, printing the X/Y ranges (plotter units and inches) per file:
 
 ```
-✓ 0.015_bh_Test_123_-_Single_Column.plt:
+✓ 15_bh_Test_123_-_Single_Column.plt:
     X range: [       0,    19304] (0.000, 19.000 inches)
     Y range: [       0,     2032] (0.000,  2.000 inches)
     Coordinates valid: all X≥0, all Y≥0 ✓
@@ -278,7 +281,7 @@ After a run:
 - [ ] `plt/` contains one `[<plate>_][<material>_]<cutter>_bh_<job>.plt` per plate
       and one `[<plate>_][<material>_]<cutter>[_<color>]_txt_<job>.plt` per
       plate/cutter diameter (colored text layers gain a 1-letter suffix, e.g.
-      `0.040_k_txt_`)
+      `40_k_txt_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
       `[<plate>_][<material>_]all_<job>.pdf` combined preview per plate
 - [ ] No text bleeds over label boundaries; drill holes sit at their specified
@@ -362,7 +365,7 @@ uv run pytest tests/ -v
 uv run plt-optimizer generate tests_deps/test123_spec.yaml -o out/ --no-plots
 
 # Optimization pipeline on an exported PLT
-uv run plt-optimizer optimize out/plt/0.060_txt_Test_123_-_Single_Column.plt
+uv run plt-optimizer optimize out/plt/60_txt_Test_123_-_Single_Column.plt
 ```
 
 ## Integration Points Verified

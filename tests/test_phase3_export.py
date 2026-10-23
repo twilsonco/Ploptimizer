@@ -25,6 +25,7 @@ from plt_optimizer.generate.schema import (
 )
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
+    _format_cutter,
     _format_material_tag,
     _format_plate_prefix,
     _format_text_layer,
@@ -66,8 +67,8 @@ class TestExportAndOptimizePhase3:
         # [<plate>_][<material>_]<cutter>_<kind>_<job_id>.plt and this job
         # packs onto one material-less plate, so both prefixes are omitted.
         names = sorted(p.name for p in exported_paths)
-        assert any(name.startswith("0.060_txt_") for name in names)
-        assert any(name.startswith("0.015_bh_") for name in names)
+        assert any(name.startswith("60_txt_") for name in names)
+        assert any(name.startswith("15_bh_") for name in names)
         # The combined PLT is never written to disk.
         assert not any("_all_" in name for name in names)
         # Single-plate jobs carry NO plate number (its presence is the
@@ -356,11 +357,10 @@ class TestExportAndOptimizePhase3:
         cutter_tags = {_parse_plt_stem(name).cutter for name in text_files}
         # complex_test_job exercises at least three distinct text cutters.
         assert len(cutter_tags) >= 3
-        # Every tag is a 3-decimal inch string.
+        # Every tag is an unpadded integer-mils string.
         for tag in cutter_tags:
             assert tag is not None
-            major, _, minor = tag.partition(".")
-            assert major.isdigit() and len(minor) == 3
+            assert tag.isdigit() and not (tag.startswith("0") and tag != "0")
 
     def test_export_per_cutter_color_split_files(self, tmp_path: Path) -> None:
         """complex_test_job's color_split_tag label exports per-color toolpaths.
@@ -387,15 +387,15 @@ class TestExportAndOptimizePhase3:
         # The colored layers appear as additional tagged files (the plate
         # prefix depends on where the packer places the label, so match on
         # the suffix).
-        assert any(name.endswith("0.040_k_txt_complex.plt") for name in text_files)
-        assert any(name.endswith("0.040_m_txt_complex.plt") for name in text_files)
+        assert any(name.endswith("40_k_txt_complex.plt") for name in text_files)
+        assert any(name.endswith("40_m_txt_complex.plt") for name in text_files)
         # The implicit "none" layer keeps the bare cutter-only tag.
-        assert any(name.endswith("0.040_txt_complex.plt") for name in text_files)
+        assert any(name.endswith("40_txt_complex.plt") for name in text_files)
         # The two colored files are *additional* toolpaths: each carries only
         # its own layer's strokes on a single pen.
-        black_file = next(p for p in result.plt_paths if p.name.endswith("0.040_k_txt_complex.plt"))
+        black_file = next(p for p in result.plt_paths if p.name.endswith("40_k_txt_complex.plt"))
         magenta_file = next(
-            p for p in result.plt_paths if p.name.endswith("0.040_m_txt_complex.plt")
+            p for p in result.plt_paths if p.name.endswith("40_m_txt_complex.plt")
         )
         black_content = black_file.read_text(encoding="utf-8")
         magenta_content = magenta_file.read_text(encoding="utf-8")
@@ -733,8 +733,8 @@ class TestExportTextColorSplit:
         # (cutter, color) sort order: black -> pen 1, magenta -> pen 4. A
         # single material-less plate carries no prefix at all.
         assert text_names == [
-            "0.060_k_txt_clr.plt",
-            "0.060_m_txt_clr.plt",
+            "60_k_txt_clr.plt",
+            "60_m_txt_clr.plt",
         ]
         # Each file carries only its own layer's strokes: the two color
         # layers occupy disjoint cutting coordinates (no SP selects remain
@@ -761,7 +761,7 @@ class TestExportTextColorSplit:
             plots=False,
         )
         bh_names = [p.name for p in result.plt_paths if "_bh_" in p.name]
-        assert bh_names == ["0.015_bh_clr.plt"]
+        assert bh_names == ["15_bh_clr.plt"]
 
     def test_colorless_export_names_are_unchanged(self, tmp_path: Path) -> None:
         """Jobs without colors keep the bare cutter-only text tag."""
@@ -773,7 +773,7 @@ class TestExportTextColorSplit:
             plots=False,
         )
         text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
-        assert text_names == ["0.030_txt_plain.plt"]
+        assert text_names == ["30_txt_plain.plt"]
 
     def test_colored_export_optimizes_each_color_layer(self, tmp_path: Path) -> None:
         """Optimized export routes and writes both color layers separately."""
@@ -787,8 +787,8 @@ class TestExportTextColorSplit:
         )
         text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
         assert text_names == [
-            "0.060_k_txt_opt.plt",
-            "0.060_m_txt_opt.plt",
+            "60_k_txt_opt.plt",
+            "60_m_txt_opt.plt",
         ]
         for name in text_names:
             content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
@@ -889,19 +889,88 @@ class TestFormatTextLayer:
 
     def test_none_color_keeps_cutter_only_name(self) -> None:
         """The implicit color produces the historical cutter-only tag."""
-        assert _format_text_layer(0.04, "none") == "0.040"
+        assert _format_text_layer(0.04, "none") == "40"
 
     def test_known_colors_use_abbreviation(self) -> None:
         """Real colors gain their single-letter file-name tag."""
-        assert _format_text_layer(0.04, "magenta") == "0.040_m"
-        assert _format_text_layer(0.06, "black") == "0.060_k"
+        assert _format_text_layer(0.04, "magenta") == "40_m"
+        assert _format_text_layer(0.06, "black") == "60_k"
 
     def test_unknown_color_falls_back_to_sanitized_value(self) -> None:
         """Manually constructed unknown colors stay filesystem-safe."""
-        assert _format_text_layer(0.04, "chartreuse") == "0.040_chartreuse"
-        assert _format_text_layer(0.04, "bright-red!") == "0.040_brightred"
+        assert _format_text_layer(0.04, "chartreuse") == "40_chartreuse"
+        assert _format_text_layer(0.04, "bright-red!") == "40_brightred"
         # Fully sanitized-empty values never produce a dangling separator.
-        assert _format_text_layer(0.04, "!!!") == "0.040_x"
+        assert _format_text_layer(0.04, "!!!") == "40_x"
+
+
+class TestCutterTokenFormatting:
+    """Unit tests for the integer-mils cutter file-name token."""
+
+    def test_cutter_formats_as_unpadded_mils(self) -> None:
+        """Diameters become plain integers: no leading zeros, no padding."""
+        assert _format_cutter(0.03) == "30"
+        assert _format_cutter(0.015) == "15"
+        assert _format_cutter(0.187) == "187"
+        assert _format_cutter(0.25) == "250"
+        assert _format_cutter(0.005) == "5"
+        assert _format_cutter(0.0) == "0"
+
+    def test_cutter_token_round_trips_through_inches(self) -> None:
+        """The parser's inverse recovers the diameter for plots/titles."""
+        from plt_optimizer.generate.vectorize import _cutter_token_to_inches
+
+        for diameter in (0.015, 0.03, 0.045, 0.06, 0.09, 0.187, 0.25):
+            assert _cutter_token_to_inches(_format_cutter(diameter)) == diameter
+
+
+class TestFilenameCap:
+    """The 39-character plotter-controller cap on generated PLT names."""
+
+    def test_long_job_id_shortens_every_plt_name(self, tmp_path: Path) -> None:
+        """Names over 39 chars are truncated from the right, content intact."""
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+        long_job_id = "This_Is_A_Very_Long_Job_Identifier_Over_Thirty_Nine"
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id=long_job_id,
+            optimize=False,
+            plots=True,
+        )
+
+        assert result.plt_paths
+        for path in result.plt_paths:
+            assert len(path.name) <= 39, path.name
+            assert path.suffix == ".plt"
+            # The truncated path is the one actually written, with content.
+            assert path.is_file()
+            content = path.read_text()
+            assert content.startswith("IN;PA;")
+            assert "PD" in content
+        # The mirrored PDF previews follow the shortened stem.
+        for path in result.plt_paths:
+            assert (tmp_path / "pdf" / f"{path.stem}.pdf").is_file()
+
+    def test_short_job_id_is_untouched(self, tmp_path: Path) -> None:
+        """Names within the cap keep their full length (no truncation)."""
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="short",
+            optimize=False,
+            plots=False,
+        )
+
+        assert result.plt_paths
+        for path in result.plt_paths:
+            assert path.name.endswith("_short.plt")
+            assert len(path.name) <= 39
 
 
 class TestTextColorDemoExample:
@@ -949,11 +1018,11 @@ class TestTextColorDemoExample:
         # Single 0.375in text height -> one cutter (0.045) split three ways.
         # One material-less plate -> no plate/material prefix.
         assert text_names == [
-            "0.045_k_txt_demo.plt",
-            "0.045_m_txt_demo.plt",
-            "0.045_txt_demo.plt",
+            "45_k_txt_demo.plt",
+            "45_m_txt_demo.plt",
+            "45_txt_demo.plt",
         ]
-        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == ["0.015_bh_demo.plt"]
+        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == ["15_bh_demo.plt"]
         # Each text file carries only its own layer's strokes: the three
         # color layers occupy pairwise-disjoint cutting coordinates (the
         # per-cutter files carry no SP selects to key on).
@@ -1018,14 +1087,14 @@ class TestPlateFilenameFormatting:
     def test_stem_round_trip(self) -> None:
         """Every generated shape parses back to its components."""
         cases = {
-            "0.040_txt_job": (None, None, "0.040", "txt", None),
-            "0.040_m_txt_job": (None, None, "0.040", "txt", "m"),
-            "0.015_bh_job": (None, None, "0.015", "bh", None),
-            "wbuv_0.040_txt_job": (None, "wbuv", "0.040", "txt", None),
-            "wbuv_0.015_bh_job": (None, "wbuv", "0.015", "bh", None),
-            "02_wbuv_0.040_k_txt_job": ("02", "wbuv", "0.040", "txt", "k"),
-            "02_0.040_txt_job": ("02", None, "0.040", "txt", None),
-            "02_0.015_bh_job": ("02", None, "0.015", "bh", None),
+            "40_txt_job": (None, None, "40", "txt", None),
+            "40_m_txt_job": (None, None, "40", "txt", "m"),
+            "15_bh_job": (None, None, "15", "bh", None),
+            "wbuv_40_txt_job": (None, "wbuv", "40", "txt", None),
+            "wbuv_15_bh_job": (None, "wbuv", "15", "bh", None),
+            "02_wbuv_40_k_txt_job": ("02", "wbuv", "40", "txt", "k"),
+            "02_40_txt_job": ("02", None, "40", "txt", None),
+            "02_15_bh_job": ("02", None, "15", "bh", None),
         }
         for stem, (plate, material, cutter, kind, color) in cases.items():
             parts = _parse_plt_stem(stem)
@@ -1039,10 +1108,10 @@ class TestPlateFilenameFormatting:
 
     def test_structural_detection_is_prefix_agnostic(self) -> None:
         """The bh kind is found regardless of plate/material prefixes."""
-        assert _is_structural_stem("0.015_bh_job")
-        assert _is_structural_stem("wbuv_0.015_bh_job")
-        assert _is_structural_stem("02_wbuv_0.015_bh_job")
-        assert not _is_structural_stem("02_wbuv_0.040_txt_job")
+        assert _is_structural_stem("15_bh_job")
+        assert _is_structural_stem("wbuv_15_bh_job")
+        assert _is_structural_stem("02_wbuv_15_bh_job")
+        assert not _is_structural_stem("02_wbuv_40_txt_job")
         # Stems outside the scheme are treated as non-structural.
         assert not _is_structural_stem("readme")
 
@@ -1050,9 +1119,9 @@ class TestPlateFilenameFormatting:
         """Titles name the cutter, the kind and the material tag."""
         from plt_optimizer.generate.vectorize import _build_plot_title
 
-        base = _build_plot_title("Job", Path("plt/0.040_txt_job.plt"), text_height=0.5)
+        base = _build_plot_title("Job", Path("plt/40_txt_job.plt"), text_height=0.5)
         assert base == "Job 0.5 text (0.040 cutter)"
-        tagged = _build_plot_title("Job", Path("plt/wbuv_0.015_bh_job.plt"))
+        tagged = _build_plot_title("Job", Path("plt/wbuv_15_bh_job.plt"))
         assert tagged == "Job borders and holes (0.015 cutter) [wbuv]"
         unknown = _build_plot_title("Job", Path("plt/mystery.plt"))
         assert unknown == "Job mystery"
@@ -1088,11 +1157,11 @@ class TestMaterialDemoExample:
         """Every file carries its sanitized material tag and no plate number."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "wb_0.015_bh_demo.plt",
-            "wb_0.045_txt_demo.plt",
-            "wbuv_0.015_bh_demo.plt",
-            "wbuv_0.045_m_txt_demo.plt",
-            "wbuv_0.045_txt_demo.plt",
+            "wb_15_bh_demo.plt",
+            "wb_45_txt_demo.plt",
+            "wbuv_15_bh_demo.plt",
+            "wbuv_45_m_txt_demo.plt",
+            "wbuv_45_txt_demo.plt",
         ]
         assert result.material_by_plate == {1: "wb", 2: "wb(uv)"}
         for path in result.plt_paths:
@@ -1107,8 +1176,8 @@ class TestMaterialDemoExample:
         result = self._export(tmp_path)
         # The wb sheet has a single colorless text layer; the uv sheet has
         # two (colorless placards + magenta deep-engraved placards).
-        wb_txt = [p for p in result.plt_paths if p.name == "wb_0.045_txt_demo.plt"]
-        uv_txt = [p for p in result.plt_paths if p.name.startswith("wbuv_0.045")]
+        wb_txt = [p for p in result.plt_paths if p.name == "wb_45_txt_demo.plt"]
+        uv_txt = [p for p in result.plt_paths if p.name.startswith("wbuv_45")]
         assert len(wb_txt) == 1
         assert len(uv_txt) == 2  # plain + magenta deep layer
 
@@ -1165,10 +1234,10 @@ class TestCutterSizeDemoExample:
         """Each distinct cutter (explicit or auto) becomes its own text file."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_cs.plt",
-            "0.030_txt_cs.plt",  # line-level cutter_size
-            "0.045_txt_cs.plt",  # label-level cutter_size (+ inherited line)
-            "0.060_txt_cs.plt",  # automatic selection from text_height
+            "15_bh_cs.plt",
+            "30_txt_cs.plt",  # line-level cutter_size
+            "45_txt_cs.plt",  # label-level cutter_size (+ inherited line)
+            "60_txt_cs.plt",  # automatic selection from text_height
         ]
 
     def test_cutter_at_text_height_aborts_the_job(self) -> None:
@@ -1267,11 +1336,11 @@ class TestMultistrokeDemoExample:
         """Each distinct cutter (ladder, factor, explicit, auto) is its own file."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_ms.plt",
-            "0.020_txt_ms.plt",  # Avenge5 default + thin (stepped up to the floor)
-            "0.045_txt_ms.plt",  # Helter2 + Avenge5 factor 0.20
-            "0.060_txt_ms.plt",  # Dino single-stroke (height lookup)
-            "0.090_txt_ms.plt",  # explicit cutter_size
+            "15_bh_ms.plt",
+            "20_txt_ms.plt",  # Avenge5 default + thin (stepped up to the floor)
+            "45_txt_ms.plt",  # Helter2 + Avenge5 factor 0.20
+            "60_txt_ms.plt",  # Dino single-stroke (height lookup)
+            "90_txt_ms.plt",  # explicit cutter_size
         ]
 
 
@@ -1341,19 +1410,19 @@ class TestCutterDownsizeDemoExample:
         """The pen map sees the reduced cutter, so a 0.045in text file appears."""
         result = self._export(tmp_path, self._INVENTORY)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.030_bh_cd.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
-            "0.045_txt_cd.plt",  # compressed line, downsized from 0.060
-            "0.060_txt_cd.plt",  # fits + opted_out lines
-            "0.090_txt_cd.plt",  # explicit cutter_size
+            "30_bh_cd.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
+            "45_txt_cd.plt",  # compressed line, downsized from 0.060
+            "60_txt_cd.plt",  # fits + opted_out lines
+            "90_txt_cd.plt",  # explicit cutter_size
         ]
 
     def test_pre_pass_is_a_noop_without_inventory(self, tmp_path: Path) -> None:
         """No tools.json inventory means no ladder: output stays historical."""
         result = self._export(tmp_path, None)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_cd.plt",
-            "0.060_txt_cd.plt",
-            "0.090_txt_cd.plt",
+            "15_bh_cd.plt",
+            "60_txt_cd.plt",
+            "90_txt_cd.plt",
         ]
         for rendered in result.rendered_labels.values():
             assert rendered.source_label.cutter_downsize_by_line == {}
@@ -1421,9 +1490,9 @@ class TestCutterDownsizeGlobalDemoExample:
         """The pen map sees the shared cutter, so 0.045/0.060 files split as expected."""
         result = self._export(tmp_path, self._INVENTORY)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.030_bh_cdg.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
-            "0.045_txt_cdg.plt",  # shared label (both lines) + opted_out trigger
-            "0.060_txt_cdg.plt",  # other_label + opted_out sibling
+            "30_bh_cdg.plt",  # boundary/hole cutter 0.015 snapped up to 0.030
+            "45_txt_cdg.plt",  # shared label (both lines) + opted_out trigger
+            "60_txt_cdg.plt",  # other_label + opted_out sibling
         ]
 
     def test_pre_pass_is_a_noop_without_inventory(self, tmp_path: Path) -> None:
@@ -1495,8 +1564,8 @@ class TestHCompressGlobalDemoExample:
         """Sharing changes glyph density only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_hcg.plt",
-            "0.060_txt_hcg.plt",
+            "15_bh_hcg.plt",
+            "60_txt_hcg.plt",
         ]
 
     def test_shared_compression_feeds_the_cutter_downsize_trigger(self, tmp_path: Path) -> None:
@@ -1523,9 +1592,9 @@ class TestHCompressGlobalDemoExample:
         # The downsized tool gets its own file; the untouched labels keep the
         # 0.060 tool.
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_hcg.plt",
-            "0.045_txt_hcg.plt",
-            "0.060_txt_hcg.plt",
+            "15_bh_hcg.plt",
+            "45_txt_hcg.plt",
+            "60_txt_hcg.plt",
         ]
 
 
@@ -1695,8 +1764,8 @@ class TestOptimizeLineContentDemoExample:
         """Reflow changes line breaks only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_olc.plt",
-            "0.060_txt_olc.plt",
+            "15_bh_olc.plt",
+            "60_txt_olc.plt",
         ]
 
 
@@ -1792,8 +1861,8 @@ class TestOptimizeLineContentMaxLinesDemoExample:
         """Growth clones the group's typography, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_olcm.plt",
-            "0.060_txt_olcm.plt",
+            "15_bh_olcm.plt",
+            "60_txt_olcm.plt",
         ]
 
     def test_conflicting_group_caps_abort(self) -> None:
@@ -1901,8 +1970,8 @@ class TestOptimizeLineContentNewLineDemoExample:
         """Reflow changes line breaks only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_olcn.plt",
-            "0.060_txt_olcn.plt",
+            "15_bh_olcn.plt",
+            "60_txt_olcn.plt",
         ]
 
 
@@ -2066,8 +2135,8 @@ class TestSmallCapsDemoExample:
         """Small caps never moves the cutter, and PLT arcs stay ``AA``."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_sc.plt",
-            "0.060_txt_sc.plt",
+            "15_bh_sc.plt",
+            "60_txt_sc.plt",
         ]
         for rendered in result.rendered_labels.values():
             for line in rendered.source_label.content:
@@ -2157,8 +2226,8 @@ class TestUseBaselineSpacingDemoExample:
         """Stacking changes Y placement only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_ubs.plt",
-            "0.060_txt_ubs.plt",
+            "15_bh_ubs.plt",
+            "60_txt_ubs.plt",
         ]
 
 
@@ -2332,8 +2401,8 @@ class TestDescenderAdjustDemoExample:
         """The relief is a Y transform only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_da.plt",
-            "0.060_txt_da.plt",
+            "15_bh_da.plt",
+            "60_txt_da.plt",
         ]
 
     def test_border_descender_is_relieved(self, tmp_path: Path) -> None:
@@ -2591,8 +2660,8 @@ class TestDescenderReciprocalExample:
         """A top-down scale is a Y transform, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_rc.plt",
-            "0.187_txt_rc.plt",
+            "15_bh_rc.plt",
+            "187_txt_rc.plt",
         ]
 
 
@@ -2680,8 +2749,8 @@ class TestDescenderBorderExample:
         """The relief is a Y transform only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_br.plt",
-            "0.187_txt_br.plt",
+            "15_bh_br.plt",
+            "187_txt_br.plt",
         ]
 
 
@@ -2784,8 +2853,8 @@ class TestVCenterByContentExample:
         """Centering is a Y transform only, so the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_vc.plt",
-            "0.187_txt_vc.plt",
+            "15_bh_vc.plt",
+            "187_txt_vc.plt",
         ]
 
 
@@ -2945,8 +3014,8 @@ class TestItalicDemoExample:
         """Italic is a geometry transform: the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_it.plt",
-            "0.060_txt_it.plt",
+            "15_bh_it.plt",
+            "60_txt_it.plt",
         ]
 
 
@@ -3144,8 +3213,8 @@ class TestUnderlineDemoExample:
         """The underline is a geometry transform: the cutter set is unchanged."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_ul.plt",
-            "0.060_txt_ul.plt",
+            "15_bh_ul.plt",
+            "60_txt_ul.plt",
         ]
 
     def test_break_spaces_splits_a_multi_word_run(self, tmp_path: Path) -> None:
@@ -3393,12 +3462,12 @@ class TestBoldDemoExample:
         """Each distinct cutter in play (plain, bold, ladder, top rung) is a file."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_bd.plt",
-            "0.020_txt_bd.plt",  # Avenge5 plain ladder (multistroke/controls)
-            "0.045_txt_bd.plt",  # Avenge5 boosted ladder + lockstep plain step
-            "0.060_txt_bd.plt",  # Dino plain + lockstep bold step
-            "0.090_txt_bd.plt",  # Dino bold + explicit cutter + clamped ladder
-            "0.250_txt_bd.plt",  # top-of-inventory line (bold inert)
+            "15_bh_bd.plt",
+            "20_txt_bd.plt",  # Avenge5 plain ladder (multistroke/controls)
+            "250_txt_bd.plt",  # top-of-inventory line (bold inert)
+            "45_txt_bd.plt",  # Avenge5 boosted ladder + lockstep plain step
+            "60_txt_bd.plt",  # Dino plain + lockstep bold step
+            "90_txt_bd.plt",  # Dino bold + explicit cutter + clamped ladder
         ]
 
 
@@ -3592,11 +3661,11 @@ class TestScaleDemoExample:
         """
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_sc.plt",
-            "0.030_txt_sc.plt",  # every 0.5x run (0.25in of text -> the 0.030 rung)
-            "0.045_txt_sc.plt",  # the bold+0.5x run (bold rung at 0.25in)
-            "0.060_txt_sc.plt",  # the plain runs (0.5in text -> 0.060)
-            "0.090_txt_sc.plt",  # the <b> bold rung + the 1.5x run (0.75in -> 0.090)
+            "15_bh_sc.plt",
+            "30_txt_sc.plt",  # every 0.5x run (0.25in of text -> the 0.030 rung)
+            "45_txt_sc.plt",  # the bold+0.5x run (bold rung at 0.25in)
+            "60_txt_sc.plt",  # the plain runs (0.5in text -> 0.060)
+            "90_txt_sc.plt",  # the <b> bold rung + the 1.5x run (0.75in -> 0.090)
         ]
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
         down = by_id["plt_down"].content[0]
@@ -3607,7 +3676,7 @@ class TestScaleDemoExample:
     def test_arcs_stay_native_under_scale(self, tmp_path: Path) -> None:
         """A uniform scale keeps PLT ``AA`` arcs native end-to-end."""
         result = self._export(tmp_path)
-        text_file = next(p for p in result.plt_paths if p.name.endswith("0.060_txt_sc.plt"))
+        text_file = next(p for p in result.plt_paths if p.name.endswith("60_txt_sc.plt"))
         assert "AA" in text_file.read_text()
 
 
@@ -3732,17 +3801,17 @@ class TestCutterDemoExample:
         """A run engraving with its own tool lands in its own per-cutter file."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_cu.plt",
-            "0.030_txt_cu.plt",  # the <c:0.03> runs
-            "0.045_txt_cu.plt",  # the <c:0.05> run (snapped down to 0.045)
-            "0.060_txt_cu.plt",  # the plain runs (0.5in text -> 0.060)
-            "0.090_txt_cu.plt",  # the <c:0.09> run + the <b> bold rung
+            "15_bh_cu.plt",
+            "30_txt_cu.plt",  # the <c:0.03> runs
+            "45_txt_cu.plt",  # the <c:0.05> run (snapped down to 0.045)
+            "60_txt_cu.plt",  # the plain runs (0.5in text -> 0.060)
+            "90_txt_cu.plt",  # the <c:0.09> run + the <b> bold rung
         ]
 
     def test_the_arcs_stay_native(self, tmp_path: Path) -> None:
         """The run's uniform scale keeps the PLT ``AA`` arcs native."""
         result = self._export(tmp_path)
-        text_file = next(p for p in result.plt_paths if p.name.endswith("0.030_txt_cu.plt"))
+        text_file = next(p for p in result.plt_paths if p.name.endswith("30_txt_cu.plt"))
         assert "AA" in text_file.read_text()
 
     def test_the_ttf_pair_splits_onto_two_pens(self, tmp_path: Path) -> None:
@@ -3882,11 +3951,11 @@ class TestOriginalCutterDemoExample:
         """
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_oc.plt",
-            "0.030_txt_oc.plt",  # the <c:0.03> run (the explicit tool wins)
-            "0.060_txt_oc.plt",  # every other run, pinned or plain
-            "0.090_txt_oc.plt",  # the <b> bold rung (the unpinned twin)
-            "0.125_txt_oc.plt",  # the bare <scale:2.0> ladder (the unpinned twin)
+            "125_txt_oc.plt",  # the bare <scale:2.0> ladder (the unpinned twin)
+            "15_bh_oc.plt",
+            "30_txt_oc.plt",  # the <c:0.03> run (the explicit tool wins)
+            "60_txt_oc.plt",  # every other run, pinned or plain
+            "90_txt_oc.plt",  # the <b> bold rung (the unpinned twin)
         ]
 
     def test_the_ttf_pair_keeps_the_line_cutter(self, tmp_path: Path) -> None:
@@ -4151,10 +4220,10 @@ class TestSupSubDemoExample:
         """
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_ss.plt",
-            "0.030_txt_ss.plt",  # the d = 0.5 runs (0.25in of text -> 0.030)
-            "0.045_txt_ss.plt",  # the d = 0.8 run (0.4in of text -> 0.045)
-            "0.060_txt_ss.plt",  # the plain runs + the shift-only runs
+            "15_bh_ss.plt",
+            "30_txt_ss.plt",  # the d = 0.5 runs (0.25in of text -> 0.030)
+            "45_txt_ss.plt",  # the d = 0.8 run (0.4in of text -> 0.045)
+            "60_txt_ss.plt",  # the plain runs + the shift-only runs
         ]
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
         sup = by_id["plt_sup"].content[0]
@@ -4167,7 +4236,7 @@ class TestSupSubDemoExample:
     def test_arcs_stay_native_under_the_shift(self, tmp_path: Path) -> None:
         """A pure translate keeps PLT ``AA`` arcs native end-to-end."""
         result = self._export(tmp_path)
-        text_file = next(p for p in result.plt_paths if p.name.endswith("0.030_txt_ss.plt"))
+        text_file = next(p for p in result.plt_paths if p.name.endswith("30_txt_ss.plt"))
         assert "AA" in text_file.read_text()
 
 
@@ -4453,10 +4522,10 @@ class TestStrikethroughDemoExample:
         """
         result = self._export(tmp_path)
         names = sorted(p.name for p in result.plt_paths)
-        assert "0.015_bh_stk.plt" in names
-        assert "0.060_txt_stk.plt" in names
-        assert "0.090_txt_stk.plt" in names  # the <b> bold rung
-        assert "0.030_txt_stk.plt" in names  # the <scale:0.5> run
+        assert "15_bh_stk.plt" in names
+        assert "60_txt_stk.plt" in names
+        assert "90_txt_stk.plt" in names  # the <b> bold rung
+        assert "30_txt_stk.plt" in names  # the <scale:0.5> run
         # No file for a tool the strike invented.
         assert len([n for n in names if n.endswith("_txt_stk.plt")]) == 3
 
@@ -4624,7 +4693,7 @@ class TestInlineScDemoExample:
         """The uniform scale keeps the arc-native contract (no flattening)."""
         result = self._export(tmp_path)
         by_id = {lid: rl.source_label for lid, rl in result.rendered_labels.items()}
-        text_file = next(p for p in result.plt_paths if p.name == "0.060_txt_sc.plt")
+        text_file = next(p for p in result.plt_paths if p.name == "60_txt_sc.plt")
         assert "AA" in text_file.read_text()
         from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
 
@@ -4683,10 +4752,10 @@ class TestInlineScDemoExample:
         """
         result = self._export(tmp_path)
         names = sorted(p.name for p in result.plt_paths)
-        assert "0.015_bh_sc.plt" in names
-        assert "0.060_txt_sc.plt" in names
-        assert "0.090_txt_sc.plt" in names  # the <b> bold rung
-        assert "0.030_txt_sc.plt" in names  # the <scale:0.5> run + S4 symbol ladder
+        assert "15_bh_sc.plt" in names
+        assert "60_txt_sc.plt" in names
+        assert "90_txt_sc.plt" in names  # the <b> bold rung
+        assert "30_txt_sc.plt" in names  # the <scale:0.5> run + S4 symbol ladder
         assert len([n for n in names if n.endswith("_txt_sc.plt")]) == 3
         # No label's own cutter moved.
         for rendered in result.rendered_labels.values():
@@ -4837,8 +4906,8 @@ class TestOverlapDemoExample:
         assert line.cutter_diameter == pytest.approx(0.06)
         assert line.bold_cutter_diameter == pytest.approx(0.09)
         names = sorted(p.name for p in result.plt_paths)
-        assert "0.060_txt_ovl.plt" in names
-        assert "0.090_txt_ovl.plt" in names  # the crossing bold rung
+        assert "60_txt_ovl.plt" in names
+        assert "90_txt_ovl.plt" in names  # the crossing bold rung
 
 
 class TestFontDemoExample:
@@ -5117,11 +5186,11 @@ class TestFontDemoExample:
         """
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "0.015_bh_font.plt",
-            "0.030_txt_font.plt",  # Wingdings ladder runs
-            "0.045_txt_font.plt",  # bold Wingdings ladder + explicit-cutter plain
-            "0.060_txt_font.plt",  # plain Dino + TTF runs
-            "0.090_txt_font.plt",  # the <b> bold rung
+            "15_bh_font.plt",
+            "30_txt_font.plt",  # Wingdings ladder runs
+            "45_txt_font.plt",  # bold Wingdings ladder + explicit-cutter plain
+            "60_txt_font.plt",  # plain Dino + TTF runs
+            "90_txt_font.plt",  # the <b> bold rung
         ]
 
     def test_unknown_font_run_aborts_the_job(self, tmp_path: Path) -> None:
@@ -5906,7 +5975,7 @@ class TestHoleAdjustForCutterDemoExample:
         """Compensation changes geometry only: the cutter set is unchanged."""
         result = self._export(tmp_path)
         bh_files = [p.name for p in result.plt_paths if "_bh_" in p.name]
-        assert bh_files == ["0.015_bh_hafc.plt"]
+        assert bh_files == ["15_bh_hafc.plt"]
 
 
 class TestVCenterDemoExample:
@@ -6192,7 +6261,7 @@ class TestVCenterDemoExample:
         # The centred PLT labels contribute exactly ONE text file (the line's
         # own 0.060in tool) -- the tag adds no per-cutter layer of its own.
         tag_files = sorted(
-            p.name for p in result.plt_paths if "_txt_" in p.name and p.name.startswith("0.060_")
+            p.name for p in result.plt_paths if "_txt_" in p.name and p.name.startswith("60_")
         )
         assert tag_files  # the 0.060 text layer exists
         # No second text cutter was introduced by the centring labels: the
@@ -6201,7 +6270,7 @@ class TestVCenterDemoExample:
             name.split("_txt_")[0]
             for name in (p.name for p in result.plt_paths if "_txt_" in p.name)
         }
-        assert "0.060" in text_cutters
+        assert "60" in text_cutters
 
 
 class TestKernDemoExample:

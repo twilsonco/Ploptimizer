@@ -1619,7 +1619,7 @@ class TestGenerateRun:
         """The compact layout report is not on stdout; it is in the report."""
         from plt_optimizer.cli.generate import run
 
-        plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
+        plt_path = tmp_path / "plt" / "60_txt_job.plt"
         monkeypatch.setattr(
             "plt_optimizer.generate.vectorize.export_per_cutter_plts",
             self._export_with_rendered(plt_path, spacing={0: 0.2}),
@@ -1647,7 +1647,7 @@ class TestGenerateRun:
         """Compact mode prints no report at all for a clean job."""
         from plt_optimizer.cli.generate import run
 
-        plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
+        plt_path = tmp_path / "plt" / "60_txt_job.plt"
         monkeypatch.setattr(
             "plt_optimizer.generate.vectorize.export_per_cutter_plts",
             self._export_with_rendered(plt_path),
@@ -1668,7 +1668,7 @@ class TestGenerateRun:
         """Verbose mode prints the full table, including untouched labels."""
         from plt_optimizer.cli.generate import run
 
-        plt_path = tmp_path / "plt" / "0.060_txt_job.plt"
+        plt_path = tmp_path / "plt" / "60_txt_job.plt"
         monkeypatch.setattr(
             "plt_optimizer.generate.vectorize.export_per_cutter_plts",
             self._export_with_rendered(plt_path),

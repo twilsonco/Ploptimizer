@@ -1728,9 +1728,13 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   that tuple: smallest layer keeps SP1, rest SP4+ (SP2/SP3 reserved). Jobs
   without colors produce the historical cutter-only assignment bit-identically.
 - `export_per_cutter_plts` writes one text file per `(cutter, color)` pen;
-  colored layers gain their 1-letter suffix (`0.040_m_txt_<job>.plt`),
+  colored layers gain their 1-letter suffix (`40_m_txt_<job>.plt`),
   colorless jobs keep the plain cutter-first names. The `bh` structural file
-  is never tagged.
+  is never tagged. The cutter token is the diameter in integer thousandths
+  of an inch, unpadded (`0.040` -> `40`), and every PLT name is capped at 39
+  characters including the extension (the plotter controller rejects longer
+  names -- `core/filenames.ensure_plot_filename_length`, shared with the
+  optimize/watch pipeline).
 
 
 ### Integration Points

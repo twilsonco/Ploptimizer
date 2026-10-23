@@ -508,7 +508,7 @@ class TestFormatSummary:
             report_dir=report_dir_for(tmp_path),
             resolved_labels=[resolved],
             rendered_by_id={"l1": rendered},
-            plt_files=[tmp_path / "plt" / "0.060_txt_job.plt"],
+            plt_files=[tmp_path / "plt" / "60_txt_job.plt"],
         )
 
         text = format_summary(report)
@@ -517,7 +517,7 @@ class TestFormatSummary:
         assert "status:    success" in text
         assert "labels=1" in text
         assert "compressed lines=1" in text
-        assert "0.060_txt_job.plt" in text
+        assert "60_txt_job.plt" in text
 
     def test_summary_names_the_failure(self, tmp_path: Path) -> None:
         """A failed job's summary states the error and its stage."""

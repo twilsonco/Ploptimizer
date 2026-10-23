@@ -318,7 +318,11 @@ def phase_3_vectorization_and_export(
       per plate
     - text -> one ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt``
       per plate and (cutter, stroke-color) layer; colored layers gain a
-      1-letter tag, colorless jobs keep the cutter-only name. The plate
+      1-letter tag, colorless jobs keep the cutter-only name. The cutter
+      token is the diameter in integer thousandths of an inch, unpadded
+      (``0.060`` -> ``60``). PLT names are capped at 39 characters
+      including the extension (the plotter controller rejects longer
+      names). The plate
       number is omitted whenever the plate's material spans a single sheet
       and the sanitized material tag is omitted for material-agnostic plates
     - the combined per-plate PLT stays in memory only (returned in
