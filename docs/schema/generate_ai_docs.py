@@ -57,8 +57,8 @@ JOB_CONFIG_JSON = OUTPUT_DIR / "job_config.schema.json"
 JOB_SPEC_MD = OUTPUT_DIR / "JOB_SPEC.md"
 
 # Rendering order for the markdown model sections (root model first).
-_MODEL_ORDER = ("JobSpec", "PlateSpec", "LabelSpec", "TextLine", "HoleSpec")
-_ENUM_ORDER = ("HoleLocation", "TextHAlignment", "LayoutMode", "TextColor")
+_MODEL_ORDER = ("JobSpec", "PlateSpec", "LabelSpec", "ContentEntry", "TextLine", "HoleSpec")
+_ENUM_ORDER = ("HoleLocation", "TextHAlignment", "LayoutMode", "TextColor", "CounterStyle")
 
 # JSON-Schema primitive -> Python-flavoured name (AI-consumer friendly).
 _TYPE_NAMES = {"number": "float", "integer": "int", "string": "str", "boolean": "bool"}
@@ -531,6 +531,35 @@ def _scrape_constants() -> dict[str, str]:
     return constants
 
 
+#: Heading of the tool-options section -- the ONLY part of ``JOB_SPEC.md``
+#: rendered from ``job-config.json`` values. The docs drift test compares
+#: everything before this heading byte-exact and excludes the table, so
+#: retuning ``job-config.json`` can never break the pin (config-value
+#: immunity -- see tests/AGENTS.md).
+TOOL_OPTIONS_HEADING = "## Available Tool Options"
+
+
+def split_tool_options(markdown: str) -> tuple[str, str]:
+    """Split rendered markdown into the model part and the tool-options part.
+
+    The model part (everything before :data:`TOOL_OPTIONS_HEADING`) is derived
+    from the Pydantic models, the enums and the code fallback constants; the
+    tool-options part is derived from ``job-config.json``. The drift test
+    pins the first byte-exact and ignores the second.
+
+    Args:
+        markdown: A ``JOB_SPEC.md`` render (the committed file or a fresh build).
+
+    Returns:
+        ``(model_part, options_part)``; ``options_part`` is ``""`` when the
+        document carries no tool-options section.
+    """
+    index = markdown.find(TOOL_OPTIONS_HEADING)
+    if index < 0:
+        return markdown, ""
+    return markdown[:index], markdown[index:]
+
+
 def _load_tool_options() -> dict[str, Any]:
     """Load tool_options metadata from job-config.json.
 
@@ -561,7 +590,7 @@ def _format_tool_options_markdown(tool_options: dict[str, Any]) -> list[str]:
         return []
 
     lines = [
-        "## Available Tool Options",
+        TOOL_OPTIONS_HEADING,
         "",
         "These options control HPGL header commands prepended to PLT files.",
         "Each can be set at the job level via `tool_options` dict in the job YAML;",

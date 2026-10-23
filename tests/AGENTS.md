@@ -43,12 +43,25 @@ autonomously after modifying the codebase.
 
 ## Known failure patterns
 
-- **Shop-tuned `job-config.json` stale pins:** `test_job_config.py::test_repo_config_fills_job_layer`
-  and `test_tool_options.py::test_generate_headers_with_defaults` pin EXACT
-  values from the shipped `job-config.json`, which is hand-tuned for the real
-  shop. When they fail, `git log -p -- job-config.json` FIRST - a deliberate
-  value change means RE-PIN THE TEST, never revert the config. (The
-  `descending_character_*` asserts are isinstance-only on purpose.)
+- **`job-config.json` is shop-tuned: tests must be ADAPTIVE to its values.**
+  The shipped `job-config.json` is hand-tuned for the real shop, and retuning
+  it must NEVER break a previously working test - do not pin its numbers.
+  - `test_job_config.py::test_repo_config_fills_job_layer` asserts the
+    injection *mechanism* (every configured job-layer field reaches the parsed
+    `JobSpec` with the config's own value; the required set resolves) - never
+    a literal value.
+  - `test_tool_options.py` derives every header expectation from the config's
+    own `tool_options` metadata (command/type/range/default) through the same
+    `_clamp_*`/`_format_*` helpers the generator uses, and takes spec values
+    from the frozen `tests_deps/` fixtures. A missing option skips, not fails.
+  - The `JOB_SPEC.md` drift pin compares only the model-derived part and
+    EXCLUDES the config-rendered "Available Tool Options" table
+    (`generate_ai_docs.split_tool_options`) - see
+    [`../docs/AGENTS.md`](../docs/AGENTS.md).
+  - Spec-declared values (`tests_deps/test123_spec.yaml`: `margin` 0.1,
+    `text_height` 0.5) and the suppression contract are test-owned and stay
+    pinned. If you ever catch a test failing on a config-value change, fix the
+    TEST to derive the value - never revert the config.
 - **Demo AA-arc counts** in `test_phase3_export.py` move whenever kerning or
   arc-flattening changes - re-pin only when counts actually move.
 - Generated-docs drift is pinned by `test_job_spec_docs.py` - see

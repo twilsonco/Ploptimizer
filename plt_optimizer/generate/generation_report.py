@@ -379,6 +379,15 @@ def _finding_entries(finding: LineFinding) -> List[Dict[str, Any]]:
                 "chars": list(chars),
             }
         )
+    if finding.list_marker is not None:
+        marker_text, indent_left = finding.list_marker
+        entries.append(
+            {
+                "type": "list_marker",
+                "marker_text": marker_text,
+                "indent_left": _round(indent_left),
+            }
+        )
     return entries
 
 
@@ -416,6 +425,9 @@ def _label_entries(
                 "index": index,
                 "text": line.text,
                 "plain_text": line.plain_text,
+                "marker_text": line.marker_text,
+                "indent_left": _round(line.indent_left),
+                "align_group_id": line.align_group_id,
                 "nominal_text_height": _round(line.nominal_text_height),
                 "toolpath_text_height": _round(line.toolpath_text_height),
                 "cutter_diameter": _round(line.cutter_diameter),
@@ -696,6 +708,10 @@ def _format_finding_line(label_id: str, line: Dict[str, Any]) -> str:
             parts.append(
                 f"v-centered {entry['char_count']} chars "
                 f"({', '.join(repr(char) for char in entry['chars'])})"
+            )
+        elif kind == "list_marker":
+            parts.append(
+                f"list marker {entry['marker_text']!r} (text column {entry['indent_left']:.3f}in)"
             )
     if not parts:
         return ""

@@ -219,6 +219,47 @@ class _LineEntry(NamedTuple):
     stroke_cutters: Tuple[float, ...] = ()
 
 
+@dataclass(frozen=True)
+class _RenderedLine:
+    """One text line's first-pass render, consumed by the positioning phases.
+
+    Attributes:
+        line_index: Index of the line in ``ResolvedLabel.content``.
+        block: The rendered (collision-compressed) block, baseline at
+            ``y = 0``, left edge at its natural ``min_x``.
+        rendered_height: The block's ink height in inches.
+        line_spacing: The line's requested spacing below it, inches.
+        max_h_compress: The line's compression budget, [0, 1].
+        text_h_alignment: The line's resolved horizontal alignment.
+        word_groups: Per-word stroke indices (``None`` in line mode).
+        collision_scale: The collision-avoidance horizontal scale applied.
+        glyph_groups: Per-glyph stroke indices.
+        stroke_cutters: Per-stroke engraving cutter diameters (the pen split).
+        display_text: The line's text as engraved -- the composed
+            ``"marker text"`` for a list line, else ``plain_text`` (names the
+            glyph partition for the descender relief and the reports).
+        indent_left: The line's hanging-indent column in inches (0.0 outside
+            a list), subtracted from the compression and alignment budgets.
+        align_group_id: The list block's alignment group (``-1`` outside a
+            list), shared by every line of one list so the renderer aligns
+            the list as one block with one flush marker column.
+    """
+
+    line_index: int
+    block: TextBlock
+    rendered_height: float
+    line_spacing: float
+    max_h_compress: float
+    text_h_alignment: str
+    word_groups: Optional[List[Tuple[str, List[int]]]]
+    collision_scale: float
+    glyph_groups: Tuple[Tuple[int, ...], ...]
+    stroke_cutters: Tuple[float, ...]
+    display_text: str
+    indent_left: float = 0.0
+    align_group_id: int = -1
+
+
 class TextChunkMode(str, Enum):
     """Granularity at which rendered text becomes an optimization node.
 
@@ -3310,6 +3351,114 @@ class _DescenderRelief:
     border_shortfalls: List[_BorderShortfall] = field(default_factory=list)
 
 
+def _marker_line_clone(line: ResolvedTextLine) -> ResolvedTextLine:
+    """Return a copy of a list line whose text is just its marker.
+
+    The marker engraves in the item's own typography (font, height, cutter,
+    spacing, markup delimiters), so a text-swapped clone renders exactly the
+    geometry the positioned marker occupies. The clone carries no marker
+    metadata (it is not itself a list line), which keeps the composition
+    single-pass.
+
+    Args:
+        line: The resolved list line carrying a non-empty ``marker_text``.
+
+    Returns:
+        The marker-only render clone.
+    """
+    marker_line = line.with_markup(line.marker_text)
+    return replace(marker_line, marker_text="", align_group_id=-1, list_item=False)
+
+
+def _compose_marker_block(
+    marker_block: TextBlock,
+    marker_glyphs: Tuple[Tuple[int, ...], ...],
+    marker_words: Optional[List[Tuple[str, List[int]]]],
+    text_block: TextBlock,
+    text_glyphs: Tuple[Tuple[int, ...], ...],
+    text_words: Optional[List[Tuple[str, List[int]]]],
+    marker_text: str,
+    indent_left: float,
+) -> Tuple[
+    TextBlock,
+    Tuple[Tuple[int, ...], ...],
+    Optional[List[Tuple[str, List[int]]]],
+]:
+    """Place a rendered marker left of a rendered line's text block.
+
+    The marker keeps its own left edge at ``x = 0`` and the text starts at the
+    hanging-indent column ``indent_left``, both on the shared baseline (the
+    marker rides the item's first-line baseline and cap height, so no vertical
+    shift is needed). The per-glyph and per-word partitions are concatenated
+    with the text's indices offset past the marker's strokes, mirroring
+    :func:`_render_line_block_composed` -- so the descender relief's character
+    mapping (which keys on ``f"{marker_text} {plain_text}"``) and the
+    intra-chunk glyph sweep stay exact.
+
+    Args:
+        marker_block: The rendered marker block (baseline ``y = 0``).
+        marker_glyphs: The marker's per-glyph stroke partition.
+        marker_words: The marker's per-word partition, or ``None``.
+        text_block: The rendered text block (baseline ``y = 0``).
+        text_glyphs: The text's per-glyph stroke partition.
+        text_words: The text's per-word partition, or ``None``.
+        marker_text: The marker's markup-free text (names its word group).
+        indent_left: The text column in inches (marker column + gap).
+
+    Returns:
+        ``(composed_block, composed_glyph_groups, composed_word_groups)``.
+    """
+    offset = len(marker_block.strokes)
+    composed = TextBlock(
+        strokes=tuple(marker_block.strokes) + tuple(text_block.translate(indent_left, 0.0).strokes)
+    )
+    glyph_groups = marker_glyphs + tuple(
+        tuple(index + offset for index in group) for group in text_glyphs
+    )
+    word_groups: Optional[List[Tuple[str, List[int]]]] = None
+    if marker_words is not None or text_words is not None:
+        word_groups = list(marker_words or [(marker_text, list(range(offset)))])
+        word_groups.extend(
+            (word, [index + offset for index in indices]) for word, indices in (text_words or [])
+        )
+    return composed, glyph_groups, word_groups
+
+
+def _composed_stroke_cutters(
+    marker_line: ResolvedTextLine,
+    marker_block: TextBlock,
+    marker_glyphs: Tuple[Tuple[int, ...], ...],
+    text_line: ResolvedTextLine,
+    text_block: TextBlock,
+    text_glyphs: Tuple[Tuple[int, ...], ...],
+) -> Tuple[float, ...]:
+    """Return the engraving cutter of every stroke of a composed marker line.
+
+    The marker and the text are separate renders, each with its own per-stroke
+    cutter map (see :func:`_stroke_cutter_map`); the composed block's strokes
+    are the marker's followed by the text's, so the arrays concatenate. A
+    single-tool half (an empty map) is filled with that half's own line cutter,
+    keeping the array total-length exact -- the pen split then routes the
+    marker's strokes to the marker's tool and the text's to the text's.
+
+    Args:
+        marker_line: The marker-only render clone.
+        marker_block: The rendered marker block.
+        marker_glyphs: The marker's per-glyph stroke partition.
+        text_line: The resolved list line (its text half).
+        text_block: The rendered text block.
+        text_glyphs: The text's per-glyph stroke partition.
+
+    Returns:
+        One cutter diameter per stroke of the composed block, in stroke order.
+    """
+    marker_map = _stroke_cutter_map(marker_line, marker_block, marker_glyphs)
+    text_map = _stroke_cutter_map(text_line, text_block, text_glyphs)
+    marker_array = marker_map or (marker_line.cutter_diameter,) * len(marker_block.strokes)
+    text_array = text_map or (text_line.cutter_diameter,) * len(text_block.strokes)
+    return tuple(marker_array) + tuple(text_array)
+
+
 def _glyph_chars(text: str) -> List[str]:
     """Return the characters a rendered line's glyph partition covers.
 
@@ -4103,6 +4252,7 @@ def _apply_descender_relief(
     use_baseline: bool,
     center_by_band: bool = False,
     by_content: bool = True,
+    texts: Optional[Sequence[str]] = None,
 ) -> _DescenderRelief:
     """Relieve descending glyphs that come close to the glyph below them.
 
@@ -4152,12 +4302,21 @@ def _apply_descender_relief(
             ``-height/2``, so the frame must agree for the border measurement).
         by_content: Band top from the measured ascender (``True``) or the cap
             height (``False``).
+        texts: Optional per-line display text, parallel to ``blocks`` (the
+            composed ``"marker text"`` of a list line, so the per-glyph
+            partition names match the block's strokes). ``None`` reads each
+            line's own ``plain_text`` (the historical behaviour).
 
     Returns:
         A :class:`_DescenderRelief` carrying the adjusted blocks, spacings and
         geometry, the applied reliefs, and the per-gap residual shortfalls.
     """
     original = list(blocks)
+    display_texts: Sequence[str] = (
+        texts
+        if texts is not None
+        else [label.content[line_index].plain_text for line_index in line_indices]
+    )
     current_spacings = [max(0.0, float(s)) for s in spacings]
     geometry = _local_line_extents(original, pitch_basis)
     # Feature gate: disabled labels engrave descenders exactly as rendered.
@@ -4219,8 +4378,8 @@ def _apply_descender_relief(
     # ``_apply_glyph_ramps`` rebuilds from, so the reported scale/raise match
     # the geometry actually emitted.
     original_boxes: List[List[GlyphBox]] = [
-        _glyph_boxes(block, groups, label.content[line_index].plain_text)
-        for block, groups, line_index in zip(original, glyph_groups_by_line, line_indices)
+        _glyph_boxes(block, groups, text)
+        for block, groups, text in zip(original, glyph_groups_by_line, display_texts)
     ]
 
     def measure(
@@ -4273,11 +4432,11 @@ def _apply_descender_relief(
         """Build the stacked-frame glyph boxes of one set of line blocks."""
         return [
             _shifted_boxes(
-                _glyph_boxes(block, groups, label.content[line_index].plain_text),
+                _glyph_boxes(block, groups, text),
                 baselines[index],
             )
-            for index, (block, groups, line_index) in enumerate(
-                zip(blocks, glyph_groups_by_line, line_indices)
+            for index, (block, groups, text) in enumerate(
+                zip(blocks, glyph_groups_by_line, display_texts)
             )
         ]
 
@@ -4509,7 +4668,7 @@ def _apply_descender_relief(
             rebuilt, _applied = _apply_glyph_ramps(
                 block,
                 glyph_groups_by_line[index],
-                label.content[line_indices[index]].plain_text,
+                display_texts[index],
                 per_glyph,
                 label.descending_character_v_scale,
                 label.descending_character_raise,
@@ -4591,8 +4750,8 @@ def _apply_descender_relief(
             by_content=by_content,
         )
     final_boxes: List[List[GlyphBox]] = [
-        _glyph_boxes(block, groups, label.content[line_index].plain_text)
-        for block, groups, line_index in zip(current_blocks, glyph_groups_by_line, line_indices)
+        _glyph_boxes(block, groups, text)
+        for block, groups, text in zip(current_blocks, glyph_groups_by_line, display_texts)
     ]
     stacked_boxes = [
         _shifted_boxes(boxes, baselines[index]) for index, boxes in enumerate(final_boxes)
@@ -5005,20 +5164,7 @@ def _render_positioned_lines(
     # unrenderable lines don't misalign spacing between real lines. The
     # original ``content`` index is preserved so collision reports can name
     # the offending line even when earlier lines were unrenderable.
-    rendered_lines: list[
-        Tuple[
-            int,
-            TextBlock,
-            float,
-            float,
-            float,
-            str,
-            Optional[List[Tuple[str, List[int]]]],
-            float,
-            Tuple[Tuple[int, ...], ...],
-            Tuple[float, ...],
-        ]
-    ] = []
+    rendered_lines: List[_RenderedLine] = []
     total_rendered_height = 0.0
     # Per-line baseline geometry, parallel to ``rendered_lines``: one
     # ``(pitch_basis, ascender, descender)`` triple per rendered line, in
@@ -5065,6 +5211,56 @@ def _render_positioned_lines(
                 )
                 line_block_cache[cache_key] = (block, stored_words, glyph_groups)
 
+        # List marker composition: the marker is a SEPARATE render element
+        # (the item's text stays pure, so the reflow pre-pass can never move a
+        # bullet), placed left of the text at the line's hanging-indent
+        # column. The composed block carries the marker's + the text's glyph
+        # and word partitions, and the composed text ("marker text") names
+        # them for the descender relief -- exactly the shape a cross-family
+        # composed line already produces.
+        composed_text = line.plain_text
+        stroke_cutters: Tuple[float, ...] = ()
+        if line.marker_text:
+            marker_line = _marker_line_clone(line)
+            try:
+                marker_block, marker_words, marker_glyphs = _render_line_block(
+                    marker_line, chunk_mode, check_glyph_coverage=check_glyph_coverage
+                )
+            except (PltFontRenderError, FtextRenderError) as exc:
+                raise LabelRenderError(
+                    f"Label {label.id}: text line {line_index} marker "
+                    f"{line.marker_text!r} cannot be rendered: {exc}"
+                ) from exc
+            if not marker_block.is_empty():
+                # The list-layout pre-pass sets ``indent_left`` (the widest
+                # marker of the list + the cascaded gap) so continuation lines
+                # share the column. A marker line rendered WITHOUT the
+                # pre-pass (a direct render_label_to_plt call, a probe) still
+                # needs its own text column: the marker's measured width plus
+                # the line's own gap is the floor, so the marker and text
+                # never overlap.
+                marker_bounds = marker_block.bounds()
+                marker_width = (marker_bounds[2] - marker_bounds[0]) if marker_bounds else 0.0
+                min_indent = marker_width + line.list_marker_gap_fraction * (
+                    line.toolpath_text_height
+                )
+                indent = max(line.indent_left, min_indent)
+                text_glyphs = glyph_groups
+                stroke_cutters = _composed_stroke_cutters(
+                    marker_line, marker_block, marker_glyphs, line, block, text_glyphs
+                )
+                block, glyph_groups, word_groups = _compose_marker_block(
+                    marker_block,
+                    marker_glyphs,
+                    marker_words,
+                    block,
+                    text_glyphs,
+                    word_groups,
+                    marker_line.plain_text,
+                    indent,
+                )
+                composed_text = f"{marker_line.plain_text} {line.plain_text}"
+
         if block.is_empty():
             continue
 
@@ -5088,17 +5284,22 @@ def _render_positioned_lines(
         rendered_height = bounds[3] - bounds[1]
 
         rendered_lines.append(
-            (
-                line_index,
-                block,
-                rendered_height,
-                line.line_spacing,
-                line.max_h_compress,
-                line.text_h_alignment,
-                word_groups,
-                compression_scale,
-                glyph_groups,
-                _stroke_cutter_map(line, block, glyph_groups),
+            _RenderedLine(
+                line_index=line_index,
+                block=block,
+                rendered_height=rendered_height,
+                line_spacing=line.line_spacing,
+                max_h_compress=line.max_h_compress,
+                text_h_alignment=line.text_h_alignment,
+                word_groups=word_groups,
+                collision_scale=compression_scale,
+                glyph_groups=glyph_groups,
+                stroke_cutters=stroke_cutters
+                if line.marker_text
+                else _stroke_cutter_map(line, block, glyph_groups),
+                display_text=composed_text,
+                indent_left=line.indent_left,
+                align_group_id=line.align_group_id,
             )
         )
         baseline_geometry.append(
@@ -5116,12 +5317,7 @@ def _render_positioned_lines(
     # Add line spacing between lines (not after the last line). Margin
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
-    spacings = [
-        line_spacing
-        for (_idx, _lc, _height, line_spacing, _mhc, _align, _wg, _cs, _gg, _bs) in rendered_lines[
-            :-1
-        ]
-    ]
+    spacings = [rendered.line_spacing for rendered in rendered_lines[:-1]]
     # Vertical margin applies as-is; no cutter compensation needed since the
     # margin is user-specified and text already accounts for per-line cutter diameter
     # via horizontal compensation.
@@ -5153,21 +5349,7 @@ def _render_positioned_lines(
         )
     else:
         adjusted_spacings = fit_line_spacing_to_margins(
-            [
-                height
-                for (
-                    _idx,
-                    _lc,
-                    height,
-                    _spacing,
-                    _mhc,
-                    _align,
-                    _wg,
-                    _cs,
-                    _gg,
-                    _bs,
-                ) in rendered_lines
-            ],
+            [rendered.rendered_height for rendered in rendered_lines],
             spacings,
             available_height,
         )
@@ -5191,22 +5373,24 @@ def _render_positioned_lines(
     x_word_groups: List[Optional[List[Tuple[str, List[int]]]]] = []
     x_glyph_groups: List[Tuple[Tuple[int, ...], ...]] = []
     x_stroke_cutters: List[Tuple[float, ...]] = []
+    x_display_texts: List[str] = []
     effective_scales: List[float] = []
-    for (
-        line_index,
-        block,
-        _rendered_height,
-        _line_spacing,
-        max_h_compress,
-        text_h_alignment,
-        word_groups,
-        collision_scale,
-        glyph_groups,
-        stroke_cutters,
-    ) in rendered_lines:
+
+    # ---- Pass A: per-line compression (bounded by the line's text budget) ----
+    # The list group alignment in pass C needs the compressed widths of every
+    # group line, so compression and alignment are separate passes.
+    # ``offset`` is the space the line's own block does NOT carry: a marker
+    # line's composed block already includes the marker column (its left edge
+    # IS the marker), so its offset is 0.0; a continuation line is pure text
+    # that pass C places at the indent column, so its budget shrinks by that
+    # column and its total extent is ``width + offset``.
+    compressed_lines: List[Tuple[_RenderedLine, TextBlock, float, float]] = []
+    for rendered in rendered_lines:
+        block = rendered.block
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
+        line_index = rendered.line_index
         line = label.content[line_index]
         pre_margin_width = bounds[2] - bounds[0]
 
@@ -5217,7 +5401,8 @@ def _render_positioned_lines(
         # has consistent visual margin from the border.
         cutter_margin_h = h_margin + (line.cutter_diameter / 2.0)
         compression_available_width = inner_width - (2 * cutter_margin_h)
-        alignment_available_width = inner_width - (2 * h_margin)
+        offset = 0.0 if line.marker_text else rendered.indent_left
+        compression_available_width -= offset
 
         # Per-label shared compression (``h_compress_global``): the export
         # pre-pass measured this line's group scale. The effective scale is
@@ -5228,15 +5413,15 @@ def _render_positioned_lines(
         # shared scale to this line's own ``1 - max_h_compress`` floor, so the
         # budget is respected by construction.
         global_scale = label.global_compress_by_line.get(line_index, 1.0)
-        if global_scale < 1.0 and collision_scale > 0.0:
+        if global_scale < 1.0 and rendered.collision_scale > 0.0:
             compression_available_width = min(
                 compression_available_width,
-                (global_scale / collision_scale) * pre_margin_width,
+                (global_scale / rendered.collision_scale) * pre_margin_width,
             )
         block = compress_line_to_width(
             block,
             compression_available_width,
-            max_h_compress,
+            rendered.max_h_compress,
             label.id,
             line_text=line.plain_text,
             preserve_arcs=line.arc_preserve_compression,
@@ -5244,8 +5429,7 @@ def _render_positioned_lines(
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
             continue
-        min_x, _min_y, max_x, _max_y = bounds
-        rendered_width = max_x - min_x
+        rendered_width = bounds[2] - bounds[0]
 
         # Effective per-line horizontal scale, recorded for reporting: the
         # collision-avoidance scale (applied in the first pass) times the
@@ -5253,24 +5437,61 @@ def _render_positioned_lines(
         # width ratio is exactly the applied margin scale (1.0 when the line
         # already fit or compression was disabled).
         margin_scale = rendered_width / pre_margin_width if pre_margin_width > 0.0 else 1.0
+        compressed_lines.append((rendered, block, rendered_width, offset))
+        effective_scales.append(rendered.collision_scale * margin_scale)
 
-        # Horizontal alignment within the available width: "left" anchors
-        # the line's left-most point at the left margin, "right" anchors the
-        # right-most point at the right margin, "center" centers it (plus any
-        # hole-aware shift).
-        target_left_x = compute_horizontal_offset(
-            rendered_width,
-            alignment_available_width,
-            h_margin,
-            text_h_alignment,
-            hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
-        )
+    if not compressed_lines:
+        return []
+
+    # ---- Pass B: list block alignment widths ----
+    # A list block aligns as ONE unit: the group's alignment width is the
+    # widest total extent among its lines (marker column + text), so the
+    # marker column stays flush under center alignment and every continuation
+    # line hangs at the item's text column.
+    group_widths: Dict[int, float] = {}
+    group_alignment: Dict[int, str] = {}
+    for rendered, _block, rendered_width, offset in compressed_lines:
+        group = rendered.align_group_id
+        if group < 0:
+            continue
+        total_width = rendered_width + offset
+        if group not in group_widths or total_width > group_widths[group]:
+            group_widths[group] = total_width
+            group_alignment[group] = rendered.text_h_alignment
+
+    # ---- Pass C: horizontal alignment + translate ----
+    alignment_available_full = inner_width - (2 * h_margin)
+    for rendered, block, rendered_width, offset in compressed_lines:
+        bounds = block.bounds()
+        if bounds is None:  # pragma: no cover - measured in pass A
+            continue
+        min_x = bounds[0]
+        group = rendered.align_group_id
+        if group >= 0:
+            # The whole group shares one left edge; this line rides its own
+            # indent column inside the group.
+            group_left = compute_horizontal_offset(
+                group_widths[group],
+                alignment_available_full,
+                h_margin,
+                group_alignment[group],
+                hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
+            )
+            target_left_x = group_left + offset
+        else:
+            target_left_x = compute_horizontal_offset(
+                rendered_width,
+                alignment_available_full - offset,
+                h_margin,
+                rendered.text_h_alignment,
+                hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
+            )
         x_blocks.append(block.translate(target_left_x - min_x, 0.0))
-        x_line_indices.append(line_index)
-        x_word_groups.append(word_groups)
-        x_glyph_groups.append(glyph_groups)
-        x_stroke_cutters.append(stroke_cutters)
-        effective_scales.append(collision_scale * margin_scale)
+        x_line_indices.append(rendered.line_index)
+        x_word_groups.append(rendered.word_groups)
+        x_glyph_groups.append(rendered.glyph_groups)
+        x_stroke_cutters.append(rendered.stroke_cutters)
+        x_display_texts.append(rendered.display_text)
 
     if not x_blocks:
         return []
@@ -5292,6 +5513,7 @@ def _render_positioned_lines(
         use_baseline=use_baseline,
         center_by_band=center_by_band,
         by_content=by_content,
+        texts=x_display_texts,
     )
     if relief.fixes:
         _log_descender_fixes(label, relief.fixes)
@@ -5412,7 +5634,7 @@ def _render_positioned_lines(
                 block,
                 _LineEntry(
                     line_index=line_index,
-                    line_text=label.content[line_index].plain_text,
+                    line_text=x_display_texts[i],
                     bounds=(min_x, min_y + y_offset, max_x, max_y + y_offset),
                     compression_scale=effective_scales[i],
                     line_spacing=reported_spacing,

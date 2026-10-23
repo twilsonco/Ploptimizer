@@ -1351,3 +1351,145 @@ class TestKernAwareReflow:
         assert result is not None
         for line in result.content:
             assert line.kern_values in ((), (0,) * len(line.plain_text))
+
+
+def _list_line(
+    text: str = "AAA BBB",
+    *,
+    marker: str = "-",
+    group: int = 0,
+    indent: float = 0.3,
+    enabled: bool = True,
+    max_lines: int | None = None,
+    nominal: float = 0.5,
+    cutter: float = 0.06,
+) -> ResolvedTextLine:
+    """Build a resolved list-item line for the growth tests."""
+    return ResolvedTextLine(
+        text=text,
+        nominal_text_height=nominal,
+        toolpath_text_height=nominal - cutter,
+        cutter_diameter=cutter,
+        character_spacing=0.09,
+        line_spacing=0.1,
+        optimize_line_content=enabled,
+        optimize_line_content_max_lines=max_lines,
+        marker_text=marker,
+        align_group_id=group,
+        list_item=True,
+        indent_left=indent,
+    )
+
+
+class TestListItemGrowth:
+    """A list item grows into a hanging-indent block on the WIDTH criterion."""
+
+    def test_fitting_item_stays_one_line(self) -> None:
+        """An item whose words fit the text budget is untouched."""
+        # budget = width 4.0 - 2*0.1 margin - 0.3 indent = 3.6in.
+        # "AAA BBB" = 7 chars * 0.1 + 1 space * 0.2 = 0.9in -- fits.
+        label = _label("m", _list_line("AAA BBB"))
+        assert _reflow_label(label, _char_probe()) is None
+
+    def test_wide_item_grows_to_fit(self) -> None:
+        """An over-wide item partitions into as many lines as it needs."""
+        # 30 chars + 5 spaces = 4.0in > 3.6in budget: one extra line fits it.
+        label = _label("m", _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF"))
+        result = _reflow_label(label, _char_probe())
+        assert result is not None
+        texts = [line.text for line in result.content]
+        assert len(texts) == 2
+        # Word order is preserved across the split.
+        assert " ".join(texts) == "AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF"
+
+    def test_growth_stops_at_the_first_fitting_line_count(self) -> None:
+        """The item grows only as far as the budget requires."""
+        # 6 words of 5 chars: 1 line = 4.0in, 2 lines = ~2.1in (fits 3.6).
+        label = _label("m", _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF"))
+        result = _reflow_label(label, _char_probe())
+        assert result is not None
+        assert len(result.content) == 2
+
+    def test_cap_limits_the_growth(self) -> None:
+        """optimize_line_content_max_lines ceilings the item's line count."""
+        # Needs 3 lines to fit; the cap stops it at 2 (the widest layout wins).
+        label = _label(
+            "m",
+            _list_line(
+                "AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF GGGGG HHHHH IIIII",
+                max_lines=2,
+            ),
+        )
+        result = _reflow_label(label, _char_probe())
+        assert result is not None
+        assert len(result.content) == 2
+
+    def test_continuation_lines_carry_no_marker(self) -> None:
+        """The bullet/counter rides the item's FIRST line only."""
+        label = _label("m", _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF"))
+        result = _reflow_label(label, _char_probe())
+        assert result is not None
+        markers = [line.marker_text for line in result.content]
+        assert markers[0] == "-"
+        assert all(marker == "" for marker in markers[1:])
+
+    def test_continuation_lines_keep_the_group_and_indent(self) -> None:
+        """A grown line continues its item: same group, same indent column."""
+        label = _label("m", _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF"))
+        result = _reflow_label(label, _char_probe())
+        assert result is not None
+        for line in result.content:
+            assert line.align_group_id == 0
+            assert line.indent_left == 0.3
+            assert line.list_item is True
+            assert line.new_line is False
+
+    def test_indent_shrinks_the_budget(self) -> None:
+        """A deeper marker column forces an extra line at the same text."""
+        # 4 words of 5 chars: 2.0in + 3 spaces * 0.3in = 2.9in natural width.
+        text = "AAAAA BBBBB CCCCC DDDDD"
+        # Shallow indent: budget 4.0 - 0.2 - 0.3 = 3.5in -- the text fits.
+        shallow = _label("m", _list_line(text, indent=0.3))
+        assert _reflow_label(shallow, _char_probe()) is None
+        # Deep indent: budget 4.0 - 0.2 - 1.2 = 2.6in -- the text must split.
+        deep = _label("m", _list_line(text, indent=1.2))
+        result = _reflow_label(deep, _char_probe())
+        assert result is not None
+        assert len(result.content) == 2
+
+    def test_growth_needs_no_compression_budget(self) -> None:
+        """The width criterion works with max_h_compress == 0 (no ScaleProbe)."""
+        label = _label("m", _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF"))
+        # No scale_probe passed at all: the growth loop never renders one.
+        result = _reflow_label(label, _char_probe(), scale_probe=None)
+        assert result is not None
+        assert len(result.content) == 2
+
+    def test_items_never_exchange_words(self) -> None:
+        """One item's words never move onto its sibling's lines."""
+        label = _label(
+            "m",
+            _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF", group=0),
+            _list_line("XXXXX YYYYY", group=0),
+        )
+        result = _reflow_label(label, _char_probe())
+        assert result is not None
+        first_words = set(result.content[0].text.split() + result.content[1].text.split())
+        assert first_words == {"AAAAA", "BBBBB", "CCCCC", "DDDDD", "EEEEE", "FFFFF"}
+
+    def test_single_word_item_never_grows(self) -> None:
+        """A one-word item cannot split (every line keeps at least one word)."""
+        label = _label("m", _list_line("AAAAAAAAAAAAAAAAAAAA", indent=3.7))
+        assert _reflow_label(label, _char_probe()) is None
+
+    def test_disabled_item_is_inert(self) -> None:
+        """An item opting out of reflow keeps its authored single line."""
+        label = _label("m", _list_line("AAAAA BBBBB CCCCC DDDDD EEEEE", enabled=False))
+        assert _reflow_label(label, _char_probe()) is None
+
+    def test_plain_group_untouched_by_the_list_rules(self) -> None:
+        """A plain (non-list) group keeps the historical compression criterion."""
+        # No budget (max_h_compress 0) and no cap: the plain group is a no-op
+        # even though its text is over-wide -- only list items grow on width.
+        label = _label("m", _line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF", max_lines=None))
+        assert _reflow_label(label, _char_probe()) is None

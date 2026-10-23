@@ -28,7 +28,7 @@ import math
 import uuid
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
-from typing import Callable, List, Optional, Sequence, Tuple, Union
+from typing import Callable, List, Optional, Sequence, Tuple, TypeVar, Union
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.font_registry import (
@@ -36,6 +36,7 @@ from plt_optimizer.generate.font_registry import (
     plt_font_stroke_count,
     resolve_font,
 )
+from plt_optimizer.generate.list_counter import format_counter
 from plt_optimizer.generate.markup import (
     MarkupError,
     Run,
@@ -43,7 +44,16 @@ from plt_optimizer.generate.markup import (
     parse_markup,
     split_brackets,
 )
-from plt_optimizer.generate.schema import JobSpec, LabelShape, LabelSpec
+from plt_optimizer.generate.schema import (
+    ContentEntry,
+    CounterStyle,
+    JobSpec,
+    LabelShape,
+    LabelSpec,
+    ListAttributes,
+    TextAttributes,
+    TextLine,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +68,10 @@ logger = logging.getLogger(__name__)
 # everywhere) keeps the historical nominal-height spacing math and costs no
 # renders.
 LineExtentsProbe = Callable[["ResolvedTextLine"], tuple[float, float]]
+
+# Type var of the list-settings cascade: every tier of one setting shares its
+# type, so the resolver returns the tier type (never ``object``).
+_T = TypeVar("_T")
 
 
 def memoize_extents_probe(probe: LineExtentsProbe) -> LineExtentsProbe:
@@ -443,6 +457,27 @@ DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
 # never clamped. Consumed by both renderers (PLT ``_walk_line``, TTF
 # ``render_text_line_ftext``).
 DEFAULT_ENFORCE_CAP_LINE: bool = True
+# Bullet-list marker used when ``bullet_string`` is unset at every tier. The
+# derived bullet glyph (``fonts/glyph_transforms.py``), engraved by every PLT
+# catalog font except the symbol fonts. Cascades item -> list block -> label
+# -> job -> job-config.json; an explicit empty string engraves no marker.
+DEFAULT_BULLET_STRING: str = "•"
+# First counter value of an enumerate list when ``counter_start_index`` is
+# unset at every tier.
+DEFAULT_COUNTER_START_INDEX: int = 1
+# Counter style of an enumerate list when ``counter_style`` is unset at every
+# tier (the ``decimal`` value of ``schema.CounterStyle``).
+DEFAULT_COUNTER_STYLE: str = "decimal"
+# String prepended to each enumerate counter when ``counter_prefix`` is unset
+# at every tier (empty = no prefix).
+DEFAULT_COUNTER_PREFIX: str = ""
+# String appended to each enumerate counter when ``counter_suffix`` is unset
+# at every tier (empty = no suffix).
+DEFAULT_COUNTER_SUFFIX: str = ""
+# Gap between a list marker and its text, as a fraction of the line's
+# rendered cap height, when ``list_marker_gap_fraction`` is unset at every
+# tier. The marker column is the widest marker of the list plus this gap.
+DEFAULT_LIST_MARKER_GAP_FRACTION: float = 0.5
 # Baseline-to-baseline line spacing. ``True`` (the default) stacks a label's
 # text lines by baseline pitch (``nominal_text_height + line_spacing``) so a
 # line's descenders hang *into* the gap below it and every gap on the label
@@ -1352,6 +1387,11 @@ class ResolvedTextLine:
     optimize_line_content_max_lines: Optional[int] = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
     new_line: bool = False
     enforce_cap_line: bool = DEFAULT_ENFORCE_CAP_LINE
+    marker_text: str = ""
+    align_group_id: int = -1
+    list_item: bool = False
+    indent_left: float = 0.0
+    list_marker_gap_fraction: float = DEFAULT_LIST_MARKER_GAP_FRACTION
 
     def __post_init__(self) -> None:
         """Default :attr:`plain_text` to :attr:`text` (markup-free fast path).
@@ -3308,6 +3348,11 @@ def reflow_groups(content: Sequence[ResolvedTextLine]) -> list[list[int]]:
     line starts a fresh group: the lines that follow it (which do not carry
     the flag) then reflow with it instead of with the lines above it.
 
+    A list item (``list_item``) is its **own** group: the run breaks both
+    before and after it, so an item's words never cross into the neighbouring
+    item or into a plain line -- each item reflows (and grows) as its own
+    paragraph. An item that does not enable reflow forms no group at all.
+
     This is the single source of truth for group membership: the resolution
     post-pass (the ``optimize_line_content_max_lines`` fan-out) and the export
     pre-pass (:mod:`plt_optimizer.generate.line_content`) must agree on the
@@ -3325,6 +3370,14 @@ def reflow_groups(content: Sequence[ResolvedTextLine]) -> list[list[int]]:
     groups: list[list[int]] = []
     current: list[int] = []
     for index, line in enumerate(content):
+        if line.list_item:
+            # An item closes the run above it and never joins the run below.
+            if current:
+                groups.append(current)
+                current = []
+            if line.optimize_line_content:
+                groups.append([index])
+            continue
         if line.optimize_line_content:
             if line.new_line and current:
                 # A new_line line starts a fresh group: close the run above.
@@ -3959,6 +4012,183 @@ def _validate_kern_markers(
             )
 
 
+def _cascade_list_setting(*tiers: Optional[_T], fallback: _T) -> _T:
+    """Return the first set (non-``None``) value in a list-settings cascade.
+
+    The list-level marker settings cascade item -> list block -> label -> job
+    -> code fallback, using the repo's explicit-``None`` precedence (an
+    intentional ``0``/``""``/``False`` is honored, only ``None`` means unset).
+
+    Args:
+        *tiers: The cascade values, most specific first.
+        fallback: The code fallback used when every tier is ``None``.
+
+    Returns:
+        The first non-``None`` tier, else ``fallback``.
+    """
+    for tier in tiers:
+        if tier is not None:
+            return tier
+    return fallback
+
+
+def _list_marker_text(
+    block: ListAttributes,
+    item: TextLine,
+    label_input: LabelSpec | JobSpec,
+    job: JobSpec,
+    position: int,
+    is_enumerate: bool,
+) -> str:
+    """Resolve one list item's marker text (bullet string or counter).
+
+    A bullet item engraves the resolved ``bullet_string`` (an explicit empty
+    string yields no marker -- an indent-only list). An enumerated item
+    engraves ``prefix + format_counter(start_index + position, style) +
+    suffix``, every setting cascading item -> block -> label -> job ->
+    fallback. The counter is always computed, so an enumerated item's own
+    ``bullet_string`` is inert.
+
+    Args:
+        block: The list block owning the item (carries its own settings).
+        item: The item whose marker to resolve.
+        label_input: The label (or root job) providing the label tier.
+        job: The outer job providing the job tier.
+        position: The item's zero-based index in the block.
+        is_enumerate: True for an enumerate block (computed counter), False
+            for an itemize block (bullet string).
+
+    Returns:
+        The marker text (empty for an indent-only bullet list).
+    """
+    if not is_enumerate:
+        bullet = _cascade_list_setting(
+            item.bullet_string,
+            block.bullet_string,
+            label_input.bullet_string,
+            job.bullet_string,
+            fallback=DEFAULT_BULLET_STRING,
+        )
+        return str(bullet)
+    start = int(
+        _cascade_list_setting(
+            item.counter_start_index,
+            block.counter_start_index,
+            label_input.counter_start_index,
+            job.counter_start_index,
+            fallback=DEFAULT_COUNTER_START_INDEX,
+        )
+    )
+    style_value = _cascade_list_setting(
+        item.counter_style,
+        block.counter_style,
+        label_input.counter_style,
+        job.counter_style,
+        fallback=DEFAULT_COUNTER_STYLE,
+    )
+    style = style_value if isinstance(style_value, CounterStyle) else CounterStyle(str(style_value))
+    prefix = str(
+        _cascade_list_setting(
+            item.counter_prefix,
+            block.counter_prefix,
+            label_input.counter_prefix,
+            job.counter_prefix,
+            fallback=DEFAULT_COUNTER_PREFIX,
+        )
+    )
+    suffix = str(
+        _cascade_list_setting(
+            item.counter_suffix,
+            block.counter_suffix,
+            label_input.counter_suffix,
+            job.counter_suffix,
+            fallback=DEFAULT_COUNTER_SUFFIX,
+        )
+    )
+    return prefix + format_counter(start + position, style) + suffix
+
+
+def _merge_item_with_block(item: TextLine, block: ListAttributes) -> TextLine:
+    """Merge a list item's model with its block's cascading attributes.
+
+    Every :class:`~plt_optimizer.generate.schema.TextAttributes` field the
+    item leaves unset (``None``) is filled from the block, so the ordinary
+    line -> label -> job cascade downstream transparently sees the full
+    item -> block -> label -> job chain for every typographic field (height,
+    font, alignment, reflow permission, line cap, ...). The item's own
+    ``text`` is never touched; a block value fills only what the item omits
+    (an explicit item value always wins).
+
+    Args:
+        item: The item's model (most specific tier).
+        block: The list block owning the item.
+
+    Returns:
+        The item (same object when the block fills nothing).
+    """
+    updates: dict[str, object] = {}
+    for name in TextAttributes.model_fields:
+        if getattr(item, name) is None:
+            block_value = getattr(block, name)
+            if block_value is not None:
+                updates[name] = block_value
+    if not updates:
+        return item
+    return item.model_copy(update=updates)
+
+
+def _flatten_content(
+    content: Sequence[ContentEntry],
+    label_input: LabelSpec | JobSpec,
+    job: JobSpec,
+) -> list[tuple[TextLine, str, int, bool, float]]:
+    """Expand a label's content entries into one record per rendered line.
+
+    A plain entry yields its own model with no marker. A list block yields one
+    record per item, each carrying its resolved marker text, a fresh
+    ``align_group_id`` shared by every line of the block (so the renderer
+    aligns the whole list as one block with one flush marker column), and the
+    ``list_item`` flag (which makes the reflow group per item). The item
+    model is merged with the block first (see :func:`_merge_item_with_block`),
+    so the ordinary line -> label -> job cascade inside ``_resolve_content``
+    transparently sees item -> block -> label -> job for every cascading
+    typographic field.
+
+    Args:
+        content: The label's content entries (plain lines and list blocks).
+        label_input: The label (or root job) providing the list cascade tiers.
+        job: The outer job providing the job cascade tier.
+
+    Returns:
+        ``(line_model, marker_text, align_group_id, list_item,
+        marker_gap_fraction)`` per line, in content order. Plain lines get
+        ``(-1, False)`` group/flag values and the default gap fraction.
+    """
+    flattened: list[tuple[TextLine, str, int, bool, float]] = []
+    group_id = 0
+    for entry in content:
+        if entry.itemize is None and entry.enumerate is None:
+            assert entry.text is not None, "plain content entry must carry text"
+            flattened.append((entry, "", -1, False, DEFAULT_LIST_MARKER_GAP_FRACTION))
+            continue
+        block = entry.itemize if entry.itemize is not None else entry.enumerate
+        assert block is not None, "a list entry carries exactly one block"
+        is_enumerate = entry.enumerate is not None
+        gap = float(
+            _cascade_list_setting(
+                block.list_marker_gap_fraction,
+                label_input.list_marker_gap_fraction,
+                job.list_marker_gap_fraction,
+                fallback=DEFAULT_LIST_MARKER_GAP_FRACTION,
+            )
+        )
+        for position, item in enumerate(block.items):
+            marker = _list_marker_text(block, item, label_input, job, position, is_enumerate)
+            flattened.append((_merge_item_with_block(item, block), marker, group_id, True, gap))
+        group_id += 1
+    return flattened
+
+
 def _resolve_content(
     label_input: LabelSpec | JobSpec,
     job: JobSpec,
@@ -4014,7 +4244,10 @@ def _resolve_content(
     resolved_content: list[ResolvedTextLine] = []
     content = label_input.content
     assert content is not None, "label_input.content must not be None"
-    for line_index, line in enumerate(content):
+    flat_content = _flatten_content(content, label_input, job)
+    for line_index, (line, marker_text, align_group_id, list_item, marker_gap) in enumerate(
+        flat_content
+    ):
         # Resolve nominal height through the inheritance cascade
         nominal_height = (
             line.text_height or label_input.text_height or job.text_height or DEFAULT_TEXT_HEIGHT
@@ -4709,6 +4942,10 @@ def _resolve_content(
                 optimize_line_content_max_lines=line_max_lines,
                 new_line=line.new_line,
                 enforce_cap_line=line_enforce_cap_line,
+                marker_text=marker_text,
+                align_group_id=align_group_id,
+                list_item=list_item,
+                list_marker_gap_fraction=marker_gap,
             )
         )
     return _apply_reflow_line_caps(resolved_content, label_id)

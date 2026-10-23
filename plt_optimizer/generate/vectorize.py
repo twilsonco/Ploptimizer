@@ -878,6 +878,17 @@ def export_per_cutter_plts(
     if provided_plates is not None and len(provided_plates) == 0:
         provided_plates = None
 
+    # List marker-column layout (pre-pass): every bullet/enumerated list line
+    # gains its hanging indent (the widest marker of its list plus the
+    # cascaded marker gap), measured through the same renderer dispatch the
+    # label render path uses. Runs FIRST, before the reflow below, so the
+    # reflow partitions an item's words against the text budget right of the
+    # marker column. No-op (same list) when no label contains a list.
+    from plt_optimizer.generate.list_layout import apply_list_marker_layout
+
+    with stage_timer("list_layout", _LOG, timings=stage_timings):
+        resolved_labels = apply_list_marker_layout(resolved_labels)
+
     # Word-level line-content reflow (pre-pass): consecutive text lines that
     # enable ``optimize_line_content`` exchange whole words (word order kept,
     # only the line breaks move) so their natural widths equalize, minimizing

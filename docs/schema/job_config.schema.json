@@ -1,5 +1,17 @@
 {
   "$defs": {
+    "CounterStyle": {
+      "description": "Enumeration of enumerated-list counter styles.\n\nThe style decides how an :class:`EnumerateBlock` renders the number of\neach of its items (see :func:`plt_optimizer.generate.list_counter.format_counter`).\n``decimal`` is the historical/plain numbering; the alpha styles count in\nletters (bijective base 26, so ``z`` is followed by ``aa``); the roman\nstyles count in Roman numerals.\n\nAttributes:\n    DECIMAL: Arabic numerals: 1, 2, 3, ...\n    LOWER_ALPHA: Lowercase letters: a, b, c, ..., z, aa, ab, ...\n    UPPER_ALPHA: Uppercase letters: A, B, C, ..., Z, AA, AB, ...\n    LOWER_ROMAN: Lowercase Roman numerals: i, ii, iii, iv, ...\n    UPPER_ROMAN: Uppercase Roman numerals: I, II, III, IV, ...",
+      "enum": [
+        "decimal",
+        "lower-alpha",
+        "upper-alpha",
+        "lower-roman",
+        "upper-roman"
+      ],
+      "title": "CounterStyle",
+      "type": "string"
+    },
     "HoleLocation": {
       "description": "Enumeration of valid hole locations on a label.\n\nBesides the eight atomic positions (four edges and four corners), two\ngroup shorthands are accepted for the most common drilling patterns:\n``corners`` (all four corner holes) and ``sides`` (the left and right\nedge holes). Groups are expanded into their atomic members at schema\nvalidation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream\nconsumers only ever see the eight atomic locations.\n\nAttributes:\n    left: Hole on the left edge.\n    right: Hole on the right edge.\n    top: Hole on the top edge.\n    bottom: Hole on the bottom edge.\n    top_left: Hole at the top-left corner.\n    top_right: Hole at the top-right corner.\n    bottom_left: Hole at the bottom-left corner.\n    bottom_right: Hole at the bottom-right corner.\n    corners: Group shorthand for all four corner holes.\n    sides: Group shorthand for the left and right edge holes.",
       "enum": [
@@ -841,6 +853,85 @@
       "default": null,
       "description": "Default alphanumeric cap-line clamping (job layer). When true, every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down so its top lands exactly on the capline (strictly pre-markup). Unset falls back to true.",
       "title": "Enforce Cap Line"
+    },
+    "bullet_string": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default bullet-list marker string (job layer; cascades item -> itemize block -> label -> job). Unset falls back to the bullet glyph '\u2022'.",
+      "title": "Bullet String"
+    },
+    "counter_start_index": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default starting counter value for enumerate lists (job layer; cascades item -> enumerate block -> label -> job). Unset falls back to 1.",
+      "title": "Counter Start Index"
+    },
+    "counter_style": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CounterStyle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default enumerate counter style (job layer; one of decimal, lower-alpha, upper-alpha, lower-roman, upper-roman). Unset falls back to decimal."
+    },
+    "counter_prefix": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default string prepended to each enumerate counter (job layer; e.g. 'Step ' for 'Step 1'). Unset falls back to '' (no prefix).",
+      "title": "Counter Prefix"
+    },
+    "counter_suffix": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default string appended to each enumerate counter (job layer; e.g. '.' for '1.'). Unset falls back to '' (no suffix).",
+      "title": "Counter Suffix"
+    },
+    "list_marker_gap_fraction": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default gap between a list marker and its text, as a fraction of the line's rendered cap height (job layer). Unset falls back to 0.5.",
+      "title": "List Marker Gap Fraction"
     },
     "hole_adjust_for_cutter": {
       "anyOf": [

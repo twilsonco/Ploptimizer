@@ -57,7 +57,13 @@ from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from plt_optimizer.generate.schema import HoleSpec, LabelShape, LayoutMode, TextHAlignment
+from plt_optimizer.generate.schema import (
+    CounterStyle,
+    HoleSpec,
+    LabelShape,
+    LayoutMode,
+    TextHAlignment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -741,6 +747,54 @@ class JobDefaults(BaseModel):
             "back to true."
         ),
     )
+    bullet_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default bullet-list marker string (job layer; cascades item -> "
+            "itemize block -> label -> job). Unset falls back to the bullet "
+            "glyph '\u2022'."
+        ),
+    )
+    counter_start_index: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Default starting counter value for enumerate lists (job layer; "
+            "cascades item -> enumerate block -> label -> job). Unset falls "
+            "back to 1."
+        ),
+    )
+    counter_style: Optional[CounterStyle] = Field(
+        default=None,
+        description=(
+            "Default enumerate counter style (job layer; one of decimal, "
+            "lower-alpha, upper-alpha, lower-roman, upper-roman). Unset "
+            "falls back to decimal."
+        ),
+    )
+    counter_prefix: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default string prepended to each enumerate counter (job layer; "
+            "e.g. 'Step ' for 'Step 1'). Unset falls back to '' (no prefix)."
+        ),
+    )
+    counter_suffix: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default string appended to each enumerate counter (job layer; "
+            "e.g. '.' for '1.'). Unset falls back to '' (no suffix)."
+        ),
+    )
+    list_marker_gap_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default gap between a list marker and its text, as a fraction "
+            "of the line's rendered cap height (job layer). Unset falls "
+            "back to 0.5."
+        ),
+    )
     hole_adjust_for_cutter: Optional[bool] = Field(
         default=None,
         description=(
@@ -898,6 +952,12 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "optimize_line_content",
     "optimize_line_content_max_lines",
     "enforce_cap_line",
+    "bullet_string",
+    "counter_start_index",
+    "counter_style",
+    "counter_prefix",
+    "counter_suffix",
+    "list_marker_gap_fraction",
     "use_baseline_spacing",
     "v_center_by_content",
     "auto_descending_character_adjustment",

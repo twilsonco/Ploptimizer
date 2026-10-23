@@ -1,5 +1,1408 @@
 {
   "$defs": {
+    "ContentEntry": {
+      "description": "One entry of a label's ``content`` list: a text line or a list block.\n\nA plain entry carries ``text`` (the historical :class:`TextLine` shape,\nso every existing spec validates unchanged). A list entry carries exactly\none of ``itemize`` / ``enumerate`` (and no ``text``), nesting the list\nblock's fields and items. The three slots are mutually exclusive.\n\nAttributes:\n    itemize: Optional bullet-list block (mutually exclusive with\n        ``text`` and ``enumerate``).\n    enumerate: Optional enumerated-list block (mutually exclusive with\n        ``text`` and ``itemize``).",
+      "properties": {
+        "text_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+          "title": "Text Height"
+        },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font name: a PLT-extracted font key (the font_name fields of fonts/VP-EL-fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline <f:font name>...</f> markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. <f:Dino+SC>).",
+          "title": "Font"
+        },
+        "character_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter).",
+          "title": "Character Spacing"
+        },
+        "line_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": "auto",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'.",
+          "title": "Line Spacing"
+        },
+        "max_h_compress": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+          "title": "Max H Compress"
+        },
+        "text_h_alignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextHAlignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horizontal text alignment: left, center, or right."
+        },
+        "min_hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance.",
+          "title": "Min Hole Margin"
+        },
+        "hole_text_collision_distance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
+          "title": "Hole Text Collision Distance"
+        },
+        "space_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored.",
+          "title": "Space Width Fraction"
+        },
+        "min_glyph_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Global minimum glyph advance width as a fraction of the rendered cap height (capline - baseline) for PLT-extracted fonts: clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored.",
+          "title": "Min Glyph Width Fraction"
+        },
+        "kerning_window_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
+          "title": "Kerning Window Fraction"
+        },
+        "kerning_penetration_scale": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on the profile-envelope penetration detected for PLT-extracted fonts: 1.0 keeps the geometric penetration, >1.0 over-kerns tight pairs proportionally. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored (ignores detected closeness entirely).",
+          "title": "Kerning Penetration Scale"
+        },
+        "kerning_recession_scale": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on a *recessed* (negative) profile-envelope penetration for PLT-extracted fonts: 1.0 keeps the geometric recession (the historical linear behaviour, where lowering kerning_penetration_scale also pulled gapped pairs closer), 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width_fraction floor. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored.",
+          "title": "Kerning Recession Scale"
+        },
+        "kerning_min_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air added to every kerned character pair advance (PLT-extracted fonts) as a fraction of the rendered cap height (capline - baseline), on top of the cutter diameter and character_spacing clearance. Cascades line -> label -> job (fallback 0.0 = no extra gap); explicit 0.0 is honored.",
+          "title": "Kerning Min Gap Fraction"
+        },
+        "fallback_advance_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on the bounding-box-width fallback advance used for PLT-extracted glyph pairs without overlapping height (or lacking envelopes). Cascades line -> label -> job (fallback 1.0 = the left glyph's own width); explicit 0.0 is honored.",
+          "title": "Fallback Advance Fraction"
+        },
+        "kern_pos_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of kern_width_fraction * cap height (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. '<->'); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. '<s>' with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; '<->' is a legal marker. Unset (None) disables the positive marker. Cascades line -> label -> job (job-config.json supplies the shop default); works on PLT and TTF fonts.",
+          "title": "Kern Pos String"
+        },
+        "kern_neg_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern negative marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a backward cursor shift of kern_width_fraction * cap height (capline - baseline) applied to the following character (no clamp, so a large value lets glyphs overlap). Same validation as kern_pos_string; the two strings must differ. Unset (None) disables the negative marker. Cascades line -> label -> job (job-config.json supplies the shop default); works on PLT and TTF fonts.",
+          "title": "Kern Neg String"
+        },
+        "kern_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern width as a fraction of the rendered cap height (capline - baseline): one kern_pos_string marker advances the cursor by +fraction * cap height, one kern_neg_string marker retreats it by -fraction * cap height (adjacent markers accumulate). Cascades line -> label -> job (fallback 0.1); explicit 0.0 is honored (markers consume their characters but shift nothing).",
+          "title": "Kern Width Fraction"
+        },
+        "sc_scale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Downscale applied to ASCII lowercase a-z by a small-caps font (a font name ending in ' SC', e.g. 'Dino SC'): the lowercase character renders as the base font's uppercase glyph uniformly shrunk to sc_scale of the cap height, top-down (the glyph's own bottom stays in place and its top descends). Uppercase and caseless characters engrave at full size; the nominal text_height is untouched (no cutter change). The same field drives the inline <sc> small-caps markup tag (the per-character selection); inert on a non-SC font carrying no <sc> run. Cascades line -> label -> job (fallback 0.7); explicit 0.2/1.0 are honored.",
+          "title": "Sc Scale"
+        },
+        "supersubscript_downscale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "title": "Supersubscript Downscale"
+        },
+        "html_brackets": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Delimiter pair for the inline markup syntax (<i> italic and future tags): an even-length string whose first half is the left delimiter and second half the right delimiter ('<>' -> '<' + '>', '<<>>' -> '<<' + '>>'). The halves must differ and contain no alphanumeric characters or newlines. A bracketed body that is not a registered tag engraves verbatim, so choosing a pair absent from the data keeps chevrons from being read as markup. Cascades line -> label -> job (fallback '<>'); the slash is only special inside the delimiters.",
+          "title": "Html Brackets"
+        },
+        "italic_angle": {
+          "anyOf": [
+            {
+              "maximum": 45.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Slant angle in degrees for italic markup (<i>): PLT-extracted glyphs (and TTF glyphs with no native italic face) are sheared about the baseline, x' = x + y * tan(angle), so the baseline stays fixed and the glyph leans right. Bound to [0, 45]; 0 means upright (the shear is skipped). Cascades line -> label -> job (fallback 12); explicit 0.0/45.0 are honored.",
+          "title": "Italic Angle"
+        },
+        "underline_offset_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air for underline markup (<u>) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "title": "Underline Offset Fraction"
+        },
+        "underline_break_clearance_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air at each underline (<u>) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by 0.5 * cutter + fraction * cap height (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "title": "Underline Break Clearance Fraction"
+        },
+        "underline_break_spaces": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Break an underline (<u>) at the spaces between words: false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
+          "title": "Underline Break Spaces"
+        },
+        "strikethrough_offset_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Strikethrough (<s>) height ABOVE the baseline as a fraction of the rendered cap height (capline - baseline): the stroke (cut with the line's own text cutter) sits fraction * cap height above the baseline, so 0.0 puts it on the baseline and 1.0 puts it on the capline. Unlike the underline the stroke is never broken -- a descender punches through it. null (default) centres the stroke on the cap-band midline (half the rendered cap height). Must be >= 0. Cascades line -> label -> job (fallback null = mid-cap); explicit 0.0 is honored.",
+          "title": "Strikethrough Offset Fraction"
+        },
+        "strikethrough_break_spaces": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Break a strikethrough (<s>) at the spaces between words: false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
+          "title": "Strikethrough Break Spaces"
+        },
+        "v_center_chars": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character set auto-centred vertically between the baseline and the capline: every text character occurring in this string is raised or lowered (a pure vertical translate) so its own ink is centred on the cap-band midline (half the rendered cap height above the baseline) - the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> markup tag applies the same centering to any other characters it wraps. Empty string '' disables the auto-apply (the <vc> tag keeps working on its own). Cascades line -> label -> job (code fallback '' = auto-apply off; job-config.json ships the shop set '-:\u2013\u2014=<>'); an explicit '' is honored.",
+          "title": "V Center Chars"
+        },
+        "cutter_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cutter diameter in inches to use for this text instead of the tool auto-selected from text_height. Snapped to the shop inventory (tools.json available_cutters: next size down, else next size up); the rendered toolpath height becomes text_height - cutter_size. Omit (null) to keep automatic cutter selection from text_height. Must be > 0 and below the line's text_height. No job-config.json counterpart. Cascades line -> label -> job.",
+          "title": "Cutter Size"
+        },
+        "target_boldness_factor": {
+          "anyOf": [
+            {
+              "maximum": 0.3,
+              "minimum": 0.05,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target engraved stroke width as a fraction of text height for multi-stroke (bold) PLT fonts - fonts whose glyphs carry N > 1 parallel cutter passes (the stroke_count stored in the font's catalog file). The automatic cutter is sized so the N passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "title": "Target Boldness Factor"
+        },
+        "multistroke_overlap_ratio": {
+          "anyOf": [
+            {
+              "maximum": 0.5,
+              "minimum": 0.1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than pass_spacing / (1 - this ratio), so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "title": "Multistroke Overlap Ratio"
+        },
+        "bold_boldness_multiplier": {
+          "anyOf": [
+            {
+              "maximum": 4.0,
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boldness boost applied by inline <b> markup to a multi-stroke (bold) PLT font: the bold runs re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30 with a WARNING), so their parallel passes engrave heavier than the line's plain text. On single-stroke PLT and TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the boost. Cascades line -> label -> job (fallback 1.5); accepted on plates for schema parity only.",
+          "title": "Bold Boldness Multiplier"
+        },
+        "cutter_downsize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at text_height - smaller_cutter. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json available_cutters inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize"
+        },
+        "max_cutter_downsizes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
+          "title": "Max Cutter Downsizes"
+        },
+        "cutter_downsize_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize Global"
+        },
+        "h_compress_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "H Compress Global"
+        },
+        "h_compress_global_same_height_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The grouping scope of the shared horizontal compression: true (the default) shares the compression only between the lines of the same text_height in the label (one text size, one glyph density); false shares it across EVERY eligible line of the label, whatever their text_height, so one label engraves at one glyph density throughout. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "H Compress Global Same Height Only"
+        },
+        "arc_preserve_compression": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keep PLT-font glyphs arc-native through the non-uniform text transforms (horizontal compression, the cap-line clamp, the descender relief and the italic shear): each arc's ellipse image is refit with a short chain of circular AA arcs (bounded deviation, see plt_optimizer/generate/arc_fit.py) instead of polygonizing into line segments, so a compressed line engraves far faster. True (the default) preserves arcs; false restores the historical polygonized output. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Arc Preserve Compression"
+        },
+        "optimize_line_content": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Redistribute this line's words across the consecutive lines that also enable the option: whole words move between the enabled lines of the group (word order is never changed, only the line breaks) so the group's lines reach equal rendered width, minimizing the horizontal compression the label would otherwise need. Consecutive enabled lines form one independent group; a disabled line breaks the group. Runs as an export pre-pass before the cutter-reduction and shared-compression pre-passes. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Optimize Line Content"
+        },
+        "optimize_line_content_max_lines": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ceiling N on how many consecutive lines an optimize_line_content group may use. This option can only ever ADD lines to a label; it never removes, blanks or collapses one. Unset reflows across the group's existing lines and adds none. When set, the reflow starts at the group's existing line count G and grows the group (inserting lines cloned from the group's typography) until its lines need no horizontal compression, M reaches N, or M reaches the group's word count. N <= G leaves the cap inert. Setting it on any one line of a group applies it to the whole group; two different values in one group are an error, and so is specifying it while optimize_line_content is not enabled. Cascades line -> label -> job (unset by default = no growth).",
+          "title": "Optimize Line Content Max Lines"
+        },
+        "enforce_cap_line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clamp alphanumeric characters to the capline: when true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down (a vertical downscale about the glyph's own bottom, X untouched -- the aspect ratio changes) so its top lands exactly on the capline. The enforcement is strictly pre-markup: it applies before the small-caps, bold, scale, italic and superscript/subscript transforms. Non-alphanumeric characters (punctuation, spaces, derived Unicode symbols) are never clamped. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Enforce Cap Line"
+        },
+        "text_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
+        },
+        "bullet_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character(s) used for each bullet of an itemize list. Cascades item -> itemize block -> label -> job (fallback '\u2022' -- the derived bullet glyph, engraved by every PLT catalog font except the symbol fonts); an explicit empty string '' engraves no marker (an indent-only list). Settable on a list item to override one bullet.",
+          "title": "Bullet String"
+        },
+        "counter_start_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting number for an enumerate list (the first item's counter). Cascades item -> enumerate block -> label -> job (fallback 1).",
+          "title": "Counter Start Index"
+        },
+        "counter_style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CounterStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Style of an enumerate list's counters: 'decimal' (1, 2, 3), 'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), 'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). Cascades item -> enumerate block -> label -> job (fallback 'decimal')."
+        },
+        "counter_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String prepended to each enumerate counter (e.g. 'Step ' for 'Step 1', 'Step 2'). Cascades item -> enumerate block -> label -> job (fallback '' = no prefix).",
+          "title": "Counter Prefix"
+        },
+        "counter_suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String appended to each enumerate counter (e.g. '.' for '1.', ')' for '1)'). Cascades item -> enumerate block -> label -> job (fallback '' = no suffix).",
+          "title": "Counter Suffix"
+        },
+        "list_marker_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Air gap between a list item's marker (bullet or counter) and its text, as a unitless fraction of the line's rendered cap height, so it scales with the text size. The marker column is the widest marker of the list plus this gap, and every item's text (and every continuation line) starts at that column -- the hanging indent. Cascades item -> list block -> label -> job (fallback 0.5); explicit 0.0 is honored (marker flush against the text).",
+          "title": "List Marker Gap Fraction"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The text string to render. Required on a plain content entry; must be omitted on a list entry (which carries itemize or enumerate instead).",
+          "title": "Text"
+        },
+        "placeholder": {
+          "default": false,
+          "description": "Mark this line for selective replacement. When True, the line's text is replaced by the corresponding replacement-file item; its other attributes are preserved. Non-placeholder lines copy verbatim to every instance. Requires the parent label to declare replacement_text_file.",
+          "title": "Placeholder",
+          "type": "boolean"
+        },
+        "new_line": {
+          "default": false,
+          "description": "Force this line to begin on its own line. When True, the line starts a new optimize_line_content reflow group: the lines that follow it reflow with it rather than with the lines above it, so the group's words fill the lines from this one downward. The flag has no effect unless this line also enables optimize_line_content. Line-level only: it is not inherited from the label or the job, and job-config.json has no counterpart.",
+          "title": "New Line",
+          "type": "boolean"
+        },
+        "itemize": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemizeBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bullet-list block: every item engraves with the resolved bullet_string marker in one shared marker column. Mutually exclusive with text and enumerate."
+        },
+        "enumerate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnumerateBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumerated-list block: every item's marker is the computed counter (prefix + style + suffix). Mutually exclusive with text and itemize."
+        }
+      },
+      "title": "ContentEntry",
+      "type": "object"
+    },
+    "CounterStyle": {
+      "description": "Enumeration of enumerated-list counter styles.\n\nThe style decides how an :class:`EnumerateBlock` renders the number of\neach of its items (see :func:`plt_optimizer.generate.list_counter.format_counter`).\n``decimal`` is the historical/plain numbering; the alpha styles count in\nletters (bijective base 26, so ``z`` is followed by ``aa``); the roman\nstyles count in Roman numerals.\n\nAttributes:\n    DECIMAL: Arabic numerals: 1, 2, 3, ...\n    LOWER_ALPHA: Lowercase letters: a, b, c, ..., z, aa, ab, ...\n    UPPER_ALPHA: Uppercase letters: A, B, C, ..., Z, AA, AB, ...\n    LOWER_ROMAN: Lowercase Roman numerals: i, ii, iii, iv, ...\n    UPPER_ROMAN: Uppercase Roman numerals: I, II, III, IV, ...",
+      "enum": [
+        "decimal",
+        "lower-alpha",
+        "upper-alpha",
+        "lower-roman",
+        "upper-roman"
+      ],
+      "title": "CounterStyle",
+      "type": "string"
+    },
+    "EnumerateBlock": {
+      "description": "An enumerated list nested inside a label's ``content`` list.\n\nEvery item's marker is the computed counter\n(``counter_prefix + format_counter(start_index + k, counter_style) +\ncounter_suffix``) for the item's zero-based position ``k`` in the block.\nThe counter is always computed -- an item's own ``bullet_string`` has no\neffect here.\n\nAttributes:\n    items: Inherited from :class:`ListAttributes` -- the enumerated items.\n    counter_start_index: Inherited first counter value (fallback 1).\n    counter_style: Inherited counter style (fallback ``decimal``).\n    counter_prefix: Inherited string before each counter (fallback '').\n    counter_suffix: Inherited string after each counter (fallback '').",
+      "properties": {
+        "text_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+          "title": "Text Height"
+        },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font name: a PLT-extracted font key (the font_name fields of fonts/VP-EL-fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline <f:font name>...</f> markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. <f:Dino+SC>).",
+          "title": "Font"
+        },
+        "character_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter).",
+          "title": "Character Spacing"
+        },
+        "line_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": "auto",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'.",
+          "title": "Line Spacing"
+        },
+        "max_h_compress": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+          "title": "Max H Compress"
+        },
+        "text_h_alignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextHAlignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horizontal text alignment: left, center, or right."
+        },
+        "min_hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance.",
+          "title": "Min Hole Margin"
+        },
+        "hole_text_collision_distance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
+          "title": "Hole Text Collision Distance"
+        },
+        "space_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored.",
+          "title": "Space Width Fraction"
+        },
+        "min_glyph_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Global minimum glyph advance width as a fraction of the rendered cap height (capline - baseline) for PLT-extracted fonts: clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored.",
+          "title": "Min Glyph Width Fraction"
+        },
+        "kerning_window_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
+          "title": "Kerning Window Fraction"
+        },
+        "kerning_penetration_scale": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on the profile-envelope penetration detected for PLT-extracted fonts: 1.0 keeps the geometric penetration, >1.0 over-kerns tight pairs proportionally. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored (ignores detected closeness entirely).",
+          "title": "Kerning Penetration Scale"
+        },
+        "kerning_recession_scale": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on a *recessed* (negative) profile-envelope penetration for PLT-extracted fonts: 1.0 keeps the geometric recession (the historical linear behaviour, where lowering kerning_penetration_scale also pulled gapped pairs closer), 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width_fraction floor. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored.",
+          "title": "Kerning Recession Scale"
+        },
+        "kerning_min_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air added to every kerned character pair advance (PLT-extracted fonts) as a fraction of the rendered cap height (capline - baseline), on top of the cutter diameter and character_spacing clearance. Cascades line -> label -> job (fallback 0.0 = no extra gap); explicit 0.0 is honored.",
+          "title": "Kerning Min Gap Fraction"
+        },
+        "fallback_advance_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on the bounding-box-width fallback advance used for PLT-extracted glyph pairs without overlapping height (or lacking envelopes). Cascades line -> label -> job (fallback 1.0 = the left glyph's own width); explicit 0.0 is honored.",
+          "title": "Fallback Advance Fraction"
+        },
+        "kern_pos_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of kern_width_fraction * cap height (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. '<->'); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. '<s>' with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; '<->' is a legal marker. Unset (None) disables the positive marker. Cascades line -> label -> job (job-config.json supplies the shop default); works on PLT and TTF fonts.",
+          "title": "Kern Pos String"
+        },
+        "kern_neg_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern negative marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a backward cursor shift of kern_width_fraction * cap height (capline - baseline) applied to the following character (no clamp, so a large value lets glyphs overlap). Same validation as kern_pos_string; the two strings must differ. Unset (None) disables the negative marker. Cascades line -> label -> job (job-config.json supplies the shop default); works on PLT and TTF fonts.",
+          "title": "Kern Neg String"
+        },
+        "kern_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern width as a fraction of the rendered cap height (capline - baseline): one kern_pos_string marker advances the cursor by +fraction * cap height, one kern_neg_string marker retreats it by -fraction * cap height (adjacent markers accumulate). Cascades line -> label -> job (fallback 0.1); explicit 0.0 is honored (markers consume their characters but shift nothing).",
+          "title": "Kern Width Fraction"
+        },
+        "sc_scale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Downscale applied to ASCII lowercase a-z by a small-caps font (a font name ending in ' SC', e.g. 'Dino SC'): the lowercase character renders as the base font's uppercase glyph uniformly shrunk to sc_scale of the cap height, top-down (the glyph's own bottom stays in place and its top descends). Uppercase and caseless characters engrave at full size; the nominal text_height is untouched (no cutter change). The same field drives the inline <sc> small-caps markup tag (the per-character selection); inert on a non-SC font carrying no <sc> run. Cascades line -> label -> job (fallback 0.7); explicit 0.2/1.0 are honored.",
+          "title": "Sc Scale"
+        },
+        "supersubscript_downscale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "title": "Supersubscript Downscale"
+        },
+        "html_brackets": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Delimiter pair for the inline markup syntax (<i> italic and future tags): an even-length string whose first half is the left delimiter and second half the right delimiter ('<>' -> '<' + '>', '<<>>' -> '<<' + '>>'). The halves must differ and contain no alphanumeric characters or newlines. A bracketed body that is not a registered tag engraves verbatim, so choosing a pair absent from the data keeps chevrons from being read as markup. Cascades line -> label -> job (fallback '<>'); the slash is only special inside the delimiters.",
+          "title": "Html Brackets"
+        },
+        "italic_angle": {
+          "anyOf": [
+            {
+              "maximum": 45.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Slant angle in degrees for italic markup (<i>): PLT-extracted glyphs (and TTF glyphs with no native italic face) are sheared about the baseline, x' = x + y * tan(angle), so the baseline stays fixed and the glyph leans right. Bound to [0, 45]; 0 means upright (the shear is skipped). Cascades line -> label -> job (fallback 12); explicit 0.0/45.0 are honored.",
+          "title": "Italic Angle"
+        },
+        "underline_offset_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air for underline markup (<u>) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "title": "Underline Offset Fraction"
+        },
+        "underline_break_clearance_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air at each underline (<u>) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by 0.5 * cutter + fraction * cap height (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "title": "Underline Break Clearance Fraction"
+        },
+        "underline_break_spaces": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Break an underline (<u>) at the spaces between words: false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
+          "title": "Underline Break Spaces"
+        },
+        "strikethrough_offset_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Strikethrough (<s>) height ABOVE the baseline as a fraction of the rendered cap height (capline - baseline): the stroke (cut with the line's own text cutter) sits fraction * cap height above the baseline, so 0.0 puts it on the baseline and 1.0 puts it on the capline. Unlike the underline the stroke is never broken -- a descender punches through it. null (default) centres the stroke on the cap-band midline (half the rendered cap height). Must be >= 0. Cascades line -> label -> job (fallback null = mid-cap); explicit 0.0 is honored.",
+          "title": "Strikethrough Offset Fraction"
+        },
+        "strikethrough_break_spaces": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Break a strikethrough (<s>) at the spaces between words: false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
+          "title": "Strikethrough Break Spaces"
+        },
+        "v_center_chars": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character set auto-centred vertically between the baseline and the capline: every text character occurring in this string is raised or lowered (a pure vertical translate) so its own ink is centred on the cap-band midline (half the rendered cap height above the baseline) - the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> markup tag applies the same centering to any other characters it wraps. Empty string '' disables the auto-apply (the <vc> tag keeps working on its own). Cascades line -> label -> job (code fallback '' = auto-apply off; job-config.json ships the shop set '-:\u2013\u2014=<>'); an explicit '' is honored.",
+          "title": "V Center Chars"
+        },
+        "cutter_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cutter diameter in inches to use for this text instead of the tool auto-selected from text_height. Snapped to the shop inventory (tools.json available_cutters: next size down, else next size up); the rendered toolpath height becomes text_height - cutter_size. Omit (null) to keep automatic cutter selection from text_height. Must be > 0 and below the line's text_height. No job-config.json counterpart. Cascades line -> label -> job.",
+          "title": "Cutter Size"
+        },
+        "target_boldness_factor": {
+          "anyOf": [
+            {
+              "maximum": 0.3,
+              "minimum": 0.05,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target engraved stroke width as a fraction of text height for multi-stroke (bold) PLT fonts - fonts whose glyphs carry N > 1 parallel cutter passes (the stroke_count stored in the font's catalog file). The automatic cutter is sized so the N passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "title": "Target Boldness Factor"
+        },
+        "multistroke_overlap_ratio": {
+          "anyOf": [
+            {
+              "maximum": 0.5,
+              "minimum": 0.1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than pass_spacing / (1 - this ratio), so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "title": "Multistroke Overlap Ratio"
+        },
+        "bold_boldness_multiplier": {
+          "anyOf": [
+            {
+              "maximum": 4.0,
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boldness boost applied by inline <b> markup to a multi-stroke (bold) PLT font: the bold runs re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30 with a WARNING), so their parallel passes engrave heavier than the line's plain text. On single-stroke PLT and TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the boost. Cascades line -> label -> job (fallback 1.5); accepted on plates for schema parity only.",
+          "title": "Bold Boldness Multiplier"
+        },
+        "cutter_downsize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at text_height - smaller_cutter. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json available_cutters inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize"
+        },
+        "max_cutter_downsizes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
+          "title": "Max Cutter Downsizes"
+        },
+        "cutter_downsize_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize Global"
+        },
+        "h_compress_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "H Compress Global"
+        },
+        "h_compress_global_same_height_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The grouping scope of the shared horizontal compression: true (the default) shares the compression only between the lines of the same text_height in the label (one text size, one glyph density); false shares it across EVERY eligible line of the label, whatever their text_height, so one label engraves at one glyph density throughout. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "H Compress Global Same Height Only"
+        },
+        "arc_preserve_compression": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keep PLT-font glyphs arc-native through the non-uniform text transforms (horizontal compression, the cap-line clamp, the descender relief and the italic shear): each arc's ellipse image is refit with a short chain of circular AA arcs (bounded deviation, see plt_optimizer/generate/arc_fit.py) instead of polygonizing into line segments, so a compressed line engraves far faster. True (the default) preserves arcs; false restores the historical polygonized output. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Arc Preserve Compression"
+        },
+        "optimize_line_content": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Redistribute this line's words across the consecutive lines that also enable the option: whole words move between the enabled lines of the group (word order is never changed, only the line breaks) so the group's lines reach equal rendered width, minimizing the horizontal compression the label would otherwise need. Consecutive enabled lines form one independent group; a disabled line breaks the group. Runs as an export pre-pass before the cutter-reduction and shared-compression pre-passes. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Optimize Line Content"
+        },
+        "optimize_line_content_max_lines": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ceiling N on how many consecutive lines an optimize_line_content group may use. This option can only ever ADD lines to a label; it never removes, blanks or collapses one. Unset reflows across the group's existing lines and adds none. When set, the reflow starts at the group's existing line count G and grows the group (inserting lines cloned from the group's typography) until its lines need no horizontal compression, M reaches N, or M reaches the group's word count. N <= G leaves the cap inert. Setting it on any one line of a group applies it to the whole group; two different values in one group are an error, and so is specifying it while optimize_line_content is not enabled. Cascades line -> label -> job (unset by default = no growth).",
+          "title": "Optimize Line Content Max Lines"
+        },
+        "enforce_cap_line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clamp alphanumeric characters to the capline: when true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down (a vertical downscale about the glyph's own bottom, X untouched -- the aspect ratio changes) so its top lands exactly on the capline. The enforcement is strictly pre-markup: it applies before the small-caps, bold, scale, italic and superscript/subscript transforms. Non-alphanumeric characters (punctuation, spaces, derived Unicode symbols) are never clamped. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Enforce Cap Line"
+        },
+        "text_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
+        },
+        "bullet_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character(s) used for each bullet of an itemize list. Cascades item -> itemize block -> label -> job (fallback '\u2022' -- the derived bullet glyph, engraved by every PLT catalog font except the symbol fonts); an explicit empty string '' engraves no marker (an indent-only list). Settable on a list item to override one bullet.",
+          "title": "Bullet String"
+        },
+        "counter_start_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting number for an enumerate list (the first item's counter). Cascades item -> enumerate block -> label -> job (fallback 1).",
+          "title": "Counter Start Index"
+        },
+        "counter_style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CounterStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Style of an enumerate list's counters: 'decimal' (1, 2, 3), 'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), 'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). Cascades item -> enumerate block -> label -> job (fallback 'decimal')."
+        },
+        "counter_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String prepended to each enumerate counter (e.g. 'Step ' for 'Step 1', 'Step 2'). Cascades item -> enumerate block -> label -> job (fallback '' = no prefix).",
+          "title": "Counter Prefix"
+        },
+        "counter_suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String appended to each enumerate counter (e.g. '.' for '1.', ')' for '1)'). Cascades item -> enumerate block -> label -> job (fallback '' = no suffix).",
+          "title": "Counter Suffix"
+        },
+        "list_marker_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Air gap between a list item's marker (bullet or counter) and its text, as a unitless fraction of the line's rendered cap height, so it scales with the text size. The marker column is the widest marker of the list plus this gap, and every item's text (and every continuation line) starts at that column -- the hanging indent. Cascades item -> list block -> label -> job (fallback 0.5); explicit 0.0 is honored (marker flush against the text).",
+          "title": "List Marker Gap Fraction"
+        },
+        "items": {
+          "description": "The list's text items. Each item is a text line carrying the list block's attributes (cascading item -> block -> label -> job); at least one item is required.",
+          "items": {
+            "$ref": "#/$defs/TextLine"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "EnumerateBlock",
+      "type": "object"
+    },
     "HoleLocation": {
       "description": "Enumeration of valid hole locations on a label.\n\nBesides the eight atomic positions (four edges and four corners), two\ngroup shorthands are accepted for the most common drilling patterns:\n``corners`` (all four corner holes) and ``sides`` (the left and right\nedge holes). Groups are expanded into their atomic members at schema\nvalidation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream\nconsumers only ever see the eight atomic locations.\n\nAttributes:\n    left: Hole on the left edge.\n    right: Hole on the right edge.\n    top: Hole on the top edge.\n    bottom: Hole on the bottom edge.\n    top_left: Hole at the top-left corner.\n    top_right: Hole at the top-right corner.\n    bottom_left: Hole at the bottom-left corner.\n    bottom_right: Hole at the bottom-right corner.\n    corners: Group shorthand for all four corner holes.\n    sides: Group shorthand for the left and right edge holes.",
       "enum": [
@@ -36,6 +1439,683 @@
         "location"
       ],
       "title": "HoleSpec",
+      "type": "object"
+    },
+    "ItemizeBlock": {
+      "description": "A bullet list nested inside a label's ``content`` list.\n\nEvery item engraves with the resolved ``bullet_string`` as its marker\n(default ``\"\u2022\"``), placed in one flush marker column shared by the whole\nlist; the item's text (and every continuation line it grows to) starts at\nthe hanging-indent column right of the markers.\n\nAttributes:\n    items: Inherited from :class:`ListAttributes` -- the bullet items.\n    bullet_string: Inherited marker string, resolved for the block from\n        item -> block -> label -> job -> config (fallback ``\"\u2022\"``).",
+      "properties": {
+        "text_height": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font height in inches. Cascades line -> label -> job (fallback 0.25).",
+          "title": "Text Height"
+        },
+        "font": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Font name: a PLT-extracted font key (the font_name fields of fonts/VP-EL-fonts/catalog/*.json, rendered arc-native with arcs preserved) or a TrueType basename (*.ttf under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline <f:font name>...</f> markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. <f:Dino+SC>).",
+          "title": "Font"
+        },
+        "character_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between characters in inches (fallback: 1.5x the resolved cutter diameter).",
+          "title": "Character Spacing"
+        },
+        "line_spacing": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": "auto",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra spacing between text lines in inches, or 'auto' to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is 'auto'.",
+          "title": "Line Spacing"
+        },
+        "max_h_compress": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum horizontal compression fraction in [0.0, 1.0].",
+          "title": "Max H Compress"
+        },
+        "text_h_alignment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextHAlignment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horizontal text alignment: left, center, or right."
+        },
+        "min_hole_margin": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance.",
+          "title": "Min Hole Margin"
+        },
+        "hole_text_collision_distance": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor 0.5 * (hole_cutter + text_cutter).",
+          "title": "Hole Text Collision Distance"
+        },
+        "space_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Space advance as a fraction of the rendered text height (PLT-extracted fonts): a space advances space_width_fraction * text_height + character_spacing. Cascades line -> label -> job (fallback 0.3); explicit 0.0 is honored.",
+          "title": "Space Width Fraction"
+        },
+        "min_glyph_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Global minimum glyph advance width as a fraction of the rendered cap height (capline - baseline) for PLT-extracted fonts: clamps the profile-envelope kerning so zero-width glyphs still reserve real air. Cascades line -> label -> job (fallback 0.0 = pure envelope kerning); explicit 0.0 is honored.",
+          "title": "Min Glyph Width Fraction"
+        },
+        "kerning_window_fraction": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Kerning window for PLT-extracted fonts as a fraction of the rendered text height in [0.0, 1.0]: each envelope sample compares against the opposite silhouette within +/- (half of this fraction) of the text height and the effective penetration is the worst windowed penetration, so staggered pokes widen the advance. Cascades line -> label -> job (fallback 0.05); explicit 0.0 is honored (= historical same-height kerning).",
+          "title": "Kerning Window Fraction"
+        },
+        "kerning_penetration_scale": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on the profile-envelope penetration detected for PLT-extracted fonts: 1.0 keeps the geometric penetration, >1.0 over-kerns tight pairs proportionally. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored (ignores detected closeness entirely).",
+          "title": "Kerning Penetration Scale"
+        },
+        "kerning_recession_scale": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on a *recessed* (negative) profile-envelope penetration for PLT-extracted fonts: 1.0 keeps the geometric recession (the historical linear behaviour, where lowering kerning_penetration_scale also pulled gapped pairs closer), 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width_fraction floor. Cascades line -> label -> job (fallback 1.0); explicit 0.0 is honored.",
+          "title": "Kerning Recession Scale"
+        },
+        "kerning_min_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air added to every kerned character pair advance (PLT-extracted fonts) as a fraction of the rendered cap height (capline - baseline), on top of the cutter diameter and character_spacing clearance. Cascades line -> label -> job (fallback 0.0 = no extra gap); explicit 0.0 is honored.",
+          "title": "Kerning Min Gap Fraction"
+        },
+        "fallback_advance_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Multiplier on the bounding-box-width fallback advance used for PLT-extracted glyph pairs without overlapping height (or lacking envelopes). Cascades line -> label -> job (fallback 1.0 = the left glyph's own width); explicit 0.0 is honored.",
+          "title": "Fallback Advance Fraction"
+        },
+        "kern_pos_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of kern_width_fraction * cap height (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. '<->'); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. '<s>' with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; '<->' is a legal marker. Unset (None) disables the positive marker. Cascades line -> label -> job (job-config.json supplies the shop default); works on PLT and TTF fonts.",
+          "title": "Kern Pos String"
+        },
+        "kern_neg_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern negative marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a backward cursor shift of kern_width_fraction * cap height (capline - baseline) applied to the following character (no clamp, so a large value lets glyphs overlap). Same validation as kern_pos_string; the two strings must differ. Unset (None) disables the negative marker. Cascades line -> label -> job (job-config.json supplies the shop default); works on PLT and TTF fonts.",
+          "title": "Kern Neg String"
+        },
+        "kern_width_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Manual-kern width as a fraction of the rendered cap height (capline - baseline): one kern_pos_string marker advances the cursor by +fraction * cap height, one kern_neg_string marker retreats it by -fraction * cap height (adjacent markers accumulate). Cascades line -> label -> job (fallback 0.1); explicit 0.0 is honored (markers consume their characters but shift nothing).",
+          "title": "Kern Width Fraction"
+        },
+        "sc_scale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Downscale applied to ASCII lowercase a-z by a small-caps font (a font name ending in ' SC', e.g. 'Dino SC'): the lowercase character renders as the base font's uppercase glyph uniformly shrunk to sc_scale of the cap height, top-down (the glyph's own bottom stays in place and its top descends). Uppercase and caseless characters engrave at full size; the nominal text_height is untouched (no cutter change). The same field drives the inline <sc> small-caps markup tag (the per-character selection); inert on a non-SC font carrying no <sc> run. Cascades line -> label -> job (fallback 0.7); explicit 0.2/1.0 are honored.",
+          "title": "Sc Scale"
+        },
+        "supersubscript_downscale": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Downscale applied to a bare <sup>/<sub> markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the <scale:N> ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "title": "Supersubscript Downscale"
+        },
+        "html_brackets": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Delimiter pair for the inline markup syntax (<i> italic and future tags): an even-length string whose first half is the left delimiter and second half the right delimiter ('<>' -> '<' + '>', '<<>>' -> '<<' + '>>'). The halves must differ and contain no alphanumeric characters or newlines. A bracketed body that is not a registered tag engraves verbatim, so choosing a pair absent from the data keeps chevrons from being read as markup. Cascades line -> label -> job (fallback '<>'); the slash is only special inside the delimiters.",
+          "title": "Html Brackets"
+        },
+        "italic_angle": {
+          "anyOf": [
+            {
+              "maximum": 45.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Slant angle in degrees for italic markup (<i>): PLT-extracted glyphs (and TTF glyphs with no native italic face) are sheared about the baseline, x' = x + y * tan(angle), so the baseline stays fixed and the glyph leans right. Bound to [0, 45]; 0 means upright (the shear is skipped). Cascades line -> label -> job (fallback 12); explicit 0.0/45.0 are honored.",
+          "title": "Italic Angle"
+        },
+        "underline_offset_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air for underline markup (<u>) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "title": "Underline Offset Fraction"
+        },
+        "underline_break_clearance_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra air at each underline (<u>) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by 0.5 * cutter + fraction * cap height (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "title": "Underline Break Clearance Fraction"
+        },
+        "underline_break_spaces": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Break an underline (<u>) at the spaces between words: false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
+          "title": "Underline Break Spaces"
+        },
+        "strikethrough_offset_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Strikethrough (<s>) height ABOVE the baseline as a fraction of the rendered cap height (capline - baseline): the stroke (cut with the line's own text cutter) sits fraction * cap height above the baseline, so 0.0 puts it on the baseline and 1.0 puts it on the capline. Unlike the underline the stroke is never broken -- a descender punches through it. null (default) centres the stroke on the cap-band midline (half the rendered cap height). Must be >= 0. Cascades line -> label -> job (fallback null = mid-cap); explicit 0.0 is honored.",
+          "title": "Strikethrough Offset Fraction"
+        },
+        "strikethrough_break_spaces": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Break a strikethrough (<s>) at the spaces between words: false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Cascades line -> label -> job (fallback false); explicit false is honored.",
+          "title": "Strikethrough Break Spaces"
+        },
+        "v_center_chars": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character set auto-centred vertically between the baseline and the capline: every text character occurring in this string is raised or lowered (a pure vertical translate) so its own ink is centred on the cap-band midline (half the rendered cap height above the baseline) - the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> markup tag applies the same centering to any other characters it wraps. Empty string '' disables the auto-apply (the <vc> tag keeps working on its own). Cascades line -> label -> job (code fallback '' = auto-apply off; job-config.json ships the shop set '-:\u2013\u2014=<>'); an explicit '' is honored.",
+          "title": "V Center Chars"
+        },
+        "cutter_size": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cutter diameter in inches to use for this text instead of the tool auto-selected from text_height. Snapped to the shop inventory (tools.json available_cutters: next size down, else next size up); the rendered toolpath height becomes text_height - cutter_size. Omit (null) to keep automatic cutter selection from text_height. Must be > 0 and below the line's text_height. No job-config.json counterpart. Cascades line -> label -> job.",
+          "title": "Cutter Size"
+        },
+        "target_boldness_factor": {
+          "anyOf": [
+            {
+              "maximum": 0.3,
+              "minimum": 0.05,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target engraved stroke width as a fraction of text height for multi-stroke (bold) PLT fonts - fonts whose glyphs carry N > 1 parallel cutter passes (the stroke_count stored in the font's catalog file). The automatic cutter is sized so the N passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "title": "Target Boldness Factor"
+        },
+        "multistroke_overlap_ratio": {
+          "anyOf": [
+            {
+              "maximum": 0.5,
+              "minimum": 0.1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than pass_spacing / (1 - this ratio), so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "title": "Multistroke Overlap Ratio"
+        },
+        "bold_boldness_multiplier": {
+          "anyOf": [
+            {
+              "maximum": 4.0,
+              "minimum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boldness boost applied by inline <b> markup to a multi-stroke (bold) PLT font: the bold runs re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30 with a WARNING), so their parallel passes engrave heavier than the line's plain text. On single-stroke PLT and TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the boost. Cascades line -> label -> job (fallback 1.5); accepted on plates for schema parity only.",
+          "title": "Bold Boldness Multiplier"
+        },
+        "cutter_downsize": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at text_height - smaller_cutter. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json available_cutters inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize"
+        },
+        "max_cutter_downsizes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored.",
+          "title": "Max Cutter Downsizes"
+        },
+        "cutter_downsize_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same text_height in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Cutter Downsize Global"
+        },
+        "h_compress_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share horizontal compression across the text lines of one label: when a line's width forces horizontal compression, every other eligible line of the same text_height in the same label is compressed to the same scale (the most-compressed scale among the triggering lines, clamped to each line's own max_h_compress budget floor). Lines with a zero max_h_compress budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "H Compress Global"
+        },
+        "h_compress_global_same_height_only": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The grouping scope of the shared horizontal compression: true (the default) shares the compression only between the lines of the same text_height in the label (one text size, one glyph density); false shares it across EVERY eligible line of the label, whatever their text_height, so one label engraves at one glyph density throughout. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "H Compress Global Same Height Only"
+        },
+        "arc_preserve_compression": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keep PLT-font glyphs arc-native through the non-uniform text transforms (horizontal compression, the cap-line clamp, the descender relief and the italic shear): each arc's ellipse image is refit with a short chain of circular AA arcs (bounded deviation, see plt_optimizer/generate/arc_fit.py) instead of polygonizing into line segments, so a compressed line engraves far faster. True (the default) preserves arcs; false restores the historical polygonized output. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Arc Preserve Compression"
+        },
+        "optimize_line_content": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Redistribute this line's words across the consecutive lines that also enable the option: whole words move between the enabled lines of the group (word order is never changed, only the line breaks) so the group's lines reach equal rendered width, minimizing the horizontal compression the label would otherwise need. Consecutive enabled lines form one independent group; a disabled line breaks the group. Runs as an export pre-pass before the cutter-reduction and shared-compression pre-passes. Cascades line -> label -> job (fallback false); explicit true is honored.",
+          "title": "Optimize Line Content"
+        },
+        "optimize_line_content_max_lines": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ceiling N on how many consecutive lines an optimize_line_content group may use. This option can only ever ADD lines to a label; it never removes, blanks or collapses one. Unset reflows across the group's existing lines and adds none. When set, the reflow starts at the group's existing line count G and grows the group (inserting lines cloned from the group's typography) until its lines need no horizontal compression, M reaches N, or M reaches the group's word count. N <= G leaves the cap inert. Setting it on any one line of a group applies it to the whole group; two different values in one group are an error, and so is specifying it while optimize_line_content is not enabled. Cascades line -> label -> job (unset by default = no growth).",
+          "title": "Optimize Line Content Max Lines"
+        },
+        "enforce_cap_line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clamp alphanumeric characters to the capline: when true (the default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down (a vertical downscale about the glyph's own bottom, X untouched -- the aspect ratio changes) so its top lands exactly on the capline. The enforcement is strictly pre-markup: it applies before the small-caps, bold, scale, italic and superscript/subscript transforms. Non-alphanumeric characters (punctuation, spaces, derived Unicode symbols) are never clamped. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "title": "Enforce Cap Line"
+        },
+        "text_color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
+        },
+        "bullet_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character(s) used for each bullet of an itemize list. Cascades item -> itemize block -> label -> job (fallback '\u2022' -- the derived bullet glyph, engraved by every PLT catalog font except the symbol fonts); an explicit empty string '' engraves no marker (an indent-only list). Settable on a list item to override one bullet.",
+          "title": "Bullet String"
+        },
+        "counter_start_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting number for an enumerate list (the first item's counter). Cascades item -> enumerate block -> label -> job (fallback 1).",
+          "title": "Counter Start Index"
+        },
+        "counter_style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CounterStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Style of an enumerate list's counters: 'decimal' (1, 2, 3), 'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), 'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). Cascades item -> enumerate block -> label -> job (fallback 'decimal')."
+        },
+        "counter_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String prepended to each enumerate counter (e.g. 'Step ' for 'Step 1', 'Step 2'). Cascades item -> enumerate block -> label -> job (fallback '' = no prefix).",
+          "title": "Counter Prefix"
+        },
+        "counter_suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String appended to each enumerate counter (e.g. '.' for '1.', ')' for '1)'). Cascades item -> enumerate block -> label -> job (fallback '' = no suffix).",
+          "title": "Counter Suffix"
+        },
+        "list_marker_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Air gap between a list item's marker (bullet or counter) and its text, as a unitless fraction of the line's rendered cap height, so it scales with the text size. The marker column is the widest marker of the list plus this gap, and every item's text (and every continuation line) starts at that column -- the hanging indent. Cascades item -> list block -> label -> job (fallback 0.5); explicit 0.0 is honored (marker flush against the text).",
+          "title": "List Marker Gap Fraction"
+        },
+        "items": {
+          "description": "The list's text items. Each item is a text line carrying the list block's attributes (cascading item -> block -> label -> job); at least one item is required.",
+          "items": {
+            "$ref": "#/$defs/TextLine"
+          },
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ItemizeBlock",
       "type": "object"
     },
     "LabelShape": {
@@ -629,6 +2709,85 @@
           "default": null,
           "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
         },
+        "bullet_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character(s) used for each bullet of an itemize list. Cascades item -> itemize block -> label -> job (fallback '\u2022' -- the derived bullet glyph, engraved by every PLT catalog font except the symbol fonts); an explicit empty string '' engraves no marker (an indent-only list). Settable on a list item to override one bullet.",
+          "title": "Bullet String"
+        },
+        "counter_start_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting number for an enumerate list (the first item's counter). Cascades item -> enumerate block -> label -> job (fallback 1).",
+          "title": "Counter Start Index"
+        },
+        "counter_style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CounterStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Style of an enumerate list's counters: 'decimal' (1, 2, 3), 'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), 'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). Cascades item -> enumerate block -> label -> job (fallback 'decimal')."
+        },
+        "counter_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String prepended to each enumerate counter (e.g. 'Step ' for 'Step 1', 'Step 2'). Cascades item -> enumerate block -> label -> job (fallback '' = no prefix).",
+          "title": "Counter Prefix"
+        },
+        "counter_suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String appended to each enumerate counter (e.g. '.' for '1.', ')' for '1)'). Cascades item -> enumerate block -> label -> job (fallback '' = no suffix).",
+          "title": "Counter Suffix"
+        },
+        "list_marker_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Air gap between a list item's marker (bullet or counter) and its text, as a unitless fraction of the line's rendered cap height, so it scales with the text size. The marker column is the widest marker of the list plus this gap, and every item's text (and every continuation line) starts at that column -- the hanging indent. Cascades item -> list block -> label -> job (fallback 0.5); explicit 0.0 is honored (marker flush against the text).",
+          "title": "List Marker Gap Fraction"
+        },
         "width": {
           "anyOf": [
             {
@@ -922,7 +3081,7 @@
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/TextLine"
+                "$ref": "#/$defs/ContentEntry"
               },
               "type": "array"
             },
@@ -931,7 +3090,7 @@
             }
           ],
           "default": null,
-          "description": "Text lines to render. Required unless replacement_text_file is provided.",
+          "description": "Content entries to render: plain text lines and nested itemize/enumerate list blocks. Required unless replacement_text_file is provided.",
           "title": "Content"
         },
         "replacement_text_file": {
@@ -1740,6 +3899,85 @@
           "description": "Cutter-compensated drill-hole diameter (schema parity; not applied at plate level -- labels render before packing).",
           "title": "Hole Adjust For Cutter"
         },
+        "bullet_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bullet-list marker string (schema parity; not applied at plate level).",
+          "title": "Bullet String"
+        },
+        "counter_start_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumerated-list starting counter (schema parity; not applied at plate level).",
+          "title": "Counter Start Index"
+        },
+        "counter_style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CounterStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumerated-list counter style (schema parity; not applied at plate level)."
+        },
+        "counter_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumerated-list counter prefix (schema parity; not applied at plate level).",
+          "title": "Counter Prefix"
+        },
+        "counter_suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enumerated-list counter suffix (schema parity; not applied at plate level).",
+          "title": "Counter Suffix"
+        },
+        "list_marker_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "List marker-to-text gap as a fraction of cap height (schema parity; not applied at plate level).",
+          "title": "List Marker Gap Fraction"
+        },
         "layout": {
           "anyOf": [
             {
@@ -2411,6 +4649,85 @@
           "default": null,
           "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
         },
+        "bullet_string": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Character(s) used for each bullet of an itemize list. Cascades item -> itemize block -> label -> job (fallback '\u2022' -- the derived bullet glyph, engraved by every PLT catalog font except the symbol fonts); an explicit empty string '' engraves no marker (an indent-only list). Settable on a list item to override one bullet.",
+          "title": "Bullet String"
+        },
+        "counter_start_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting number for an enumerate list (the first item's counter). Cascades item -> enumerate block -> label -> job (fallback 1).",
+          "title": "Counter Start Index"
+        },
+        "counter_style": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CounterStyle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Style of an enumerate list's counters: 'decimal' (1, 2, 3), 'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), 'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). Cascades item -> enumerate block -> label -> job (fallback 'decimal')."
+        },
+        "counter_prefix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String prepended to each enumerate counter (e.g. 'Step ' for 'Step 1', 'Step 2'). Cascades item -> enumerate block -> label -> job (fallback '' = no prefix).",
+          "title": "Counter Prefix"
+        },
+        "counter_suffix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "String appended to each enumerate counter (e.g. '.' for '1.', ')' for '1)'). Cascades item -> enumerate block -> label -> job (fallback '' = no suffix).",
+          "title": "Counter Suffix"
+        },
+        "list_marker_gap_fraction": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Air gap between a list item's marker (bullet or counter) and its text, as a unitless fraction of the line's rendered cap height, so it scales with the text size. The marker column is the widest marker of the list plus this gap, and every item's text (and every continuation line) starts at that column -- the hanging indent. Cascades item -> list block -> label -> job (fallback 0.5); explicit 0.0 is honored (marker flush against the text).",
+          "title": "List Marker Gap Fraction"
+        },
         "text": {
           "description": "The text string to render (non-empty).",
           "title": "Text",
@@ -3017,6 +5334,85 @@
       "default": null,
       "description": "Stroke-color layer tag splitting otherwise-identical text into separate toolpaths (labels and text lines only; rejected at the job level; never cascades). Full name or case-insensitive single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); 'none' is the implicit default and cannot be specified."
     },
+    "bullet_string": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Character(s) used for each bullet of an itemize list. Cascades item -> itemize block -> label -> job (fallback '\u2022' -- the derived bullet glyph, engraved by every PLT catalog font except the symbol fonts); an explicit empty string '' engraves no marker (an indent-only list). Settable on a list item to override one bullet.",
+      "title": "Bullet String"
+    },
+    "counter_start_index": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Starting number for an enumerate list (the first item's counter). Cascades item -> enumerate block -> label -> job (fallback 1).",
+      "title": "Counter Start Index"
+    },
+    "counter_style": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CounterStyle"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Style of an enumerate list's counters: 'decimal' (1, 2, 3), 'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), 'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). Cascades item -> enumerate block -> label -> job (fallback 'decimal')."
+    },
+    "counter_prefix": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "String prepended to each enumerate counter (e.g. 'Step ' for 'Step 1', 'Step 2'). Cascades item -> enumerate block -> label -> job (fallback '' = no prefix).",
+      "title": "Counter Prefix"
+    },
+    "counter_suffix": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "String appended to each enumerate counter (e.g. '.' for '1.', ')' for '1)'). Cascades item -> enumerate block -> label -> job (fallback '' = no suffix).",
+      "title": "Counter Suffix"
+    },
+    "list_marker_gap_fraction": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Air gap between a list item's marker (bullet or counter) and its text, as a unitless fraction of the line's rendered cap height, so it scales with the text size. The marker column is the widest marker of the list plus this gap, and every item's text (and every continuation line) starts at that column -- the hanging indent. Cascades item -> list block -> label -> job (fallback 0.5); explicit 0.0 is honored (marker flush against the text).",
+      "title": "List Marker Gap Fraction"
+    },
     "width": {
       "anyOf": [
         {
@@ -3349,7 +5745,7 @@
       "anyOf": [
         {
           "items": {
-            "$ref": "#/$defs/TextLine"
+            "$ref": "#/$defs/ContentEntry"
           },
           "type": "array"
         },
@@ -3358,7 +5754,7 @@
         }
       ],
       "default": null,
-      "description": "Root-level text lines (single-label job) or the per-line attribute template when a replacement file is in play.",
+      "description": "Root-level content entries (single-label job) or the per-line attribute template when a replacement file is in play.",
       "title": "Content"
     },
     "replacement_text_file": {

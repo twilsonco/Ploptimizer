@@ -6450,3 +6450,185 @@ class TestKernDemoExample:
         for label_id in ("plt_wide", "plt_narrow", "plt_accumulate", "plt_mid_word"):
             line = result.rendered_labels[label_id].source_label.content[0]
             assert line.used_cutters == (0.06,)
+
+
+class TestListDemoExample:
+    """Regression tests for tests_deps/list_job.yaml.
+
+    A bullet/enumerated list nests inside ``content``, expands at resolution
+    into one line per item, and engraves its markers in ONE flush column with
+    the item's text (and every continuation line the reflow grows it to) at the
+    hanging-indent column.
+    """
+
+    _SPEC = Path("tests_deps/list_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="list",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_itemize_expands_one_line_per_item(self, tmp_path: Path) -> None:
+        """The plain bullet list yields its items in order, all marked."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["bullets"].source_label.content
+        assert [line.plain_text for line in content] == ["HEADER", "AAA", "BBBB"]
+        assert [line.marker_text for line in content] == ["", "•", "•"]
+        assert [line.align_group_id for line in content] == [-1, 0, 0]
+
+    def test_marker_column_is_shared_by_the_list(self, tmp_path: Path) -> None:
+        """Every item of one list hangs at the same text column."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["bullets"].source_label.content
+        assert content[1].indent_left == content[2].indent_left
+        assert content[1].indent_left == pytest.approx(0.1775, abs=1e-3)
+        # The plain sibling carries no indent.
+        assert content[0].indent_left == 0.0
+
+    def test_markers_engrave_in_one_flush_column(self, tmp_path: Path) -> None:
+        """The positioned list lines share their left edge (the marker column).
+
+        The list aligns as ONE block, so under the default center alignment
+        both items start at the same X -- the bullets never form a ragged
+        column.
+        """
+        result = self._export(tmp_path)
+        chunks = result.rendered_labels["bullets"].text_chunks
+        by_line = {chunk.line_index: chunk.bounds[0] for chunk in chunks}
+        assert by_line[1] == pytest.approx(by_line[2], abs=1e-9)
+
+    def test_per_item_bullet_string_override(self, tmp_path: Path) -> None:
+        """An item's own bullet_string wins; the column is the widest marker."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["bullet_override"].source_label.content
+        assert [line.marker_text for line in content] == ["-", "*"]
+        assert content[0].indent_left == content[1].indent_left
+        # The hyphen is narrower than the bullet, so the column is tighter than
+        # the default-bullet list's.
+        bullets = result.rendered_labels["bullets"].source_label.content
+        assert content[0].indent_left > bullets[1].indent_left
+
+    def test_enumerated_counters_are_computed(self, tmp_path: Path) -> None:
+        """Decimal counters number the items from 1 with the suffix."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["enumerated"].source_label.content
+        assert [line.marker_text for line in content] == ["1.", "2.", "3."]
+
+    def test_counter_style_prefix_suffix_and_start(self, tmp_path: Path) -> None:
+        """Every counter knob composes into the marker text."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["counter_style"].source_label.content
+        assert [line.marker_text for line in content] == ["Step iv)", "Step v)"]
+        # The wide counter widens the whole list's text column.
+        assert content[0].indent_left == pytest.approx(1.7997, abs=1e-3)
+
+    def test_growing_item_splits_to_fit(self, tmp_path: Path) -> None:
+        """An over-wide item with no cap takes as many lines as it needs."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["growing_item"].source_label.content
+        assert [line.plain_text for line in content] == [
+            "ALWAYS CHARGE",
+            "SECONDARY CO2 SYSTEM",
+            "THROUGH A FILTER DRIER",
+        ]
+        # Word order preserved, zero compression (the growth replaced it).
+        assert " ".join(line.plain_text for line in content).split() == (
+            "ALWAYS CHARGE SECONDARY CO2 SYSTEM THROUGH A FILTER DRIER".split()
+        )
+        assert result.rendered_labels["growing_item"].compression_by_line == {}
+
+    def test_growth_marks_only_the_first_line(self, tmp_path: Path) -> None:
+        """The bullet rides the item's first line; continuations hang at the
+        text column (the marker is empty, the indent is not)."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["growing_item"].source_label.content
+        assert [line.marker_text for line in content] == ["•", "", ""]
+        assert len({line.indent_left for line in content}) == 1
+        assert all(line.align_group_id == 0 for line in content)
+
+    def test_continuation_lines_start_at_the_text_column(self, tmp_path: Path) -> None:
+        """The grown lines' left edges sit at the marker column + indent."""
+        result = self._export(tmp_path)
+        rendered = result.rendered_labels["growing_item"]
+        content = rendered.source_label.content
+        chunks = {chunk.line_index: chunk.bounds[0] for chunk in rendered.text_chunks}
+        first_line_left = chunks[0]
+        # The continuation lines start one indent column right of the marker.
+        for index in (1, 2):
+            assert chunks[index] == pytest.approx(first_line_left + content[0].indent_left, abs=1e-3)
+
+    def test_growth_cap_limits_the_line_count(self, tmp_path: Path) -> None:
+        """optimize_line_content_max_lines ceilings the item at N lines."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["capped_item"].source_label.content
+        assert len(content) == 2
+        assert content[0].marker_text == "1"
+        assert content[1].marker_text == ""
+        assert " ".join(line.plain_text for line in content).split() == (
+            "DO NOT TRAP LIQUID BY CLOSING CHARGING STATION VALVES".split()
+        )
+
+    def test_items_never_exchange_words(self, tmp_path: Path) -> None:
+        """Each item reflows as its own paragraph (the group is per item)."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["per_item_groups"].source_label.content
+        assert [line.plain_text for line in content] == [
+            "AAAA BBBB CCCC DDDD",
+            "EEEE FFFF GGGG",
+        ]
+        assert [line.marker_text for line in content] == ["•", "•"]
+
+    def test_plain_siblings_keep_their_own_placement(self, tmp_path: Path) -> None:
+        """A list between plain lines leaves the plain lines untouched."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["list_between_plain"].source_label.content
+        assert [line.plain_text for line in content] == ["TOP", "HHHH", "IIII", "BOTTOM"]
+        assert content[0].align_group_id == -1
+        assert content[3].align_group_id == -1
+        assert content[1].align_group_id == content[2].align_group_id == 0
+
+    def test_zero_marker_gap_puts_text_flush_at_the_marker(self, tmp_path: Path) -> None:
+        """list_marker_gap_fraction 0.0 leaves only the marker's own width."""
+        result = self._export(tmp_path)
+        content = result.rendered_labels["tight_gap"].source_label.content
+        # The counter's own width, with no gap added (a single digit at 0.4in
+        # cap height is far narrower than the default 0.2in gap).
+        assert 0.1 < content[0].indent_left < 0.25
+
+    def test_empty_bullet_is_an_indent_only_list(self, tmp_path: Path) -> None:
+        """An explicit empty bullet_string engraves no marker at all."""
+        result = self._export(tmp_path)
+        rendered = result.rendered_labels["indent_only"]
+        content = rendered.source_label.content
+        assert [line.marker_text for line in content] == ["", ""]
+        assert content[0].list_item is True
+        # The items still hang at the gap column (no marker ink to measure).
+        assert content[0].indent_left == pytest.approx(0.1775, abs=1e-3)
+        # No marker means no extra strokes: the chunks are the text alone.
+        assert [chunk.line_index for chunk in rendered.text_chunks] == [0, 1]
+
+    def test_list_job_writes_the_expected_cutter_files(self, tmp_path: Path) -> None:
+        """The markers ride their items' own cutter -- no extra pen layer."""
+        result = self._export(tmp_path)
+        assert sorted(p.name for p in result.plt_paths) == [
+            "15_bh_list.plt",
+            "45_txt_list.plt",
+        ]
+
+    def test_marker_ink_is_emitted(self, tmp_path: Path) -> None:
+        """The bullet glyph reaches the engraved PLT (the label is wider than
+        the text alone, so the marker's ink extends the rendered block)."""
+        result = self._export(tmp_path)
+        marked = result.rendered_labels["bullets"]
+        # The list's widest line spans the marker column + its text.
+        content = marked.source_label.content
+        assert content[1].plain_text == "AAA"
+        assert marked.x_max > marked.x_min

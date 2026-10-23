@@ -1,0 +1,132 @@
+# Fixture for bullet/enumerated lists (`itemize` / `enumerate` content blocks).
+#
+# A list block nests inside a label's `content` list and expands at resolution
+# time into one line per item. Every item engraves a marker (the bullet string,
+# or the computed counter) in ONE flush marker column shared by the whole list,
+# and the item's text -- plus every continuation line `optimize_line_content`
+# grows it to -- starts at the hanging-indent column right of the markers.
+#
+# Geometry: inner content area = width - 2 * margin = 7.8in.
+job:
+  job_name: List Demo
+
+  width: 8.0
+  height: 4.0
+  margin: 0.1
+  text_height: 0.4
+  font: dino
+
+  # Compression budget: the grown lines fit, so nothing compresses.
+  max_h_compress: 0.5
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # 1. The plain bullet list: two items, the default bullet, no reflow. Each
+    #    item is one engraved line; both share the marker column and the
+    #    hanging-indent text column.
+    - id: bullets
+      content:
+        - text: "HEADER"
+        - itemize:
+            items:
+              - text: "AAA"
+              - text: "BBBB"
+
+    # 2. A per-item bullet_string override: the block sets '-', the second item
+    #    sets '*'. The markers differ; the column is the widest of the list.
+    - id: bullet_override
+      content:
+        - itemize:
+            bullet_string: "-"
+            items:
+              - text: "CCCC"
+              - text: "DDDD"
+                bullet_string: "*"
+
+    # 3. The enumerated list: decimal counters with a suffix, numbered from 1.
+    - id: enumerated
+      content:
+        - enumerate:
+            counter_suffix: "."
+            items:
+              - text: "EEEE"
+              - text: "FFFF"
+              - text: "GGGG"
+
+    # 4. The counter style, start index, prefix and suffix all at once:
+    #    "Step iv)", "Step v)" (lower-roman from 4).
+    - id: counter_style
+      content:
+        - enumerate:
+            counter_start_index: 4
+            counter_style: lower-roman
+            counter_prefix: "Step "
+            counter_suffix: ")"
+            items:
+              - text: "HHHH"
+              - text: "IIII"
+
+    # 5. Growth: one over-wide item with `optimize_line_content` enabled and no
+    #    cap, so it takes as many lines as necessary. The bullet rides the
+    #    FIRST line only; every continuation line hangs at the text column.
+    - id: growing_item
+      content:
+        - itemize:
+            optimize_line_content: true
+            items:
+              - text: "ALWAYS CHARGE SECONDARY CO2 SYSTEM THROUGH A FILTER DRIER"
+
+    # 6. The growth cap: the same over-wide item, ceiling 2 lines.
+    - id: capped_item
+      content:
+        - enumerate:
+            optimize_line_content: true
+            optimize_line_content_max_lines: 2
+            items:
+              - text: "DO NOT TRAP LIQUID BY CLOSING CHARGING STATION VALVES"
+
+    # 7. Per-item reflow: two over-wide items in one list, each with the
+    #    option. Words NEVER cross the item boundary -- each item is its own
+    #    reflow group (and its own paragraph).
+    - id: per_item_groups
+      content:
+        - itemize:
+            optimize_line_content: true
+            items:
+              - text: "AAAA BBBB CCCC DDDD"
+              - text: "EEEE FFFF GGGG"
+
+    # 8. A list between plain lines: the plain siblings keep their authored
+    #    text and their own alignment; the list block aligns as one unit.
+    - id: list_between_plain
+      content:
+        - text: "TOP"
+        - itemize:
+            items:
+              - text: "HHHH"
+              - text: "IIII"
+        - text: "BOTTOM"
+
+    # 9. The marker gap: list_marker_gap_fraction 0.0 puts the text flush
+    #    against the widest marker (no air column).
+    - id: tight_gap
+      content:
+        - enumerate:
+            list_marker_gap_fraction: 0.0
+            items:
+              - text: "JJJJ"
+              - text: "KKKK"
+
+    # 10. An indent-only list: an explicit empty bullet_string engraves no
+    #     marker, and the items still hang at the gap column.
+    - id: indent_only
+      content:
+        - itemize:
+            bullet_string: ""
+            items:
+              - text: "LLLL"
+              - text: "MMMM"

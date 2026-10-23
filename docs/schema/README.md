@@ -185,6 +185,9 @@ always wins at its level. Precedence per attribute:
 | `auto_descending_character_adjustment`, `descending_character_v_scale`, `descending_character_raise`, `descending_character_clearance`, `descending_character_reciprocal_scale` | label → job → config (never lines; plate parity) | `true` / `0.5` / `0.7` / `0.0` / `0.5` |
 | `text_color` | line → label (never job/plate/config) | `none` (implicit) |
 | `new_line` | line only (never label/job/plate/config) | `false` |
+| `bullet_string` | item → list block → label → job → config (plate parity) | `•` (the derived bullet glyph) |
+| `counter_start_index`, `counter_style`, `counter_prefix`, `counter_suffix` | item → list block → label → job → config (plate parity) | `1` / `decimal` / `''` / `''` |
+| `list_marker_gap_fraction` | item → list block → label → job → config (plate parity) | `0.5` (of the line's cap height) |
 | `width`, `height` | label → job → auto-size from rendered content | — |
 | `margin` | label → job → config | 0.125 |
 | `h_margin`, `v_margin` | label → job → config | `margin` (then 0.125) |
@@ -210,6 +213,23 @@ entries that omit it).
 
 ## Behavioural semantics a schema cannot express
 
+- **Bullet / enumerated lists** (`itemize` / `enumerate`): a `content` entry
+  carries **exactly one** of `text`, `itemize` or `enumerate`. A list block
+  nests its own settings plus one or more text `items`, and expands at
+  resolution into one rendered line per item, each engraving its marker (the
+  `bullet_string`, or the computed `counter_prefix + counter + counter_suffix`)
+  in ONE flush marker column shared by the whole list; the item's text — and
+  every continuation line `optimize_line_content` grows it to — starts at the
+  hanging-indent column right of the markers (the widest marker + 
+  `list_marker_gap_fraction` of the cap height). The list aligns as one block
+  by `text_h_alignment`, so the markers stay flush under center alignment. An
+  item grows to as many lines as it needs when `optimize_line_content` is
+  enabled (cascading item → block → label → job) and no
+  `optimize_line_content_max_lines` cap is set; words never cross an item
+  boundary. The counter is always computed, so an enumerated item's own
+  `bullet_string` is inert, and a list block cannot be a replacement-text
+  template (its items are authored, never substituted). An explicit empty
+  `bullet_string: ""` engraves no marker (an indent-only list).
 - **Hole groups**: `location: corners` expands in place to the four corner
   holes; `sides` to left+right — at validation time, so downstream only ever
   sees the 8 atomic locations.

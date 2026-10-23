@@ -21,6 +21,8 @@ import pytest
 from pydantic import ValidationError
 
 from plt_optimizer.generate.job_config import (
+    _JOB_LAYER_FIELDS,
+    _MARGIN_SUPPRESSED_FIELDS,
     REQUIRED_WHEN_UNCONFIGURED,
     JobConfig,
     JobConfigError,
@@ -31,7 +33,7 @@ from plt_optimizer.generate.job_config import (
     load_job_config,
 )
 from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import parse_yaml
+from plt_optimizer.generate.schema import CounterStyle, JobSpec, parse_yaml
 
 # A complete config supplying every required field (plus a few optional
 # ones), used as the baseline in injection tests.
@@ -1078,74 +1080,33 @@ class TestParseYamlWithJobConfig:
     """Integration of parse_yaml() with the job-config layer."""
 
     def test_repo_config_fills_job_layer(self) -> None:
-        """The shipped job-config.json supplies the required defaults."""
+        """Every value the shipped job-config.json sets lands on the job layer.
+
+        The repo config is hand-tuned for the real shop, so this test is
+        **adaptive**: it asserts the injection *mechanism* -- each configured
+        (non-``None``) job-layer field reaches the parsed ``JobSpec`` with the
+        config's own value, and the required-when-unconfigured set is
+        satisfied -- never the shop's exact numbers. Retuning
+        ``job-config.json`` can therefore never break this test.
+        """
+        config = load_job_config(Path("job-config.json"))
+        assert config is not None
+        # ``parse_yaml`` enforces the required-when-unconfigured contract, so
+        # reaching a parsed job proves the shipped config satisfies it.
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
-        assert job.hole_margin == 0.1875
-        assert job.max_h_compress == 0.7
-        assert job.min_hole_margin == 0.1875
-        assert job.hole_text_collision_distance == 0.1
-        assert job.space_width_fraction == 0.6
-        # Shop-tuned kerning/width values, re-pinned after the 2026-10-22
-        # job-config.json tuning. tests/AGENTS.md stale-pin pattern -
-        # re-pin, keep config.
-        assert job.min_glyph_width_fraction == 0.25
-        assert job.kerning_window_fraction == 0.1
-        assert job.kerning_penetration_scale == 1.0
-        assert job.kerning_recession_scale == 1.0
-        assert job.kerning_min_gap_fraction == 0.05
-        assert job.fallback_advance_fraction == 1.0
-        # The shop ships the manual-kern markers '<+>' / '<->' at 0.1 of the
-        # cap height.
-        assert job.kern_pos_string == "<+>"
-        assert job.kern_neg_string == "<->"
-        assert job.kern_width_fraction == 0.1
-        assert job.sc_scale == 0.8
-        assert job.supersubscript_downscale == 0.6
-        assert job.html_brackets == "<>"
-        assert job.italic_angle == 12.0
-        # Cap-height fractions (the unitless migration): the shop-tuned
-        # values, re-pinned after commit 05889c6 ("chore: update underline
-        # and strikethrough defaults"). tests/AGENTS.md stale-pin pattern -
-        # re-pin, keep config.
-        assert job.underline_offset_fraction == 0.15
-        assert job.underline_break_clearance_fraction == 0.2
-        assert job.underline_break_spaces is False
-        # The shop ships the mid-cap strike (0.4 cap heights) and a continuous
-        # stroke.
-        assert job.strikethrough_offset_fraction == 0.4
-        assert job.strikethrough_break_spaces is False
-        # The shop ships the high-sitting characters (hyphen, colon, en/em dash,
-        # '=', '<', '>') auto-centred between the baseline and the capline.
-        assert job.v_center_chars == "-:–—=<>"
-        assert job.target_boldness_factor == 0.14
-        assert job.multistroke_overlap_ratio == 0.25
-        assert job.bold_boldness_multiplier == 1.5
-        assert job.cutter_downsize is True
-        assert job.max_cutter_downsizes == 1
-        assert job.cutter_downsize_global is True
-        # Shop-tuned: the 2026-10-22 tuning commit enabled label-wide
-        # compression (job-config.json `h_compress_global` false -> true).
-        # tests/AGENTS.md stale-pin pattern - re-pin, keep config.
-        assert job.h_compress_global is True
-        assert job.h_compress_global_same_height_only is True
-        assert job.optimize_line_content is False
-        assert job.optimize_line_content_max_lines is None
-        assert job.enforce_cap_line is True
-        assert job.use_baseline_spacing is True
-        assert job.v_center_by_content is False
-        # The shop ships cutter-compensated drill holes (the shipped default).
-        assert job.hole_adjust_for_cutter is True
-        # The shipped config keeps the sharp rectangle (the historical border).
-        assert job.rounded_rectangle_fraction == 0.0
-        assert job.rounded_rectangle_proportional is False
-        # The descending-character relief knobs are shop-tuning values (the
-        # repo config ships non-default numbers on purpose), so this test only
-        # pins that the config layer resolves them -- never the exact numbers.
-        assert isinstance(job.auto_descending_character_adjustment, bool)
-        assert isinstance(job.descending_character_v_scale, float)
-        assert isinstance(job.descending_character_raise, float)
-        assert isinstance(job.descending_character_clearance, float)
-        assert isinstance(job.descending_character_reciprocal_scale, float)
+        # The spec declares ``margin``, so the axis-margin injection is
+        # suppressed by contract -- those two keys are the documented exception.
+        checked = 0
+        for field_name in _JOB_LAYER_FIELDS:
+            if field_name in _MARGIN_SUPPRESSED_FIELDS:
+                continue
+            configured = getattr(config.defaults, field_name)
+            if configured is None:
+                continue
+            checked += 1
+            assert getattr(job, field_name) == configured, field_name
+        # The shipped config is a real default set, not an empty one.
+        assert checked > 20
 
     def test_yaml_overrides_config(self) -> None:
         """Spec-declared values still win over the shipped config."""
@@ -1245,3 +1206,80 @@ class TestJobConfigDataclass:
         config = load_job_config(path)
         assert isinstance(config, JobConfig)
         assert config.path == path
+
+
+class TestListDefaults:
+    """The six list-settings fields are legal shop defaults."""
+
+    def test_fields_are_accepted(self) -> None:
+        """Every list field loads from the config."""
+        defaults = JobDefaults(
+            bullet_string="-",
+            counter_start_index=3,
+            counter_style="upper-roman",
+            counter_prefix="Step ",
+            counter_suffix=")",
+            list_marker_gap_fraction=0.25,
+        )
+        assert defaults.bullet_string == "-"
+        assert defaults.counter_start_index == 3
+        assert defaults.counter_style is CounterStyle.UPPER_ROMAN
+        assert defaults.counter_prefix == "Step "
+        assert defaults.counter_suffix == ")"
+        assert defaults.list_marker_gap_fraction == 0.25
+
+    def test_defaults_are_unset(self) -> None:
+        """An empty config carries no list defaults (the cascade falls through
+        to the code fallbacks)."""
+        defaults = JobDefaults()
+        assert defaults.bullet_string is None
+        assert defaults.counter_start_index is None
+        assert defaults.counter_style is None
+        assert defaults.counter_prefix is None
+        assert defaults.counter_suffix is None
+        assert defaults.list_marker_gap_fraction is None
+
+    def test_counter_start_index_bound(self) -> None:
+        """The configured starting counter is >= 1."""
+        with pytest.raises(ValidationError):
+            JobDefaults(counter_start_index=0)
+
+    def test_gap_fraction_bound(self) -> None:
+        """The configured marker gap is >= 0."""
+        with pytest.raises(ValidationError):
+            JobDefaults(list_marker_gap_fraction=-0.1)
+
+    def test_fields_inject_at_the_job_layer(self, tmp_path: Path) -> None:
+        """The config's list settings land on the job spec (job layer)."""
+        path = _write_config(
+            tmp_path,
+            {
+                "bullet_string": "*",
+                "counter_style": "lower-alpha",
+                "list_marker_gap_fraction": 0.75,
+            },
+        )
+        config = load_job_config(path)
+        assert config is not None
+        job_data: dict = {"job_name": "J", "width": 2.0, "height": 1.0}
+        filled = apply_job_config_defaults(job_data, config)
+        assert filled["bullet_string"] == "*"
+        assert filled["counter_style"] == "lower-alpha"
+        assert filled["list_marker_gap_fraction"] == 0.75
+        # The input mapping is never mutated (the documented contract).
+        assert "bullet_string" not in job_data
+
+    def test_marker_strings_reject_newlines(self, tmp_path: Path) -> None:
+        """A newline-carrying configured marker aborts the injected job.
+
+        ``JobDefaults`` carries no string validator (the ``html_brackets``
+        precedent): the rule runs on the injected ``JobSpec`` at validation
+        time, so the config value is checked by the same cascade-tier rule.
+        """
+        path = _write_config(tmp_path, {"bullet_string": "a\nb"})
+        config = load_job_config(path)
+        assert config is not None
+        job_data: dict = {"job_name": "J", "width": 2.0, "height": 1.0}
+        filled = apply_job_config_defaults(job_data, config)
+        with pytest.raises(ValidationError, match="newline"):
+            JobSpec(**filled)

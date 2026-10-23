@@ -19,6 +19,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_BOLD_BOLDNESS_MULTIPLIER,
     DEFAULT_ARC_PRESERVE_COMPRESSION,
     DEFAULT_BOUNDARY_HOLE_CUTTER,
+    DEFAULT_BULLET_STRING,
     DEFAULT_CUTTER_DOWNSIZE,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL,
     DEFAULT_CUTTER_SIZE,
@@ -7491,3 +7492,314 @@ class TestKernMarkerValidation:
         line = resolve_job_spec(job)[0].content[0]
         assert line.plain_text == "AB"
         assert line.kern_values == (0, -1)
+
+
+class TestListResolution:
+    """The nested itemize/enumerate blocks expand into resolved lines."""
+
+    @staticmethod
+    def _job(**content_tiers: object) -> JobSpec:
+        """Build a single-label job whose content is the given entries."""
+        return JobSpec(
+            job_name="J",
+            width=6.0,
+            height=3.0,
+            text_height=0.3,
+            **content_tiers,
+        )
+
+    def test_plain_line_carries_no_list_metadata(self) -> None:
+        """A plain content entry resolves exactly as before the feature."""
+        job = self._job(content=[TextLine(text="X")])
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.marker_text == ""
+        assert line.align_group_id == -1
+        assert line.list_item is False
+        assert line.indent_left == 0.0
+
+    def test_itemize_expands_one_line_per_item(self) -> None:
+        """A bullet block yields its items in order, sharing one group."""
+        job = self._job(
+            content=[{"itemize": {"items": [{"text": "alpha"}, {"text": "beta"}]}}]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.plain_text for line in content] == ["alpha", "beta"]
+        assert [line.marker_text for line in content] == ["•", "•"]
+        assert [line.list_item for line in content] == [True, True]
+        assert {line.align_group_id for line in content} == {0}
+
+    def test_default_bullet_is_the_bullet_glyph(self) -> None:
+        """Unset bullet_string falls back to the derived bullet glyph."""
+        job = self._job(content=[{"itemize": {"items": [{"text": "a"}]}}])
+        assert resolve_job_spec(job)[0].content[0].marker_text == DEFAULT_BULLET_STRING
+
+    def test_empty_bullet_string_is_an_indent_only_list(self) -> None:
+        """An explicit empty bullet engraves no marker (the indent stays)."""
+        job = self._job(content=[{"itemize": {"items": [{"text": "a"}], "bullet_string": ""}}])
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.marker_text == ""
+        assert line.list_item is True
+
+    def test_bullet_string_cascades_item_over_block(self) -> None:
+        """A per-item bullet_string overrides the block's."""
+        job = self._job(
+            content=[
+                {
+                    "itemize": {
+                        "bullet_string": "-",
+                        "items": [{"text": "a"}, {"text": "b", "bullet_string": "*"}],
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.marker_text for line in content] == ["-", "*"]
+
+    def test_bullet_string_cascades_label_and_job(self) -> None:
+        """The label tier beats the job tier; the block beats both."""
+        job = JobSpec(
+            job_name="J",
+            width=6.0,
+            height=3.0,
+            text_height=0.3,
+            bullet_string="@",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    bullet_string="#",
+                    content=[
+                        {"itemize": {"items": [{"text": "a"}]}},
+                        {"itemize": {"items": [{"text": "b"}], "bullet_string": "$"}},
+                    ],
+                )
+            ],
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.marker_text for line in content] == ["#", "$"]
+
+    def test_enumerate_computes_decimal_counters(self) -> None:
+        """An enumerate block numbers its items from start_index."""
+        job = self._job(
+            content=[
+                {
+                    "enumerate": {
+                        "items": [{"text": "a"}, {"text": "b"}, {"text": "c"}],
+                        "counter_suffix": ".",
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.marker_text for line in content] == ["1.", "2.", "3."]
+
+    def test_enumerate_start_index_and_style(self) -> None:
+        """start_index shifts the sequence; the style formats it."""
+        job = self._job(
+            content=[
+                {
+                    "enumerate": {
+                        "items": [{"text": "a"}, {"text": "b"}],
+                        "counter_start_index": 4,
+                        "counter_style": "lower-roman",
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.marker_text for line in content] == ["iv", "v"]
+
+    def test_enumerate_prefix_and_suffix(self) -> None:
+        """The counter rides the configured prefix and suffix."""
+        job = self._job(
+            content=[
+                {
+                    "enumerate": {
+                        "items": [{"text": "a"}],
+                        "counter_prefix": "Step ",
+                        "counter_suffix": ")",
+                        "counter_style": "upper-alpha",
+                    }
+                }
+            ]
+        )
+        assert resolve_job_spec(job)[0].content[0].marker_text == "Step A)"
+
+    def test_enumerate_ignores_the_bullet_string(self) -> None:
+        """The counter is always computed -- a bullet_string is inert there."""
+        job = self._job(
+            content=[{"enumerate": {"items": [{"text": "a"}], "bullet_string": "X"}}]
+        )
+        assert resolve_job_spec(job)[0].content[0].marker_text == "1"
+
+    def test_counter_settings_cascade_label_and_job(self) -> None:
+        """The counter fields cascade block -> label -> job."""
+        job = JobSpec(
+            job_name="J",
+            width=6.0,
+            height=3.0,
+            text_height=0.3,
+            counter_style="upper-roman",
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    counter_start_index=3,
+                    content=[{"enumerate": {"items": [{"text": "a"}, {"text": "b"}]}}],
+                )
+            ],
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.marker_text for line in content] == ["III", "IV"]
+
+    def test_two_blocks_get_distinct_groups(self) -> None:
+        """Each list block owns its marker column (a fresh group id)."""
+        job = self._job(
+            content=[
+                {"itemize": {"items": [{"text": "a"}]}},
+                {"enumerate": {"items": [{"text": "b"}]}},
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.align_group_id for line in content] == [0, 1]
+        assert [line.marker_text for line in content] == ["•", "1"]
+
+    def test_item_inherits_the_block_typography(self) -> None:
+        """A block-level text_height/font/alignment reaches every item."""
+        job = self._job(
+            content=[
+                {
+                    "itemize": {
+                        "text_height": 0.6,
+                        "text_h_alignment": "left",
+                        "items": [{"text": "a"}, {"text": "b", "text_height": 0.2}],
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert content[0].nominal_text_height == 0.6
+        assert content[0].text_h_alignment == "left"
+        # The item's own value wins over the block's.
+        assert content[1].nominal_text_height == 0.2
+
+    def test_item_inherits_the_reflow_permission(self) -> None:
+        """optimize_line_content / the line cap cascade through the block."""
+        job = self._job(
+            content=[
+                {
+                    "itemize": {
+                        "optimize_line_content": True,
+                        "optimize_line_content_max_lines": 3,
+                        "items": [{"text": "a"}, {"text": "b"}],
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.optimize_line_content for line in content] == [True, True]
+        assert [line.optimize_line_content_max_lines for line in content] == [3, 3]
+
+    def test_marker_gap_fraction_cascades(self) -> None:
+        """The gap fraction resolves block -> label -> job -> fallback."""
+        job = self._job(
+            list_marker_gap_fraction=0.25,
+            content=[
+                {"itemize": {"items": [{"text": "a"}]}},
+                {"itemize": {"items": [{"text": "b"}], "list_marker_gap_fraction": 1.0}},
+            ],
+        )
+        content = resolve_job_spec(job)[0].content
+        assert content[0].list_marker_gap_fraction == 0.25
+        assert content[1].list_marker_gap_fraction == 1.0
+
+    def test_list_item_is_its_own_reflow_group(self) -> None:
+        """Words never cross an item boundary (the reflow group is per item)."""
+        job = self._job(
+            content=[
+                {
+                    "itemize": {
+                        "optimize_line_content": True,
+                        "items": [{"text": "a b"}, {"text": "c d"}],
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert reflow_groups(content) == [[0], [1]]
+
+    def test_list_item_isolates_a_plain_neighbour(self) -> None:
+        """An item never pulls words from the plain line above it."""
+        job = self._job(
+            optimize_line_content=True,
+            content=[
+                {"text": "a b"},
+                {"itemize": {"items": [{"text": "c d"}]}},
+                {"text": "e f"},
+            ],
+        )
+        content = resolve_job_spec(job)[0].content
+        # Three singleton groups: the item closes the run above it and never
+        # joins the plain line below (the item enables reflow via the job).
+        assert reflow_groups(content) == [[0], [1], [2]]
+
+    def test_disabled_item_forms_no_group(self) -> None:
+        """An item that opts out of reflow joins no group at all."""
+        job = self._job(
+            content=[
+                {
+                    "itemize": {
+                        "optimize_line_content": True,
+                        "items": [
+                            {"text": "a b"},
+                            {"text": "c d", "optimize_line_content": False},
+                        ],
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert reflow_groups(content) == [[0]]
+
+    def test_item_cap_governs_its_own_item(self) -> None:
+        """The line cap fans out per item, so two caps never conflict."""
+        job = self._job(
+            content=[
+                {
+                    "itemize": {
+                        "optimize_line_content": True,
+                        "items": [
+                            {"text": "a b", "optimize_line_content_max_lines": 2},
+                            {"text": "c d", "optimize_line_content_max_lines": 3},
+                        ],
+                    }
+                }
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.optimize_line_content_max_lines for line in content] == [2, 3]
+
+    def test_plain_line_typography_is_untouched_by_the_block(self) -> None:
+        """A plain sibling never sees the block's settings."""
+        job = self._job(
+            content=[
+                {"text": "plain"},
+                {"itemize": {"items": [{"text": "a"}], "text_height": 0.6}},
+            ]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert content[0].nominal_text_height == 0.3
+        assert content[1].nominal_text_height == 0.6
+
+    def test_markup_in_an_item_is_parsed(self) -> None:
+        """An item's inline markup flows through the normal parse."""
+        job = self._job(content=[{"itemize": {"items": [{"text": "<i>em</i> ph"}]}}])
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.plain_text == "em ph"
+        assert line.text == "<i>em</i> ph"
+
+    def test_job_level_root_content_expands_lists(self) -> None:
+        """The root-level single-label form expands list blocks too."""
+        job = self._job(
+            content=[{"enumerate": {"items": [{"text": "a"}, {"text": "b"}]}}]
+        )
+        content = resolve_job_spec(job)[0].content
+        assert [line.marker_text for line in content] == ["1", "2"]

@@ -80,8 +80,23 @@ class TestGeneratedArtifacts:
         _assert_current(DOCS_DIR / "job_config.schema.json", generator.build_job_config_schema())
 
     def test_job_spec_markdown_is_up_to_date(self) -> None:
-        """JOB_SPEC.md matches the generated markdown render."""
-        _assert_current(DOCS_DIR / "JOB_SPEC.md", generator.build_job_spec_markdown())
+        """The model-derived part of JOB_SPEC.md matches a fresh render.
+
+        The trailing "Available Tool Options" table is rendered from
+        ``job-config.json`` (shop-tuned values), so it is deliberately
+        EXCLUDED from the byte-exact comparison: retuning ``job-config.json``
+        must never break this pin (config-value immunity -- tests/AGENTS.md).
+        The section is still checked structurally (present in both).
+        """
+        committed = (DOCS_DIR / "JOB_SPEC.md").read_text(encoding="utf-8")
+        rendered = generator.build_job_spec_markdown()
+        committed_model, committed_options = generator.split_tool_options(committed)
+        rendered_model, rendered_options = generator.split_tool_options(rendered)
+        assert committed_model == rendered_model, (
+            "JOB_SPEC.md is stale; run: uv run python docs/schema/generate_ai_docs.py"
+        )
+        if rendered_options.strip():
+            assert committed_options.strip(), "JOB_SPEC.md lost its tool-options section"
 
     def test_fallback_constants_are_scraped_live(self) -> None:
         """The fallback table carries the real current constant values.

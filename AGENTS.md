@@ -74,11 +74,11 @@ one of them inherits the standards above):
 | `plt_optimizer/ui/` | System-tray app + Tkinter settings (Windows 10+ only; Win7 runs the headless CLI) | [`plt_optimizer/ui/AGENTS.md`](plt_optimizer/ui/AGENTS.md) |
 | `plt_optimizer/utils/` | Config loading, distance geometry, dual text/CSV logging, Windows startup shortcuts | [`plt_optimizer/utils/AGENTS.md`](plt_optimizer/utils/AGENTS.md) |
 | `fonts/` | PLT font extraction from engraved sample sheets, derived Unicode glyphs, the v2 catalog the renderer loads | [`fonts/AGENTS.md`](fonts/AGENTS.md) |
-| `tests/` + `tests_deps/` | pytest suite + frozen fixtures (stale-pin patterns, conftest mocks) | [`tests/AGENTS.md`](tests/AGENTS.md) |
+| `tests/` + `tests_deps/` | pytest suite + frozen fixtures (config-value-adaptive tests, conftest mocks) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 | `docs/` + `docs/schema/` | Developer docs + generated `JOB_SPEC.md`/JSON schemas (regenerate via `generate_ai_docs.py`, drift-pinned) | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | `scripts/` | Dev/ops scripts: `run_integration_test.py` (end-to-end generate run + layout report), `kerning_report.py` | (see module docstrings) |
 | `examples/` | User-facing sample PLTs + `examples/job_specs/` sample YAML (safe to tweak; never read by unit tests) | - |
-| `job-config.json`, `tools.json` | Shop-level defaults + cutter inventory (hand-tuned; test pins on exact values are the known stale-pin pattern in `tests/AGENTS.md`) | [`docs/AGENTS.md`](docs/AGENTS.md) |
+| `job-config.json`, `tools.json` | Shop-level defaults + cutter inventory (hand-tuned; **tests must derive from these, never pin their values** — see `tests/AGENTS.md`) | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | `installer/`, `Ploptimizer.spec`, `run_tray.py` | Inno Setup script, PyInstaller spec, tray entry (Windows 10+ distribution) | - |
 
 **Reading order for the generate pipeline:** root (this file) →

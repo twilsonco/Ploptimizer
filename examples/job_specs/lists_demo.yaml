@@ -1,0 +1,69 @@
+# Bullet & enumerated lists -- feature demo
+#
+# A `content` entry carries exactly one of `text`, `itemize` or `enumerate`.
+# A list block nests its own settings plus one or more text `items`; it expands
+# at resolution into one rendered line per item. Every item engraves its marker
+# (the bullet string, or the computed counter) in ONE flush marker column
+# shared by the whole list, and the item's text -- plus every continuation line
+# `optimize_line_content` grows it to -- starts at the hanging-indent column
+# right of the markers.
+#
+# The list settings cascade item -> list block -> label -> job ->
+# job-config.json, so a shop default lives in job-config.json and a label (or
+# a single item) overrides it.
+job:
+  job_name: List Showcase
+  width: 7
+  height: 5
+  margin: 0.25
+  text_height: 0.28
+  font: dino
+  h_compress_global: true
+  max_h_compress: 0.4
+  labels:
+    - id: instructions
+      content:
+        - text: "<b>STARTUP PROCEDURE</b>"
+          text_height: 0.45
+          text_h_alignment: center
+        # An enumerated list: "Step 1)", "Step 2)", ... The block enables the
+        # reflow for every item, so an over-wide item grows into a
+        # hanging-indent block (the counter rides the FIRST line only).
+        - enumerate:
+            counter_prefix: "Step "
+            counter_suffix: ")"
+            optimize_line_content: true
+            items:
+              - text: "Isolate power at the disconnect and lock it out"
+              - text: "Verify zero energy at the terminals with a rated meter before touching any conductor"
+              - text: "Restore power only after the guard is refitted"
+        # A bullet list with a per-item override: the block uses the default
+        # bullet, the last item swaps in a dagger. The list is one aligned
+        # block, so both markers share the column of the widest one.
+        - itemize:
+            text_h_alignment: left
+            items:
+              - text: "Wear rated eye protection"
+              - text: "Keep the work area dry"
+              - text: "Two-person job above 600V"
+                bullet_string: "†"
+        - text: "<s>Provisional revision</s> Rev C"
+          text_height: 0.22
+
+    - id: lower_alpha
+      width: 5
+      height: 3
+      content:
+        - text: "CAUTION"
+          text_height: 0.4
+        # The counter style, the start index, and the marker gap are all
+        # knobs: "b)", "c)", "d)" with a tight 0.15 cap-height gap.
+        - enumerate:
+            counter_style: lower-alpha
+            counter_start_index: 2
+            counter_suffix: ")"
+            list_marker_gap_fraction: 1.5
+            items:
+              - text: "Pinch point"
+              - text: "Hot surface"
+              - text: "Stored energy"

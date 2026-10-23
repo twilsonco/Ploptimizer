@@ -20,8 +20,12 @@ from pydantic import BaseModel, ValidationError
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
     DEFAULT_LAYOUT_MODE,
+    ContentEntry,
+    CounterStyle,
+    EnumerateBlock,
     HoleLocation,
     HoleSpec,
+    ItemizeBlock,
     JobSpec,
     LabelAttributes,
     LabelShape,
@@ -3086,3 +3090,236 @@ class TestKernWidthFractionField:
         """The plate tier carries the field for schema parity."""
         plate = PlateSpec(id="p", width=24.0, height=16.0, kern_width_fraction=0.2)
         assert plate.kern_width_fraction == 0.2
+
+
+class TestCounterStyleEnum:
+    """Tests for the CounterStyle enumeration."""
+
+    def test_values(self) -> None:
+        """The five styles carry their documented hyphenated strings."""
+        assert [style.value for style in CounterStyle] == [
+            "decimal",
+            "lower-alpha",
+            "upper-alpha",
+            "lower-roman",
+            "upper-roman",
+        ]
+
+    def test_accepts_the_string_form(self) -> None:
+        """A spec writes the style as its plain string."""
+        assert CounterStyle("lower-roman") is CounterStyle.LOWER_ROMAN
+
+
+class TestListFieldsOnTextAttributes:
+    """The six cascading list fields live on TextAttributes (all tiers)."""
+
+    _FIELDS = (
+        "bullet_string",
+        "counter_start_index",
+        "counter_style",
+        "counter_prefix",
+        "counter_suffix",
+        "list_marker_gap_fraction",
+    )
+
+    @pytest.mark.parametrize("field", _FIELDS)
+    def test_field_lives_on_every_cascading_tier(self, field: str) -> None:
+        """Each field is on TextAttributes (so TextLine inherits it) and on the
+        label/job tiers, plus the plate for schema parity."""
+        assert field in TextAttributes.model_fields
+        assert field in TextLine.model_fields
+        assert field in LabelAttributes.model_fields
+        assert field in LabelSpec.model_fields
+        assert field in JobSpec.model_fields
+        assert field in PlateSpec.model_fields
+
+    @pytest.mark.parametrize("field", _FIELDS)
+    def test_defaults_to_none_everywhere(self, field: str) -> None:
+        """Every tier defaults the field to None (unset -> cascade fallback)."""
+        assert TextLine.model_fields[field].default is None
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert getattr(job, field) is None
+        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert getattr(label, field) is None
+        plate = PlateSpec(id="p", width=24.0, height=16.0)
+        assert getattr(plate, field) is None
+
+    @pytest.mark.parametrize("field", _FIELDS)
+    def test_plate_accepts_the_field_for_parity(self, field: str) -> None:
+        """PlateSpec accepts every list field (parity, never applied)."""
+        value: object = 0.4
+        if field in {"bullet_string", "counter_prefix", "counter_suffix"}:
+            value = "x"
+        elif field == "counter_style":
+            value = "upper-alpha"
+        elif field == "counter_start_index":
+            value = 3
+        plate = PlateSpec(id="p", width=24.0, height=16.0, **{field: value})
+        assert getattr(plate, field) is not None
+
+    def test_counter_start_index_must_be_positive(self) -> None:
+        """The starting counter is >= 1 (no style defines a zero number)."""
+        with pytest.raises(ValidationError):
+            TextLine(text="X", counter_start_index=0)
+        assert TextLine(text="X", counter_start_index=1).counter_start_index == 1
+
+    def test_list_marker_gap_fraction_bounds(self) -> None:
+        """The marker gap is >= 0 (0.0 = marker flush against the text)."""
+        assert TextLine(text="X", list_marker_gap_fraction=0.0).list_marker_gap_fraction == 0.0
+        with pytest.raises(ValidationError):
+            TextLine(text="X", list_marker_gap_fraction=-0.1)
+
+    def test_counter_style_canonicalizes(self) -> None:
+        """The style field stores the enum member."""
+        line = TextLine(text="X", counter_style="upper-roman")
+        assert line.counter_style is CounterStyle.UPPER_ROMAN
+
+    @pytest.mark.parametrize("field", ["bullet_string", "counter_prefix", "counter_suffix"])
+    def test_marker_strings_reject_newlines(self, field: str) -> None:
+        """A marker engraves on one line, so a newline is always a mistake."""
+        with pytest.raises(ValidationError, match="newline"):
+            TextLine(text="X", **{field: "a\nb"})
+
+    @pytest.mark.parametrize("field", ["bullet_string", "counter_prefix", "counter_suffix"])
+    def test_plate_parity_validates_newlines(self, field: str) -> None:
+        """The plate parity fields enforce the identical newline rule."""
+        with pytest.raises(ValidationError, match="newline"):
+            PlateSpec(id="p", width=24.0, height=16.0, **{field: "a\nb"})
+
+
+class TestItemizeBlock:
+    """The nested bullet-list block."""
+
+    def test_items_required_and_non_empty(self) -> None:
+        """A block needs at least one item."""
+        with pytest.raises(ValidationError):
+            ItemizeBlock(items=[])
+        with pytest.raises(ValidationError):
+            ItemizeBlock()
+
+    def test_items_are_text_lines(self) -> None:
+        """Each item is a TextLine (so it carries the full cascading field set)."""
+        block = ItemizeBlock(items=[TextLine(text="a", text_height=0.4)])
+        assert block.items[0].text == "a"
+        assert block.items[0].text_height == 0.4
+
+    def test_block_carries_the_list_settings(self) -> None:
+        """The block accepts bullet_string and every cascading text field."""
+        block = ItemizeBlock(items=[{"text": "a"}], bullet_string="-", text_height=0.3)
+        assert block.bullet_string == "-"
+        assert block.text_height == 0.3
+
+    def test_block_rejects_the_counter_fields_as_a_bullet_list(self) -> None:
+        """A counter style is accepted structurally (the shared mixin) but the
+        marker resolver ignores it for a bullet list -- pinned end-to-end in
+        test_resolution."""
+        block = ItemizeBlock(items=[{"text": "a"}], counter_style="lower-roman")
+        assert block.counter_style is CounterStyle.LOWER_ROMAN
+
+
+class TestEnumerateBlock:
+    """The nested enumerated-list block."""
+
+    def test_items_required_and_non_empty(self) -> None:
+        """A block needs at least one item."""
+        with pytest.raises(ValidationError):
+            EnumerateBlock(items=[])
+
+    def test_block_carries_the_counter_settings(self) -> None:
+        """The block accepts every counter field."""
+        block = EnumerateBlock(
+            items=[{"text": "a"}],
+            counter_start_index=3,
+            counter_style="upper-alpha",
+            counter_prefix="Step ",
+            counter_suffix=")",
+        )
+        assert block.counter_start_index == 3
+        assert block.counter_style is CounterStyle.UPPER_ALPHA
+        assert block.counter_prefix == "Step "
+        assert block.counter_suffix == ")"
+
+    def test_counter_start_index_bound(self) -> None:
+        """The block's starting counter is >= 1."""
+        with pytest.raises(ValidationError):
+            EnumerateBlock(items=[{"text": "a"}], counter_start_index=0)
+
+
+class TestContentEntry:
+    """The content entry: a text line OR a list block, never both."""
+
+    def test_plain_entry_keeps_the_textline_shape(self) -> None:
+        """A plain entry carries text and no block."""
+        entry = ContentEntry(text="X")
+        assert entry.text == "X"
+        assert entry.itemize is None
+        assert entry.enumerate is None
+
+    def test_text_is_optional_on_the_entry(self) -> None:
+        """A list entry omits text (the plain TextLine keeps it required)."""
+        entry = ContentEntry(itemize={"items": [{"text": "a"}]})
+        assert entry.text is None
+        with pytest.raises(ValidationError):
+            TextLine.model_validate({"placeholder": False})
+
+    def test_exactly_one_form_required(self) -> None:
+        """None of the three, or more than one, is an error."""
+        with pytest.raises(ValidationError, match="exactly one"):
+            ContentEntry()
+        with pytest.raises(ValidationError, match="exactly one"):
+            ContentEntry(text="X", itemize={"items": [{"text": "a"}]})
+        with pytest.raises(ValidationError, match="exactly one"):
+            ContentEntry(
+                itemize={"items": [{"text": "a"}]},
+                enumerate={"items": [{"text": "b"}]},
+            )
+
+    def test_entry_is_a_textline_subclass(self) -> None:
+        """The entry inherits every TextLine field (the coercion contract)."""
+        assert issubclass(ContentEntry, TextLine)
+        assert "itemize" in ContentEntry.model_fields
+        assert "itemize" not in TextLine.model_fields
+
+    def test_placeholder_rejected_inside_a_list(self) -> None:
+        """A list item is authored in the spec, never substituted."""
+        with pytest.raises(ValidationError, match="plain text line"):
+            ContentEntry(itemize={"items": [{"text": "a", "placeholder": True}]})
+
+    def test_entry_accepts_a_bare_textline(self) -> None:
+        """A direct-API TextLine coerces to a plain entry (the back-compat
+        contract: every pre-list spec validates unchanged)."""
+        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert isinstance(label.content[0], ContentEntry)
+        assert label.content[0].text == "X"
+
+    def test_job_root_content_accepts_a_bare_textline(self) -> None:
+        """The root-level content coerces the same way."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert isinstance(job.content[0], ContentEntry)
+
+
+class TestLabelSpecListValidation:
+    """LabelSpec's content validator meets the list blocks."""
+
+    def test_list_block_is_valid_static_content(self) -> None:
+        """A label whose content is one list block validates."""
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=[{"itemize": {"items": [{"text": "a"}]}}]
+        )
+        assert label.content[0].itemize is not None
+
+    def test_list_block_rejected_as_a_replacement_template(self) -> None:
+        """A replacement template's content must be plain lines."""
+        with pytest.raises(ValidationError, match="itemize/enumerate"):
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                replacement_text_file="x.txt",
+                content=[{"itemize": {"items": [{"text": "a"}]}}],
+            )
+
+    def test_placeholder_line_still_requires_a_replacement_file(self) -> None:
+        """The pre-existing placeholder rule is untouched."""
+        with pytest.raises(ValidationError, match="placeholder"):
+            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X", placeholder=True)])

@@ -140,6 +140,12 @@ class LineFinding:
             the ``<vc>`` spans plus the characters of the cascading
             ``v_center_chars`` set (the count and the distinct centred
             characters, ascending). ``None`` when the line centres nothing.
+        list_marker: The ``(marker_text, indent_left)`` pair for a line that
+            engraves a list marker (a bullet or a computed counter) -- the
+            marker is invisible in the YAML (it rides the list block) and the
+            hanging indent is a measured column, so both are reported. The
+            indent is the marker column + gap in inches. ``None`` for a plain
+            line.
     """
 
     line_index: int
@@ -156,6 +162,7 @@ class LineFinding:
     cutter_runs: Optional[tuple[tuple[float, ...], tuple[float, ...]]] = None
     original_cutter: Optional[tuple[int, tuple[float, ...]]] = None
     v_center: Optional[tuple[int, tuple[str, ...]]] = None
+    list_marker: Optional[tuple[str, float]] = None
 
     @property
     def has_effect(self) -> bool:
@@ -181,6 +188,7 @@ class LineFinding:
                 self.cutter_runs,
                 self.original_cutter,
                 self.v_center,
+                self.list_marker,
             )
         )
 
@@ -370,6 +378,7 @@ def collect_line_findings(
         | {index for index, line in enumerate(content) if line.has_cutter_runs}
         | {index for index, line in enumerate(content) if line.has_original_cutter}
         | {index for index, line in enumerate(content) if line.has_v_center}
+        | {index for index, line in enumerate(content) if line.marker_text}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -406,6 +415,9 @@ def collect_line_findings(
         v_center: tuple[int, tuple[str, ...]] | None = None
         if line.has_v_center:
             v_center = _v_center_info(line)
+        list_marker: tuple[str, float] | None = None
+        if line.marker_text:
+            list_marker = (line.marker_text, line.indent_left)
         finding = LineFinding(
             line_index=line_index,
             text=line.plain_text,
@@ -421,6 +433,7 @@ def collect_line_findings(
             cutter_runs=cutter_runs,
             original_cutter=original_cutter,
             v_center=v_center,
+            list_marker=list_marker,
         )
         if not finding.has_effect:
             continue
@@ -615,6 +628,15 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"v-centered {count} chars ({char_text})"
+                )
+            list_marker = entry.list_marker
+            if list_marker is not None:
+                marker_text, indent_left = list_marker
+                # The marker rides the list block (invisible on the item) and
+                # the hanging indent is a measured column, so name both.
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"list marker {marker_text!r} (text column {indent_left:.3f}in)"
                 )
             if entry.relief:
                 for fix in entry.relief:

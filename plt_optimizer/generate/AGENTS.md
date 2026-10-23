@@ -347,6 +347,30 @@ JobSpec (job-level defaults)
   than lines. Each moved line logs an INFO with the label id, line index and
   before/after text. Cascades line → label → job → default (plate parity only);
   `job-config.json` supplies the shop default.
+- `bullet_string`: String marker for every item of an `itemize` list
+  (`default None` → **`"•"`** — the derived bullet glyph, engraved by every
+  PLT catalog font except the symbol fonts; a TTF font lacking it fails
+  loudly). Cascades **item → list block → label → job** → `job-config.json`
+  (plate parity). Settable on a single item to override one bullet. An
+  explicit empty string `""` engraves **no** marker (an indent-only list).
+  A newline in the value is a validation error (a marker engraves on one line).
+- `counter_start_index` / `counter_style` / `counter_prefix` / `counter_suffix`:
+  The `enumerate` list's counter knobs (`default None` → **1 / `decimal` /
+  `""` / `""`**). Each item's marker is
+  `prefix + format_counter(start_index + k, style) + suffix` for its zero-based
+  position `k` — the counter is always **computed**, so an enumerated item's
+  own `bullet_string` is inert. `counter_style` is the `CounterStyle` enum
+  (`decimal`, `lower-alpha`, `upper-alpha`, `lower-roman`, `upper-roman`; the
+  alpha styles are bijective base-26, so `z` is followed by `aa`). All four
+  cascade item → list block → label → job → `job-config.json` (plate parity);
+  `counter_start_index` is `ge=1`.
+- `list_marker_gap_fraction`: Float air gap between a list marker and its
+  text, as a **unitless fraction of the line's rendered cap height** (so it
+  scales with the text size), `ge=0.0`, `default None` → **0.5**. The marker
+  column is the widest marker of the list plus this gap, and every item's text
+  (and every continuation line) starts at that column — the hanging indent.
+  Explicit `0.0` is honored (text flush against the marker). Cascades item →
+  list block → label → job → `job-config.json` (plate parity).
 - `optimize_line_content_max_lines`: Int ceiling `N` on the consecutive lines
   an `optimize_line_content` group may use (`ge=1`, `default None` = **unset =
   no growth**). **Growth-only: this option can only ever ADD lines to a label —
@@ -418,6 +442,8 @@ JobSpec (job-level defaults)
 | `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); `width`/`height` must be defined at job or label level (no longer auto-sized); a `round` label needs only ONE dimension (the other fills to a circle) |
 | `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); `width`/`height` must be defined at label or job level (a `round` label needs only one); optional `plate_id` pins the label to a declared plate |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
+| `ContentEntry` | One `content` entry: a text line **or** a list block | Subclasses `TextLine` (`text` becomes optional); requires **exactly one** of `text` / `itemize` / `enumerate`; a `placeholder: true` item inside a list block is rejected (a list's items are authored, never substituted) |
+| `ItemizeBlock` / `EnumerateBlock` | Nested bullet / enumerated list | `items` (min 1 `TextLine`) + the cascading list settings; both extend `TextAttributes`, so a block carries every typographic field and its items inherit them (item → block → label → job) |
 | `PlateSpec` | Physical sheet definition | All dimensions `>= 0`; `width`/`height` are the usable pack area, offset from the material's top-left by `left_clearance`/`top_clearance` (both default `0.0`); optional `replacement_text_file` synthesizes labels pinned to this plate (requires job-level `width`/`height`/`text_height`) |
 | `HoleSpec` | Drilled hole definition | Location (required; 8 atomic enum values: corners + edges, plus `corners`/`sides` group shorthands expanded at validation) + optional `diameter` (default 0.125", must be > 0) |
 | `parse_yaml()` | Entry point | Returns validated `JobSpec` or raises `ValueError` |
@@ -952,6 +978,104 @@ only ever ADD lines, never remove, blank, or collapse them.**
   keeping two capped groups independent.
   `tests_deps/optimize_line_content_max_lines_conflict_job.yaml` pins the
   conflicting-caps abort.
+
+### Bullet & Enumerated Lists (`itemize` / `enumerate`)
+
+A list nests inside a label's `content` list as an `itemize:` (bullet) or
+`enumerate:` (numbered) block carrying its own fields and one or more text
+items. The block **expands at resolution time into ordinary
+`ResolvedTextLine`s** — `ResolvedLabel.content` stays a **flat line list**, so
+every downstream consumer (pre-passes, renderer, reports, packing) keeps its
+current shape. Each item line carries five new resolved fields:
+`marker_text` (the bullet string, or the computed counter), `align_group_id`
+(one fresh id per block, `-1` on a plain line), `list_item` (True),
+`indent_left` (the hanging-indent column, set by the `list_layout` pre-pass)
+and `list_marker_gap_fraction` (the cascaded gap, kept on the line so the
+renderer can derive its own floor).
+
+- **Marker rendering** (`label_renderer.py`): the marker is a **separate
+  render element**, composed at render time — the item's `text` / `plain_text`
+  / `styled_runs` stay pure, so the reflow pre-pass can never move a bullet
+  and reports show the item text and its marker distinctly. A marked line
+  renders the text and a marker-only clone (`_marker_line_clone`, the same
+  typography) and composes them on the `_render_line_block_composed` cursor
+  idiom: marker at x = 0, text at x = `indent_left`, both on the item's
+  **first-line baseline and cap height** (a bullet centers on the cap band,
+  as EngraveLab does). The composed glyph/word partitions concatenate, and the
+  descender relief reads the composed `"marker text"` (threaded as
+  `_RenderedLine.display_text` → `_apply_descender_relief(texts=...)`), so the
+  per-character mapping stays exact. `_composed_stroke_cutters` concatenates
+  both halves' per-stroke cutter maps, so a marker engraving with a different
+  tool lands on its own pen (the `<b>`/`<c:D>` split machinery is reused).
+- **Hanging indent** (`list_layout.py::apply_list_marker_layout`, the **first**
+  export pre-pass, before `reflow`): measures every distinct marker (lazy
+  `measure_line_natural_width`, cached per typography) and sets
+  `indent_left = max(marker widths in the group) + list_marker_gap_fraction *
+  toolpath_text_height`. A free no-op (same label objects) when no line
+  carries a marker. The renderer also derives a per-line floor (its own
+  marker's width + gap) when `indent_left` is unset, so a direct
+  `render_label_to_plt` call (a probe, a showcase) never overlaps marker and
+  text.
+- **List alignment**: a list block aligns as **one unit** — the group's
+  alignment width is the widest total extent among its lines (marker column +
+  text), so the markers form one flush column under `left`/`center`/`right`
+  (the cascaded `text_h_alignment` of the group's widest line decides), and
+  every line's left edge is the group's left edge plus its own indent.
+  Phase 2a of `_render_positioned_lines` therefore runs compression (pass A),
+  the group widths (pass B) and alignment (pass C) as separate loops.
+  A line's compression + alignment budgets shrink by `indent_left` when the
+  line carries no marker (a continuation), so an indented line still fits.
+- **Multi-line items**: an item grows into a hanging-indent block through the
+  existing `optimize_line_content` (+ optional `optimize_line_content_max_lines`)
+  machinery — both cascade item → block → label → job, so enabling them on the
+  block governs every item. A list group grows on a **width-fit** criterion
+  (the widest segment must fit `label.width - 2*h_margin - indent_left`) rather
+  than the ScaleProbe's "still compressed" test, so it works with
+  `max_h_compress: 0` and costs **no probe renders**. The ceiling is the cap,
+  and an **omitted cap means as many lines as necessary** (bounded by the
+  item's word count — every line keeps ≥1 word). A grown continuation line
+  clones the donor's typography and keeps its `align_group_id`/`indent_left`
+  (that is what makes it a continuation) but carries **no marker** — the
+  bullet/counter rides the item's first line only.
+- **Reflow grouping** (`resolution.reflow_groups`, the single source of truth):
+  a `list_item` line is **its own group** — the run breaks both before and
+  after it, so words never cross an item boundary (each item is its own
+  paragraph, and the cap is naturally per item). A disabled item forms no
+  group. This extends the `new_line` hard-break rule; the DP partition and
+  `_group_layout` are shared.
+- **Item typography** (`resolution._merge_item_with_block`): every
+  `TextAttributes` field the item leaves unset is filled from the block before
+  the normal cascade runs, so `_resolve_content` transparently sees
+  item → block → label → job → config for **every** typographic field (height,
+  font, alignment, reflow permission, cap, ...). The marker settings resolve
+  through `_cascade_list_setting` (explicit-`None` precedence) in
+  `_list_marker_text`; the counter text comes from
+  `list_counter.format_counter` (a pure, matplotlib-free module: decimal,
+  bijective base-26 alpha, subtractive roman).
+- **Schema** (`schema.py`): `ContentEntry` **subclasses** `TextLine` (making
+  `text` optional) rather than forming a discriminated union, so `TextLine`
+  itself is untouched and `substitution.py`'s `model_copy(update={"text": ...})`
+  keeps working; a `field_validator(mode="before")` coerces bare `TextLine`
+  objects, so every pre-list spec and every direct-API caller validates
+  unchanged. `LabelSpec`/`JobSpec.content` are `list[ContentEntry]`. A list
+  block is rejected as a **replacement-text template** (counters are computed,
+  never substituted), and `placeholder: true` is rejected on a list item.
+- **Reporting**: `generation_report.py` writes `marker_text`, `indent_left`
+  and `align_group_id` per line, and `layout_report.py` adds a per-line
+  finding `Line N: '<text>' list marker '-' (text column 0.178in)` (the 15th
+  slot of the findings tuple; a continuation line with no marker reports
+  nothing extra).
+- Example fixture: `tests_deps/list_job.yaml` (pinned by
+  `tests/test_phase3_export.py::TestListDemoExample`) — a plain bullet list, a
+  per-item `bullet_string` override, decimal and styled counters
+  (`Step iv)`), an uncapped growing item (1 → 3 lines, zero compression), a
+  capped item, two items that never exchange words, a list between plain
+  lines, a zero-gap list, and an indent-only (empty bullet) list. Unit
+  coverage: `tests/test_list_counter.py`, `tests/test_list_layout.py`,
+  `tests/test_list_render.py`, plus `TestListResolution`
+  (`test_resolution.py`), `TestListItemGrowth` (`test_line_content.py`),
+  `TestListMarkerFindings` (`test_layout_report.py`), and the schema /
+  job-config classes.
 
 ### Baseline-to-Baseline Line Spacing (`use_baseline_spacing`)
 

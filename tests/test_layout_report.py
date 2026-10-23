@@ -928,3 +928,51 @@ class TestVCenterFindings:
 
         assert format_layout_report([resolved], {"l1": rendered}, full=False) == []
         assert has_layout_findings([resolved], {"l1": rendered}) is False
+
+
+class TestListMarkerFindings:
+    """A list item's marker + hanging indent are report findings."""
+
+    @staticmethod
+    def _marked_line(text: str, marker: str, indent: float) -> ResolvedTextLine:
+        """A resolved list line carrying a marker and its text column."""
+        return ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            max_h_compress=0.0,
+            text_h_alignment="center",
+            marker_text=marker,
+            align_group_id=0,
+            list_item=True,
+            indent_left=indent,
+        )
+
+    def test_marker_is_a_compact_finding(self) -> None:
+        """A marked line prints its marker and the text column."""
+        resolved, rendered = _label("l1", [self._marked_line("alpha", "-", 0.25)])
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+        text = "\n".join(lines)
+
+        assert "list marker '-' (text column 0.250in)" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_counter_marker_names_the_computed_text(self) -> None:
+        """The computed counter (invisible on the item) is reported verbatim."""
+        resolved, rendered = _label("l1", [self._marked_line("beta", "Step iv)", 1.1)])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "list marker 'Step iv)' (text column 1.100in)" in text
+
+    def test_continuation_line_has_no_marker_finding(self) -> None:
+        """A grown continuation (empty marker) reports nothing extra."""
+        line = self._marked_line("continuation", "", 0.25)
+        resolved, rendered = _label("l1", [line])
+
+        assert format_layout_report([resolved], {"l1": rendered}) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False

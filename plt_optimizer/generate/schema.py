@@ -172,6 +172,30 @@ class LabelShape(str, Enum):
     ROUND = "round"
 
 
+class CounterStyle(str, Enum):
+    """Enumeration of enumerated-list counter styles.
+
+    The style decides how an :class:`EnumerateBlock` renders the number of
+    each of its items (see :func:`plt_optimizer.generate.list_counter.format_counter`).
+    ``decimal`` is the historical/plain numbering; the alpha styles count in
+    letters (bijective base 26, so ``z`` is followed by ``aa``); the roman
+    styles count in Roman numerals.
+
+    Attributes:
+        DECIMAL: Arabic numerals: 1, 2, 3, ...
+        LOWER_ALPHA: Lowercase letters: a, b, c, ..., z, aa, ab, ...
+        UPPER_ALPHA: Uppercase letters: A, B, C, ..., Z, AA, AB, ...
+        LOWER_ROMAN: Lowercase Roman numerals: i, ii, iii, iv, ...
+        UPPER_ROMAN: Uppercase Roman numerals: I, II, III, IV, ...
+    """
+
+    DECIMAL = "decimal"
+    LOWER_ALPHA = "lower-alpha"
+    UPPER_ALPHA = "upper-alpha"
+    LOWER_ROMAN = "lower-roman"
+    UPPER_ROMAN = "upper-roman"
+
+
 # Canonical stroke-color layer names mapped to their single-letter
 # abbreviations (EngraveLab/Vision Pro-style; black is "k" following the
 # CMYK convention). Used both to resolve abbreviations on input
@@ -1330,6 +1354,66 @@ class TextAttributes(BaseModel):
             "'none' is the implicit default and cannot be specified."
         ),
     )
+    bullet_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Character(s) used for each bullet of an itemize list. Cascades "
+            "item -> itemize block -> label -> job (fallback '•' -- the "
+            "derived bullet glyph, engraved by every PLT catalog font except "
+            "the symbol fonts); an explicit empty string '' engraves no "
+            "marker (an indent-only list). Settable on a list item to "
+            "override one bullet."
+        ),
+    )
+    counter_start_index: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Starting number for an enumerate list (the first item's "
+            "counter). Cascades item -> enumerate block -> label -> job "
+            "(fallback 1)."
+        ),
+    )
+    counter_style: Optional[CounterStyle] = Field(
+        default=None,
+        description=(
+            "Style of an enumerate list's counters: 'decimal' (1, 2, 3), "
+            "'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), "
+            "'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). "
+            "Cascades item -> enumerate block -> label -> job (fallback "
+            "'decimal')."
+        ),
+    )
+    counter_prefix: Optional[str] = Field(
+        default=None,
+        description=(
+            "String prepended to each enumerate counter (e.g. 'Step ' for "
+            "'Step 1', 'Step 2'). Cascades item -> enumerate block -> label "
+            "-> job (fallback '' = no prefix)."
+        ),
+    )
+    counter_suffix: Optional[str] = Field(
+        default=None,
+        description=(
+            "String appended to each enumerate counter (e.g. '.' for '1.', "
+            "')' for '1)'). Cascades item -> enumerate block -> label -> job "
+            "(fallback '' = no suffix)."
+        ),
+    )
+    list_marker_gap_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Air gap between a list item's marker (bullet or counter) and "
+            "its text, as a unitless fraction of the line's rendered cap "
+            "height, so it scales with the text size. The marker column is "
+            "the widest marker of the list plus this gap, and every item's "
+            "text (and every continuation line) starts at that column -- the "
+            "hanging indent. Cascades item -> list block -> label -> job "
+            "(fallback 0.5); explicit 0.0 is honored (marker flush against "
+            "the text)."
+        ),
+    )
 
     @field_validator("text_color")
     @classmethod
@@ -1434,6 +1518,27 @@ class TextAttributes(BaseModel):
                 "kern_pos_string and kern_neg_string must differ; both are "
                 f"{self.kern_pos_string!r}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_list_marker_strings(self) -> TextAttributes:
+        """Reject newline-carrying list marker strings.
+
+        A list marker (the bullet, the counter prefix or the counter suffix)
+        engraves on one line, so a newline in any of them is always a
+        mistake. Checked at every cascade tier that accepts the fields (item,
+        list block, label, job).
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ValueError: If any of the three strings contains a newline.
+        """
+        for name in ("bullet_string", "counter_prefix", "counter_suffix"):
+            value = getattr(self, name)
+            if value is not None and ("\n" in value or "\r" in value):
+                raise ValueError(f"{name} cannot contain a newline character")
         return self
 
     @field_validator("font")
@@ -1922,6 +2027,168 @@ class TextLine(TextAttributes):
     )
 
 
+class ListAttributes(TextAttributes):
+    """Shared fields of a bullet/enumerated list block.
+
+    Extends the cascading text attributes with the list's items. The
+    list-level marker settings (``bullet_string``, the counter fields and
+    ``list_marker_gap_fraction``) are inherited from :class:`TextAttributes`
+    and cascade item -> list block -> label -> job -> job-config.json, so a
+    block declares them exactly where a label would.
+
+    Attributes:
+        items: The list's text items (one rendered line each, growing to a
+            hanging-indented multi-line block through
+            ``optimize_line_content``). Must contain at least one item.
+    """
+
+    items: list[TextLine] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "The list's text items. Each item is a text line carrying the "
+            "list block's attributes (cascading item -> block -> label -> "
+            "job); at least one item is required."
+        ),
+    )
+
+
+class ItemizeBlock(ListAttributes):
+    """A bullet list nested inside a label's ``content`` list.
+
+    Every item engraves with the resolved ``bullet_string`` as its marker
+    (default ``"•"``), placed in one flush marker column shared by the whole
+    list; the item's text (and every continuation line it grows to) starts at
+    the hanging-indent column right of the markers.
+
+    Attributes:
+        items: Inherited from :class:`ListAttributes` -- the bullet items.
+        bullet_string: Inherited marker string, resolved for the block from
+            item -> block -> label -> job -> config (fallback ``"•"``).
+    """
+
+
+class EnumerateBlock(ListAttributes):
+    """An enumerated list nested inside a label's ``content`` list.
+
+    Every item's marker is the computed counter
+    (``counter_prefix + format_counter(start_index + k, counter_style) +
+    counter_suffix``) for the item's zero-based position ``k`` in the block.
+    The counter is always computed -- an item's own ``bullet_string`` has no
+    effect here.
+
+    Attributes:
+        items: Inherited from :class:`ListAttributes` -- the enumerated items.
+        counter_start_index: Inherited first counter value (fallback 1).
+        counter_style: Inherited counter style (fallback ``decimal``).
+        counter_prefix: Inherited string before each counter (fallback '').
+        counter_suffix: Inherited string after each counter (fallback '').
+    """
+
+
+class ContentEntry(TextLine):
+    """One entry of a label's ``content`` list: a text line or a list block.
+
+    A plain entry carries ``text`` (the historical :class:`TextLine` shape,
+    so every existing spec validates unchanged). A list entry carries exactly
+    one of ``itemize`` / ``enumerate`` (and no ``text``), nesting the list
+    block's fields and items. The three slots are mutually exclusive.
+
+    Attributes:
+        itemize: Optional bullet-list block (mutually exclusive with
+            ``text`` and ``enumerate``).
+        enumerate: Optional enumerated-list block (mutually exclusive with
+            ``text`` and ``itemize``).
+    """
+
+    text: Optional[str] = Field(  # type: ignore[assignment]
+        default=None,
+        description=(
+            "The text string to render. Required on a plain content entry; "
+            "must be omitted on a list entry (which carries itemize or "
+            "enumerate instead)."
+        ),
+    )
+    itemize: Optional[ItemizeBlock] = Field(
+        default=None,
+        description=(
+            "Bullet-list block: every item engraves with the resolved "
+            "bullet_string marker in one shared marker column. Mutually "
+            "exclusive with text and enumerate."
+        ),
+    )
+    enumerate: Optional[EnumerateBlock] = Field(
+        default=None,
+        description=(
+            "Enumerated-list block: every item's marker is the computed "
+            "counter (prefix + style + suffix). Mutually exclusive with "
+            "text and itemize."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_exactly_one_form(self) -> ContentEntry:
+        """Require exactly one of ``text`` / ``itemize`` / ``enumerate``.
+
+        Raises:
+            ValueError: If none of the three is set, or more than one is.
+
+        Returns:
+            Self for method chaining.
+        """
+        forms = sum(
+            1
+            for present in (
+                self.text is not None,
+                self.itemize is not None,
+                self.enumerate is not None,
+            )
+            if present
+        )
+        if forms != 1:
+            raise ValueError(
+                "content entry must define exactly one of 'text', 'itemize' "
+                f"or 'enumerate' ({forms} found)"
+            )
+        block = self.itemize if self.itemize is not None else self.enumerate
+        if block is not None:
+            bad = [item.text for item in block.items if item.placeholder]
+            if bad:
+                raise ValueError(
+                    "content entry with 'placeholder: true' is only valid on a "
+                    f"plain text line, not inside a list ({len(bad)} item(s)); "
+                    "a list's items are authored in the spec, never substituted"
+                )
+        return self
+
+
+def _coerce_content_entries(value: Any) -> Any:
+    """Coerce plain :class:`TextLine` content entries to :class:`ContentEntry`.
+
+    ``content`` accepts the historical bare :class:`TextLine` objects (and
+    their dicts) everywhere it accepted them: a direct API caller building
+    ``LabelSpec(content=[TextLine(text=...)])`` never sees the new entry
+    model. A value that is already a ``ContentEntry`` (or a dict carrying a
+    list block) passes through for normal validation.
+
+    Args:
+        value: The raw ``content`` value (list, or anything else).
+
+    Returns:
+        The value with every bare ``TextLine`` replaced by an equivalent
+        ``ContentEntry``.
+    """
+    if not isinstance(value, list):
+        return value
+    coerced: list[Any] = []
+    for entry in value:
+        if isinstance(entry, TextLine) and not isinstance(entry, ContentEntry):
+            coerced.append(ContentEntry.model_validate(entry.model_dump()))
+        else:
+            coerced.append(entry)
+    return coerced
+
+
 def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
     """Validate a replacement-text delimiter (shared by all levels).
 
@@ -2000,9 +2267,13 @@ class LabelSpec(LabelAttributes):
     count: int = Field(
         ge=1, default=1, description="Number of instances to produce (must be >= 1)."
     )
-    content: Optional[list[TextLine]] = Field(
+    content: Optional[list[ContentEntry]] = Field(
         default=None,
-        description=("Text lines to render. Required unless replacement_text_file is provided."),
+        description=(
+            "Content entries to render: plain text lines and nested "
+            "itemize/enumerate list blocks. Required unless "
+            "replacement_text_file is provided."
+        ),
     )
     replacement_text_file: Optional[str] = Field(
         default=None,
@@ -2043,6 +2314,20 @@ class LabelSpec(LabelAttributes):
         """
         return _validate_replacement_delimiter_value(v)
 
+    @field_validator("content", mode="before")
+    @classmethod
+    def _coerce_content_entries(cls, value: Any) -> Any:
+        """Accept bare TextLine entries as plain content entries.
+
+        Args:
+            value: The raw ``content`` value.
+
+        Returns:
+            The value with every bare :class:`TextLine` coerced to a
+            :class:`ContentEntry`.
+        """
+        return _coerce_content_entries(value)
+
     @model_validator(mode="after")
     def _validate_content_or_replacement(self) -> LabelSpec:
         """Enforce the static-content vs replacement-template contract.
@@ -2072,8 +2357,21 @@ class LabelSpec(LabelAttributes):
             )
         if self.content is not None and len(self.content) == 0:
             raise ValueError("content must contain at least one TextLine")
+        if self.replacement_text_file is not None and self.content is not None:
+            blocks = [
+                entry.itemize if entry.itemize is not None else entry.enumerate
+                for entry in self.content
+                if entry.itemize is not None or entry.enumerate is not None
+            ]
+            if blocks:
+                raise ValueError(
+                    f"label '{self.id}': a replacement-text template's content "
+                    "must be plain text lines; itemize/enumerate list blocks "
+                    "cannot be substituted (their items are authored in the "
+                    "spec)"
+                )
         if self.replacement_text_file is None and self.content is not None:
-            bad = [line.text for line in self.content if line.placeholder]
+            bad = [line.text for line in self.content if line.text is not None and line.placeholder]
             if bad:
                 raise ValueError(
                     f"label '{self.id}': content lines with 'placeholder: true' require "
@@ -2693,6 +2991,37 @@ class PlateSpec(BaseModel):
             "applied at plate level -- labels render before packing)."
         ),
     )
+    bullet_string: Optional[str] = Field(
+        default=None,
+        description=("Bullet-list marker string (schema parity; not applied at plate level)."),
+    )
+    counter_start_index: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Enumerated-list starting counter (schema parity; not applied at plate level)."
+        ),
+    )
+    counter_style: Optional[CounterStyle] = Field(
+        default=None,
+        description=("Enumerated-list counter style (schema parity; not applied at plate level)."),
+    )
+    counter_prefix: Optional[str] = Field(
+        default=None,
+        description=("Enumerated-list counter prefix (schema parity; not applied at plate level)."),
+    )
+    counter_suffix: Optional[str] = Field(
+        default=None,
+        description=("Enumerated-list counter suffix (schema parity; not applied at plate level)."),
+    )
+    list_marker_gap_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "List marker-to-text gap as a fraction of cap height (schema "
+            "parity; not applied at plate level)."
+        ),
+    )
     layout: Optional[LayoutMode] = Field(
         default=None,
         description="Per-plate fill-order override (None = inherit the job layout).",
@@ -2811,6 +3140,22 @@ class PlateSpec(BaseModel):
                 "kern_pos_string and kern_neg_string must differ; both are "
                 f"{self.kern_pos_string!r}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_list_marker_strings(self) -> PlateSpec:
+        """Reject newline-carrying parity list marker strings (same rule).
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ValueError: If any of the three strings contains a newline.
+        """
+        for name in ("bullet_string", "counter_prefix", "counter_suffix"):
+            value = getattr(self, name)
+            if value is not None and ("\n" in value or "\r" in value):
+                raise ValueError(f"{name} cannot contain a newline character")
         return self
 
     @field_validator("font")
@@ -2981,10 +3326,10 @@ class JobSpec(LabelAttributes):
             "Instance count for root-level single-label jobs; not allowed with replacement files."
         ),
     )
-    content: Optional[list[TextLine]] = Field(
+    content: Optional[list[ContentEntry]] = Field(
         default=None,
         description=(
-            "Root-level text lines (single-label job) or the per-line "
+            "Root-level content entries (single-label job) or the per-line "
             "attribute template when a replacement file is in play."
         ),
     )
@@ -3069,6 +3414,20 @@ class JobSpec(LabelAttributes):
             "clamped to the configured range with a WARNING logged."
         ),
     )
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _coerce_content_entries(cls, value: Any) -> Any:
+        """Accept bare TextLine entries as plain content entries.
+
+        Args:
+            value: The raw ``content`` value.
+
+        Returns:
+            The value with every bare :class:`TextLine` coerced to a
+            :class:`ContentEntry`.
+        """
+        return _coerce_content_entries(value)
 
     @field_validator("replacement_text_delimiter")
     @classmethod

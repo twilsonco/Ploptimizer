@@ -60,6 +60,21 @@ the candidate label through the injectable :data:`ScaleProbe` (default:
 :func:`plt_optimizer.generate.label_renderer.render_label_to_plt`), so a job
 without a cap never pays for a render -- the probe is never called.
 
+List-item growth (``list_item`` groups)
+---------------------------------------
+
+A bullet/enumerated list item is its own reflow group (see
+:func:`plt_optimizer.generate.resolution.reflow_groups`), and it grows on a
+**width-fit** criterion instead of the scale probe: the repartition runs while
+the group's widest segment exceeds the item's text budget (the label's content
+width minus the line's hanging indent, see :func:`_group_text_budget`), so an
+over-wide item splits into as many hanging-indent lines as it needs -- with
+``max_h_compress: 0`` and **no probe renders**. The ceiling is the group's
+cap, and an omitted cap means as many lines as necessary (bounded by the
+item's word count). A grown continuation line clones the donor's typography,
+keeps the group id and indent (that is what makes it a continuation), and
+carries **no marker** -- the bullet/counter rides the item's first line only.
+
 Example:
     >>> from plt_optimizer.generate.line_content import apply_line_content_reflow
     >>> labels = apply_line_content_reflow(labels)
@@ -166,8 +181,10 @@ def _reflow_groups(content: Sequence[ResolvedTextLine]) -> List[List[int]]:
     (the single source of truth for group membership, shared with the
     resolution post-pass that fans out the line cap): a maximal run of
     consecutive lines with ``optimize_line_content`` enabled forms a group, a
-    disabled line breaks the run, and a ``new_line`` line breaks the run
-    **before** it, so the line starts a fresh group.
+    disabled line breaks the run, a ``new_line`` line breaks the run
+    **before** it, so the line starts a fresh group, and a ``list_item`` line
+    is its **own** group (the run breaks both before and after it, so an
+    item's words never cross into a sibling).
 
     Args:
         content: The label's resolved text lines.
@@ -420,6 +437,49 @@ def _group_cap(lines: Sequence[ResolvedTextLine]) -> Optional[int]:
     return None
 
 
+def _group_text_budget(label: ResolvedLabel, lines: Sequence[ResolvedTextLine]) -> float:
+    """Return the width a group's lines must fit within (list-item growth).
+
+    The label's content width minus both horizontal margins, less the group's
+    hanging indent (the marker column every line of a list group carries).
+    Mirrors the renderer's alignment budget so the reflow grows an item
+    exactly when the engraved line would overflow the label.
+
+    Args:
+        label: The label owning the group (supplies width and margins).
+        lines: The group's resolved lines (supply the indent).
+
+    Returns:
+        The usable text width in inches.
+    """
+    indent = max((line.indent_left for line in lines), default=0.0)
+    return label.width - (2 * label.h_margin) - indent
+
+
+def _segments_fit(
+    segments: Sequence[Tuple[int, int]],
+    line_widths: Sequence[Sequence[float]],
+    space_advances: Sequence[float],
+    budget: float,
+) -> bool:
+    """Return whether every segment of a partition fits within ``budget``.
+
+    Args:
+        segments: One ``(start, end)`` word-index pair per layout line.
+        line_widths: ``line_widths[m][k]`` is word ``k``'s width on line ``m``.
+        space_advances: ``space_advances[m]`` is line ``m``'s space advance.
+        budget: The usable text width in inches.
+
+    Returns:
+        ``True`` when no segment's natural width exceeds the budget.
+    """
+    for position, (start, end) in enumerate(segments):
+        width = _partition_cost(line_widths[position], space_advances[position], start, end)
+        if width > budget + _WIDTH_TOLERANCE:
+            return False
+    return True
+
+
 def _join_tokens(
     tokens: Sequence[_WordToken],
     left: str,
@@ -488,9 +548,14 @@ def _group_layout(
         else:
             # A grown line continues its group's block, so it never carries
             # the new_line flag (which would split the group it belongs to).
+            # A list group's clone likewise loses the marker: the bullet /
+            # counter belongs to the item's FIRST line only -- the continuation
+            # lines hang-indent at the item's text column (the clone keeps the
+            # donor's align_group_id and indent_left, which is what makes it a
+            # continuation).
             layout.insert(
                 group[-1] + 1 + (position - len(group)),
-                dataclasses.replace(donor.with_markup(text), new_line=False),
+                dataclasses.replace(donor.with_markup(text), new_line=False, marker_text=""),
             )
     return layout
 
@@ -539,9 +604,16 @@ def _reflow_label(
     """
     groups: List[List[int]] = []
     for group in _reflow_groups(label.content):
-        cap = _group_cap([label.content[index] for index in group])
+        group_lines = [label.content[index] for index in group]
+        cap = _group_cap(group_lines)
         if len(group) >= 2 or (cap is not None and cap > 1):
             groups.append(group)
+        elif all(line.list_item for line in group_lines):
+            # A lone list item may grow into a hanging-indent block: it is
+            # eligible when its words can fill more than one line (the width
+            # -- not a compression budget -- decides how many it needs).
+            if sum(len(_word_tokens(line)) for line in group_lines) > len(group):
+                groups.append(group)
     if not groups:
         return None
 
@@ -568,8 +640,15 @@ def _reflow_label(
 
         cap = _group_cap(lines)
         group_size = len(offset_group)
-        ceiling = min(cap, len(all_words)) if cap is not None else group_size
-        if cap is not None and cap <= group_size:
+        is_list_group = bool(lines) and all(line.list_item for line in lines)
+        if is_list_group:
+            # A list item grows to fit the text budget: the cap (when set) is
+            # the ceiling, an omitted cap means "as many lines as necessary"
+            # (bounded by the word count -- every line keeps one word).
+            ceiling = len(all_words) if cap is None else min(cap, len(all_words))
+        else:
+            ceiling = min(cap, len(all_words)) if cap is not None else group_size
+        if not is_list_group and cap is not None and cap <= group_size:
             logger.debug(
                 "Label %s: line-content cap %d leaves lines %s-%s unchanged (no growth room).",
                 label.id,
@@ -581,8 +660,8 @@ def _reflow_label(
         # Without a compression budget the renderer can never compress, so the
         # growth loop's probe could not report progress; skip the renders.
         budget = any(line.max_h_compress > 0.0 for line in lines)
-        probing = cap is not None and cap > group_size and budget
-        if cap is not None and cap > group_size and not budget:
+        probing = not is_list_group and cap is not None and cap > group_size and budget
+        if not is_list_group and cap is not None and cap > group_size and not budget:
             logger.debug(
                 "Label %s: line-content cap %d on lines %s-%s is inert "
                 "(no max_h_compress budget to measure).",
@@ -591,6 +670,10 @@ def _reflow_label(
                 offset_group[0],
                 offset_group[-1],
             )
+        # A list group grows on the WIDTH criterion (the item's lines must fit
+        # the text budget right of the marker column), so it never renders a
+        # scale probe -- and it works with max_h_compress == 0.
+        text_budget = _group_text_budget(label, lines) if is_list_group else 0.0
 
         donor = lines[-1]
         donor_words = _word_tokens(donor)
@@ -623,6 +706,13 @@ def _reflow_label(
             candidate = _group_layout(new_content, offset_group, segments, all_words)
             accepted = candidate
             accepted_m = m
+            if is_list_group:
+                accepted_compressed = not _segments_fit(
+                    segments, line_widths[:m], space_advances[:m], text_budget
+                )
+                if not accepted_compressed:
+                    break  # Every line fits the text budget; stop growing.
+                continue
             if not probing:
                 break  # Uncapped (or inert cap): the full-group pass, no renders.
             scales = (scale_probe or _default_scale_probe)(
@@ -635,24 +725,47 @@ def _reflow_label(
         if accepted is None:
             continue
         if accepted_m > group_size:
-            logger.info(
-                "Label %s: line-content reflow grew lines %s-%s to %d of %d lines.",
-                label.id,
-                offset_group[0],
-                offset_group[-1],
-                accepted_m,
-                cap,
-            )
+            if is_list_group:
+                logger.info(
+                    "Label %s: list item grew lines %s-%s to %d line(s)%s.",
+                    label.id,
+                    offset_group[0],
+                    offset_group[-1],
+                    accepted_m,
+                    f" of cap {cap}" if cap is not None else "",
+                )
+            else:
+                logger.info(
+                    "Label %s: line-content reflow grew lines %s-%s to %d of %d lines.",
+                    label.id,
+                    offset_group[0],
+                    offset_group[-1],
+                    accepted_m,
+                    cap,
+                )
         if accepted_m == ceiling and accepted_compressed:
-            logger.warning(
-                "Label %s: lines %s-%s still need horizontal compression at "
-                "the optimize_line_content_max_lines cap (%d lines); keeping "
-                "the widest layout.",
-                label.id,
-                offset_group[0],
-                offset_group[-1],
-                accepted_m,
-            )
+            if is_list_group:
+                logger.warning(
+                    "Label %s: list item lines %s-%s still overflow the text "
+                    "width at %d line(s) (%s); keeping the widest layout.",
+                    label.id,
+                    offset_group[0],
+                    offset_group[-1],
+                    accepted_m,
+                    f"the optimize_line_content_max_lines cap {cap}"
+                    if cap is not None
+                    else "every word on its own line",
+                )
+            else:
+                logger.warning(
+                    "Label %s: lines %s-%s still need horizontal compression at "
+                    "the optimize_line_content_max_lines cap (%d lines); keeping "
+                    "the widest layout.",
+                    label.id,
+                    offset_group[0],
+                    offset_group[-1],
+                    accepted_m,
+                )
         for index, line in enumerate(accepted):
             previous = new_content[index] if index < len(new_content) else None
             if line is previous:

@@ -56,9 +56,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
-from plt_optimizer.generate.schema import JobSpec, LabelSpec, PlateSpec, TextLine
+from plt_optimizer.generate.schema import (
+    ContentEntry,
+    JobSpec,
+    LabelSpec,
+    PlateSpec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,11 +168,11 @@ def _resolve_file_path(replacement_text_file: str, base_dir: Path) -> Path:
 
 
 def _synthesize_content(
-    template_content: Optional[list[TextLine]],
+    template_content: Optional[Sequence[ContentEntry]],
     items: list[str],
     label_id: str = "",
     instance_index: int = -1,
-) -> list[TextLine]:
+) -> list[ContentEntry]:
     """Build the concrete text lines for one replacement instance.
 
     Two modes are supported depending on whether any template line declares
@@ -175,7 +180,7 @@ def _synthesize_content(
 
     **Original mode** (no placeholder lines): each item maps 1:1 to the
     corresponding template line (``text`` replaced, all other attrs kept);
-    extra items beyond the template length become bare :class:`TextLine`
+    extra items beyond the template length become bare :class:`ContentEntry`
     objects; fewer items than template lines silently drop the excess
     template lines.
 
@@ -183,7 +188,7 @@ def _synthesize_content(
     placeholder lines receive replacement items (in declaration order);
     non-placeholder lines are copied verbatim to every instance; extra
     items beyond the placeholder count are appended at the end as bare
-    :class:`TextLine` objects. Fewer items than placeholder lines raises
+    :class:`ContentEntry` objects. Fewer items than placeholder lines raises
     :class:`SubstitutionError`.
 
     Args:
@@ -195,7 +200,7 @@ def _synthesize_content(
             (optional; -1 = unknown).
 
     Returns:
-        One :class:`TextLine` per output line.
+        One :class:`ContentEntry` per output line.
 
     Raises:
         SubstitutionError: In placeholder mode when the item count is
@@ -206,12 +211,12 @@ def _synthesize_content(
 
     if not has_placeholders:
         # Original behavior: items map 1:1 to template lines in order.
-        content: list[TextLine] = []
+        content: list[ContentEntry] = []
         for index, item in enumerate(items):
             if index < len(template):
                 content.append(template[index].model_copy(update={"text": item}))
             else:
-                content.append(TextLine(text=item))
+                content.append(ContentEntry(text=item))
         return content
 
     # Placeholder mode: validate item count against placeholder count.
@@ -227,7 +232,7 @@ def _synthesize_content(
 
     # Walk template: non-placeholder lines verbatim; placeholder lines filled in order.
     item_cursor = 0
-    out: list[TextLine] = []
+    out: list[ContentEntry] = []
     for line in template:
         if not line.placeholder:
             out.append(line)
@@ -237,7 +242,7 @@ def _synthesize_content(
 
     # Extra items beyond the placeholder count are appended at the end.
     for item in items[item_cursor:]:
-        out.append(TextLine(text=item))
+        out.append(ContentEntry(text=item))
 
     return out
 
