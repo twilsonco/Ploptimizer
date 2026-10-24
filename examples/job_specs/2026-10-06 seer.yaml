@@ -3,7 +3,7 @@
 job:
   job_name: SEER 2963
   font: dino
-  material: wb
+  material: bw
   
   labels:
     - id: case tags
@@ -30,7 +30,7 @@ job:
       content:
         - text: "R507"
     - id: 8x8 placard
-      material: wb(uv)
+      material: bw(uv)
       width: 8
       height: 8
       text_height: 1
@@ -45,7 +45,7 @@ job:
         - text: "Ckt 3: 90lbs. R407C"
         - text: "Ckt 4: 95lbs. R407C"
     - id: 7x5.33 placards
-      material: wb(uv)
+      material: bw(uv)
       width: 7
       height: 4
       text_height: 1
