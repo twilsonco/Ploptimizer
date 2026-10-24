@@ -3,6 +3,7 @@
 # 1x3 white 0.75 text on black with 2 holes
 job:
   job_name: Sunwest SW0008
+  material: bw
   replacement_text_file: 2026-07-22 sunwest.txt
   width: 3.0
   height: 1.0

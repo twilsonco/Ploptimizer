@@ -1185,9 +1185,11 @@ def _write_simple_plots(
     its resolved color (pen ``text_color`` / ``<tc:>`` tag first, then the
     plate material's core color, then black -- white over dark material
     backgrounds), and the label boundary rectangles (SP2) fill with the
-    material's background color under the ink. Structural pens 2/3 keep the
-    semi-transparent black underlay. Per-cutter ``_txt_``/``_bh_`` files are
-    never colored.
+    material's background color under the ink. Borders (SP2) keep the
+    semi-transparent black underlay; drill holes (SP3) render as an opaque
+    black outline over a white "see-through" disc (the punched material),
+    so they stay visible on both dark and light stock. Per-cutter
+    ``_txt_``/``_bh_`` files are never colored.
 
     Fallbacks keep the historical thin-line
     :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`
@@ -1317,12 +1319,19 @@ def _write_simple_plots(
                     continue
                 pen_document = parser.parse_string(pen_content)
                 pen_segments = _segments_of(pen_document)
-                structural = pen_id in (LAYER_BOUNDARY, LAYER_HOLES)
+                # Borders (SP2): the translucent black underlay. Drill holes
+                # (SP3): an OPAQUE black outline over a white "see-through"
+                # disc (added to `fills` below) -- translucent ink vanishes
+                # over a dark material background, and the outline must also
+                # stay visible on white stock.
+                is_boundary = pen_id == LAYER_BOUNDARY
+                is_hole = pen_id == LAYER_HOLES
+                structural = is_boundary or is_hole
                 layers.append(
                     PhysicalStrokeLayer(
                         segments=pen_segments,
                         width_inches=pen_widths[pen_id],
-                        alpha=PHYSICAL_STRUCTURAL_ALPHA if structural else 1.0,
+                        alpha=PHYSICAL_STRUCTURAL_ALPHA if is_boundary else 1.0,
                         label=f"pen {pen_id}",
                         facecolor=(
                             "black"
@@ -1334,9 +1343,9 @@ def _write_simple_plots(
                         ),
                     )
                 )
-                # The label boundary rectangles (SP2) enclose the material
-                # background: fill them under the ink for the proof look.
-                if pen_id == LAYER_BOUNDARY and material_colors.background is not None:
+                if is_boundary and material_colors.background is not None:
+                    # The label boundary rectangles enclose the material
+                    # background: fill them under the ink for the proof look.
                     polygons = closed_path_polygons(pen_segments)
                     if polygons:
                         fills.append(
@@ -1344,6 +1353,19 @@ def _write_simple_plots(
                                 polygons=polygons,
                                 color=material_colors.background,
                                 label="material background",
+                            )
+                        )
+                elif is_hole:
+                    # The hole circles enclose removed material: punch them
+                    # white. Appended after the background fill (pens are
+                    # walked in SP order) so the disc sits on top of it.
+                    polygons = closed_path_polygons(pen_segments)
+                    if polygons:
+                        fills.append(
+                            PhysicalFillLayer(
+                                polygons=polygons,
+                                color="white",
+                                label="drill hole",
                             )
                         )
         if layers:

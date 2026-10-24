@@ -6975,18 +6975,22 @@ class TestPreviewColors:
         all_plots = {n: v for n, v in captured.items() if n.startswith("bw_all_")}
         assert list(all_plots) == ["bw_all_pc.pdf"]
         (plot,) = all_plots.values()
-        # One background fill: the label boundary rects (SP2) in the
-        # material's top-layer color (black), fully opaque.
-        assert plot["fills"] == [("black", 1.0)]
+        # Fills: the label boundary rects (SP2) in the material's top-layer
+        # color (black), then the drill hole's white "see-through" disc.
+        assert plot["fills"] == [("black", 1.0), ("white", 1.0)]
         # Text pens: green <tc:> run and red text_color win over the
         # material core; the plain "none" pen engraves the core (white).
         colors = {facecolor for _w, _a, facecolor in plot["layers"]}
         assert {"green", "red", "white"} <= colors
-        # Structural pens (borders/holes) stay translucent black.
-        structural = [(a, f) for _w, a, f in plot["layers"] if a < 1.0]
-        assert structural and all(f == "black" for _a, f in structural)
-        # Opaque layers are all text ink (never black on bw stock).
-        assert "black" not in {f for _w, a, f in plot["layers"] if a == 1.0}
+        # Borders (SP2) stay the translucent black underlay; the drill hole
+        # (SP3) outline is OPAQUE black (visible over the black fill).
+        boundary = [(a, f) for w, a, f in plot["layers"] if a < 1.0]
+        assert boundary and all(f == "black" for _a, f in boundary)
+        hole_outlines = [(w, a, f) for w, a, f in plot["layers"] if a == 1.0 and f == "black"]
+        assert hole_outlines and all(w < 0.045 for w, _a, _f in hole_outlines)
+        # Text ink never renders black on bw stock.
+        text_inks = {f for w, a, f in plot["layers"] if a == 1.0 and f != "black"}
+        assert {"green", "red", "white"} == text_inks
 
     def test_per_cutter_previews_stay_black(self, tmp_path: Path) -> None:
         """Only the combined plot is colored; _txt_/_bh_ files keep black ink."""

@@ -5,8 +5,8 @@
 # text in white (the material core), while an explicit `text_color: red`
 # label and an inline `<tc:green>` run keep their own pen colors (the tag /
 # field wins over the material). The rect boundary exercises the background
-# fill geometry; the corner drill hole exercises the translucent structural
-# layer.
+# fill geometry; the corner drill hole exercises the white "see-through"
+# disc under the opaque black hole outline.
 #
 # Pinned by tests/test_phase3_export.py::TestPreviewColors (combined-plot
 # facecolor/fill wiring; per-cutter _txt_/_bh_ files stay black).

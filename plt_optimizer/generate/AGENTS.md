@@ -1958,8 +1958,13 @@ diagnostics keep the historical black ink.
   enclosed-area polygons (`diagnostics.stroke_geometry.closed_path_polygons`
   -- union semantics, no cutter width) and passes them as
   `PhysicalFillLayer`s, which `plot_physical_strokes` draws beneath the ink.
-  Structural pens 2/3 keep the translucent black underlay
-  (`PHYSICAL_STRUCTURAL_ALPHA`).
+  Borders (SP2) keep the translucent black underlay
+  (`PHYSICAL_STRUCTURAL_ALPHA`). Drill holes (SP3) are the exception: their
+  closed circles punch a white "see-through" disc (a `PhysicalFillLayer`
+  appended after the background fill, so it sits on top of the material
+  color) and their outline ink renders OPAQUE black -- translucent ink
+  vanishes over a dark material background, and the outline must stay
+  visible on white stock too.
 - **Fallbacks unchanged**: no `pen_widths` (synthetic export) keeps the thin
   centerline preview; a stem whose cutter token cannot be parsed keeps the
   per-file thin render.
