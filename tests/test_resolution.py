@@ -7859,3 +7859,105 @@ class TestListResolution:
         )
         content = resolve_job_spec(job)[0].content
         assert [line.marker_text for line in content] == ["1", "2"]
+
+
+class TestTextColorMarkupResolution:
+    """The inline <tc:color> markup: per-character layers, precedence, pen map."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a single-label Dino job over ``lines``."""
+        job_kwargs.setdefault("font", "Dino")
+        job_kwargs.setdefault("text_height", 0.5)
+        return JobSpec(
+            job_name="J",
+            labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
+            **job_kwargs,
+        )
+
+    def test_the_tag_selects_its_span(self) -> None:
+        """A <tc> run carries the canonical color; the rest stay unmarked."""
+        job = self._job(TextLine(text="A<tc:red>B</tc>C"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.has_color_runs is True
+        assert line.color_runs == (None, "red", None)
+        assert line.per_char_colors == ("none", "red", "none")
+
+    def test_abbreviation_canonicalizes_to_full_name(self) -> None:
+        """The resolver canonicalizes r -> red (the field's input rule)."""
+        job = self._job(TextLine(text="<tc:r>X</tc>"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.color_runs == ("red",)
+        # Serialization (the reflow round-trip) re-emits the canonical name.
+        from plt_optimizer.generate.markup import serialize_runs
+
+        assert serialize_runs(line.styled_runs) == "<tc:red>X</tc>"
+
+    def test_markup_wins_over_the_line_field(self) -> None:
+        """Inside a <tc> span the tag overrides the line's text_color."""
+        job = self._job(TextLine(text="A<tc:red>B</tc>C", text_color="m"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.text_color == "magenta"
+        assert line.per_char_colors == ("magenta", "red", "magenta")
+
+    def test_tag_naming_the_line_color_is_the_fast_path(self) -> None:
+        """A <tc> span equal to the line's own color adds no layer."""
+        job = self._job(TextLine(text="<tc:m>X</tc>", text_color="m"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.per_char_colors == ("magenta",)
+        assert line.used_layers == ((line.cutter_diameter, "magenta"),)
+
+    def test_used_layers_covers_every_color_and_cutter(self) -> None:
+        """The (cutter, color) set includes each colored run's layer."""
+        job = self._job(TextLine(text="<tc:k>A</tc><tc:m>B</tc>C"))
+        line = resolve_job_spec(job)[0].content[0]
+        cutter = line.cutter_diameter
+        assert line.used_layers == (
+            (cutter, "black"),
+            (cutter, "magenta"),
+            (cutter, "none"),
+        )
+
+    def test_markup_free_line_layers_are_bit_identical(self) -> None:
+        """Without <tc> markup, used_layers is the historical cutter-only set."""
+        job = self._job(TextLine(text="ABC", text_color="m"))
+        line = resolve_job_spec(job)[0].content[0]
+        assert line.per_char_colors == ()
+        assert line.used_layers == tuple(
+            sorted((cutter, "magenta") for cutter in line.used_cutters)
+        )
+
+    def test_unknown_color_aborts(self) -> None:
+        """An unresolvable color is a MarkupError at resolution (fail-loud)."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        job = self._job(TextLine(text="<tc:mauve>X</tc>"))
+        with pytest.raises(MarkupError, match="mauve"):
+            resolve_job_spec(job)
+
+    def test_explicit_none_color_aborts(self) -> None:
+        """<tc:none> is the field validator's rejection, applied to the tag."""
+        from plt_optimizer.generate.markup import MarkupError
+
+        job = self._job(TextLine(text="<tc:none>X</tc>"))
+        with pytest.raises(MarkupError, match="implicit default"):
+            resolve_job_spec(job)
+
+    def test_pen_map_splits_one_cutter_by_markup_colors(self) -> None:
+        """Colored runs on one cutter get distinct pens, sorted by (cutter, color)."""
+        job = self._job(TextLine(text="<tc:m>A</tc><tc:k>B</tc>C"))
+        line = resolve_job_spec(job)[0].content[0]
+        cutter = line.cutter_diameter
+        pen_map = build_cutter_pen_map(resolve_job_spec(job))
+        assert pen_map == {
+            (cutter, "black"): 1,
+            (cutter, "magenta"): 4,
+            (cutter, "none"): 5,
+        }
+
+    def test_with_markup_reparses_the_color(self) -> None:
+        """The reflow's text swap keeps every run on its own layer."""
+        job = self._job(TextLine(text="A<tc:red>B</tc>C"))
+        line = resolve_job_spec(job)[0].content[0]
+        moved = line.with_markup("A<tc:red>XY</tc>C")
+        assert moved.color_runs == (None, "red", "red", None)

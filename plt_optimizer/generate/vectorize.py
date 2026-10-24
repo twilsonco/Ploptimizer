@@ -772,7 +772,8 @@ def export_per_cutter_plts(
       to the boundary/hole cutter still gets its own file (separate run).
       Lines sharing a cutter but differing in ``text_color`` split into
       separate files so the cutter depth can change between runs (3-layer
-      material).
+      material). The inline ``<tc:color>`` markup splits the same way per
+      character (each colored run is its own ``(cutter, color)`` layer).
     - The leading ``[<plate>_][<material>_]`` prefix is built by
       :func:`_format_plate_prefix`: the 1-based packing-order plate number
       (zero-padded to two digits) is **omitted whenever the plate's

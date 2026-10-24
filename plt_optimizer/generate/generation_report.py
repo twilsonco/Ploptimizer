@@ -379,6 +379,15 @@ def _finding_entries(finding: LineFinding) -> List[Dict[str, Any]]:
                 "chars": list(chars),
             }
         )
+    if finding.text_color_runs is not None:
+        count, colors = finding.text_color_runs
+        entries.append(
+            {
+                "type": "text_color_markup",
+                "char_count": count,
+                "colors": list(colors),
+            }
+        )
     if finding.list_marker is not None:
         marker_text, indent_left = finding.list_marker
         entries.append(
@@ -709,6 +718,8 @@ def _format_finding_line(label_id: str, line: Dict[str, Any]) -> str:
                 f"v-centered {entry['char_count']} chars "
                 f"({', '.join(repr(char) for char in entry['chars'])})"
             )
+        elif kind == "text_color_markup":
+            parts.append(f"color {', '.join(entry['colors'])} ({entry['char_count']} chars)")
         elif kind == "list_marker":
             parts.append(
                 f"list marker {entry['marker_text']!r} (text column {entry['indent_left']:.3f}in)"

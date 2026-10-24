@@ -1189,19 +1189,19 @@ class TestInlineCutterDispatch:
         assert kwargs["glyph_scales"][1] == pytest.approx(expected)
 
     def test_stroke_cutter_map_splits_the_line(self) -> None:
-        """The per-stroke cutter array splits the line across two tools."""
+        """The per-stroke layer array splits the line across two tools."""
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
             _render_line_block,
-            _stroke_cutter_map,
+            _stroke_layer_map,
         )
 
         line = _markup_line("a<c:0.03>b</c>c", scale_cutter_inventory=(0.03, 0.06))
         block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
-        cutters = _stroke_cutter_map(line, block, glyphs)
+        layers = _stroke_layer_map(line, block, glyphs)
         # Two tools engrave the line, so the array is not empty and carries
         # both diameters.
-        assert set(cutters) == {0.03, 0.06}
+        assert {cutter for cutter, _color in layers} == {0.03, 0.06}
 
     def test_underline_run_splits_at_the_cutter_boundary(self) -> None:
         """One underline cannot span two tools: the run splits at the boundary."""
@@ -1337,4 +1337,153 @@ class TestVCenterRenderDispatch:
         block, _words, glyphs = label_renderer._render_line_block(
             line, label_renderer.TextChunkMode.LINE
         )
-        assert label_renderer._stroke_cutter_map(line, block, glyphs) == ()
+        assert label_renderer._stroke_layer_map(line, block, glyphs) == ()
+
+
+class TestTextColorLayerRouting:
+    """The <tc:color> per-stroke layer map and the decoration run split."""
+
+    def test_underline_run_splits_at_the_color_boundary(self) -> None:
+        """One underline cannot span two layers: the run splits at the boundary."""
+        from plt_optimizer.generate.label_renderer import _underline_render_gate
+
+        line = _markup_line("a<u>b<tc:red>c</tc></u>")
+        runs = _underline_render_gate(line)
+        # The underlined span covers the line-color 'b' and the red 'c', so
+        # it splits into two runs (the cutter-boundary rule, per color).
+        assert runs == ((1, 1), (2, 2))
+
+    def test_strikethrough_run_splits_at_the_color_boundary(self) -> None:
+        """A struck run across a <tc> boundary draws two strokes."""
+        from plt_optimizer.generate.label_renderer import _strikethrough_render_gate
+
+        line = _markup_line("<s>AB<tc:red>CD</tc></s>")
+        assert _strikethrough_render_gate(line) == ((0, 1), (2, 3))
+
+    def test_stroke_layer_map_carries_the_run_color(self) -> None:
+        """The per-stroke map keys each colored glyph's strokes by its layer."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_layer_map,
+        )
+
+        line = _markup_line("a<tc:red>b</tc>c")
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        layers = _stroke_layer_map(line, block, glyphs)
+        assert {color for _cutter, color in layers} == {"none", "red"}
+
+    def test_underline_stroke_rides_its_run_color(self) -> None:
+        """An underline segment's layer color comes from its run's span."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_layer_map,
+        )
+
+        line = _markup_line("a<u>b<tc:red>c</tc></u>")
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        layers = _stroke_layer_map(line, block, glyphs)
+        # The decoration strokes are appended after the glyph partition: the
+        # last two strokes are the two underline runs (one per layer).
+        assert layers[-2:] == ((0.06, "none"), (0.06, "red"))
+
+    def test_strikethrough_stroke_rides_its_run_color(self) -> None:
+        """A strike stroke's Y encodes neither tool nor color; the span does."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_layer_map,
+        )
+
+        line = _markup_line("<s>AB<tc:red>CD</tc></s>")
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        layers = _stroke_layer_map(line, block, glyphs)
+        assert layers[-2:] == ((0.06, "none"), (0.06, "red"))
+
+    def test_uniform_line_color_is_the_fast_path(self) -> None:
+        """A <tc> span naming the line's own color never splits the pen."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_layer_map,
+        )
+
+        line = _markup_line("<tc:magenta>HELLO</tc>", text_color="magenta")
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        assert _stroke_layer_map(line, block, glyphs) == ()
+
+    def test_foreign_uniform_color_still_routes(self) -> None:
+        """A <tc> span over the WHOLE line routes the block to that layer."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_layer_map,
+        )
+
+        line = _markup_line("<tc:red>HI</tc>")
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        layers = _stroke_layer_map(line, block, glyphs)
+        assert layers and set(layers) == {(0.06, "red")}
+
+
+class TestTextColorLayerHelpers:
+    """Direct-call pins for the <tc:> layer helpers' guard branches."""
+
+    def test_split_block_by_layers_remaps_word_groups(self) -> None:
+        """A two-layer split collects strokes and remaps the word partition."""
+        from plt_optimizer.generate.label_renderer import _split_block_by_layers
+        from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
+
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j),)),
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 0 + 1j),)),
+            )
+        )
+        layers = ((0.06, "none"), (0.06, "red"))
+        groups = _split_block_by_layers(
+            block, layers, [("ab", [0, 1])], ((0,), (1,)), (0.06, "none")
+        )
+        # Ascending layer order: 'none' first, 'red' second; the word group
+        # remaps into each half's index space.
+        assert [layer for _b, _w, _g, layer in groups] == [(0.06, "none"), (0.06, "red")]
+        assert groups[0][1] == [("ab", [0])]
+        assert groups[1][1] == [("ab", [0])]
+        # Strokes the array does not cover fall back to the default layer.
+        short = _split_block_by_layers(block, layers[:1], None, (), (0.03, "teal"))
+        assert [layer for _b, _w, _g, layer in short] == [(0.03, "teal"), (0.06, "none")]
+
+    def test_run_layers_guards_return_empty(self) -> None:
+        """The decoration layer helpers bail on a missing run/partition."""
+        from plt_optimizer.generate.label_renderer import (
+            _strikethrough_run_layers,
+            _underline_run_layers,
+        )
+        from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
+
+        plain = _markup_line("AB")
+        empty = TextBlock(strokes=())
+        assert _underline_run_layers(plain, empty, ()) == ()
+        assert _strikethrough_run_layers(plain, empty, ()) == ()
+        # A glyph partition that does not cover every character is rejected.
+        struck = _markup_line("<s>A</s>")
+        one_stroke = TextBlock(strokes=(Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 1j),)),))
+        assert _strikethrough_run_layers(struck, one_stroke, ((), ())) == ()
+        underlined = _markup_line("<u>A</u>")
+        assert _underline_run_layers(underlined, one_stroke, ((), ())) == ()
+
+    def test_run_layers_skip_runs_without_glyphs(self) -> None:
+        """A decorated run with no glyph positions contributes no span."""
+        from plt_optimizer.generate.label_renderer import _underline_run_layers
+        from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
+
+        # The underline covers only the inter-word space: no glyph positions.
+        line = _markup_line("a<u> </u>b")
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j),)),
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 0 + 1j),)),
+            )
+        )
+        assert _underline_run_layers(line, block, ((0,), (1,))) == ()

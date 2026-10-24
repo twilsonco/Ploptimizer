@@ -661,3 +661,47 @@ class TestVCenterFinding:
         summary = format_summary(report)
 
         assert "v-centered 1 chars ('-')" in summary
+
+
+class TestTextColorMarkupFinding:
+    """The typed ``text_color_markup`` JSON finding entry."""
+
+    def test_the_tag_records_a_typed_entry(self, tmp_path: Path) -> None:
+        """A <tc> run emits {type, char_count, colors} in the JSON report."""
+        line = _line("AB").with_markup("A<tc:red>B</tc>")
+        resolved, rendered = _label("l1", [line])
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        findings = report["labels"][0]["lines"][0]["findings"]
+        assert findings == [{"type": "text_color_markup", "char_count": 1, "colors": ["red"]}]
+
+    def test_has_effect_is_true_for_the_text_color_runs_field(self) -> None:
+        """The text_color_runs field marks the finding as carrying an effect."""
+        finding = LineFinding(line_index=0, text="A", text_color_runs=(2, ("red", "blue")))
+        assert finding.has_effect
+
+    def test_the_summary_names_the_color(self, tmp_path: Path) -> None:
+        """summary.txt renders the text_color_markup finding line."""
+        line = _line("AB").with_markup("A<tc:red>B</tc>")
+        resolved, rendered = _label("l1", [line])
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        summary = format_summary(report)
+
+        assert "color red (1 chars)" in summary

@@ -140,6 +140,12 @@ class LineFinding:
             the ``<vc>`` spans plus the characters of the cascading
             ``v_center_chars`` set (the count and the distinct centred
             characters, ascending). ``None`` when the line centres nothing.
+        text_color_runs: The ``(char_count, colors)`` a line's ``<tc:...>``
+            runs engrave on -- the count of colored characters and the
+            distinct canonical colors (ascending). The color split is
+            invisible in the YAML for the tagged characters (it rides the
+            tag), exactly like the ``<oc>`` finding's rationale. ``None``
+            when the line has no ``<tc:...>`` run.
         list_marker: The ``(marker_text, indent_left)`` pair for a line that
             engraves a list marker (a bullet or a computed counter) -- the
             marker is invisible in the YAML (it rides the list block) and the
@@ -162,6 +168,7 @@ class LineFinding:
     cutter_runs: Optional[tuple[tuple[float, ...], tuple[float, ...]]] = None
     original_cutter: Optional[tuple[int, tuple[float, ...]]] = None
     v_center: Optional[tuple[int, tuple[str, ...]]] = None
+    text_color_runs: Optional[tuple[int, tuple[str, ...]]] = None
     list_marker: Optional[tuple[str, float]] = None
 
     @property
@@ -188,6 +195,7 @@ class LineFinding:
                 self.cutter_runs,
                 self.original_cutter,
                 self.v_center,
+                self.text_color_runs,
                 self.list_marker,
             )
         )
@@ -281,6 +289,19 @@ def _v_center_info(line: ResolvedTextLine) -> tuple[int, tuple[str, ...]]:
     return sum(1 for flag in flags if flag), tuple(sorted(chars))
 
 
+def _text_color_run_info(line: ResolvedTextLine) -> tuple[int, tuple[str, ...]]:
+    """Return the ``(count, colors)`` a line's ``<tc:...>`` runs engrave.
+
+    The number of characters wrapped in a ``<tc:...>`` span and the distinct
+    canonical colors those characters ride (ascending). The color split is
+    invisible in the YAML for the tagged characters (it rides the tag, not
+    the ``text_color`` field), exactly like the ``<oc>`` finding's rationale.
+    """
+    colors = line.color_runs
+    used = {color for color in colors if color is not None}
+    return sum(1 for color in colors if color is not None), tuple(sorted(used))
+
+
 def _cutter_run_info(line: ResolvedTextLine) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Return the ``(requested, engraved)`` cutters a line's ``<c:...>`` runs use.
 
@@ -335,7 +356,7 @@ def _hole_adjust_lines(label: ResolvedLabel) -> list[str]:
 def collect_line_findings(
     rendered: RenderedLabel,
 ) -> list[LineFinding]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter / v-center).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter / v-center / text color).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -360,7 +381,8 @@ def collect_line_findings(
         ``original_cutter`` is the ``(count, cutters)`` pair only for lines
         carrying an ``<oc>`` run; ``v_center`` is the ``(count, chars)`` pair
         only for lines vertically centring characters (the ``<vc>`` spans plus
-        the cascading ``v_center_chars`` set).
+        the cascading ``v_center_chars`` set); ``text_color_runs`` is the
+        ``(count, colors)`` pair only for lines carrying a ``<tc:...>`` run.
     """
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
@@ -378,6 +400,7 @@ def collect_line_findings(
         | {index for index, line in enumerate(content) if line.has_cutter_runs}
         | {index for index, line in enumerate(content) if line.has_original_cutter}
         | {index for index, line in enumerate(content) if line.has_v_center}
+        | {index for index, line in enumerate(content) if line.has_color_runs}
         | {index for index, line in enumerate(content) if line.marker_text}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
@@ -415,6 +438,9 @@ def collect_line_findings(
         v_center: tuple[int, tuple[str, ...]] | None = None
         if line.has_v_center:
             v_center = _v_center_info(line)
+        text_color_runs: tuple[int, tuple[str, ...]] | None = None
+        if line.has_color_runs:
+            text_color_runs = _text_color_run_info(line)
         list_marker: tuple[str, float] | None = None
         if line.marker_text:
             list_marker = (line.marker_text, line.indent_left)
@@ -433,6 +459,7 @@ def collect_line_findings(
             cutter_runs=cutter_runs,
             original_cutter=original_cutter,
             v_center=v_center,
+            text_color_runs=text_color_runs,
             list_marker=list_marker,
         )
         if not finding.has_effect:
@@ -628,6 +655,16 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"v-centered {count} chars ({char_text})"
+                )
+            text_color_runs = entry.text_color_runs
+            if text_color_runs is not None:
+                count, colors = text_color_runs
+                # The <tc:color> split is invisible in the YAML (it rides the
+                # tag, not the text_color field), so name the layers the
+                # markup introduced and how many characters ride each.
+                color_text = ", ".join(colors)
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} color {color_text} ({count} chars)"
                 )
             list_marker = entry.list_marker
             if list_marker is not None:

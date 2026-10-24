@@ -658,6 +658,7 @@ class TestUnderlineRegistry:
             "c",
             "oc",
             "vc",
+            "tc",
         ]
 
 
@@ -760,6 +761,7 @@ class TestScaleRegistry:
             "c",
             "oc",
             "vc",
+            "tc",
         ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
@@ -917,6 +919,7 @@ class TestSupSubRegistry:
             "c",
             "oc",
             "vc",
+            "tc",
         ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
@@ -1226,6 +1229,7 @@ class TestStrikethroughRegistry:
             "c",
             "oc",
             "vc",
+            "tc",
         ]
 
     def test_nested_strike_serializes_flat(self) -> None:
@@ -1341,6 +1345,7 @@ class TestSmallCapsRegistry:
             "c",
             "oc",
             "vc",
+            "tc",
         ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
@@ -1537,7 +1542,7 @@ class TestCutterRegistry:
         assert spec.args_optional is False
         # The <oc> flag tag was registered after <c>, so <c> is no longer last.
         assert list(TAG_REGISTRY).index("c") == list(TAG_REGISTRY).index("f") + 1
-        assert list(TAG_REGISTRY)[-1] == "vc"
+        assert list(TAG_REGISTRY)[-1] == "tc"
         assert spec.apply(PLAIN, "0.06") == CUTTER
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(CUTTER, "0.06") == CUTTER
@@ -1574,6 +1579,7 @@ class TestCutterRegistry:
             "c",
             "oc",
             "vc",
+            "tc",
         ]
 
 
@@ -1682,7 +1688,8 @@ class TestOriginalCutterRegistry:
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-2] == "oc"
+        assert list(TAG_REGISTRY)[-3] == "oc"
+        assert list(TAG_REGISTRY).index("vc") == list(TAG_REGISTRY).index("oc") + 1
         assert spec.apply(PLAIN, "") == Style(original_cutter=True)
         # Set-to-True: re-applying is idempotent (nesting <oc> in <oc> is a no-op).
         assert spec.apply(Style(original_cutter=True), "") == Style(original_cutter=True)
@@ -1787,12 +1794,13 @@ class TestVCenterRegistry:
     """The <vc> registry entry (the vertical-centering flag tag)."""
 
     def test_v_center_is_registered_as_a_flag(self) -> None:
-        """The tag takes no args and is registered last (the serialization order)."""
+        """The tag takes no args and is registered after <oc> (before <tc>)."""
         spec = TAG_REGISTRY["vc"]
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-1] == "vc"
+        assert list(TAG_REGISTRY)[-1] == "tc"
+        assert list(TAG_REGISTRY).index("vc") == list(TAG_REGISTRY).index("oc") + 1
         assert spec.apply(PLAIN, "") == Style(v_center=True)
         # Set-to-True: re-applying is idempotent (nesting <vc> in <vc> is a no-op).
         assert spec.apply(Style(v_center=True), "") == Style(v_center=True)
@@ -2024,3 +2032,137 @@ class TestKernMarkers:
         styled = parse_markup("<+><->", kern_pos="<+>", kern_neg="<->")
         assert styled.plain_text == ""
         assert styled.kern_values == ()
+
+
+class TestTextColorRegistry:
+    """The <tc:color> registry entry (the stroke-color value tag)."""
+
+    def test_text_color_is_registered_with_args(self) -> None:
+        """The tag accepts a mandatory arg and is registered last (order pin)."""
+        spec = TAG_REGISTRY["tc"]
+        assert spec.accepts_args is True
+        assert spec.args_optional is False
+        assert spec.arg is not None
+        assert list(TAG_REGISTRY)[-1] == "tc"
+
+    def test_apply_is_set_to_value_and_idempotent(self) -> None:
+        """Applying the same color twice is the identity (the <f:...> rule)."""
+        spec = TAG_REGISTRY["tc"]
+        red = Style(text_color="red")
+        assert spec.apply(PLAIN, "red") == red
+        assert spec.apply(red, "red") == red
+        # A new color replaces the active one (nested <tc:b> restores the
+        # outer for the trailing text via the close's pre-open pop).
+        assert spec.apply(red, "blue") == Style(text_color="blue")
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly on styles carrying a color."""
+        spec = TAG_REGISTRY["tc"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(Style(text_color="red")) is True
+
+    def test_empty_argument_is_an_error(self) -> None:
+        """An empty color is broken markup (fail-loud, the <f:> rule)."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<tc:>x</tc>")
+        assert "text color tag argument is empty" in str(excinfo.value)
+
+
+def _raise_unknown(name: str) -> str:
+    """Color resolver stub that rejects every name (the unknown-color contract)."""
+    raise ValueError(f"{name!r} is not a known color")
+
+
+class TestTextColorParse:
+    """Parsing the <tc:color> tag (the inline stroke-color layer)."""
+
+    def test_color_run_and_values(self) -> None:
+        """The run carries the color and the per-char values align."""
+        styled = parse_markup("A<tc:red>B</tc>C", color_resolver=str)
+        assert styled.plain_text == "ABC"
+        assert styled.text_color_values == (None, "red", None)
+
+    def test_bare_color_tag_is_literal_text(self) -> None:
+        """The color is mandatory, so a bare <tc> is not markup (the <scale> rule)."""
+        styled = parse_markup("a <tc> b")
+        assert styled.plain_text == "a <tc> b"
+        assert styled.has_markup is False
+        with pytest.raises(MarkupError, match="Unexpected closing tag"):
+            parse_markup("<tc>text</tc>")
+
+    def test_resolver_canonicalizes_at_open_time(self) -> None:
+        """The stack stores the canonical name (the font_resolver precedent)."""
+
+        def resolver(name: str) -> str:
+            return {"r": "red", "b": "blue"}.get(name.lower(), name.lower())
+
+        styled = parse_markup("<tc:R>x<tc:b>y</tc>z</tc>", color_resolver=resolver)
+        assert styled.text_color_values == ("red", "blue", "red")
+
+    def test_resolver_error_is_wrapped_with_position(self) -> None:
+        """A resolver ValueError becomes a MarkupError naming the tag (fail-loud)."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("A<tc:mauve>B</tc>", color_resolver=_raise_unknown)
+        assert "Invalid tag <tc:mauve>" in str(excinfo.value)
+        assert "position 1" in str(excinfo.value)
+
+    def test_no_resolver_keeps_the_raw_argument(self) -> None:
+        """Direct API callers without a resolver keep the decoded argument."""
+        styled = parse_markup("<tc:r>x</tc>")
+        assert styled.text_color_values == ("r",)
+
+    def test_crossing_color_span_is_the_intersection(self) -> None:
+        """A <tc> span crossing an <i> span composes per character (HTML rule)."""
+        styled = parse_markup("<i>AB<tc:red>CD</tc>EF</i>", color_resolver=str)
+        assert styled.italic_flags == (True,) * 6
+        assert styled.text_color_values == (None, None, "red", "red", None, None)
+
+    def test_the_color_is_independent_of_the_other_tags(self) -> None:
+        """<tc:color> is its own field (never confused with <c:D> or <f:>)."""
+        styled = parse_markup("<tc:red><c:0.06>x</c></tc>", color_resolver=str)
+        assert styled.text_color_values == ("red",)
+        assert styled.cutter_values == (0.06,)
+
+
+class TestTextColorSerialize:
+    """The <tc:color> serialization round-trip (the reflow depends on it)."""
+
+    def test_serialized_form_reparses_identically(self) -> None:
+        """serialize_runs -> parse_markup reproduces the same per-char values."""
+        styled = parse_markup("A<tc:red>B</tc>C", color_resolver=str)
+        raw = serialize_runs(styled.runs)
+        assert raw == "A<tc:red>B</tc>C"
+        reparsed = parse_markup(raw, color_resolver=str)
+        assert reparsed.text_color_values == styled.text_color_values
+
+    def test_nested_color_restores_the_outer_value(self) -> None:
+        """A nested <tc:color> restores the outer color for the trailing text."""
+        styled = parse_markup("<tc:red>a<tc:blue>b</tc>c</tc>", color_resolver=str)
+        assert styled.text_color_values == ("red", "blue", "red")
+        raw = serialize_runs(styled.runs)
+        reparsed = parse_markup(raw, color_resolver=str)
+        assert reparsed.text_color_values == styled.text_color_values
+
+    def test_style_boundaries_see_the_color_change(self) -> None:
+        """A color span's edges are style boundaries (the reflow's guard)."""
+        styled = parse_markup("ab<tc:red>cd</tc>ef", color_resolver=str)
+        assert style_boundaries(styled) == (2, 4)
+
+
+class TestTextColorWords:
+    """The <tc:color> reflow tokens (the line-content reflow round-trip)."""
+
+    def test_styled_word_keeps_the_color_argument(self) -> None:
+        """A styled word token round-trips with its color."""
+        styled = parse_markup("big <tc:red>cut</tc>", color_resolver=str)
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["big", "cut"]
+        assert serialize_word(words[1]) == "<tc:red>cut</tc>"
+        assert serialize_word(words[0]) == "big"
+
+    def test_space_spanning_color_run_keeps_the_separator(self) -> None:
+        """<tc:X>foo bar</tc> tokenizes with the color separator (underline rule)."""
+        styled = parse_markup("<tc:red>foo bar</tc>", color_resolver=str)
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        assert all(sep.text_color == "red" for sep in separators)

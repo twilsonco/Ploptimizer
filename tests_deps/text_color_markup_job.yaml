@@ -1,0 +1,60 @@
+# Fixture for inline stroke-color markup (the `<tc:color>` tag).
+#
+# `<tc:color>...</tc>` is the inline form of the `text_color` field: it tags
+# the wrapped segment with a stroke-color LAYER (full name or 1-letter
+# abbreviation, case-insensitive -- exactly the values the field accepts), so
+# otherwise-identical text splits into separate toolpaths (one HPGL `SP` layer
+# and one per-cutter PLT file per distinct `(cutter, color)` pair) and the
+# cutter depth can change between runs on 3-layer stock (the
+# EngraveLab/Vision Pro workflow).
+#
+# The tag is a PURE LAYER tag: it changes no geometry, no cutter, and no text
+# height -- only the pen/file its strokes engrave on. Inside a span the tag
+# WINS over the line's own `text_color` field (the `<c:D>`-over-the-line
+# precedence); a span naming the line's own color is the identity (no new
+# layer, bit-identical output).
+#
+# The color is canonicalized at parse time (the `<f:...>` font-resolver
+# precedent): `<tc:r>` engraves the `red` layer and serializes as `<tc:red>`,
+# so the line-content reflow round-trip is exact. An unknown color (`<tc:x>`)
+# or the implicit `none` (`<tc:none>`) is a MarkupError -- the job aborts
+# loudly (CLI non-zero), like an unclosed tag.
+#
+# `<u>`/`<s>` decoration runs split at color boundaries (one stroke cannot ride
+# two layers' pens), so an underline spanning `<tc:r>A</tc>B` engraves two
+# strokes on two pens.
+#
+# Export names: the colorless layer keeps the historical
+# `<cutter>_txt_<job>.plt` name; colored layers gain their 1-letter suffix
+# (`<cutter>_r_txt_<job>.plt`), identical to the field-level split.
+#
+# Run with: python run_integration_test.py tests_deps/text_color_markup_job.yaml
+job:
+  job_name: "Text Color Markup Demo - 3-Layer Panel"
+
+  # Shared label dimensions and typography (cascade to every label).
+  width: 3.0
+  height: 1.5
+  margin: 0.15
+  text_height: 0.375
+
+  plates:
+    - id: scrap_24x16
+      width: 24.0
+      height: 16.0
+
+  labels:
+    - id: panel
+      count: 2
+      content:
+        # One line, three inline colors -> three toolpaths (one per layer):
+        - text: "<tc:k>TOP</tc> <tc:m>MID</tc> BASE"
+        # Abbreviation vs full name: both canonicalize to the same layer, so
+        # the two spans share ONE pen (and one file) distinct from "none":
+        - text: "<tc:r>RED</tc><tc:red> ALSO RED</tc> PLAIN"
+        # The line's own field color vs a tag naming it (identity, no extra
+        # layer) vs a tag overriding it (the tag wins inside its span):
+        - text: "FIELD <tc:y>YELLOW</tc> FIELD"
+          text_color: k
+        # A markup-free line (the historical fast path, bit-identical):
+        - text: "BASE"

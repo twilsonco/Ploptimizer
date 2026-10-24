@@ -234,6 +234,10 @@ class TextColor(str, Enum):
 
     Values may be written as the full name (``cyan``) or as the
     single-letter abbreviation (``c``); both forms are case-insensitive.
+    The inline ``<tc:color>...</tc>`` markup accepts exactly the same
+    values and applies the split per character (the tag wins over the
+    ``text_color`` field inside its span; see
+    ``plt_optimizer/generate/markup/AGENTS.md``).
     ``none`` is the implicit default for every line that does not declare
     a color and must never be specified explicitly (see the ``text_color``
     field validator): users pick a real color name to force a toolpath
@@ -798,7 +802,10 @@ class TextAttributes(BaseModel):
             value), and a job-level value is rejected. Values are
             :class:`TextColor` full names or single-letter abbreviations,
             both case-insensitive (``cyan`` / ``c`` ...). ``none`` is the
-            implicit default and cannot be specified explicitly.
+            implicit default and cannot be specified explicitly. The inline
+            ``<tc:color>...</tc>`` markup applies the same split per
+            character, overriding this field inside its span (see
+            ``generate/markup/AGENTS.md`` "Inline Text Color").
     """
 
     text_height: Optional[float] = Field(
@@ -1365,7 +1372,9 @@ class TextAttributes(BaseModel):
             "separate toolpaths (labels and text lines only; rejected at the "
             "job level; never cascades). Full name or case-insensitive "
             "single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); "
-            "'none' is the implicit default and cannot be specified."
+            "'none' is the implicit default and cannot be specified. The "
+            "inline <tc:color>...</tc> markup applies the same split to the "
+            "wrapped segment, overriding this field per character."
         ),
     )
     bullet_string: Optional[str] = Field(

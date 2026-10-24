@@ -204,10 +204,12 @@ class _LineEntry(NamedTuple):
             (the render-time, margin-clamped spacing actually used for
             stacking). ``None`` on the last renderable line, which has no
             gap after it.
-        stroke_cutters: The engraving cutter diameter of every stroke of this
-            line, in stroke order (see :func:`_stroke_cutter_map`). The
-            per-cutter pen split groups strokes by this array, so a ``<b>``
-            bold run and each ``<scale:N>`` run land on their own tool's pen.
+        stroke_layers: The engraving ``(cutter diameter, color)`` layer of
+            every stroke of this
+            line, in stroke order (see :func:`_stroke_layer_map`). The
+            per-layer pen split groups strokes by this array, so a ``<b>``
+            bold run and each ``<scale:N>`` run land on their own tool's pen
+            and each ``<tc:color>`` run lands on its own color's pen.
             Empty when the line has no markup (no per-stroke variation).
     """
 
@@ -216,7 +218,7 @@ class _LineEntry(NamedTuple):
     bounds: Tuple[float, float, float, float]
     compression_scale: float = 1.0
     line_spacing: Optional[float] = None
-    stroke_cutters: Tuple[float, ...] = ()
+    stroke_layers: Tuple[Tuple[float, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -234,7 +236,8 @@ class _RenderedLine:
         word_groups: Per-word stroke indices (``None`` in line mode).
         collision_scale: The collision-avoidance horizontal scale applied.
         glyph_groups: Per-glyph stroke indices.
-        stroke_cutters: Per-stroke engraving cutter diameters (the pen split).
+        stroke_layers: Per-stroke engraving ``(cutter, color)`` layers (the
+            pen split).
         display_text: The line's text as engraved -- the composed
             ``"marker text"`` for a list line, else ``plain_text`` (names the
             glyph partition for the descender relief and the reports).
@@ -254,7 +257,7 @@ class _RenderedLine:
     word_groups: Optional[List[Tuple[str, List[int]]]]
     collision_scale: float
     glyph_groups: Tuple[Tuple[int, ...], ...]
-    stroke_cutters: Tuple[float, ...]
+    stroke_layers: Tuple[Tuple[float, str], ...]
     display_text: str
     indent_left: float = 0.0
     align_group_id: int = -1
@@ -2281,8 +2284,9 @@ def _decoration_runs(
     The shared pipeline behind both line decorations (the ``<u>`` underline
     and the ``<s>`` strikethrough): maximal runs of marked characters,
     optionally split at the spaces inside each run (``breaks_spaces``), and
-    always split where the engraving cutter changes (``<b>``/``<scale:N>``
-    boundaries -- one stroke cannot be cut by two tools).
+    always split where the engraving LAYER changes (``<b>``/``<scale:N>``
+    cutter boundaries and ``<tc:color>`` color boundaries -- one stroke
+    cannot be cut by two tools nor ride two layers' pens).
 
     Args:
         line: The resolved text line (plain text, per-character cutters).
@@ -2297,8 +2301,9 @@ def _decoration_runs(
     if breaks_spaces:
         runs = _split_runs_at_spaces(line.plain_text, runs)
     cutters = line.per_char_cutters
-    if cutters and len(set(cutters)) > 1:
-        runs = _split_runs_at_cutter(runs, cutters)
+    colors = line.per_char_colors
+    if cutters and (len(set(cutters)) > 1 or (colors and len(set(colors)) > 1)):
+        runs = _split_runs_at_layer(runs, cutters, colors)
     return runs
 
 
@@ -2369,30 +2374,36 @@ def _strikethrough_render_gate(line: ResolvedTextLine) -> Tuple[Tuple[int, int],
     return _decoration_runs(line, flags, breaks_spaces=line.strikethrough_break_spaces)
 
 
-def _split_runs_at_cutter(
+def _split_runs_at_layer(
     runs: Tuple[Tuple[int, int], ...],
     cutters: Tuple[float, ...],
+    colors: Tuple[str, ...],
 ) -> Tuple[Tuple[int, int], ...]:
-    """Split each underlined run where the engraving cutter changes.
+    """Split each decorated run where the engraving layer changes.
 
-    The underline is cut with the run's own tool, and a run's centerline sits
-    one cutter below the baseline, so one underline cannot span two tools. The
-    cutter changes at a ``<b>`` boundary (the plain tool vs. the bold rung) and
-    at a ``<scale:N>`` boundary (the effective-height cutter), so this is the
-    general form of the bold-boundary split.
+    A decoration stroke is cut with its run's own tool and lands on its run's
+    own ``(cutter, color)`` pen, so one stroke cannot span two layers. The
+    layer changes at a ``<b>`` boundary (the plain tool vs. the bold rung), at
+    a ``<scale:N>`` boundary (the effective-height cutter) and at a
+    ``<tc:color>`` boundary (the stroke-color layer), so this is the general
+    form of the bold-boundary split.
 
     Args:
-        runs: The underlined runs (inclusive ``plain_text`` indices).
+        runs: The decorated runs (inclusive ``plain_text`` indices).
         cutters: Per-character cutter diameters aligned with ``plain_text``.
+        colors: Per-character resolved colors aligned with ``plain_text``
+            (``()`` = the line is single-color; only cutters split then).
 
     Returns:
-        The runs split at cutter boundaries, in order.
+        The runs split at layer boundaries, in order.
     """
     split: List[Tuple[int, int]] = []
     for first, last in runs:
         start = first
         for index in range(first, last):
-            if cutters[index] != cutters[index + 1]:
+            cutter_changed = cutters[index] != cutters[index + 1]
+            color_changed = bool(colors) and colors[index] != colors[index + 1]
+            if cutter_changed or color_changed:
                 split.append((start, index))
                 start = index + 1
         split.append((start, last))
@@ -2402,7 +2413,7 @@ def _split_runs_at_cutter(
 def _run_cutter(line: ResolvedTextLine, first: int) -> float:
     """Return the cutter the underlined run starting at ``first`` engraves with.
 
-    Runs are split at cutter boundaries (see :func:`_split_runs_at_cutter`), so
+    Runs are split at layer boundaries (see :func:`_split_runs_at_layer`), so
     the first character's cutter decides the whole run's tool: the line's own
     cutter, its ``<b>`` bold rung, or the run's ``<scale:N>`` effective-height
     cutter.
@@ -2411,6 +2422,21 @@ def _run_cutter(line: ResolvedTextLine, first: int) -> float:
     if cutters and first < len(cutters):
         return cutters[first]
     return line.cutter_diameter
+
+
+def _run_color(line: ResolvedTextLine, first: int) -> str:
+    """Return the stroke-color layer the decorated run starting at ``first`` rides.
+
+    The ``<tc:color>`` mirror of :func:`_run_cutter`: runs are split at layer
+    boundaries (see :func:`_split_runs_at_layer`), so the first character's
+    resolved color decides the whole run's layer -- the run's ``<tc:...>``
+    color, else the line's own :attr:`ResolvedTextLine.text_color` (the
+    per-character array is ``()`` on a single-color line).
+    """
+    colors = line.per_char_colors
+    if colors and first < len(colors):
+        return colors[first]
+    return line.text_color
 
 
 def _split_runs_at_spaces(
@@ -2792,21 +2818,22 @@ def _apply_strikethrough(
     return _append_decoration(block, word_groups, glyph_groups, strokes)
 
 
-def _strikethrough_run_cutters(
+def _strikethrough_run_layers(
     line: ResolvedTextLine,
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> Tuple[Tuple[float, float, float], ...]:
-    """Return ``(x_min, x_max, cutter)`` per strikethrough stroke of ``line``.
+) -> Tuple[Tuple[float, float, float, str], ...]:
+    """Return ``(x_min, x_max, cutter, color)`` per strikethrough stroke.
 
-    The pen split needs each strike stroke's tool, and -- unlike the underline
+    The pen split needs each strike stroke's tool and color layer, and --
+    unlike the underline
     -- a strike centerline's Y encodes none: the height is a typography
     property (``strikethrough_cap``), identical for every run, so the depth
     cannot be inverted into a cutter the way
     ``-y - underline_offset_inches`` does
     for the underline. The stroke's **span** identifies its run instead, and
-    the gate splits runs at cutter boundaries, so the run's first character
-    owns the tool (see :func:`_run_cutter`).
+    the gate splits runs at layer boundaries, so the run's first character
+    owns the tool and the layer (see :func:`_run_cutter` / :func:`_run_color`).
 
     The spans are recomputed from the same ``glyph_groups`` partition of the
     same block, so they match :func:`_strikethrough_strokes` bit-for-bit.
@@ -2817,8 +2844,8 @@ def _strikethrough_run_cutters(
         glyph_groups: The per-glyph stroke partition (decorations excluded).
 
     Returns:
-        One ``(x_min, x_max, cutter)`` triple per emitted strike stroke, in
-        run order (empty when the line has no strike geometry).
+        One ``(x_min, x_max, cutter, color)`` quadruple per emitted strike
+        stroke, in run order (empty when the line has no strike geometry).
     """
     runs = _strikethrough_render_gate(line)
     if not runs or not glyph_groups:
@@ -2830,7 +2857,7 @@ def _strikethrough_run_cutters(
         glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
         bounds = glyph_block.bounds()
         boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
-    spans: List[Tuple[float, float, float]] = []
+    spans: List[Tuple[float, float, float, str]] = []
     for first, last in runs:
         positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
         if not positions:
@@ -2838,67 +2865,124 @@ def _strikethrough_run_cutters(
         x_min, x_max = _run_span(boxes, positions)
         if x_max - x_min < _INK_EMISSION_FLOOR:
             continue
-        spans.append((x_min, x_max, _run_cutter(line, first)))
+        spans.append((x_min, x_max, _run_cutter(line, first), _run_color(line, first)))
     return tuple(spans)
 
 
-def _stroke_cutter_map(
+def _underline_run_layers(
     line: ResolvedTextLine,
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> Tuple[float, ...]:
-    """Return the engraving cutter of every stroke in ``block``, by index.
+) -> Tuple[Tuple[float, float, float, str], ...]:
+    """Return ``(x_min, x_max, cutter, color)`` per underline RUN of ``line``.
 
-    The per-cutter pen split needs one cutter per *stroke*, not per line. The
-    glyph strokes come from the per-character cutter array (:attr:
-    `ResolvedTextLine.per_char_cutters`) walked over the exact ``glyph_groups``
+    The underline stroke's Y recovers its cutter exactly (the centerline sits
+    ``cutter + underline_offset_inches`` below the baseline), but it encodes
+    nothing about the ``<tc:color>`` layer, so the run's **span** identifies
+    the color: the gate splits runs at layer boundaries, each gap-cut segment
+    lies inside its run's span, and the spans are recomputed from the same
+    ``glyph_groups`` partition of the same block as
+    :func:`_underline_strokes` (bit-for-bit).
+
+    Args:
+        line: The resolved text line.
+        block: The line's block with the decorations appended.
+        glyph_groups: The per-glyph stroke partition (decorations excluded).
+
+    Returns:
+        One ``(x_min, x_max, cutter, color)`` quadruple per underline run with
+        geometry, in run order (empty when the line has no underline).
+    """
+    runs = _underline_render_gate(line)
+    if not runs or not glyph_groups:
+        return ()
+    if len(_glyph_chars(line.plain_text)) != len(glyph_groups):
+        return ()
+    boxes: List[Tuple[float, float, float, float]] = []
+    for indices in glyph_groups:
+        glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
+        bounds = glyph_block.bounds()
+        boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
+    spans: List[Tuple[float, float, float, str]] = []
+    for first, last in runs:
+        positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
+        if not positions:
+            continue
+        x_min, x_max = _run_span(boxes, positions)
+        spans.append((x_min, x_max, _run_cutter(line, first), _run_color(line, first)))
+    return tuple(spans)
+
+
+def _stroke_layer_map(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+) -> Tuple[Tuple[float, str], ...]:
+    """Return the engraving ``(cutter, color)`` layer of every stroke.
+
+    The per-layer pen split needs one layer key per *stroke*, not per line.
+    The glyph strokes come from the per-character cutter array (:attr:
+    `ResolvedTextLine.per_char_cutters`) and the per-character color array
+    (:attr:`ResolvedTextLine.per_char_colors`, ``()`` = the line is
+    single-color) walked over the exact ``glyph_groups``
     partition (spaces own no group, mirroring :func:`_glyph_chars`). The
     ``<u>`` underline strokes are appended **after** that partition, so they
     are identified by their centerline depth: a run's centerline sits exactly
     ``cutter + underline_offset_inches`` below the baseline, and the gate splits
     runs
-    at cutter boundaries, so ``-y - underline_offset_inches`` recovers the tool
-    exactly (no sampling, no tolerance guessing). The ``<s>`` strikethrough
+    at layer boundaries, so ``-y - underline_offset_inches`` recovers the tool
+    exactly (no sampling, no tolerance guessing); the Y encodes no color, so
+    the run's **span** identifies it (see :func:`_underline_run_layers`). The
+    ``<s>`` strikethrough
     strokes (appended last) sit at a cutter-independent height, so they are
-    identified by their span instead -- see
-    :func:`_strikethrough_run_cutters`.
+    identified by their span for BOTH tool and color -- see
+    :func:`_strikethrough_run_layers`.
 
     Args:
-        line: The resolved text line (per-character cutters, offset).
+        line: The resolved text line (per-character cutters, colors, offset).
         block: The line's block with the decorations appended, in the
             renderers' local frame (baseline ``y = 0``).
         glyph_groups: The per-glyph stroke partition (decorations excluded).
 
     Returns:
-        One cutter diameter per stroke of ``block``, in stroke order; **empty**
-        when the whole line engraves with a single tool (no markup, a bold run
-        with no bold rung, or scaled runs whose ladder cutter equals the
-        line's) -- the caller treats that as "no split needed", exactly the
-        historical single-pen fast path.
+        One ``(cutter diameter, color)`` layer per stroke of ``block``, in
+        stroke order; **empty**
+        when the whole line engraves on the LINE's own layer (no markup, a
+        bold run
+        with no bold rung, scaled runs whose ladder cutter equals the
+        line's, a line whose ``<tc:...>`` runs all name its own color) -- the
+        caller treats that as "no split needed", exactly the
+        historical single-pen fast path. A line uniformly wrapped in a
+        FOREIGN color returns a uniform array of that layer (the caller
+        routes the whole block to it, no split).
     """
     cutters = line.per_char_cutters
     if not cutters or not glyph_groups:
         return ()
+    colors = line.per_char_colors
+    line_color = line.text_color
     known = line.used_cutters
     strike_cap = line.strikethrough_cap if line.has_strikethrough else None
     strike_spans = (
-        _strikethrough_run_cutters(line, block, glyph_groups) if strike_cap is not None else ()
+        _strikethrough_run_layers(line, block, glyph_groups) if strike_cap is not None else ()
     )
-    mapping: List[Optional[float]] = [None] * len(block.strokes)
+    underline_spans = _underline_run_layers(line, block, glyph_groups)
+    mapping: List[Optional[Tuple[float, str]]] = [None] * len(block.strokes)
     glyph_position = 0
-    for char, cutter in zip(line.plain_text, cutters):
+    for char_index, (char, cutter) in enumerate(zip(line.plain_text, cutters)):
         if char == " ":
             continue
         if glyph_position >= len(glyph_groups):
             break
+        color = colors[char_index] if colors else line_color
         for index in glyph_groups[glyph_position]:
-            mapping[index] = cutter
+            mapping[index] = (cutter, color)
         glyph_position += 1
     for index, stroke in enumerate(block.strokes):
         if mapping[index] is not None:
             continue
         if not stroke.segments:  # pragma: no cover - every stroke cuts
-            mapping[index] = line.cutter_diameter
+            mapping[index] = (line.cutter_diameter, line_color)
             continue
         start = stroke.segments[0].start
         y = start.imag
@@ -2907,24 +2991,39 @@ def _stroke_cutter_map(
         # floats agree to the emitted precision).
         if strike_cap is not None:
             if abs(y - strike_cap) <= _INK_EMISSION_FLOOR:
-                for x_min, x_max, cutter in strike_spans:
+                for x_min, x_max, cutter, color in strike_spans:
                     if (
                         abs(start.real - x_min) <= _INK_EMISSION_FLOOR
                         and abs(stroke.segments[0].end.real - x_max) <= _INK_EMISSION_FLOOR
                     ):
-                        mapping[index] = cutter
+                        mapping[index] = (cutter, color)
                         break
             if mapping[index] is not None:
                 continue
         # An underline stroke: its centerline Y is -(cutter + offset). The
         # round trip is not float-exact (0.06 + 0.05 back to 0.06 can land one
         # ulp off), which would key a spurious pen layer, so snap to the
-        # closest cutter the line actually engraves with.
+        # closest cutter the line actually engraves with. The color comes
+        # from the run whose span contains the (gap-cut) segment.
         recovered = -y - line.underline_offset_inches
-        mapping[index] = min(known, key=lambda cutter: abs(cutter - recovered))
-    resolved = tuple(cutter if cutter is not None else line.cutter_diameter for cutter in mapping)
-    if len(set(resolved)) <= 1:
-        return ()  # One tool engraves the whole line: nothing to split.
+        cutter = min(known, key=lambda known_cutter: abs(known_cutter - recovered))
+        color = line_color
+        for x_min, x_max, _run_cutter_value, run_color in underline_spans:
+            if (
+                start.real >= x_min - _INK_EMISSION_FLOOR
+                and stroke.segments[0].end.real <= x_max + _INK_EMISSION_FLOOR
+            ):
+                color = run_color
+                break
+        mapping[index] = (cutter, color)
+    resolved = tuple(
+        layer if layer is not None else (line.cutter_diameter, line_color) for layer in mapping
+    )
+    if len(set(resolved)) <= 1 and resolved[0][1] == line_color:
+        # No COLOR variation and at most one tool: the historical fast path
+        # (a uniform non-line CUTTER routed the whole block to the line's own
+        # pen before <tc:> existed, and still does -- bit-identical).
+        return ()
     return resolved
 
 
@@ -3424,20 +3523,21 @@ def _compose_marker_block(
     return composed, glyph_groups, word_groups
 
 
-def _composed_stroke_cutters(
+def _composed_stroke_layers(
     marker_line: ResolvedTextLine,
     marker_block: TextBlock,
     marker_glyphs: Tuple[Tuple[int, ...], ...],
     text_line: ResolvedTextLine,
     text_block: TextBlock,
     text_glyphs: Tuple[Tuple[int, ...], ...],
-) -> Tuple[float, ...]:
-    """Return the engraving cutter of every stroke of a composed marker line.
+) -> Tuple[Tuple[float, str], ...]:
+    """Return the engraving layer of every stroke of a composed marker line.
 
     The marker and the text are separate renders, each with its own per-stroke
-    cutter map (see :func:`_stroke_cutter_map`); the composed block's strokes
+    layer map (see :func:`_stroke_layer_map`); the composed block's strokes
     are the marker's followed by the text's, so the arrays concatenate. A
-    single-tool half (an empty map) is filled with that half's own line cutter,
+    single-layer half (an empty map) is filled with that half's own line
+    ``(cutter, color)``,
     keeping the array total-length exact -- the pen split then routes the
     marker's strokes to the marker's tool and the text's to the text's.
 
@@ -3450,12 +3550,17 @@ def _composed_stroke_cutters(
         text_glyphs: The text's per-glyph stroke partition.
 
     Returns:
-        One cutter diameter per stroke of the composed block, in stroke order.
+        One ``(cutter diameter, color)`` layer per stroke of the composed
+        block, in stroke order.
     """
-    marker_map = _stroke_cutter_map(marker_line, marker_block, marker_glyphs)
-    text_map = _stroke_cutter_map(text_line, text_block, text_glyphs)
-    marker_array = marker_map or (marker_line.cutter_diameter,) * len(marker_block.strokes)
-    text_array = text_map or (text_line.cutter_diameter,) * len(text_block.strokes)
+    marker_map = _stroke_layer_map(marker_line, marker_block, marker_glyphs)
+    text_map = _stroke_layer_map(text_line, text_block, text_glyphs)
+    marker_array = marker_map or ((marker_line.cutter_diameter, marker_line.text_color),) * len(
+        marker_block.strokes
+    )
+    text_array = text_map or ((text_line.cutter_diameter, text_line.text_color),) * len(
+        text_block.strokes
+    )
     return tuple(marker_array) + tuple(text_array)
 
 
@@ -5219,7 +5324,7 @@ def _render_positioned_lines(
         # them for the descender relief -- exactly the shape a cross-family
         # composed line already produces.
         composed_text = line.plain_text
-        stroke_cutters: Tuple[float, ...] = ()
+        stroke_layers: Tuple[Tuple[float, str], ...] = ()
         if line.marker_text:
             marker_line = _marker_line_clone(line)
             try:
@@ -5246,7 +5351,7 @@ def _render_positioned_lines(
                 )
                 indent = max(line.indent_left, min_indent)
                 text_glyphs = glyph_groups
-                stroke_cutters = _composed_stroke_cutters(
+                stroke_layers = _composed_stroke_layers(
                     marker_line, marker_block, marker_glyphs, line, block, text_glyphs
                 )
                 block, glyph_groups, word_groups = _compose_marker_block(
@@ -5294,9 +5399,9 @@ def _render_positioned_lines(
                 word_groups=word_groups,
                 collision_scale=compression_scale,
                 glyph_groups=glyph_groups,
-                stroke_cutters=stroke_cutters
+                stroke_layers=stroke_layers
                 if line.marker_text
-                else _stroke_cutter_map(line, block, glyph_groups),
+                else _stroke_layer_map(line, block, glyph_groups),
                 display_text=composed_text,
                 indent_left=line.indent_left,
                 align_group_id=line.align_group_id,
@@ -5372,7 +5477,7 @@ def _render_positioned_lines(
     x_line_indices: List[int] = []
     x_word_groups: List[Optional[List[Tuple[str, List[int]]]]] = []
     x_glyph_groups: List[Tuple[Tuple[int, ...], ...]] = []
-    x_stroke_cutters: List[Tuple[float, ...]] = []
+    x_stroke_layers: List[Tuple[Tuple[float, str], ...]] = []
     x_display_texts: List[str] = []
     effective_scales: List[float] = []
 
@@ -5490,7 +5595,7 @@ def _render_positioned_lines(
         x_line_indices.append(rendered.line_index)
         x_word_groups.append(rendered.word_groups)
         x_glyph_groups.append(rendered.glyph_groups)
-        x_stroke_cutters.append(rendered.stroke_cutters)
+        x_stroke_layers.append(rendered.stroke_layers)
         x_display_texts.append(rendered.display_text)
 
     if not x_blocks:
@@ -5638,7 +5743,7 @@ def _render_positioned_lines(
                     bounds=(min_x, min_y + y_offset, max_x, max_y + y_offset),
                     compression_scale=effective_scales[i],
                     line_spacing=reported_spacing,
-                    stroke_cutters=x_stroke_cutters[i],
+                    stroke_layers=x_stroke_layers[i],
                 ),
                 x_word_groups[i],
                 x_glyph_groups[i],
@@ -5702,56 +5807,61 @@ def _render_text_local_with_bounds(
     return text_lc, line_entries
 
 
-def _split_block_by_cutters(
+def _split_block_by_layers(
     positioned_block: TextBlock,
-    stroke_cutters: Tuple[float, ...],
+    stroke_layers: Tuple[Tuple[float, str], ...],
     word_groups: Optional[List[Tuple[str, List[int]]]],
     glyph_groups: Tuple[Tuple[int, ...], ...],
+    default_layer: Tuple[float, str],
 ) -> List[
     Tuple[
         TextBlock,
         Optional[List[Tuple[str, List[int]]]],
         Tuple[Tuple[int, ...], ...],
-        float,
+        Tuple[float, str],
     ]
 ]:
-    """Split one positioned line block into one group per engraving cutter.
+    """Split one positioned line block into one group per engraving layer.
 
-    A line whose strokes engrave with more than one tool -- a ``<b>`` bold run
-    (the bold rung) and each ``<scale:N>`` run (its effective-height cutter) --
-    lands on one pen per cutter, so the positioned block is partitioned by the
-    per-stroke cutter array: every distinct cutter collects its strokes (in
+    A line whose strokes engrave on more than one ``(cutter, color)`` layer --
+    a ``<b>`` bold run
+    (the bold rung), each ``<scale:N>`` run (its effective-height cutter) and
+    each ``<tc:color>`` run (its stroke-color layer) --
+    lands on one pen per layer, so the positioned block is partitioned by the
+    per-stroke layer array: every distinct layer collects its strokes (in
     stroke order) into one group, and the per-glyph / per-word partitions are
     remapped into that group's index space (a glyph's strokes all share one
-    cutter, so every group maps wholly into one half; underline strokes own no
+    layer, so every group maps wholly into one half; underline strokes own no
     glyph group and ride their group ungrouped).
 
     Args:
         positioned_block: The line's positioned block.
-        stroke_cutters: The per-stroke cutter diameters (see
-            :func:`_stroke_cutter_map`); strokes sharing a value group together.
+        stroke_layers: The per-stroke ``(cutter, color)`` layers (see
+            :func:`_stroke_layer_map`); strokes sharing a value group together.
         word_groups: Per-word stroke indices (``None`` in line mode).
         glyph_groups: Per-glyph stroke indices.
+        default_layer: The layer for any stroke the array does not cover
+            (defensive; the map is built over the same block).
 
     Returns:
-        One ``(block, words, glyphs, cutter)`` tuple per distinct cutter, in
-        ascending cutter order (the pen-map order), each non-empty.
+        One ``(block, words, glyphs, layer)`` tuple per distinct layer, in
+        ascending layer order (the pen-map order), each non-empty.
     """
-    positions_by_cutter: dict[float, List[int]] = {}
+    positions_by_layer: dict[Tuple[float, str], List[int]] = {}
     for index in range(len(positioned_block.strokes)):
-        cutter = stroke_cutters[index] if index < len(stroke_cutters) else 0.0
-        positions_by_cutter.setdefault(cutter, []).append(index)
+        layer = stroke_layers[index] if index < len(stroke_layers) else default_layer
+        positions_by_layer.setdefault(layer, []).append(index)
 
     groups: List[
         Tuple[
             TextBlock,
             Optional[List[Tuple[str, List[int]]]],
             Tuple[Tuple[int, ...], ...],
-            float,
+            Tuple[float, str],
         ]
     ] = []
-    for cutter in sorted(positions_by_cutter):
-        positions = positions_by_cutter[cutter]
+    for layer in sorted(positions_by_layer):
+        positions = positions_by_layer[layer]
         local = {global_index: local_index for local_index, global_index in enumerate(positions)}
         block = TextBlock(strokes=tuple(positioned_block.strokes[i] for i in positions))
         words: Optional[List[Tuple[str, List[int]]]] = None
@@ -5763,7 +5873,7 @@ def _split_block_by_cutters(
         glyphs = tuple(
             tuple(local[i] for i in group if i in local) for group in glyph_groups if group
         )
-        groups.append((block, words, glyphs, cutter))
+        groups.append((block, words, glyphs, layer))
     return groups
 
 
@@ -5813,10 +5923,11 @@ def _render_text_lines_by_pen(
         per word plus any ungrouped line in ``WORD`` mode) in label-local
         coordinates for plate-space optimization.
 
-        A line whose strokes engrave with more than one tool (a ``<b>`` bold
-        run, a ``<scale:N>`` run) is split by cutter (see
-        :func:`_split_block_by_cutters`): each cutter's strokes land on that
-        tool's pen, each group producing its own chunk records
+        A line whose strokes engrave on more than one ``(cutter, color)``
+        layer (a ``<b>`` bold
+        run, a ``<scale:N>`` run, a ``<tc:color>`` run) is split by layer (see
+        :func:`_split_block_by_layers`): each layer's strokes land on that
+        tool-and-color's pen, each group producing its own chunk records
         (``plate_optimizer`` filters records by ``pen``, so the groups route as
         separate layers for free). A group's chunk bounds fall back to the
         whole line's entry bounds.
@@ -5835,19 +5946,32 @@ def _render_text_lines_by_pen(
         line_content = label.content[line_index] if 0 <= line_index < len(label.content) else None
         line_entries.append(entry)
 
-        stroke_cutters = entry.stroke_cutters
-        if stroke_cutters and len(set(stroke_cutters)) > 1:
-            halves = _split_block_by_cutters(
-                positioned_block, stroke_cutters, word_groups, glyph_groups
-            )
-        else:
-            cutter = line_content.cutter_diameter if line_content is not None else 0.0
-            halves = [(positioned_block, word_groups, glyph_groups, cutter)]
+        # The line's own (cutter, color) layer: the fallback for a line the
+        # per-stroke map does not vary (and the split's default for any
+        # stroke the array does not cover).
+        single_layer: Tuple[float, str] = (
+            (line_content.cutter_diameter, line_content.text_color)
+            if line_content is not None
+            else (0.0, "none")
+        )
 
-        for half_block, half_words, half_glyphs, half_cutter in halves:
+        stroke_layers = entry.stroke_layers
+        if stroke_layers and len(set(stroke_layers)) > 1:
+            halves = _split_block_by_layers(
+                positioned_block, stroke_layers, word_groups, glyph_groups, single_layer
+            )
+        elif stroke_layers:
+            # A uniform non-line layer (a <tc:color> span over the whole
+            # line): the map is only empty when the line is uniform on its
+            # OWN layer, so a single-element array routes the whole block.
+            halves = [(positioned_block, word_groups, glyph_groups, stroke_layers[0])]
+        else:
+            halves = [(positioned_block, word_groups, glyph_groups, single_layer)]
+
+        for half_block, half_words, half_glyphs, half_layer in halves:
             pen = LAYER_TEXT
             if pen_map is not None and line_content is not None:
-                pen = pen_map.get((half_cutter, line_content.text_color), LAYER_TEXT)
+                pen = pen_map.get(half_layer, LAYER_TEXT)
             pens.setdefault(pen, []).append(half_block)
 
             if half_words is not None:

@@ -1313,6 +1313,101 @@ cap band, not hang at its design height.
   (`tests/test_generation_report.py`), and the `v_center_chars` job-config key
   tests (`tests/test_job_config.py`).
 
+### Inline Text Color (`text_color`, `<tc:color>`)
+
+`<tc:color>...</tc>` is the thirteenth shipped markup tag: the **inline form of
+the `text_color` field**. It tags the wrapped segment with a stroke-color LAYER
+— the same values the field accepts (`TextColor` full names or 1-letter
+abbreviations, case-insensitive: `red` / `r`, `black` / `k`, …) — so
+otherwise-identical text splits into separate toolpaths (one HPGL `SP` layer and
+one per-cutter PLT file per distinct `(cutter, color)` pair) and the cutter depth
+can change between runs on 3-layer stock (the EngraveLab/Vision Pro workflow).
+It is a **pure layer tag**: no geometry, no cutter, and no `text_height` change
+— only the pen/file its strokes engrave on (the line-level `text_color`
+contract, applied per character). Works on **PLT and TTF** fonts.
+
+- **Precedence**: inside a span the tag **wins** over the line's cascaded
+  `text_color` field (the `<c:D>`-over-the-line precedent); the field stays the
+  fallback for every unmarked character. A span naming the line's OWN color is
+  the identity (no new layer, bit-identical output — the fast path).
+- **The resolver contract** (the `<f:...>` font-resolver precedent):
+  `parse_markup(..., color_resolver=...)` canonicalizes every `<tc:...>`
+  argument at open time, so markup.py imports no pipeline module (the Win7 /
+  Py3.8 guarantee). `resolution._canonical_text_color` is
+  `TextColor(name).value` — full name / abbreviation, case-insensitive,
+  identity on canonical names (the reflow round-trip re-resolves to identity).
+  The implicit `none` / `n` is REJECTED (the field validator's contract:
+  `none` is the default, never a request), and an unknown color is rejected —
+  both raise `MarkupError` with the tag position → CLI non-zero (fail-loud).
+- **The tag is a value tag with a MANDATORY argument** (the `<scale:N>`/`<c:D>`
+  rule): `Style.text_color: Optional[str] = None`, set-to-value (idempotent),
+  registered **LAST** in `TAG_REGISTRY` so every earlier tag's emitted markup
+  stays byte-identical. A bare `<tc>` is **literal text**, `<tc:>` (empty) is a
+  `MarkupError`, and an unclosed `<tc>` is a `MarkupError`. A nested
+  `<tc:blue>` inside `<tc:red>` restores red for the trailing text (the close
+  pops the pre-open `Style`); crossing spans intersect per character like
+  every tag.
+- **Canonical serialization**: `serialize_runs` re-emits the canonical FULL
+  name (`<tc:r>` → `<tc:red>`), so the line-content reflow round-trip
+  (serialize → raw text → re-parse) is exact and idempotent.
+- **Per-character derivation** (the `<scale:N>` staleness rule):
+  `ResolvedTextLine.color_runs` (the raw per-character tag values, `None`
+  outside a span), `per_char_colors` (the RESOLVED layer per character — the
+  tag's color inside a span, the line's `text_color` outside; `()` on a
+  single-color line, the fast path), `has_color_runs` (the gate), and
+  `used_layers` (the distinct `(cutter, color)` pairs the line engraves —
+  `build_cutter_pen_map` keys this, so a colored run's strokes land on their
+  own color's pen and per-color PLT file exactly like the `<b>` bold rung and
+  the `<scale:N>` ladder cutters do). All DERIVED from `styled_runs` (never a
+  stored positional array), so the reflow's `with_markup` text swap keeps
+  every run on its own layer.
+- **The pen split is per-stroke LAYER** (`label_renderer._stroke_layer_map`,
+  the generalized `_stroke_cutter_map`): glyph strokes take
+  `(per_char_cutters[i], per_char_colors[i])` over the exact glyph partition;
+  the empty-array fast path is "no COLOR variation and at most one tool"
+  (bit-identical for every pre-feature job). `_split_block_by_layers`
+  partitions the positioned block by `(cutter, color)` and
+  `_render_text_lines_by_pen` looks the layer up in the pen map directly. A
+  line uniformly wrapped in a FOREIGN color returns a uniform non-empty array
+  (the whole block routes to that layer); a line uniform on its OWN layer
+  returns `()` (the historical single-pen path).
+- **Decorations split at color boundaries** (one stroke cannot ride two
+  layers' pens): `_decoration_runs` splits `<u>`/`<s>` runs wherever the
+  resolved color changes (the existing cutter-boundary split generalized to
+  layers). The underline's Y recovers its cutter but encodes no color, and
+  the strikethrough's Y encodes neither, so both decorations' strokes are
+  span-matched to their run's `(cutter, color)`
+  (`_underline_run_layers` / `_strikethrough_run_layers`, recomputed from the
+  same glyph partition of the same block — bit-for-bit spans).
+- **List markers**: a composed marker line's strokes ride the marker clone's
+  own `(cutter, text_color)` (`_composed_stroke_layers`); the marker text
+  carries no markup, so no `<tc>` span reaches it.
+- **Export names**: identical to the field-level split — the colorless layer
+  keeps `<cutter>_txt_<job>.plt`, colored layers gain the 1-letter suffix
+  (`<cutter>_r_txt_<job>.plt`) inside the existing 39-char filename cap
+  (`vectorize._format_text_layer`).
+- **Reporting**: `layout_report.py` prints a per-line finding
+  `Line N: '<text>' color red, blue (4 chars)` (the colored character count +
+  the distinct canonical colors, ascending — invisible in the YAML for the
+  tagged characters, so the finding is the only place it shows; the 15th slot
+  of the findings tuple; reads `plain_text`, compact-mode finding).
+  `generation_report.py` emits the typed
+  `{"type": "text_color_markup", "char_count", "colors"}` entry.
+- Fixture: `tests_deps/text_color_markup_job.yaml` pinned by
+  `TestTextColorMarkupDemoExample` — the two-color line + untagged tail, the
+  abbreviation/full-name pair sharing one canonical layer, the field-color
+  line the tag overrides per segment, the markup-free line, and the
+  five-file export name set; `TestExportTextColorMarkupSplit`
+  (`tests/test_phase3_export.py`) pins the unit-scale two-file split and the
+  markup-free untagged name. Unit tests: `TestTextColorRegistry` /
+  `TestTextColorParse` / `TestTextColorSerialize` / `TestTextColorWords`
+  (`tests/test_markup.py`), `TestTextColorMarkupResolution`
+  (`tests/test_resolution.py`), `TestTextColorLayerRouting`
+  (`tests/test_label_renderer_gaps.py`), the `<tc:>` reflow round-trips
+  (`tests/test_line_content.py`), `TestTextColorMarkupFindings`
+  (`tests/test_layout_report.py`) and the `text_color_markup` JSON entry
+  (`tests/test_generation_report.py`).
+
 ### Manual Kerning (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
 
 Manual kerning is the framework's one **non-tag** markup feature: the

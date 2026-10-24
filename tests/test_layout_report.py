@@ -976,3 +976,34 @@ class TestListMarkerFindings:
 
         assert format_layout_report([resolved], {"l1": rendered}) == []
         assert has_layout_findings([resolved], {"l1": rendered}) is False
+
+
+class TestTextColorMarkupFindings:
+    """A line carrying an inline ``<tc:color>`` run is a finding."""
+
+    def test_the_tag_is_a_compact_finding(self) -> None:
+        """A <tc> run prints the colored character count and the colors."""
+        line = _line("ABC").with_markup("A<tc:red>B</tc><tc:b>C</tc>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'ABC' color blue, red (2 chars)" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_the_finding_strips_markup(self) -> None:
+        """The finding reports the plain text, never the tags."""
+        line = _line("AB").with_markup("A<tc:red>B</tc>")
+        resolved, rendered = _label("l1", [line])
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "<tc" not in text
+
+    def test_a_line_without_the_tag_is_not_a_finding(self) -> None:
+        """A plain line (or a field color) produces no color finding."""
+        line = _line("ABC")
+        resolved, rendered = _label("l1", [line])
+
+        assert format_layout_report([resolved], {"l1": rendered}, full=False) == []
+        assert has_layout_findings([resolved], {"l1": rendered}) is False

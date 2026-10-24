@@ -52,6 +52,7 @@ from plt_optimizer.generate.schema import (
     LabelSpec,
     ListAttributes,
     TextAttributes,
+    TextColor,
     TextLine,
 )
 
@@ -131,6 +132,35 @@ def _canonical_font_name(name: str) -> str:
         The canonical font name.
     """
     return resolve_font(name).name
+
+
+def _canonical_text_color(name: str) -> str:
+    """Resolve a ``<tc:...>`` tag argument to its canonical color name.
+
+    The :func:`plt_optimizer.generate.markup.parse_markup` color resolver:
+    case-insensitive full name or 1-letter abbreviation (exactly the input
+    the ``text_color`` field accepts, via :meth:`TextColor._missing_`),
+    identity on canonical names -- so the line-content reflow round-trip
+    (serialize -> raw text -> re-parse) is exact. The implicit ``none`` /
+    ``n`` color is rejected (the field validator's contract: it is the
+    default, never a request, and specifying it explicitly is always a user
+    mistake). An unknown or ``none`` value raises :class:`ValueError`, which
+    ``parse_markup`` wraps into ``MarkupError`` with the tag position --
+    fail-loud like an unclosed tag (CLI non-zero).
+
+    Args:
+        name: The raw tag argument (stripped).
+
+    Returns:
+        The canonical color value (the full lowercase name).
+    """
+    color = TextColor(name)
+    if color is TextColor.NONE:
+        raise ValueError(
+            "text color 'none' is the implicit default and cannot be "
+            "specified in <tc:...>; close the tag before the segment"
+        )
+    return str(color.value)
 
 
 class LineContentConfigError(ValueError):
@@ -1007,7 +1037,10 @@ class ResolvedTextLine:
             line -> label -> default (deliberately NOT cascaded from the
             job; see :class:`~plt_optimizer.generate.schema.TextColor`).
             Consumed by the pen map so each ``(cutter, color)`` pair gets
-            its own HPGL ``SP`` layer and PLT file.
+            its own HPGL ``SP`` layer and PLT file. The inline
+            ``<tc:color>`` markup overrides it per character (see
+            :attr:`color_runs` / :attr:`per_char_colors`); the pen map keys
+            on :attr:`used_layers`.
         font: Canonical font name selecting the glyph outlines (cascaded
             line -> label -> job, default ``DEFAULT_FONT``). Either a
             PLT-extracted catalog ``font_name`` key (rendered arc-native) or a
@@ -1453,6 +1486,7 @@ class ResolvedTextLine:
             font_resolver=_canonical_font_name,
             kern_pos=self.kern_pos_string,
             kern_neg=self.kern_neg_string,
+            color_resolver=_canonical_text_color,
         )
         return replace(self, text=text, plain_text=styled.plain_text, styled_runs=styled.runs)
 
@@ -1564,6 +1598,43 @@ class ResolvedTextLine:
     def has_font_runs(self) -> bool:
         """True when any markup run of this line carries a ``<f:...>`` font tag."""
         return any(run.style.font is not None for run in self.styled_runs)
+
+    @property
+    def color_runs(self) -> Tuple[Optional[str], ...]:
+        """Per-character ``<tc:...>`` stroke-color names aligned with :attr:`plain_text`.
+
+        ``None`` marks a character the line's own :attr:`text_color` engraves;
+        the canonical color name inside a ``<tc:...>`` span (the resolver
+        stores full names). Mirrors :attr:`font_runs`: ``()`` with no markup,
+        DERIVED from :attr:`styled_runs` (never a stored positional array), so
+        a pre-pass that rewrites the line's text (:meth:`with_markup`, the
+        line-content reflow) keeps every run on its own layer.
+        """
+        return tuple(
+            style.text_color for run in self.styled_runs for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_color_runs(self) -> bool:
+        """True when any markup run of this line carries a ``<tc:...>`` color tag."""
+        return any(run.style.text_color is not None for run in self.styled_runs)
+
+    @property
+    def per_char_colors(self) -> Tuple[str, ...]:
+        """Per-character resolved stroke-color layers aligned with :attr:`plain_text`.
+
+        Each character's toolpath layer color: the canonical ``<tc:...>`` name
+        inside a color span (the tag WINS over the line's own
+        :attr:`text_color`, the ``<c:D>``-over-the-line precedent), the
+        line's :attr:`text_color` outside one. ``()`` when the line carries no
+        ``<tc:...>`` run -- the renderers' and pen map's fast path (a
+        uniform-color line keeps the historical single-color routing,
+        bit-identical). DERIVED from the runs (never a stored positional
+        array), so the line-content reflow keeps every run on its own layer.
+        """
+        if not self.has_color_runs:
+            return ()
+        return tuple(color if color is not None else self.text_color for color in self.color_runs)
 
     @property
     def cutter_overrides(self) -> Tuple[Optional[float], ...]:
@@ -1838,6 +1909,33 @@ class ResolvedTextLine:
             # No character engraves with the bold rung: it is not a layer.
             cutters.discard(self.bold_cutter_diameter)
         return tuple(sorted(cutters))
+
+    @property
+    def used_layers(self) -> Tuple[Tuple[float, str], ...]:
+        """Every distinct ``(cutter, color)`` layer this line engraves, ascending.
+
+        The layer set :func:`build_cutter_pen_map` keys. Without ``<tc:...>``
+        markup this is exactly ``{(cutter, text_color) for cutter in
+        used_cutters}`` -- the historical (cutter-only, line-color) layers,
+        bit-identical. A ``<tc:...>`` run adds its own
+        ``(per-character cutter, run color)`` pairs, so a colored run's
+        strokes land on their own color's pen (and per-color PLT file)
+        exactly like the ``<b>`` bold rung and the ``<scale:N>`` ladder
+        cutters do; the line's own ``(cutter_diameter, text_color)`` layer
+        always stays (the fallback the renderer's stroke map uses for
+        decoration and list-marker strokes). Derived (like
+        :attr:`per_char_cutters` / :attr:`per_char_colors`), so the
+        line-content reflow keeps every run on its own layer.
+        """
+        colors = self.per_char_colors
+        if not colors:
+            return tuple(sorted((cutter, self.text_color) for cutter in self.used_cutters))
+        cutters = self.per_char_cutters
+        layers = {(self.cutter_diameter, self.text_color)}
+        for index, color in enumerate(colors):
+            cutter = cutters[index] if index < len(cutters) else self.cutter_diameter
+            layers.add((cutter, color))
+        return tuple(sorted(layers))
 
     @property
     def per_char_cutters(self) -> Tuple[float, ...]:
@@ -4738,6 +4836,7 @@ def _resolve_content(
             font_resolver=_canonical_font_name,
             kern_pos=line_kern_pos_string,
             kern_neg=line_kern_neg_string,
+            color_resolver=_canonical_text_color,
         )
 
         # Scale markup: a ``<scale:N>`` run engraves with the cutter that its
@@ -5339,7 +5438,11 @@ def build_cutter_pen_map(
     A line with ``<scale:N>`` runs contributes a layer per distinct
     effective-height cutter (see
     :attr:`ResolvedTextLine.used_cutters`), so each scaled run engraves with
-    its own tool.
+    its own tool. A line with inline ``<tc:color>`` runs contributes a layer
+    per distinct ``(cutter, color)`` pair (see
+    :attr:`ResolvedTextLine.used_layers`), so each colored run's strokes land
+    on their own color's pen (and per-color PLT file) exactly like the
+    line-level ``text_color`` split does.
 
     Args:
         resolved_labels: Fully resolved labels whose text lines carry
@@ -5355,12 +5458,7 @@ def build_cutter_pen_map(
         {(0.03, "none"): 1, (0.06, "none"): 4}
     """
     layers = sorted(
-        {
-            (cutter, line.text_color)
-            for label in resolved_labels
-            for line in label.content
-            for cutter in line.used_cutters
-        }
+        {layer for label in resolved_labels for line in label.content for layer in line.used_layers}
     )
     pen_map: dict[tuple[float, str], int] = {}
     for index, layer in enumerate(layers):

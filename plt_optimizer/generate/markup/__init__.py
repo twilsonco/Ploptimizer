@@ -59,9 +59,12 @@ one-line registry entry plus the render-side handling of the new
 The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``,
 ``<c:D>`` (the explicit cutter diameter in inches for the wrapped segment),
 ``<oc>`` (the original cutter: the wrapped segment keeps the line's own
-tool, immune to markup-induced cutter changes) and ``<vc>`` (vertical
+tool, immune to markup-induced cutter changes), ``<vc>`` (vertical
 centering: the wrapped segment's glyphs are raised or lowered so each glyph's
-ink is centred between the baseline and the capline).
+ink is centred between the baseline and the capline) and ``<tc:color>`` (the
+stroke-color layer of the wrapped segment -- the inline form of the
+``text_color`` field; the name is canonicalized by the ``color_resolver``
+injected into :func:`parse_markup`).
 
 Manual kerning
 --------------
@@ -265,6 +268,16 @@ class Style:
             the style (never a stored positional array), so a pre-pass that
             rewrites the line's text (``with_markup``, the line-content
             reflow) keeps every marker on its own character.
+        text_color: The ``<tc:color>`` stroke-color layer active on the run
+            (``None`` = the line's own cascaded ``text_color``). The run's
+            characters engrave on the named color's toolpath layer -- the
+            same names the ``text_color`` field accepts (full name or
+            1-letter abbreviation, case-insensitive, canonicalized to the
+            full name by the ``color_resolver`` injected into
+            :func:`parse_markup`) -- splitting otherwise-identical text into
+            a separate HPGL ``SP`` layer and per-cutter PLT file (the depth
+            changes between runs on 3-layer stock). A pure layer tag: no
+            geometry, cutter, or height change.
     """
 
     italic: bool = False
@@ -279,6 +292,7 @@ class Style:
     original_cutter: bool = False
     v_center: bool = False
     kern: int = 0
+    text_color: Optional[str] = None
 
 
 #: The style of unmarked text (every field at its default).
@@ -472,6 +486,42 @@ def _format_cutter_arg(cutter: Optional[float]) -> str:
     return "" if cutter is None else f"{cutter:g}"
 
 
+def _parse_text_color_arg(arg: str) -> str:
+    """Parse and validate a ``<tc:color>`` argument.
+
+    The argument is the stroke-color name -- the full name (``red``) or the
+    1-letter abbreviation (``r``) the ``text_color`` field accepts. The
+    name is NOT validated here -- markup.py imports no pipeline module --
+    the pipeline's ``color_resolver`` (a :func:`parse_markup` parameter)
+    canonicalizes and validates it, raising :class:`MarkupError` for an
+    unknown name or the implicit ``none`` (fail-loud, like an unclosed tag).
+
+    Args:
+        arg: The raw ``name:args`` argument text.
+
+    Returns:
+        The stripped color name, unvalidated.
+
+    Raises:
+        MarkupError: If the argument is empty (``<tc:>``).
+    """
+    name = arg.strip()
+    if not name:
+        raise MarkupError("text color tag argument is empty (expected e.g. <tc:red>).")
+    return name
+
+
+def _format_text_color_arg(color: Optional[str]) -> str:
+    """Format :attr:`Style.text_color` back into the canonical tag argument.
+
+    The resolver stores the canonical full name, so serialization never
+    re-abbreviates and the line-content reflow round-trip
+    (serialize -> raw text -> re-parse) is exact (canonical names resolve
+    to identity, the ``<f:...>`` precedent).
+    """
+    return "" if color is None else color
+
+
 @dataclass(frozen=True)
 class TagSpec:
     """A registered inline markup tag.
@@ -526,6 +576,10 @@ _CLOSE_RE: Pattern[str] = re.compile(r"/([A-Za-z]+)")
 #: The font-selection tag name (``<f:font name>``); :func:`parse_markup`
 #: canonicalizes its argument through the injected ``font_resolver``.
 _FONT_TAG = "f"
+
+#: The stroke-color-selection tag name (``<tc:color>``); :func:`parse_markup`
+#: canonicalizes its argument through the injected ``color_resolver``.
+_TEXT_COLOR_TAG = "tc"
 
 
 def register_tag(
@@ -677,6 +731,27 @@ register_tag("oc", lambda style, arg: replace(style, original_cutter=True))
 # existing baseline_shifts array with the raise/lower that centres it
 # between the baseline and the capline.
 register_tag("vc", lambda style, arg: replace(style, v_center=True))
+# Registered LAST so every existing serialization order stays bit-identical.
+# The stroke-color-selection tag: a value tag (like <f:...>) whose argument
+# names the run's text_color layer (full name or 1-letter abbreviation,
+# case-insensitive). A bare <tc> is literal text (the color is mandatory,
+# the <scale>/<c:> rule). apply is set-to-value (idempotent), so a nested
+# <tc:b> inside <tc:r> restores red for the trailing text for free (the
+# close pops the pre-open Style), and serialize_runs re-emits name:arg via
+# _format_text_color_arg (the reflow round-trip depends on it). The
+# argument is decoded here; canonicalization/validation runs through the
+# color_resolver injected into parse_markup -- markup.py imports no pipeline
+# module, so an unknown color (or the implicit "none") raises MarkupError at
+# resolution time (CLI non-zero). The tag is a PURE LAYER tag: it changes no
+# geometry, cutter, or height, only the (cutter, color) toolpath layer its
+# strokes engrave on (the line-level text_color contract, per character).
+register_tag(
+    "tc",
+    lambda style, arg: replace(style, text_color=_parse_text_color_arg(arg)),
+    accepts_args=True,
+    arg=lambda style: _format_text_color_arg(style.text_color),
+    is_active=lambda style: style.text_color is not None,
+)
 
 
 @dataclass(frozen=True)
@@ -810,6 +885,20 @@ class StyledText:
         the line-content reflow) keeps every run centred.
         """
         return tuple(style.v_center for style in _per_char_styles(self))
+
+    @property
+    def text_color_values(self) -> Tuple[Optional[str], ...]:
+        """Per-character ``<tc:...>`` stroke-color names, aligned with
+        :attr:`plain_text`.
+
+        ``None`` at every position the line's own cascaded ``text_color``
+        engraves (every character outside a ``<tc:...>`` span); the canonical
+        color name inside one. The per-character sibling of
+        :attr:`font_values`, derived from the runs like every other flag
+        array, so a pre-pass that rewrites the line's text (``with_markup``,
+        the line-content reflow) keeps every run on its own layer.
+        """
+        return tuple(style.text_color for style in _per_char_styles(self))
 
     @property
     def kern_values(self) -> Tuple[int, ...]:
@@ -990,6 +1079,7 @@ def parse_markup(
     font_resolver: Optional[Callable[[str], str]] = None,
     kern_pos: Optional[str] = None,
     kern_neg: Optional[str] = None,
+    color_resolver: Optional[Callable[[str], str]] = None,
 ) -> StyledText:
     """Parse one text line's raw text into styled runs.
 
@@ -1026,6 +1116,16 @@ def parse_markup(
             (``kern_pos_string``), or ``None`` (disabled).
         kern_neg: The negative manual-kern marker string
             (``kern_neg_string``), or ``None`` (disabled).
+        color_resolver: Optional ``(raw color name -> canonical color name)``
+            mapping applied to every ``<tc:...>`` argument at open time (the
+            stack stores the canonical name, so the crossing-close replay
+            reuses it for free). The pipeline injects the ``TextColor``
+            lookup (full name or 1-letter abbreviation, case-insensitive);
+            markup.py imports no pipeline module, so an unknown color -- or
+            the implicit ``none`` -- raises :class:`MarkupError` here
+            (fail-loud, like an unclosed tag). A resolver's own
+            :class:`ValueError` is wrapped. ``None`` (direct API / test
+            callers) keeps the raw argument verbatim.
 
     Returns:
         The parsed :class:`StyledText`. A text with no parsed tag returns a
@@ -1152,6 +1252,19 @@ def parse_markup(
                 # canonical name is the identity (idempotency preserved).
                 try:
                     open_arg = font_resolver(_parse_font_arg(open_arg))
+                except (MarkupError, ValueError) as exc:
+                    raise MarkupError(
+                        f"Invalid tag {left}{body}{right} at position "
+                        f"{open_at} in text {text!r}: {exc}"
+                    ) from None
+            if spec.name == _TEXT_COLOR_TAG and color_resolver is not None:
+                # The <tc:color> mirror of the font resolver: canonicalize
+                # (and validate) at open time so the stack carries the
+                # canonical full name, every replay reuses it, and
+                # serialize_runs re-emits the canonical form (the reflow
+                # round-trip resolves a canonical name to identity).
+                try:
+                    open_arg = color_resolver(_parse_text_color_arg(open_arg))
                 except (MarkupError, ValueError) as exc:
                     raise MarkupError(
                         f"Invalid tag {left}{body}{right} at position "

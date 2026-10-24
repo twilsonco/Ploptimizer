@@ -9,7 +9,7 @@ old root AGENTS.md section 6.
 Sub-contracts in this directory tree - read them when touching those modules:
 
 - [`markup/AGENTS.md`](markup/AGENTS.md) - the inline markup framework + all 11
-  tags (`<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:> <c:> <oc> <vc>`). Sections in this
+  tags (`<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:> <c:> <oc> <vc> <tc:>`). Sections in this
   file that reference an "Inline ..." contract point there.
 - [`collision/AGENTS.md`](collision/AGENTS.md) - text-hole collision avoidance +
   cutter-compensated drill holes.
@@ -1100,7 +1100,7 @@ renderer can derive its own floor).
   never substituted), and `placeholder: true` is rejected on a list item.
 - **Reporting**: `generation_report.py` writes `marker_text`, `indent_left`
   and `align_group_id` per line, and `layout_report.py` adds a per-line
-  finding `Line N: '<text>' list marker '-' (text column 0.178in)` (the 15th
+  finding `Line N: '<text>' list marker '-' (text column 0.178in)` (the 16th
   slot of the findings tuple; a continuation line with no marker reports
   nothing extra).
 - Example fixture: `tests_deps/list_job.yaml` (pinned by
@@ -1886,6 +1886,15 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   green/g, blue/b, violet/v, orange/o, pink/p, teal/t, none/n.
 - `none` is the implicit default of every line that omits the field and is
   rejected when specified explicitly (field validator on `TextAttributes`).
+- The inline `<tc:color>...</tc>` markup applies the same split **per
+  character** (the `<f:>` resolver precedent, canonicalized at parse time;
+  `<tc:none>` and unknown colors are a `MarkupError`). Inside its span the tag
+  wins over the field; the field is the fallback for unmarked characters. The
+  pen map keys on the line's derived `used_layers` (the distinct
+  `(cutter, color)` pairs), so a colored run's strokes -- and each
+  `<u>`/`<s>` decoration stroke, whose runs split at color boundaries --
+  land on their own color's pen and per-color PLT file. See
+  [`markup/AGENTS.md`](markup/AGENTS.md) "Inline Text Color".
 - `build_cutter_pen_map` keys on `(cutter_diameter, text_color)` sorted by
   that tuple: smallest layer keeps SP1, rest SP4+ (SP2/SP3 reserved). Jobs
   without colors produce the historical cutter-only assignment bit-identically.

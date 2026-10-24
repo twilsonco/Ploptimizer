@@ -1493,3 +1493,38 @@ class TestListItemGrowth:
         # even though its text is over-wide -- only list items grow on width.
         label = _label("m", _line("AAAAA BBBBB CCCCC DDDDD EEEEE FFFFF", max_lines=None))
         assert _reflow_label(label, _char_probe()) is None
+
+
+def test_text_color_tag_survives_the_reflow() -> None:
+    """A ``<tc:color>`` word keeps its layer when it moves between lines.
+
+    The reflow round-trips words through ``serialize_word`` into raw text and
+    re-parses; the value tag must re-parse to the same canonical color
+    (the resolver stores full names, so the round-trip is idempotent).
+    """
+    label = _label(
+        "m",
+        _line("<tc:red>AAAA</tc> BB"),
+        _line("CC"),
+    )
+    result = _reflow_label(label, _plain_probe())
+    assert result is not None
+    first, second = result.content
+    # The colored token is the widest word, so it stays alone on line 1 and
+    # the plain 'BB' moves down beside 'CC' (the balanced fill).
+    assert first.text == "<tc:red>AAAA</tc>"
+    assert first.color_runs == ("red",) * 4
+    assert second.text == "BB CC"
+    assert second.has_color_runs is False
+
+
+def test_text_color_canonicalizes_on_reparse() -> None:
+    """The line's ``with_markup`` re-parse resolves the color canonically.
+
+    The reflow's token parse has no resolver (keeps the raw argument); the
+    line's own ``with_markup`` re-parse runs the resolver, so an
+    abbreviation survives as the canonical full name.
+    """
+    line = _line("A<tc:red>B</tc>")
+    moved = line.with_markup("A<tc:red>C</tc>")
+    assert moved.color_runs == (None, "red")

@@ -4533,7 +4533,7 @@ class TestStrikethroughDemoExample:
         """
         from plt_optimizer.generate.label_renderer import (
             _strikethrough_render_gate,
-            _stroke_cutter_map,
+            _stroke_layer_map,
         )
 
         result = self._export(tmp_path)
@@ -4546,9 +4546,9 @@ class TestStrikethroughDemoExample:
             assert len(runs) == 2, label_id
             assert len(self._strike_spans(label)) == 2, label_id
             block, _words, glyphs = self._line_render(label)
-            cutters = _stroke_cutter_map(line, block, glyphs)
-            assert cutters, label_id
-            strike_cutters = cutters[len(cutters) - 2 :]
+            layers = _stroke_layer_map(line, block, glyphs)
+            assert layers, label_id
+            strike_cutters = [cutter for cutter, _color in layers[len(layers) - 2 :]]
             # The plain word's stroke rides the line's tool, the second word's
             # rides its own (bold rung / effective-height) tool.
             assert strike_cutters[0] == pytest.approx(line.cutter_diameter)
@@ -6712,3 +6712,222 @@ class TestListDemoExample:
         content = marked.source_label.content
         assert content[1].plain_text == "AAA"
         assert marked.x_max > marked.x_min
+
+
+def _tc_markup_label() -> ResolvedLabel:
+    """A label whose ONE line carries two inline colors on one cutter.
+
+    The per-character <tc:...> split must behave exactly like the line-level
+    text_color split (the fixture's contract, at unit scale).
+    """
+    from plt_optimizer.generate.markup import parse_markup
+    from plt_optimizer.generate.resolution import _canonical_text_color
+
+    text = "<tc:k>LAYER ONE</tc> <tc:m>LAYER TWO</tc>"
+    styled = parse_markup(text, "<", ">", color_resolver=_canonical_text_color)
+    return ResolvedLabel(
+        id="tclabel",
+        count=1,
+        width=3.0,
+        height=1.5,
+        margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
+        content=[
+            ResolvedTextLine(
+                text=text,
+                nominal_text_height=0.5,
+                toolpath_text_height=0.47,
+                cutter_diameter=0.06,
+                character_spacing=0.0,
+                line_spacing=0.0,
+                plain_text=styled.plain_text,
+                styled_runs=styled.runs,
+            )
+        ],
+    )
+
+
+class TestExportTextColorMarkupSplit:
+    """Inline <tc:color> splits one cutter's text into separate per-color files."""
+
+    def test_one_line_two_markup_colors_split_into_two_files(self, tmp_path: Path) -> None:
+        """Two inline colors on one line produce two suffixed text PLTs."""
+        result = export_per_cutter_plts(
+            [_tc_markup_label()],
+            output_dir=tmp_path,
+            job_id="tcm",
+            optimize=False,
+            plots=False,
+        )
+        text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
+        # (cutter, color) sort order: black -> pen 1, magenta -> pen 4.
+        assert text_names == ["60_k_txt_tcm.plt", "60_m_txt_tcm.plt"]
+        contents = {
+            name: (tmp_path / "plt" / name).read_text(encoding="utf-8") for name in text_names
+        }
+        points = {name: _cutting_points(content) for name, content in contents.items()}
+        (k_points, m_points) = (points[name] for name in sorted(points))
+        assert k_points and m_points
+        assert k_points.isdisjoint(m_points)
+
+    def test_markup_free_line_is_bit_identical(self, tmp_path: Path) -> None:
+        """A line with no <tc> markup keeps the historical untagged name."""
+        from plt_optimizer.generate.markup import parse_markup
+
+        text = "PLAIN TEXT"
+        styled = parse_markup(text, "<", ">")
+        label = ResolvedLabel(
+            id="plain",
+            count=1,
+            width=3.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            content=[
+                ResolvedTextLine(
+                    text=text,
+                    nominal_text_height=0.5,
+                    toolpath_text_height=0.47,
+                    cutter_diameter=0.06,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                    plain_text=styled.plain_text,
+                    styled_runs=styled.runs,
+                )
+            ],
+        )
+        result = export_per_cutter_plts(
+            [label], output_dir=tmp_path, job_id="pl", optimize=False, plots=False
+        )
+        assert [p.name for p in result.plt_paths if "_txt_" in p.name] == ["60_txt_pl.plt"]
+
+
+class TestTextColorMarkupDemoExample:
+    """Regression tests for tests_deps/text_color_markup_job.yaml.
+
+    The fixture is the hand-crafted inline stroke-color demo: one line with
+    two tagged segments + an untagged tail, an abbreviation/full-name pair on
+    the SAME layer, a line whose field color the tag overrides per segment,
+    and a markup-free line. All lines share one cutter (0.045), so the export
+    splits by color alone -- the exact file-name set the field-level demo
+    produces.
+    """
+
+    def _resolve(self) -> list:
+        """Parse and resolve the inline stroke-color demo job."""
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/text_color_markup_job.yaml"))
+        return resolve_job_spec(job)
+
+    def test_fixture_resolves_markup_colors(self) -> None:
+        """Tags canonicalize, the field stays the fallback, markup wins inside."""
+        labels = self._resolve()
+        assert len(labels) == 1
+        lines = labels[0].content
+        assert lines[0].color_runs == (
+            "black",
+            "black",
+            "black",
+            None,
+            "magenta",
+            "magenta",
+            "magenta",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        # Abbreviation <tc:r> and full name <tc:red> share the canonical layer.
+        assert set(lines[1].per_char_colors) == {"red", "none"}
+        # The field (k) is the fallback; the tag (y) wins inside its span.
+        assert lines[2].text_color == "black"
+        assert set(lines[2].per_char_colors) == {"black", "yellow"}
+        # A markup-free line has no per-character array (the fast path).
+        assert lines[3].per_char_colors == ()
+
+    def test_fixture_exports_one_file_per_markup_color(self, tmp_path: Path) -> None:
+        """The demo exports five suffixed text files plus the bh file."""
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/text_color_markup_job.yaml"))
+        labels = resolve_job_spec(job)
+        result = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="demo",
+            optimize=False,
+            plots=False,
+        )
+        text_names = sorted(p.name for p in result.plt_paths if "_txt_" in p.name)
+        # Single 0.375in text height -> one cutter (0.045) split by color.
+        # One material-less plate -> no plate/material prefix.
+        assert text_names == [
+            "45_k_txt_demo.plt",
+            "45_m_txt_demo.plt",
+            "45_r_txt_demo.plt",
+            "45_txt_demo.plt",
+            "45_y_txt_demo.plt",
+        ]
+        assert [p.name for p in result.plt_paths if "_bh_" in p.name] == ["15_bh_demo.plt"]
+
+    def test_unknown_markup_color_aborts(self) -> None:
+        """<tc:x> is not a TextColor value, so the job aborts (fail-loud)."""
+        from plt_optimizer.generate.markup import MarkupError
+        from plt_optimizer.generate.schema import JobSpec, LabelSpec, TextLine
+
+        spec = JobSpec(
+            job_name="J",
+            labels=[
+                LabelSpec(
+                    id="l",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="<tc:x>A</tc>")],
+                )
+            ],
+        )
+        with pytest.raises(MarkupError, match="Invalid tag"):
+            resolve_job_spec(spec)
+
+
+class TestExportTextColorMarkupUniformLine:
+    """A line UNIFORMLY wrapped in a foreign <tc> color routes to that layer."""
+
+    def test_fully_colored_line_gains_the_color_suffix(self, tmp_path: Path) -> None:
+        """The whole-line tag lands the block on the color's pen and file."""
+        from plt_optimizer.generate.markup import parse_markup
+        from plt_optimizer.generate.resolution import _canonical_text_color
+
+        text = "<tc:red>ALL RED</tc>"
+        styled = parse_markup(text, "<", ">", color_resolver=_canonical_text_color)
+        label = ResolvedLabel(
+            id="allred",
+            count=1,
+            width=3.0,
+            height=1.5,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            content=[
+                ResolvedTextLine(
+                    text=text,
+                    nominal_text_height=0.5,
+                    toolpath_text_height=0.47,
+                    cutter_diameter=0.06,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                    plain_text=styled.plain_text,
+                    styled_runs=styled.runs,
+                )
+            ],
+        )
+        result = export_per_cutter_plts(
+            [label], output_dir=tmp_path, job_id="ar", optimize=False, plots=False
+        )
+        # The line's own "none" layer owns no strokes: only the red file.
+        assert [p.name for p in result.plt_paths if "_txt_" in p.name] == ["60_r_txt_ar.plt"]
