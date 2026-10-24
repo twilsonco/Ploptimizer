@@ -5,6 +5,9 @@ job specifications used by the generate pipeline. It handles:
 - Parsing YAML files into typed Python objects
 - Top-down inheritance via two-tier mixins (TextAttributes, LabelAttributes)
 - Root-level single-label jobs (no explicit `labels` list required)
+- Strict schema adherence: every model forbids unknown fields
+  (``extra="forbid"``), so a misspelled key fails loudly at parse time
+  with its exact path (e.g. ``labels.0.content.0.tex_height``)
 
 Example:
     >>> job = parse_yaml("tests_deps/sample_spec.yaml")
@@ -19,7 +22,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from plt_optimizer.generate.font_registry import (
     DEFAULT_FONT_NAME,
@@ -100,6 +103,11 @@ class HoleSpec(BaseModel):
         diameter: The diameter of the hole in inches. Defaults to
             :data:`DEFAULT_HOLE_DIAMETER` (0.125"); must be positive.
     """
+
+    # Unknown keys are typos: every spec model forbids them so a misspelled
+    # field fails loudly at parse time. Inherited by every model below
+    # (TextAttributes, PlateSpec re-declare it as their own roots).
+    model_config = ConfigDict(extra="forbid")
 
     location: HoleLocation = Field(
         description=(
@@ -807,6 +815,10 @@ class TextAttributes(BaseModel):
             character, overriding this field inside its span (see
             ``generate/markup/AGENTS.md`` "Inline Text Color").
     """
+
+    # Root of the cascading text/label/job tier: unknown keys on any tier
+    # (and every subclass below) are typos, so forbid them.
+    model_config = ConfigDict(extra="forbid")
 
     text_height: Optional[float] = Field(
         default=None,
@@ -2612,6 +2624,9 @@ class PlateSpec(BaseModel):
             to ``";"``. Requires ``replacement_text_file``.
     """
 
+    # Root of the plate tier: unknown plate keys are typos, so forbid them.
+    model_config = ConfigDict(extra="forbid")
+
     id: str = Field(description="Unique identifier for this plate specification.")
     width: float = Field(ge=0.0, description="Usable plate width in inches (must be >= 0).")
     height: float = Field(ge=0.0, description="Usable plate height in inches (must be >= 0).")
@@ -3830,7 +3845,8 @@ def parse_yaml(
 
     Raises:
         FileNotFoundError: If the specified file does not exist.
-        ValueError: If the YAML content is invalid or fails validation, or
+        ValueError: If the YAML content is invalid or fails validation
+            (including unknown keys, which every model forbids), or
             if a required field is missing from both the job config and
             the spec (``JobConfigError``, a ``ValueError`` subclass).
         yaml.YAMLError: For malformed YAML syntax.

@@ -687,10 +687,10 @@ class TestPlateSpaceExport:
             "    - id: l1\n"
             "      count: 3\n"
             "      width: 3.0\n"
-            "      height: 1.5\n"
+            "      height: 2.0\n"
             "      margin: 0.1\n"
-            "      # Holes hug the edges so the (now cap-height-accurate, thus\n"
-            "      # slightly taller) text block keeps clearance to them.\n"
+            "      # Holes hug the edges; the label is tall enough that the\n"
+            "      # per-line text heights (0.5 / 0.35) keep clearance to them.\n"
             "      hole_margin: 0.1\n"
             "      line_spacing: 0.1\n"
             "      holes:\n"
@@ -698,9 +698,9 @@ class TestPlateSpaceExport:
             "        - location: bottom-right\n"
             "      content:\n"
             "        - text: HELLO WORLD\n"
-            "          height: 0.5\n"
+            "          text_height: 0.5\n"
             "        - text: SECOND LINE HERE\n"
-            "          height: 0.35\n"
+            "          text_height: 0.35\n"
         )
         return spec_file
 

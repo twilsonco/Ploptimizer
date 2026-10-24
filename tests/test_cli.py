@@ -219,7 +219,7 @@ class TestGenerateSubcommand:
             "      height: 1.0\n"
             "      content:\n"
             "        - text: Hello\n"
-            "          height: 0.5\n"
+            "          text_height: 0.5\n"
         )
 
         out_dir = tmp_path / "out"
@@ -327,7 +327,7 @@ class TestCLIIntegration:
             "      height: 1.0\n"
             "      content:\n"
             "        - text: Hello\n"
-            "          height: 0.5\n"
+            "          text_height: 0.5\n"
         )
 
         class MockArgs:
@@ -374,7 +374,7 @@ class TestCLIIntegration:
             "      replacement_text_file: r.txt\n"
             "      content:\n"
             "        - text: PLACEHOLDER\n"
-            "          height: 0.5\n",
+            "          text_height: 0.5\n",
             encoding="utf-8",
         )
 
@@ -1019,7 +1019,7 @@ class TestGenerateRun:
             "      height: 1.0\n"
             "      content:\n"
             "        - text: Hello\n"
-            "          height: 0.5\n",
+            "          text_height: 0.5\n",
             encoding="utf-8",
         )
         return spec_file

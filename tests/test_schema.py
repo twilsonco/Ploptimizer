@@ -31,6 +31,7 @@ from plt_optimizer.generate.schema import (
     LabelShape,
     LabelSpec,
     LayoutMode,
+    ListAttributes,
     PlateSpec,
     TextAttributes,
     TextColor,
@@ -2496,8 +2497,18 @@ class TestNewLine:
         assert "new_line" not in JobSpec.model_fields
         assert "new_line" not in PlateSpec.model_fields
 
-    def test_unknown_key_is_ignored_at_the_label_level(self) -> None:
-        """A label-level ``new_line`` is not a known field (and is not honoured)."""
+    def test_unknown_key_is_rejected_at_the_label_level(self) -> None:
+        """A label-level ``new_line`` is not a known field, so it is rejected.
+
+        ``new_line`` is line-level only; declaring it on a label is a typo
+        and every model forbids unknown keys (``extra="forbid"``).
+        """
+        with pytest.raises(ValidationError, match="new_line"):
+            LabelSpec(
+                id="lbl",
+                content=[TextLine(text="X")],
+                new_line=True,  # type: ignore[call-arg]
+            )
         label = LabelSpec(id="lbl", content=[TextLine(text="X")])
         assert not hasattr(label, "new_line")
 
@@ -3379,3 +3390,126 @@ class TestLabelSpecListValidation:
         """The pre-existing placeholder rule is untouched."""
         with pytest.raises(ValidationError, match="placeholder"):
             LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X", placeholder=True)])
+
+
+class TestStrictUnknownFields:
+    """Every schema model forbids unknown fields (``extra="forbid"``).
+
+    A misspelled key anywhere in a job spec (or a field declared on the
+    wrong tier) must fail loudly at validation time with its exact path,
+    never be silently ignored: a field the user typed is a field the user
+    expects to engrave.
+    """
+
+    def test_every_model_forbids_extras(self) -> None:
+        """All 12 spec/config models report extra="forbid" (inheritance pinned)."""
+        from plt_optimizer.generate.job_config import JobDefaults
+
+        models = [
+            HoleSpec,
+            TextAttributes,
+            LabelAttributes,
+            TextLine,
+            ListAttributes,
+            ItemizeBlock,
+            EnumerateBlock,
+            ContentEntry,
+            LabelSpec,
+            PlateSpec,
+            JobSpec,
+            JobDefaults,
+        ]
+        for model in models:
+            assert model.model_config.get("extra") == "forbid", model.__name__
+
+    def test_job_level_unknown_key_rejected(self) -> None:
+        """A typo at the job layer fails with the offending key name."""
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            JobSpec(job_name="J", width=2.0, height=1.0, tex_height=0.5)  # type: ignore[call-arg]
+
+    def test_label_level_unknown_key_rejected(self) -> None:
+        """A typo on a label entry is rejected with its path."""
+        with pytest.raises(ValidationError, match="labels.0.maxh_compress"):
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                labels=[{"id": "l", "width": 2.0, "height": 1.0, "maxh_compress": 0.5}],
+            )
+
+    def test_content_line_unknown_key_rejected(self) -> None:
+        """``height`` is a label/job-tier field: on a content line it is a typo."""
+        with pytest.raises(ValidationError, match="content.0.height"):
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=[{"text": "X", "height": 0.5}],
+            )
+
+    def test_list_block_and_item_unknown_keys_rejected(self) -> None:
+        """Typos inside a list block and inside its items are both rejected."""
+        with pytest.raises(ValidationError, match="itemize.bulle"):
+            ContentEntry(itemize={"items": [{"text": "a"}], "bulle": "-"})
+        with pytest.raises(ValidationError, match="items.0.hight"):
+            ContentEntry(itemize={"items": [{"text": "a", "hight": 0.2}]})
+
+    def test_plate_unknown_key_rejected(self) -> None:
+        """A typo on a plate entry is rejected with its path."""
+        with pytest.raises(ValidationError, match="plates.0.widht"):
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                plates=[{"id": "p", "width": 24.0, "widht": 16.0}],
+            )
+
+    def test_hole_unknown_key_rejected(self) -> None:
+        """A typo inside a hole entry is rejected with its path."""
+        with pytest.raises(ValidationError, match="holes.0.locaton"):
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                holes=[{"locaton": "top-left"}],
+            )
+
+    def test_parse_yaml_reports_the_path(self, tmp_path: Path) -> None:
+        """parse_yaml surfaces the located extra_forbidden error to the user."""
+        spec = tmp_path / "typo.yaml"
+        spec.write_text(
+            "job:\n"
+            "  job_name: Typo Job\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  content:\n"
+            "    - text: Hello\n"
+            "      tex_height: 0.5\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValidationError, match="content.0.tex_height"):
+            parse_yaml(spec)
+
+    def test_tool_options_values_stay_free_form(self) -> None:
+        """``tool_options`` is a free-form dict field: arbitrary keys are data.
+
+        Forbidding extra *model fields* must not restrict the contents of the
+        ``tool_options`` mapping (engraver header metadata keyed by option
+        name), whose shape is defined by ``job-config.json``, not the schema.
+        """
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+            tool_options={"cutting_velocity": {"command": "FS", "type": "float"}},
+        )
+        assert job.tool_options is not None
+        assert job.tool_options["cutting_velocity"]["command"] == "FS"
+
+    def test_model_copy_updates_still_validate(self) -> None:
+        """Known-field updates through model_copy keep working (no friction)."""
+        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert label.model_copy(update={"count": 4}).count == 4
