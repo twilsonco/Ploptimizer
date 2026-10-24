@@ -1,5 +1,9 @@
+# Field tags for the replacement demo. Lines starting with "# " are
+# comments (the default replacement_text_file_comment_string marker);
+# blank lines are ignored too. Each data line below produces one label.
 PUMP P-101;FEED WATER;ONLINE
 PUMP P-102;RETURN WATER;ONLINE
 VALVE V-201;STEAM LINE;ISOLATE
+
 COMPRESSOR C-3;AIR HEADER;MAINTENANCE
 PUMP P-103;DRAIN;OFFLINE

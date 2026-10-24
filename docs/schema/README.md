@@ -94,7 +94,8 @@ job:
 
 Each line of the file produces one label copy (`badge_0000`, `badge_0001`,
 ...). `count` must not be set; `content` is an optional per-line attribute
-template (see "Replacement file semantics" below).
+template (see "Replacement file semantics" below). Blank lines and comment
+lines (default marker `"# "`) produce no copy.
 
 ```yaml
 job:
@@ -103,6 +104,7 @@ job:
     - id: badge
       replacement_text_file: data.txt      # relative to the YAML's directory
       replacement_text_delimiter: ";"      # optional, default ";"
+      replacement_text_file_comment_string: "# "  # optional, default "# "; "" disables
       content:
         - text: "PLACEHOLDER L1"           # declares line-1 attributes only
           text_height: 0.45
@@ -159,11 +161,23 @@ A minimal real-world example (job-level file, form 4):
 
 ## Replacement file semantics (forms 3–5)
 
-- File format is **pure data**: every line is one label copy; items within a
-  line split on `replacement_text_delimiter` (single special/whitespace char,
-  default `;`; must not appear in the data). CRLF/CR normalized; one trailing
+- File format is data **plus comments**: every data line is one label copy;
+  items within a line split on `replacement_text_delimiter` (single
+  special/whitespace char, default `;`; must not appear in the data). A line
+  whose whitespace-stripped text starts with
+  `replacement_text_file_comment_string` (default `"# "`, cascades job →
+  plate → label, `""` disables) is a comment and produces no copy;
+  whitespace-only lines are dropped too. Every dropped line (comment or
+  blank) is reported in **one WARNING per file** (line numbers + text). A
+  file left with no data lines raises. CRLF/CR normalized; one trailing
   newline does not create a phantom copy; UTF-8 BOM stripped; items used
-  verbatim (no whitespace stripping). Blank lines render blank (WARNING).
+  verbatim (no whitespace stripping).
+- **Delimiter/comment cascade:** `replacement_text_delimiter` and
+  `replacement_text_file_comment_string` may be declared at the job, plate,
+  or label level (label → plate → job → config → default `;` / `"# "`). A
+  job-level value needs a replacement file somewhere in the job (job, plate,
+  or label); a plate-level value needs a file on that plate or on a label
+  pinned to it; a label-level value needs the label's own file.
 - **Fewer items than template lines** → the copy renders only as many lines
   as items (block stays vertically centered). **More items** → extra lines
   inherit label-level attributes.
@@ -204,6 +218,8 @@ always wins at its level. Precedence per attribute:
 | `layout`, `allow_rotation`, `text_chunk_mode` | job → config | `columns` / `true` / `line` |
 | `layout` (per plate) | plate → job → config | — |
 | `material` | label → job; plate → job | `null` (unset) |
+| `replacement_text_delimiter` | label → plate (pinned) → job → config | `;` |
+| `replacement_text_file_comment_string` | label → plate (pinned) → job → config | `"# "` (`""` disables comments) |
 | `left_clearance`, `top_clearance` | plate → job → config | 0.0 |
 | plate `width`/`height` | plate → config (`plate_width`/`plate_height`) | 24×16 (unbounded auto-allocation only) |
 
@@ -212,7 +228,11 @@ are injected at the job layer before validation, so labels still override
 them. A spec-declared `margin` (job level, **or on any label**) suppresses
 the configured `h_margin`/`v_margin` injection: the cascade checks the
 axis-specific job-level keys *before* `margin`, so an injected axis value
-would silently outrank the spec's margin on that axis. See
+would silently outrank the spec's margin on that axis. Conversely, the
+configured `replacement_text_file_comment_string` is injected **only** when
+the spec declares a `replacement_text_file` at some tier (job, plate, or
+label) -- the schema rejects a job-level delimiter/comment marker in a job
+with no replacement file anywhere. See
 [`job_config.schema.json`](job_config.schema.json) for its
 contract (unknown keys fail loudly; `hole_diameter` fills `diameter` on hole
 entries that omit it).

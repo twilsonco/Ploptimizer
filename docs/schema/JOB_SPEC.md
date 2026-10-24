@@ -122,7 +122,8 @@ they are no longer auto-sized from rendered content.
 | `count` | int \| null | null (unset) | >=1 | Instance count for root-level single-label jobs; not allowed with replacement files. |
 | `content` | list[ContentEntry] \| null | null (unset) | — | Root-level content entries (single-label job) or the per-line attribute template when a replacement file is in play. |
 | `replacement_text_file` | str \| null | null (unset) | — | Job-level EngraveLab/Vision Pro-style replacement text file. Each line produces one label built from the job-level label attributes. Mutually exclusive with labels and count. |
-| `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). |
+| `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). Requires a replacement file at some tier (job, plate, or label); cascades job -> plate -> label. |
+| `replacement_text_file_comment_string` | str \| null | null (unset) | — | Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset falls back to '# ' (job-config.json supplies the shop default); an explicit '' disables comment handling. Requires a replacement file at some tier (job, plate, or label); cascades job -> plate -> label. |
 | `allow_rotation` | bool | `true` | — | Allow the bin packer to rotate labels 90 degrees (clockwise at assembly) for tighter layouts. Set false to keep every label horizontal. |
 | `text_chunk_mode` | `line` \| `word` | `"line"` | — | Plate-space text optimization granularity: 'line' routes each text line as one node (default); 'word' routes each whitespace-delimited word separately. |
 | `layout` | LayoutMode | `"columns"` | — | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. |
@@ -206,7 +207,8 @@ Specification for a plate (material sheet) to cut labels from.
 | `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). |
 | `material` | str \| null | null (unset) | — | Stock material this plate is cut from (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (null) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only. |
-| `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). |
+| `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). Requires a replacement file for this plate (its own, or a label-level file on a label pinned to it); cascades plate -> pinned label. |
+| `replacement_text_file_comment_string` | str \| null | null (unset) | — | Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset inherits the job cascade (fallback '# '; job-config.json supplies the shop default); an explicit '' disables comment handling. Same file requirement as replacement_text_delimiter; cascades plate -> pinned label. |
 
 ### `LabelSpec`
 
@@ -304,6 +306,7 @@ A label may be defined in one of two ways:
 | `content` | list[ContentEntry] \| null | null (unset) | — | Content entries to render: plain text lines and nested itemize/enumerate list blocks. Required unless replacement_text_file is provided. |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label instance. Mutually exclusive with count. |
 | `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). |
+| `replacement_text_file_comment_string` | str \| null | null (unset) | — | Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset inherits the plate/job cascade (fallback '# '; job-config.json supplies the shop default); an explicit '' disables comment handling. Requires replacement_text_file. |
 | `plate_id` | str \| null | null (unset) | — | Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion. |
 
 ### `ContentEntry`

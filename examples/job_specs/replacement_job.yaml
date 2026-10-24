@@ -7,10 +7,16 @@
 # Rules:
 #   - `replacement_text_file` is resolved relative to this YAML file
 #     (absolute paths also accepted).
-#   - The file's line count determines the label count; `count` must NOT
-#     be combined with `replacement_text_file`.
+#   - The file's data-line count determines the label count; `count` must
+#     NOT be combined with `replacement_text_file`.
 #   - `replacement_text_delimiter` is a single special/whitespace
 #     character (default ";").
+#   - Replacement data files may carry comments: a line whose
+#     whitespace-stripped text starts with
+#     `replacement_text_file_comment_string` (default "# ", cascades
+#     job -> plate -> label; "" disables) produces no copy, and blank
+#     lines are dropped too. Dropped lines are reported in one WARNING
+#     per file.
 #   - `content` is optional: when present, its `text` values are
 #     placeholders declaring per-line attributes; when omitted, every
 #     rendered line inherits the label-level attributes.

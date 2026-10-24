@@ -469,7 +469,7 @@ JobSpec (job-level defaults)
 | Class | Purpose | Validation Rules |
 |-------|---------|------------------|
 | `JobSpec` | Root job container | Requires exactly one label source: `labels` list, root-level `content`, a job-level `replacement_text_file`, or plate-level replacement files (mutually exclusive); `width`/`height` must be defined at job or label level (no longer auto-sized); a `round` label needs only ONE dimension (the other fills to a circle) |
-| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); `width`/`height` must be defined at label or job level (a `round` label needs only one); optional `plate_id` pins the label to a declared plate |
+| `LabelSpec` | Individual label definition | `count >= 1`; requires `content` (min 1 TextLine) OR `replacement_text_file` (mutually exclusive with `count`); `width`/`height` must be defined at label or job level (a `round` label needs only one); optional `plate_id` pins the label to a declared plate; a label-level `replacement_text_delimiter`/`replacement_text_file_comment_string` requires the label's own file |
 | `TextLine` | Text content unit | Requires non-empty `text` string |
 | `ContentEntry` | One `content` entry: a text line **or** a list block | Subclasses `TextLine` (`text` becomes optional); requires **exactly one** of `text` / `itemize` / `enumerate`; a `placeholder: true` item inside a list block is rejected (a list's items are authored, never substituted) |
 | `ItemizeBlock` / `EnumerateBlock` | Nested bullet / enumerated list | `items` (min 1 `TextLine`) + the cascading list settings; both extend `TextAttributes`, so a block carries every typographic field and its items inherit them (item → block → label → job) |
@@ -1809,18 +1809,34 @@ job:
 
 `plt_optimizer/generate/substitution.py` implements EngraveLab/Vision Pro
 "badge" (a.k.a. "multiples") data-driven generation. A `LabelSpec` with
-`replacement_text_file` is a template: **each line of the file produces one
-label copy** (the file's line count determines the count; `count` must not
-be set alongside it). Items within a file line are split on
+`replacement_text_file` is a template: **each data line of the file produces
+one label copy** (the file's data-line count determines the count; `count`
+must not be set alongside it). Items within a file line are split on
 `replacement_text_delimiter` (default `;`; must be a single special or
 whitespace character, never newline/alphanumeric).
 
-- **File format:** pure data — every line is a label copy (no comment
-  syntax). CRLF/CR endings are normalized; a single trailing newline does
+- **File format:** data plus comments — every *data* line is a label copy.
+  A line whose whitespace-stripped text starts with
+  `replacement_text_file_comment_string` (default `"# "`; `""` disables
+  comment handling) is a comment; whitespace-only lines are blank. Both
+  kinds produce **no** copy and are reported together in one WARNING per
+  file (1-based line numbers + text) so a shop can see exactly what was
+  ignored. A file left with no data lines raises `SubstitutionError`.
+  CRLF/CR endings are normalized; a single trailing newline does
   not create a phantom copy; a UTF-8 BOM is stripped; items are used
-  verbatim (no whitespace stripping). Blank lines render blank lines
-  (WARNING logged). Loading failures raise `SubstitutionError` (a
-  `ValueError` subclass).
+  verbatim (no whitespace stripping). Loading failures raise
+  `SubstitutionError` (a `ValueError` subclass).
+- **Delimiter/comment cascade:** `replacement_text_delimiter` and
+  `replacement_text_file_comment_string` cascade **label → plate (pinned) →
+  job → `job-config.json` → code default** (`;` / `"# "`), resolved at
+  `JobSpec` validation time (`_apply_replacement_cascades`, mirroring the
+  `material`/clearance job → plate cascades) — expansion runs before
+  `resolve_job_spec`, so the resolver never sees these fields. Each tier's
+  value needs a file to apply to: a label's own file; a plate's own file
+  *or* a file on a label pinned to it (`plate_id`); the job needs a file at
+  any tier. `job-config.json` injects its comment marker **only** when the
+  raw spec declares a file somewhere (`_spec_declares_replacement_file`),
+  so the shipped `"# "` default cannot break a file-less job.
 - **`content` optional:** when omitted, every rendered line inherits
   label-level attributes. When present, each `text` value is a
   placeholder declaring that line's attributes (text_height, alignment,
