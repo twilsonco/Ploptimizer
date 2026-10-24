@@ -181,6 +181,11 @@ class JobDefaults(BaseModel):
             the mechanism.
         text_chunk_mode: Default plate-space text optimization granularity.
         layout: Default plate fill order.
+        replacement_text_file_comment_string: Default replacement-file
+            comment marker (job layer; cascades job -> plate -> label).
+            Unset falls back to the code default ``"# "``; ``""`` disables
+            comment handling. Injected only when the spec declares a
+            replacement text file at some tier.
         type: Default label boundary shape ('rect' historical, 'round'
             ellipse/circle). Labels that omit it inherit the job value.
         plate_width: Default usable plate width in inches (plate layer).
@@ -828,6 +833,18 @@ class JobDefaults(BaseModel):
     layout: Optional[LayoutMode] = Field(
         default=None, description="Default plate fill order (job layer)."
     )
+    replacement_text_file_comment_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default replacement-file comment marker (job layer; cascades "
+            "job -> plate -> label): a replacement text file line whose "
+            "whitespace-stripped text starts with this string produces no "
+            "label copy and is reported in a per-file WARNING. Unset falls "
+            "back to the code default '# '; '' disables comment handling. "
+            "Injected only when the job spec declares a replacement_text_file "
+            "at the job, plate, or label level."
+        ),
+    )
     type: Optional[LabelShape] = Field(
         default=None,
         description=(
@@ -1010,6 +1027,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "allow_rotation",
     "text_chunk_mode",
     "layout",
+    "replacement_text_file_comment_string",
     "type",
     "rounded_rectangle_fraction",
     "rounded_rectangle_proportional",
@@ -1021,6 +1039,11 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
 # Config fields whose job-layer injection is suppressed when the spec
 # declares the universal ``margin`` (see :func:`_spec_declares_margin`).
 _MARGIN_SUPPRESSED_FIELDS: frozenset[str] = frozenset({"h_margin", "v_margin"})
+
+# Config fields whose job-layer injection is suppressed when the spec
+# declares no replacement text file at any tier (see
+# :func:`_spec_declares_replacement_file`).
+_REPLACEMENT_SUPPRESSED_FIELDS: frozenset[str] = frozenset({"replacement_text_file_comment_string"})
 
 
 def load_job_config(job_config_path: Optional[Path]) -> Optional[JobConfig]:
@@ -1144,6 +1167,37 @@ def _spec_declares_margin(job_data: Mapping[str, Any]) -> bool:
     return False
 
 
+def _spec_declares_replacement_file(job_data: Mapping[str, Any]) -> bool:
+    """Return True when the raw job mapping uses a replacement text file.
+
+    ``replacement_text_file`` is legal at the job, plate, or label level,
+    and the job-level ``replacement_text_delimiter`` /
+    ``replacement_text_file_comment_string`` cascade job -> plate -> label,
+    so ``JobSpec`` rejects either one when the job contains no file at any
+    tier. Injecting a configured comment marker into a spec that never uses
+    replacement files would therefore fail validation, so the injection is
+    suppressed whenever this returns False. An explicit YAML ``null`` counts
+    as unset (the existing inherit semantics).
+
+    Args:
+        job_data: The raw ``job`` mapping parsed from YAML.
+
+    Returns:
+        True when any tier (job, plate, label) declares a file.
+    """
+    if job_data.get("replacement_text_file") is not None:
+        return True
+    for key in ("plates", "labels"):
+        entries = job_data.get(key)
+        if isinstance(entries, list):
+            if any(
+                isinstance(entry, dict) and entry.get("replacement_text_file") is not None
+                for entry in entries
+            ):
+                return True
+    return False
+
+
 def apply_job_config_defaults(
     job_data: dict[str, Any],
     config: Optional[JobConfig],
@@ -1163,6 +1217,11 @@ def apply_job_config_defaults(
     so an injected axis value would silently outrank the spec's margin
     on that axis (see :func:`_spec_declares_margin`).
 
+    The configured ``replacement_text_file_comment_string`` is suppressed
+    for a spec with no replacement text file at any tier, which the schema
+    rejects as a job-level marker with nothing to apply it to (see
+    :func:`_spec_declares_replacement_file`).
+
     Args:
         job_data: The raw ``job`` mapping parsed from YAML.
         config: The loaded job config, or ``None`` (returned unchanged).
@@ -1179,8 +1238,13 @@ def apply_job_config_defaults(
     # An explicit YAML ``null`` counts as unset (the cascade treats None as
     # "inherit"), so config values fill absent keys and null-valued ones.
     suppress_margins = _spec_declares_margin(filled)
+    suppressed: set[str] = set(_MARGIN_SUPPRESSED_FIELDS) if suppress_margins else set()
+    if not _spec_declares_replacement_file(filled):
+        suppressed |= _REPLACEMENT_SUPPRESSED_FIELDS
+    if not _spec_declares_replacement_file(filled):
+        suppressed.add("replacement_text_file_comment_string")
     for field_name in _JOB_LAYER_FIELDS:
-        if suppress_margins and field_name in _MARGIN_SUPPRESSED_FIELDS:
+        if field_name in suppressed:
             continue
         value = getattr(defaults, field_name)
         if value is not None and filled.get(field_name) is None:

@@ -23,11 +23,13 @@ from pydantic import ValidationError
 from plt_optimizer.generate.job_config import (
     _JOB_LAYER_FIELDS,
     _MARGIN_SUPPRESSED_FIELDS,
+    _REPLACEMENT_SUPPRESSED_FIELDS,
     REQUIRED_WHEN_UNCONFIGURED,
     JobConfig,
     JobConfigError,
     JobDefaults,
     _spec_declares_margin,
+    _spec_declares_replacement_file,
     apply_job_config_defaults,
     assert_required_fields,
     load_job_config,
@@ -1128,6 +1130,100 @@ class TestSpecDeclaresMargin:
         assert _spec_declares_margin({"labels": ["plain string"]}) is False
 
 
+class TestSpecDeclaresReplacementFile:
+    """Direct checks for the replacement-file-declaration probe."""
+
+    def test_job_level_file(self) -> None:
+        """A job-level file is a declaration."""
+        assert _spec_declares_replacement_file({"replacement_text_file": "d.txt"}) is True
+
+    def test_plate_level_file(self) -> None:
+        """A plate-level file counts too (the cascade reaches plates)."""
+        assert (
+            _spec_declares_replacement_file({"plates": [{"replacement_text_file": "d.txt"}]})
+            is True
+        )
+
+    def test_label_level_file(self) -> None:
+        """A label-level file counts too (the cascade reaches labels)."""
+        assert (
+            _spec_declares_replacement_file({"labels": [{"replacement_text_file": "d.txt"}]})
+            is True
+        )
+
+    def test_no_file_anywhere(self) -> None:
+        """A plain labels job declares no replacement file."""
+        assert _spec_declares_replacement_file(_minimal_job()) is False
+
+    def test_null_everywhere_is_unset(self) -> None:
+        """Explicit nulls are inherit semantics, not declarations."""
+        assert (
+            _spec_declares_replacement_file(
+                {"replacement_text_file": None, "labels": [{"replacement_text_file": None}]}
+            )
+            is False
+        )
+
+    def test_non_list_entries_ignored(self) -> None:
+        """Malformed plates/labels values never declare a file, not crashes."""
+        assert _spec_declares_replacement_file({"plates": "not-a-list"}) is False
+        assert _spec_declares_replacement_file({"labels": ["plain string"]}) is False
+
+
+class TestConfigCommentMarkerInjection:
+    """The configured replacement comment marker honors the file requirement."""
+
+    def test_injected_with_job_file(self, tmp_path: Path) -> None:
+        """A spec with a job-level file receives the configured marker."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_file_comment_string": "//"})
+        )
+        filled = apply_job_config_defaults(_minimal_job(replacement_text_file="d.txt"), config)
+        assert filled["replacement_text_file_comment_string"] == "//"
+
+    def test_injected_with_label_file(self, tmp_path: Path) -> None:
+        """A label-level file also unlocks the injection (cascade target)."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_file_comment_string": "//"})
+        )
+        job = {
+            "job_name": "Config Test",
+            "labels": [{"id": "l1", "replacement_text_file": "d.txt"}],
+        }
+        filled = apply_job_config_defaults(job, config)
+        assert filled["replacement_text_file_comment_string"] == "//"
+
+    def test_suppressed_without_file(self, tmp_path: Path) -> None:
+        """A spec with no replacement file anywhere never gets the marker."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_file_comment_string": "//"})
+        )
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert "replacement_text_file_comment_string" not in filled
+
+    def test_yaml_wins_over_config(self, tmp_path: Path) -> None:
+        """A spec-declared marker is never overridden by the config."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_file_comment_string": "//"})
+        )
+        filled = apply_job_config_defaults(
+            _minimal_job(replacement_text_file="d.txt", replacement_text_file_comment_string="#"),
+            config,
+        )
+        assert filled["replacement_text_file_comment_string"] == "#"
+
+    def test_repo_config_ships_comment_marker(self) -> None:
+        """The shipped shop config supplies the '# ' default (adaptive)."""
+        config = load_job_config(Path("job-config.json"))
+        assert config is not None
+        assert config.defaults.replacement_text_file_comment_string is not None
+
+    def test_repo_config_parses_file_less_job(self) -> None:
+        """The shipped marker cannot break a job with no replacement file."""
+        job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
+        assert job.replacement_text_file_comment_string is None
+
+
 class TestParseYamlWithJobConfig:
     """Integration of parse_yaml() with the job-config layer."""
 
@@ -1147,10 +1243,13 @@ class TestParseYamlWithJobConfig:
         # reaching a parsed job proves the shipped config satisfies it.
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
         # The spec declares ``margin``, so the axis-margin injection is
-        # suppressed by contract -- those two keys are the documented exception.
+        # suppressed by contract, and it declares no replacement text file,
+        # so the comment-marker injection is suppressed too -- those keys are
+        # the documented exceptions.
         checked = 0
+        suppressed = _MARGIN_SUPPRESSED_FIELDS | _REPLACEMENT_SUPPRESSED_FIELDS
         for field_name in _JOB_LAYER_FIELDS:
-            if field_name in _MARGIN_SUPPRESSED_FIELDS:
+            if field_name in suppressed:
                 continue
             configured = getattr(config.defaults, field_name)
             if configured is None:

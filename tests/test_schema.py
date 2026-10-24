@@ -2005,7 +2005,7 @@ class TestJobLevelReplacementFile:
         assert len(job.content) == 1
 
     def test_delimiter_requires_file(self) -> None:
-        """A job-level delimiter without a file is rejected."""
+        """A job-level delimiter with no file at any tier is rejected."""
         with pytest.raises(ValidationError, match="requires 'replacement_text_file'"):
             JobSpec(
                 job_name="J",
@@ -2015,6 +2015,85 @@ class TestJobLevelReplacementFile:
                 content=[TextLine(text="X")],
                 replacement_text_delimiter=",",
             )
+
+    def test_delimiter_cascades_to_label_file(self) -> None:
+        """A job delimiter is legal with only a label-level file, and cascades."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.5,
+            replacement_text_delimiter=",",
+            labels=[LabelSpec(id="l", replacement_text_file="data.txt")],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_delimiter == ","
+
+    def test_comment_string_requires_file(self) -> None:
+        """A job comment marker with no file at any tier is rejected."""
+        with pytest.raises(ValidationError, match="replacement_text_file_comment_string"):
+            JobSpec(
+                job_name="J",
+                width=3.0,
+                height=1.0,
+                text_height=0.5,
+                content=[TextLine(text="X")],
+                replacement_text_file_comment_string="//",
+            )
+
+    def test_comment_string_cascades_to_label_file(self) -> None:
+        """A job comment marker cascades onto a label-level file."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.5,
+            replacement_text_file_comment_string="//",
+            labels=[LabelSpec(id="l", replacement_text_file="data.txt")],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_file_comment_string == "//"
+
+    def test_comment_string_cascades_to_plate_file(self) -> None:
+        """A job comment marker cascades job -> plate -> synthesized label."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.5,
+            replacement_text_file_comment_string=";;",
+            plates=[PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+        )
+        assert job.plates is not None
+        assert job.plates[0].replacement_text_file_comment_string == ";;"
+
+    def test_empty_comment_string_disables_comments(self) -> None:
+        """An explicit ``""`` is a declaration (comments off), not inherit."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.5,
+            replacement_text_file_comment_string="",
+            labels=[LabelSpec(id="l", replacement_text_file="data.txt")],
+        )
+        assert job.replacement_text_file_comment_string == ""
+        assert job.labels is not None
+        # "" is a declaration (comments disabled), so it cascades like any
+        # other value -- the label never falls back to the code default.
+        assert job.labels[0].replacement_text_file_comment_string == ""
+
+    @pytest.mark.parametrize("comment", ["#", "# ", "## ", "//", "--", ";"])
+    def test_valid_comment_strings_accepted(self, comment: str) -> None:
+        """Multi-character and single-character markers are all legal."""
+        job = self._job(replacement_text_file_comment_string=comment)
+        assert job.replacement_text_file_comment_string == comment
+
+    @pytest.mark.parametrize("comment", ["a\nb", "a\rb", "\n", "\r"])
+    def test_comment_string_with_newline_rejected(self, comment: str) -> None:
+        """A marker can never occur inside one file line, so newlines fail."""
+        with pytest.raises(ValidationError, match="newline"):
+            self._job(replacement_text_file_comment_string=comment)
 
     def test_invalid_delimiter_rejected(self) -> None:
         """The shared single-special-char delimiter rule applies."""
@@ -2066,10 +2145,145 @@ class TestPlateLevelReplacementFile:
         assert plate.replacement_text_file == "d.txt"
         assert plate.replacement_text_delimiter is None
 
-    def test_delimiter_requires_file(self) -> None:
-        """A plate delimiter without a file is rejected."""
-        with pytest.raises(ValidationError, match="requires 'replacement_text_file'"):
-            PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_delimiter=",")
+    def test_plate_delimiter_without_any_file_rejected(self) -> None:
+        """A plate delimiter needs a plate file or a pinned label's file."""
+        with pytest.raises(ValidationError, match="plate 'p1': 'replacement_text_delimiter'"):
+            self._job([PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_delimiter=",")])
+
+    def test_plate_delimiter_legal_with_pinned_label_file(self) -> None:
+        """A plate delimiter cascades onto a label pinned to that plate."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.75,
+            plates=[PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_delimiter=",")],
+            labels=[LabelSpec(id="l", plate_id="p1", replacement_text_file="d.txt")],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_delimiter == ","
+
+    def test_plate_comment_string_legal_with_pinned_label_file(self) -> None:
+        """A plate comment marker cascades onto a label pinned to that plate."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.75,
+            plates=[
+                PlateSpec(
+                    id="p1", width=24.0, height=16.0, replacement_text_file_comment_string="//"
+                )
+            ],
+            labels=[LabelSpec(id="l", plate_id="p1", replacement_text_file="d.txt")],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_file_comment_string == "//"
+
+    def test_plate_comment_string_without_any_file_rejected(self) -> None:
+        """A plate comment marker needs a plate file or a pinned label's file."""
+        with pytest.raises(
+            ValidationError, match="plate 'p1': 'replacement_text_file_comment_string'"
+        ):
+            self._job(
+                [
+                    PlateSpec(
+                        id="p1", width=24.0, height=16.0, replacement_text_file_comment_string="//"
+                    )
+                ]
+            )
+
+    def test_plate_value_wins_over_job_value(self) -> None:
+        """A plate-declared delimiter beats the job-level cascade."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.75,
+            replacement_text_delimiter="|",
+            plates=[
+                PlateSpec(
+                    id="p1",
+                    width=24.0,
+                    height=16.0,
+                    replacement_text_file="d.txt",
+                    replacement_text_delimiter=",",
+                ),
+                PlateSpec(id="p2", width=24.0, height=16.0, replacement_text_file="e.txt"),
+            ],
+        )
+        # The plate declaring its own delimiter keeps it; the other inherits.
+        assert job.plates is not None
+        assert job.plates[0].replacement_text_delimiter == ","
+        assert job.plates[1].replacement_text_delimiter == "|"
+
+    def test_pinned_plate_wins_over_job_for_label(self) -> None:
+        """Label cascade is plate -> job: the pinned plate's value wins."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.75,
+            replacement_text_delimiter="|",
+            plates=[
+                PlateSpec(
+                    id="p1",
+                    width=24.0,
+                    height=16.0,
+                    replacement_text_file="d.txt",
+                    replacement_text_delimiter=",",
+                )
+            ],
+            labels=[LabelSpec(id="l", plate_id="p1", replacement_text_file="e.txt")],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_delimiter == ","
+
+    def test_label_value_wins_over_plate_and_job(self) -> None:
+        """A label-declared delimiter is never overwritten by the cascade."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.75,
+            replacement_text_delimiter="|",
+            plates=[
+                PlateSpec(
+                    id="p1",
+                    width=24.0,
+                    height=16.0,
+                    replacement_text_file="d.txt",
+                    replacement_text_delimiter=",",
+                )
+            ],
+            labels=[
+                LabelSpec(
+                    id="l",
+                    plate_id="p1",
+                    replacement_text_file="e.txt",
+                    replacement_text_delimiter="$",
+                )
+            ],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_delimiter == "$"
+
+    def test_static_labels_never_receive_the_cascade(self) -> None:
+        """Only file-bearing labels cascade (the label-tier rule needs a file)."""
+        job = JobSpec(
+            job_name="J",
+            width=3.0,
+            height=1.0,
+            text_height=0.75,
+            replacement_text_delimiter="|",
+            labels=[
+                LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]),
+                LabelSpec(id="r", width=2.0, height=1.0, replacement_text_file="e.txt"),
+            ],
+        )
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_delimiter is None
+        assert job.labels[1].replacement_text_delimiter == "|"
 
     def test_invalid_delimiter_rejected(self) -> None:
         """The shared delimiter rule applies at plate level too."""

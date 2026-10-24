@@ -99,6 +99,43 @@ class TestLabelSpecReplacementValidation:
                 replacement_text_delimiter=",",
             )
 
+    def test_comment_string_without_file_rejected(self) -> None:
+        """A comment marker is meaningless without a replacement file."""
+        with pytest.raises(ValidationError, match="replacement_text_file_comment_string"):
+            LabelSpec(
+                id="tmpl",
+                content=[TextLine(text="X")],
+                replacement_text_file_comment_string="//",
+            )
+
+    def test_comment_string_with_file_is_valid(self) -> None:
+        """A template label may declare its own comment marker."""
+        label = LabelSpec(
+            id="tmpl",
+            replacement_text_file="data.txt",
+            replacement_text_file_comment_string="//",
+        )
+        assert label.replacement_text_file_comment_string == "//"
+
+    def test_empty_comment_string_is_valid(self) -> None:
+        """``""`` is a legal declaration (comments disabled)."""
+        label = LabelSpec(
+            id="tmpl",
+            replacement_text_file="data.txt",
+            replacement_text_file_comment_string="",
+        )
+        assert label.replacement_text_file_comment_string == ""
+
+    @pytest.mark.parametrize("comment", ["a\nb", "\r"])
+    def test_comment_string_with_newline_rejected(self, comment: str) -> None:
+        """A marker spanning lines can never match, so it is rejected."""
+        with pytest.raises(ValidationError, match="newline"):
+            LabelSpec(
+                id="tmpl",
+                replacement_text_file="data.txt",
+                replacement_text_file_comment_string=comment,
+            )
+
     @pytest.mark.parametrize("delimiter", [";", ",", " ", "\t", "$", "|", "*", "#"])
     def test_valid_single_char_delimiters(self, delimiter: str) -> None:
         """Single special/whitespace delimiters are accepted."""
@@ -156,10 +193,66 @@ class TestLoadReplacementFile:
         path = _write(tmp_path / "r.txt", "  SPACED  ;END\n")
         assert load_replacement_file(path, ";") == [["  SPACED  ", "END"]]
 
-    def test_blank_line_becomes_empty_item(self, tmp_path: Path) -> None:
-        """A blank line yields a single empty item (renders blank)."""
+    def test_blank_line_is_dropped(self, tmp_path: Path) -> None:
+        """A blank line produces no instance (it used to render blank)."""
         path = _write(tmp_path / "r.txt", "A\n\nB\n")
-        assert load_replacement_file(path, ";") == [["A"], [""], ["B"]]
+        assert load_replacement_file(path, ";") == [["A"], ["B"]]
+
+    def test_whitespace_only_line_is_dropped(self, tmp_path: Path) -> None:
+        """A whitespace-only line is blank too (stripped before matching)."""
+        path = _write(tmp_path / "r.txt", "A\n   \t \nB\n")
+        assert load_replacement_file(path, ";") == [["A"], ["B"]]
+
+    def test_default_comment_lines_dropped(self, tmp_path: Path) -> None:
+        """The default marker '# ' drops comment lines."""
+        path = _write(tmp_path / "r.txt", "# header\nA;B\n # indented comment\nC;D\n")
+        assert load_replacement_file(path, ";") == [["A", "B"], ["C", "D"]]
+
+    def test_hash_without_space_is_data(self, tmp_path: Path) -> None:
+        """With the '# ' default, '#noSpace' does not match and stays data."""
+        path = _write(tmp_path / "r.txt", "#noSpace\n")
+        assert load_replacement_file(path, ";") == [["#noSpace"]]
+
+    def test_custom_comment_string(self, tmp_path: Path) -> None:
+        """A custom marker replaces the default."""
+        path = _write(tmp_path / "r.txt", "// note\nA;B\n# kept data\n")
+        assert load_replacement_file(path, ";", "//") == [["A", "B"], ["# kept data"]]
+
+    def test_empty_comment_string_disables(self, tmp_path: Path) -> None:
+        """'' disables comment handling: every line is data."""
+        path = _write(tmp_path / "r.txt", "# header\nA;B\n")
+        assert load_replacement_file(path, ";", "") == [["# header"], ["A", "B"]]
+
+    def test_all_comment_file_raises(self, tmp_path: Path) -> None:
+        """A file with no data lines left raises SubstitutionError."""
+        path = _write(tmp_path / "r.txt", "# one\n# two\n\n")
+        with pytest.raises(SubstitutionError, match="no data lines"):
+            load_replacement_file(path, ";")
+
+    def test_dropped_lines_reported_in_one_warning(self, tmp_path: Path, caplog) -> None:
+        """Comments and blanks are reported together: one WARNING per file."""
+        path = _write(tmp_path / "r.txt", "# header\nA\n\nB\n# footer\n")
+        with caplog.at_level("WARNING", logger="plt_optimizer.generate.substitution"):
+            load_replacement_file(path, ";")
+        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "line 1:" in message and "line 3:" in message and "line 5:" in message
+        assert "'# header'" in message and "(blank)" in message and "'# footer'" in message
+
+    def test_empty_item_still_warns(self, tmp_path: Path, caplog) -> None:
+        """A delimiter-adjacent empty item on a data line warns (renders blank)."""
+        path = _write(tmp_path / "r.txt", "A;;B\n")
+        with caplog.at_level("WARNING", logger="plt_optimizer.generate.substitution"):
+            assert load_replacement_file(path, ";") == [["A", "", "B"]]
+        assert any("empty text item" in r.getMessage() for r in caplog.records)
+
+    def test_no_warning_without_dropped_lines(self, tmp_path: Path, caplog) -> None:
+        """A pure-data file logs no WARNING."""
+        path = _write(tmp_path / "r.txt", "A;B\nC;D\n")
+        with caplog.at_level("WARNING", logger="plt_optimizer.generate.substitution"):
+            load_replacement_file(path, ";")
+        assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
     def test_space_delimiter(self, tmp_path: Path) -> None:
         """Space is a valid delimiter splitting on every space."""
@@ -251,10 +344,44 @@ class TestExpandLabelWithReplacements:
     def test_replacement_fields_cleared_on_expansion(self, tmp_path: Path) -> None:
         """Expanded labels no longer reference the replacement file."""
         _write(tmp_path / "r.txt", "A\n")
-        label = LabelSpec(id="t", replacement_text_file="r.txt", replacement_text_delimiter=",")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            replacement_text_delimiter=",",
+            replacement_text_file_comment_string="//",
+        )
         result = expand_label_with_replacements(label, tmp_path)
         assert result[0].replacement_text_file is None
         assert result[0].replacement_text_delimiter is None
+        assert result[0].replacement_text_file_comment_string is None
+
+    def test_comment_lines_produce_no_instances(self, tmp_path: Path) -> None:
+        """Comment and blank lines do not consume instance ids."""
+        _write(tmp_path / "r.txt", "# header\nA\n\nB\n")
+        label = LabelSpec(id="t", replacement_text_file="r.txt")
+        result = expand_label_with_replacements(label, tmp_path)
+        assert [lbl.id for lbl in result] == ["t_0000", "t_0001"]
+        assert [lbl.content[0].text for lbl in result] == ["A", "B"]
+
+    def test_label_comment_string_used(self, tmp_path: Path) -> None:
+        """A label-declared marker is the one applied to its file."""
+        _write(tmp_path / "r.txt", "// note\n# data\nA\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            replacement_text_file_comment_string="//",
+        )
+        result = expand_label_with_replacements(label, tmp_path)
+        assert [lbl.content[0].text for lbl in result] == ["# data", "A"]
+
+    def test_empty_label_comment_string_disables(self, tmp_path: Path) -> None:
+        """An explicit '' keeps '# ...' lines as data."""
+        _write(tmp_path / "r.txt", "# data\nA\n")
+        label = LabelSpec(
+            id="t", replacement_text_file="r.txt", replacement_text_file_comment_string=""
+        )
+        result = expand_label_with_replacements(label, tmp_path)
+        assert [lbl.content[0].text for lbl in result] == ["# data", "A"]
 
     def test_no_content_all_lines_inherit_label_attrs(self, tmp_path: Path) -> None:
         """Without template content, lines carry no per-line overrides (label cascade)."""
@@ -659,6 +786,68 @@ class TestJobLevelReplacementExpansion:
         assert job.labels is not None
         assert [line.text for line in job.labels[0].content or []] == ["A", "B"]
 
+    def test_comment_lines_dropped(self, tmp_path: Path) -> None:
+        """The default '# ' marker drops comments/blanks from a job-level file."""
+        yaml_path = tmp_path / "job.yaml"
+        _write(tmp_path / "data.txt", "# batch header\nALPHA\n\nBRAVO\n# end\n")
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Job Repl\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  replacement_text_file: data.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [line.text for lbl in job.labels for line in lbl.content or []] == [
+            "ALPHA",
+            "BRAVO",
+        ]
+
+    def test_job_comment_string_cascades_to_label_file(self, tmp_path: Path) -> None:
+        """A job-level marker applies to a label-level file (new cascade)."""
+        _write(tmp_path / "r.txt", "// note\nA\n# data\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Cascade\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  replacement_text_file_comment_string: '//'\n"
+            "  labels:\n"
+            "    - id: t\n"
+            "      replacement_text_file: r.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.content[0].text for lbl in job.labels] == ["A", "# data"]
+        # The job-level marker is consumed by expansion.
+        assert job.replacement_text_file_comment_string is None
+
+    def test_job_delimiter_cascades_to_label_file(self, tmp_path: Path) -> None:
+        """A job-level delimiter applies to a label-level file (new cascade)."""
+        _write(tmp_path / "r.txt", "A,B\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Cascade\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  replacement_text_delimiter: ','\n"
+            "  labels:\n"
+            "    - id: t\n"
+            "      replacement_text_file: r.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [line.text for line in job.labels[0].content or []] == ["A", "B"]
+
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         """A missing job-level file aborts expansion."""
         yaml_path = tmp_path / "job.yaml"
@@ -721,6 +910,32 @@ class TestPlateLevelReplacementExpansion:
         job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
         assert job.plates is not None
         assert all(plate.replacement_text_file is None for plate in job.plates)
+        assert all(plate.replacement_text_file_comment_string is None for plate in job.plates)
+
+    def test_plate_comment_string_applies_to_pinned_label_file(self, tmp_path: Path) -> None:
+        """A plate-level marker cascades onto a label pinned to that plate."""
+        _write(tmp_path / "r.txt", "// note\nA\n# data\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Plate Cascade\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_file_comment_string: '//'\n"
+            "  labels:\n"
+            "    - id: t\n"
+            "      plate_id: p1\n"
+            "      replacement_text_file: r.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.content[0].text for lbl in job.labels] == ["A", "# data"]
 
     def test_input_job_not_mutated(self, tmp_path: Path) -> None:
         """Expansion returns a copy; the parsed job keeps its fields."""

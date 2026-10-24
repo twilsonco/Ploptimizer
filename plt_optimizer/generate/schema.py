@@ -2250,6 +2250,31 @@ def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
     return v
 
 
+def _validate_replacement_comment_value(v: Optional[str]) -> Optional[str]:
+    """Validate a replacement-text comment string (shared by all levels).
+
+    Any string is a legal marker (``"#"`` and ``"# "`` are the idiomatic
+    choices, and multi-character forms like ``"## "`` work), and the empty
+    string is meaningful: it **disables** comment handling so every line --
+    including one that starts with ``#`` -- is data. Only newlines are
+    rejected, since a marker can never occur inside a single file line.
+
+    Args:
+        v: The configured comment string, or None (unset = inherit).
+
+    Returns:
+        The validated comment string.
+
+    Raises:
+        ValueError: If the marker contains a newline character.
+    """
+    if v is None:
+        return v
+    if "\n" in v or "\r" in v:
+        raise ValueError("replacement_text_file_comment_string cannot contain a newline character")
+    return v
+
+
 class LabelSpec(LabelAttributes):
     """Specification for a label to be generated.
 
@@ -2282,6 +2307,12 @@ class LabelSpec(LabelAttributes):
         replacement_text_delimiter: Single special or whitespace character
             separating text items within a replacement file line. Defaults
             to ``";"``. Cannot be a newline or an alphanumeric character.
+        replacement_text_file_comment_string: Marker string that makes a
+            replacement file line a comment: after stripping whitespace, a
+            line starting with this string is dropped (it produces no label
+            copy) and reported. Defaults to ``"# "`` (the code fallback, which
+            ``job-config.json`` also ships); ``""`` disables comment handling.
+            Requires ``replacement_text_file``.
         plate_id: Optional id of the plate this label is pinned to. Pinned
             labels pack exclusively onto that plate, and the plate then
             accepts no other labels. Normally set by plate-level
@@ -2324,6 +2355,17 @@ class LabelSpec(LabelAttributes):
             "replacement file line (default ';')."
         ),
     )
+    replacement_text_file_comment_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comment marker for replacement file lines: a line whose "
+            "whitespace-stripped text starts with this string is dropped "
+            "(it produces no label copy) and reported in a per-file WARNING. "
+            "Unset inherits the plate/job cascade (fallback '# '; "
+            "job-config.json supplies the shop default); an explicit '' "
+            "disables comment handling. Requires replacement_text_file."
+        ),
+    )
     plate_id: Optional[str] = Field(
         default=None,
         description=(
@@ -2349,6 +2391,22 @@ class LabelSpec(LabelAttributes):
         """
         return _validate_replacement_delimiter_value(v)
 
+    @field_validator("replacement_text_file_comment_string")
+    @classmethod
+    def _validate_replacement_comment(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the comment string (shared rule with job/plate-level fields).
+
+        Args:
+            v: The configured comment string, or None (unset).
+
+        Returns:
+            The validated comment string.
+
+        Raises:
+            ValueError: If the marker contains a newline character.
+        """
+        return _validate_replacement_comment_value(v)
+
     @field_validator("content", mode="before")
     @classmethod
     def _coerce_content_entries(cls, value: Any) -> Any:
@@ -2370,8 +2428,9 @@ class LabelSpec(LabelAttributes):
         Raises:
             ValueError: If both ``count`` and ``replacement_text_file`` are
                 set, if neither ``content`` nor ``replacement_text_file`` is
-                set, if ``content`` is an empty list, or if
-                ``replacement_text_delimiter`` is set without a file.
+                set, if ``content`` is an empty list, if
+                ``replacement_text_delimiter`` is set without a file, or if
+                ``replacement_text_file_comment_string`` is set without a file.
 
         Returns:
             Self for method chaining.
@@ -2384,6 +2443,14 @@ class LabelSpec(LabelAttributes):
         if self.replacement_text_delimiter is not None and self.replacement_text_file is None:
             raise ValueError(
                 f"label '{self.id}': 'replacement_text_delimiter' requires "
+                "'replacement_text_file' to be set"
+            )
+        if (
+            self.replacement_text_file_comment_string is not None
+            and self.replacement_text_file is None
+        ):
+            raise ValueError(
+                f"label '{self.id}': 'replacement_text_file_comment_string' requires "
                 "'replacement_text_file' to be set"
             )
         if self.content is None and self.replacement_text_file is None:
@@ -2621,7 +2688,19 @@ class PlateSpec(BaseModel):
             area.
         replacement_text_delimiter: Single special or whitespace character
             separating text items within a replacement file line. Defaults
-            to ``";"``. Requires ``replacement_text_file``.
+            to ``";"``. When declared, a replacement file must exist for
+            this plate: either the plate's own ``replacement_text_file`` or
+            a label-level file on a label pinned to this plate
+            (``LabelSpec.plate_id``). Cascades plate -> label for labels
+            pinned to this plate that omit the field.
+        replacement_text_file_comment_string: Marker string that makes a
+            replacement file line a comment: after stripping whitespace, a
+            line starting with this string is dropped (it produces no label
+            copy) and reported. Defaults to ``"# "`` (the code fallback,
+            which ``job-config.json`` also ships); ``""`` disables comment
+            handling. Same file requirement as
+            ``replacement_text_delimiter``; cascades plate -> label for
+            pinned labels that omit the field.
     """
 
     # Root of the plate tier: unknown plate keys are typos, so forbid them.
@@ -3093,7 +3172,21 @@ class PlateSpec(BaseModel):
         default=None,
         description=(
             "Single-character delimiter separating text items within a "
-            "replacement file line (default ';')."
+            "replacement file line (default ';'). Requires a replacement "
+            "file for this plate (its own, or a label-level file on a label "
+            "pinned to it); cascades plate -> pinned label."
+        ),
+    )
+    replacement_text_file_comment_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comment marker for replacement file lines: a line whose "
+            "whitespace-stripped text starts with this string is dropped "
+            "(it produces no label copy) and reported in a per-file WARNING. "
+            "Unset inherits the job cascade (fallback '# '; "
+            "job-config.json supplies the shop default); an explicit '' "
+            "disables comment handling. Same file requirement as "
+            "replacement_text_delimiter; cascades plate -> pinned label."
         ),
     )
 
@@ -3113,6 +3206,22 @@ class PlateSpec(BaseModel):
                 newline, or is alphanumeric.
         """
         return _validate_replacement_delimiter_value(v)
+
+    @field_validator("replacement_text_file_comment_string")
+    @classmethod
+    def _validate_replacement_comment(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the comment string (shared rule with label/job-level fields).
+
+        Args:
+            v: The configured comment string, or None (unset).
+
+        Returns:
+            The validated comment string.
+
+        Raises:
+            ValueError: If the marker contains a newline character.
+        """
+        return _validate_replacement_comment_value(v)
 
     @field_validator("html_brackets")
     @classmethod
@@ -3237,24 +3346,6 @@ class PlateSpec(BaseModel):
         """
         return normalize_material(value)
 
-    @model_validator(mode="after")
-    def _validate_replacement_fields(self) -> PlateSpec:
-        """Enforce the plate-level replacement-file contract.
-
-        Raises:
-            ValueError: If ``replacement_text_delimiter`` is set without a
-                file.
-
-        Returns:
-            Self for method chaining.
-        """
-        if self.replacement_text_delimiter is not None and self.replacement_text_file is None:
-            raise ValueError(
-                f"plate '{self.id}': 'replacement_text_delimiter' requires "
-                "'replacement_text_file' to be set"
-            )
-        return self
-
     @model_validator(mode="before")
     @classmethod
     def _drop_null_clearances(cls, data: Any) -> Any:
@@ -3320,7 +3411,17 @@ class JobSpec(LabelAttributes):
             ``labels``, ``count`` and plate-level replacement files.
         replacement_text_delimiter: Single special or whitespace character
             separating text items within a replacement file line. Defaults
-            to ``";"``. Requires ``replacement_text_file``.
+            to ``";"``. When declared, the job must contain a replacement
+            file at some tier (job, plate, or label): a job-level value
+            cascades job -> plate -> label, so declaring it with no file
+            anywhere is a validation error.
+        replacement_text_file_comment_string: Marker string that makes a
+            replacement file line a comment: after stripping whitespace, a
+            line starting with this string is dropped (it produces no label
+            copy) and reported. Defaults to ``"# "`` (the code fallback,
+            which ``job-config.json`` also ships); ``""`` disables comment
+            handling. Same file requirement as
+            ``replacement_text_delimiter``; cascades job -> plate -> label.
         allow_rotation: Whether the bin packer may rotate label instances
             90 degrees to improve plate utilization. When a rotated label
             is assembled onto a plate its whole content (text, border and
@@ -3390,7 +3491,21 @@ class JobSpec(LabelAttributes):
         default=None,
         description=(
             "Single-character delimiter separating text items within a "
-            "replacement file line (default ';')."
+            "replacement file line (default ';'). Requires a replacement "
+            "file at some tier (job, plate, or label); cascades "
+            "job -> plate -> label."
+        ),
+    )
+    replacement_text_file_comment_string: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comment marker for replacement file lines: a line whose "
+            "whitespace-stripped text starts with this string is dropped "
+            "(it produces no label copy) and reported in a per-file WARNING. "
+            "Unset falls back to '# ' (job-config.json supplies the shop "
+            "default); an explicit '' disables comment handling. Requires a "
+            "replacement file at some tier (job, plate, or label); cascades "
+            "job -> plate -> label."
         ),
     )
 
@@ -3490,6 +3605,22 @@ class JobSpec(LabelAttributes):
                 newline, or is alphanumeric.
         """
         return _validate_replacement_delimiter_value(v)
+
+    @field_validator("replacement_text_file_comment_string")
+    @classmethod
+    def _validate_replacement_comment(cls, v: Optional[str]) -> Optional[str]:
+        """Validate the comment string (shared rule with label/plate-level fields).
+
+        Args:
+            v: The configured comment string, or None (unset).
+
+        Returns:
+            The validated comment string.
+
+        Raises:
+            ValueError: If the marker contains a newline character.
+        """
+        return _validate_replacement_comment_value(v)
 
     @model_validator(mode="after")
     def _apply_job_level_clearances(self) -> JobSpec:
@@ -3653,8 +3784,17 @@ class JobSpec(LabelAttributes):
         synthesized labels likewise carry no label-level dimensions, so the
         same job-level attributes are required.
 
+        The job-level ``replacement_text_delimiter`` /
+        ``replacement_text_file_comment_string`` cascade job -> plate ->
+        label, so they are legal without a *job-level* file, but the job
+        must contain a replacement file at some tier (job, plate, or label)
+        for them to mean anything. A plate declaring them without its own
+        file needs a label pinned to it (``LabelSpec.plate_id``) that
+        declares a file.
+
         Raises:
-            ValueError: If a delimiter is set without a file, ``count`` is
+            ValueError: If a delimiter or comment string is set with no
+                replacement file at the required tier(s), ``count`` is
                 combined with a job-level file (or with plate-level files
                 in root-content mode), a job-level file is combined with
                 plate-level files, or a replacement file (job- or
@@ -3664,10 +3804,46 @@ class JobSpec(LabelAttributes):
         Returns:
             Self for method chaining.
         """
-        if self.replacement_text_delimiter is not None and self.replacement_text_file is None:
-            raise ValueError(
-                "'replacement_text_delimiter' requires 'replacement_text_file' to be set"
-            )
+        label_file_ids = [
+            label.id for label in self.labels or [] if label.replacement_text_file is not None
+        ]
+        has_any_file = (
+            self.replacement_text_file is not None
+            or any(plate.replacement_text_file is not None for plate in self.plates or [])
+            or bool(label_file_ids)
+        )
+        for field_name in ("replacement_text_delimiter", "replacement_text_file_comment_string"):
+            if getattr(self, field_name) is None:
+                continue
+            if self.replacement_text_file is None and not has_any_file:
+                raise ValueError(
+                    f"'{field_name}' requires 'replacement_text_file' at the job, "
+                    "plate, or label level"
+                )
+
+        for plate in self.plates or []:
+            for field_name in (
+                "replacement_text_delimiter",
+                "replacement_text_file_comment_string",
+            ):
+                # Only a plate-DECLARED value needs a plate file; a value
+                # the plate inherits from the job cascades further down.
+                if field_name not in plate.model_fields_set:
+                    continue
+                if getattr(plate, field_name) is None or plate.replacement_text_file is not None:
+                    continue
+                pinned_files = [
+                    label.id
+                    for label in self.labels or []
+                    if label.plate_id == plate.id and label.replacement_text_file is not None
+                ]
+                if not pinned_files:
+                    raise ValueError(
+                        f"plate '{plate.id}': '{field_name}' requires "
+                        "'replacement_text_file' on the plate or on a label "
+                        "pinned to it"
+                    )
+
         if self.replacement_text_file is not None and "count" in self.model_fields_set:
             raise ValueError(
                 "'count' cannot be combined with 'replacement_text_file' "
@@ -3709,6 +3885,60 @@ class JobSpec(LabelAttributes):
                     f"{scope} synthesizes labels from the job-level attributes; "
                     f"job-level {', '.join(missing)} must be defined"
                 )
+
+        return self
+
+    @model_validator(mode="after")
+    def _apply_replacement_cascades(self) -> JobSpec:
+        """Cascade the replacement delimiter/comment string job -> plate -> label.
+
+        Mirrors :meth:`_apply_job_level_materials`: a value declared on the
+        lower tier always wins, and an explicit ``null`` counts as unset
+        (inherit), matching the job-config convention. Plates inherit the
+        job-level values; labels inherit their pinned plate's value when
+        present (``LabelSpec.plate_id``) and otherwise the job-level value.
+        The cascade is inert for labels without a replacement file (they are
+        never expanded), so existing specs are unaffected: without a
+        job/plate-level value every tier keeps ``None`` and
+        :mod:`plt_optimizer.generate.substitution` applies its own defaults.
+
+        Returns:
+            Self for method chaining.
+        """
+        fields = ("replacement_text_delimiter", "replacement_text_file_comment_string")
+        if self.plates is not None:
+            updated_plates: list[PlateSpec] = []
+            for plate in self.plates:
+                fill: dict[str, str] = {
+                    name: getattr(self, name)
+                    for name in fields
+                    if getattr(self, name) is not None and getattr(plate, name) is None
+                }
+                updated_plates.append(plate.model_copy(update=fill) if fill else plate)
+            self.plates = updated_plates
+
+        if self.labels:
+            # Post-plate-cascade values, so a label picks up a value its
+            # plate inherited from the job.
+            plate_values = {plate.id: plate for plate in self.plates or []}
+            updated_labels: list[LabelSpec] = []
+            for label in self.labels:
+                # Only file-bearing labels are ever expanded, so only they
+                # receive the cascade (keeps the label-tier invariant that a
+                # declared delimiter/comment needs the label's own file).
+                if label.replacement_text_file is None:
+                    updated_labels.append(label)
+                    continue
+                source = plate_values.get(label.plate_id or "")
+                fill = {}
+                for name in fields:
+                    inherited = getattr(source, name) if source is not None else None
+                    if inherited is None:
+                        inherited = getattr(self, name)
+                    if inherited is not None and getattr(label, name) is None:
+                        fill[name] = inherited
+                updated_labels.append(label.model_copy(update=fill) if fill else label)
+            self.labels = updated_labels
 
         return self
 

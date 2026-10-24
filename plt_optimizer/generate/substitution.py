@@ -4,8 +4,11 @@ This module implements EngraveLab / Vision Pro "badge" (a.k.a. "multiples")
 style data-driven label generation. A ``LabelSpec`` may reference a
 *replacement text file* whose lines each produce one label instance:
 
-- Each line of the replacement file corresponds to one copy of the label
-  template (the file's line count determines the label's effective count).
+- Each data line of the replacement file corresponds to one copy of the
+  label template (the file's data-line count determines the label's
+  effective count). Blank lines and comment lines (marker
+  ``replacement_text_file_comment_string``, default ``"# "``) produce no
+  copy and are reported in a per-file WARNING.
 - Within a line, a configurable single-character delimiter (default ``;``)
   separates the replacement text items for the template's text lines.
 - If a line contains *fewer* items than the template has lines, only that
@@ -44,6 +47,13 @@ delimiter is *always* treated as separate items, so users must pick a
 delimiter that does not occur inside single text lines (the EngraveLab
 constraint, enforced by construction).
 
+Replacement files may carry **comments**: a line whose whitespace-stripped
+text starts with ``replacement_text_file_comment_string`` (cascades job ->
+plate -> label; default ``"# "``, ``""`` disables) produces no label copy,
+and whitespace-only lines are dropped too. Every dropped line (blank or
+comment) is reported in a single WARNING per file. A file left with no data
+lines after dropping them raises :class:`SubstitutionError`.
+
 Example:
     >>> from pathlib import Path
     >>> from plt_optimizer.generate.schema import parse_yaml
@@ -70,6 +80,12 @@ logger = logging.getLogger(__name__)
 # Default item delimiter within a replacement file line (EngraveLab default).
 DEFAULT_REPLACEMENT_DELIMITER: str = ";"
 
+# Default comment marker for replacement file lines. A line whose
+# whitespace-stripped text starts with this string produces no label copy
+# and is reported in a per-file WARNING. "" (explicitly declared) disables
+# comment handling; the code fallback matches the shipped job-config.json.
+DEFAULT_REPLACEMENT_COMMENT_STRING: str = "# "
+
 # Width of the zero-padded numeric suffix appended to expanded label ids.
 _INSTANCE_SUFFIX_WIDTH: int = 4
 
@@ -86,27 +102,52 @@ class SubstitutionError(ValueError):
     """
 
 
-def load_replacement_file(file_path: Path, delimiter: str) -> list[list[str]]:
+def _effective_comment_string(comment_string: Optional[str]) -> str:
+    """Resolve the effective replacement-file comment marker.
+
+    Args:
+        comment_string: The cascaded value, ``None`` (unset = the code
+            default) or ``""`` (explicitly disables comment handling).
+
+    Returns:
+        The marker string to match (``""`` = comments disabled).
+    """
+    return DEFAULT_REPLACEMENT_COMMENT_STRING if comment_string is None else comment_string
+
+
+def load_replacement_file(
+    file_path: Path,
+    delimiter: str,
+    comment_string: Optional[str] = None,
+) -> list[list[str]]:
     """Load a replacement text file and split it into per-instance item lists.
 
-    Each non-trailing line of the file produces one list of text items,
-    split on ``delimiter``. Items are used verbatim (no whitespace
-    stripping), matching EngraveLab/Vision Pro semantics. Blank lines are
-    preserved as single empty items (rendered as empty text) and logged at
-    WARNING level. A trailing newline at end of file does *not* produce an
-    extra instance.
+    Each data line of the file produces one list of text items, split on
+    ``delimiter``. Items are used verbatim (no whitespace stripping),
+    matching EngraveLab/Vision Pro semantics. Two kinds of line produce no
+    instance and are reported together in a single WARNING per file:
+
+    - **Blank lines** (empty or whitespace-only) are dropped.
+    - **Comment lines** -- a line whose whitespace-stripped text starts with
+      ``comment_string`` (default ``"# "``; ``""`` disables comment handling)
+      -- are dropped.
+
+    A trailing newline at end of file does *not* produce an extra instance.
 
     Args:
         file_path: Path to the replacement text file.
         delimiter: Single-character item delimiter.
+        comment_string: Comment marker; ``None`` applies
+            :data:`DEFAULT_REPLACEMENT_COMMENT_STRING`, ``""`` disables.
 
     Returns:
-        A list with one entry per file line; each entry is the list of
+        A list with one entry per data line; each entry is the list of
         delimited text items on that line.
 
     Raises:
         SubstitutionError: If the file does not exist, is not a regular
-            file, cannot be read, or contains zero content lines.
+            file, cannot be read, or contains zero data lines (empty, only
+            blank lines, and/or only comment lines).
     """
     if not file_path.is_file():
         raise SubstitutionError(f"Replacement text file not found: {file_path}")
@@ -128,9 +169,18 @@ def load_replacement_file(file_path: Path, delimiter: str) -> list[list[str]]:
     if normalized == "":
         raise SubstitutionError(f"Replacement text file is empty: {file_path}")
 
+    comment = _effective_comment_string(comment_string)
     lines = normalized.split("\n")
     instances: list[list[str]] = []
+    dropped: list[str] = []
     for line_no, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if stripped == "":
+            dropped.append(f"line {line_no}: (blank)")
+            continue
+        if comment and stripped.startswith(comment):
+            dropped.append(f"line {line_no}: {line!r} (comment)")
+            continue
         items = line.split(delimiter)
         if any(item == "" for item in items):
             logger.warning(
@@ -141,11 +191,31 @@ def load_replacement_file(file_path: Path, delimiter: str) -> list[list[str]]:
             )
         instances.append(items)
 
+    if dropped:
+        logger.warning(
+            "Replacement file %s ignored %d line(s) -- comment marker %s; "
+            "declare replacement_text_file_comment_string to change it "
+            "('' disables comments):\n  %s",
+            file_path,
+            len(dropped),
+            repr(comment) if comment else "disabled",
+            "\n  ".join(dropped),
+        )
+
+    if not instances:
+        raise SubstitutionError(
+            f"Replacement text file has no data lines (only blank and/or comment "
+            f"lines were found): {file_path}"
+        )
+
     logger.info(
-        "Loaded replacement text file %s: %d instance line(s), delimiter %r.",
+        "Loaded replacement text file %s: %d instance line(s), delimiter %r, "
+        "comment marker %r, %d line(s) ignored.",
         file_path,
         len(instances),
         delimiter,
+        comment,
+        len(dropped),
     )
     return instances
 
@@ -270,8 +340,9 @@ def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[Lab
         return [label]
 
     delimiter = label.replacement_text_delimiter or DEFAULT_REPLACEMENT_DELIMITER
+    comment = _effective_comment_string(label.replacement_text_file_comment_string)
     file_path = _resolve_file_path(label.replacement_text_file, base_dir)
-    instances = load_replacement_file(file_path, delimiter)
+    instances = load_replacement_file(file_path, delimiter, comment)
 
     expanded: list[LabelSpec] = []
     for index, items in enumerate(instances):
@@ -285,6 +356,7 @@ def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[Lab
                     "content": content,
                     "replacement_text_file": None,
                     "replacement_text_delimiter": None,
+                    "replacement_text_file_comment_string": None,
                 }
             )
         )
@@ -326,6 +398,7 @@ def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
         content=job.content,
         replacement_text_file=job.replacement_text_file,
         replacement_text_delimiter=job.replacement_text_delimiter,
+        replacement_text_file_comment_string=job.replacement_text_file_comment_string,
     )
     instances = expand_label_with_replacements(template, base_dir)
     logger.info(
@@ -339,6 +412,7 @@ def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             "content": None,
             "replacement_text_file": None,
             "replacement_text_delimiter": None,
+            "replacement_text_file_comment_string": None,
         }
     )
 
@@ -392,6 +466,7 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             content=template_content,
             replacement_text_file=plate.replacement_text_file,
             replacement_text_delimiter=plate.replacement_text_delimiter,
+            replacement_text_file_comment_string=plate.replacement_text_file_comment_string,
         )
         instances = expand_label_with_replacements(template, base_dir)
         # Pinned labels inherit the declaring plate's material (the one true
@@ -413,6 +488,7 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
                 update={
                     "replacement_text_file": None,
                     "replacement_text_delimiter": None,
+                    "replacement_text_file_comment_string": None,
                 }
             )
         )
@@ -423,6 +499,8 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             "plates": updated_plates,
             "content": None,
             "count": None,
+            "replacement_text_delimiter": None,
+            "replacement_text_file_comment_string": None,
         }
     )
 
@@ -473,4 +551,10 @@ def expand_job_spec(job: JobSpec, yaml_path: Path) -> JobSpec:
         len(expanded_labels),
         len(job.labels),
     )
-    return job.model_copy(update={"labels": expanded_labels})
+    return job.model_copy(
+        update={
+            "labels": expanded_labels,
+            "replacement_text_delimiter": None,
+            "replacement_text_file_comment_string": None,
+        }
+    )
