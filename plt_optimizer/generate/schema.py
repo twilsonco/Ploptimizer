@@ -2255,8 +2255,9 @@ def _validate_replacement_comment_value(v: Optional[str]) -> Optional[str]:
 
     Any string is a legal marker (``"#"`` and ``"# "`` are the idiomatic
     choices, and multi-character forms like ``"## "`` work), and the empty
-    string is meaningful: it **disables** comment handling so every line --
-    including one that starts with ``#`` -- is data. Only newlines are
+    string is meaningful: it **disables** comment handling, so every
+    non-blank line -- including one that starts with ``#`` -- is raw data
+    (whitespace-only/empty lines are still dropped). Only newlines are
     rejected, since a marker can never occur inside a single file line.
 
     Args:
@@ -2311,8 +2312,9 @@ class LabelSpec(LabelAttributes):
             replacement file line a comment: after stripping whitespace, a
             line starting with this string is dropped (it produces no label
             copy) and reported. Defaults to ``"# "`` (the code fallback, which
-            ``job-config.json`` also ships); ``""`` disables comment handling.
-            Requires ``replacement_text_file``.
+            ``job-config.json`` also ships); ``""`` disables comment handling,
+            so every non-blank line is raw data (whitespace-only/empty lines
+            are still dropped). Requires ``replacement_text_file``.
         plate_id: Optional id of the plate this label is pinned to. Pinned
             labels pack exclusively onto that plate, and the plate then
             accepts no other labels. Normally set by plate-level
@@ -2363,7 +2365,8 @@ class LabelSpec(LabelAttributes):
             "(it produces no label copy) and reported in a per-file WARNING. "
             "Unset inherits the plate/job cascade (fallback '# '; "
             "job-config.json supplies the shop default); an explicit '' "
-            "disables comment handling. Requires replacement_text_file."
+            "disables comment handling (every non-blank line is raw data; "
+            "blank lines are still dropped). Requires replacement_text_file."
         ),
     )
     plate_id: Optional[str] = Field(
@@ -2698,7 +2701,8 @@ class PlateSpec(BaseModel):
             line starting with this string is dropped (it produces no label
             copy) and reported. Defaults to ``"# "`` (the code fallback,
             which ``job-config.json`` also ships); ``""`` disables comment
-            handling. Same file requirement as
+            handling, so every non-blank line is raw data (whitespace-only
+            lines are still dropped). Same file requirement as
             ``replacement_text_delimiter``; cascades plate -> label for
             pinned labels that omit the field.
     """
@@ -3185,7 +3189,8 @@ class PlateSpec(BaseModel):
             "(it produces no label copy) and reported in a per-file WARNING. "
             "Unset inherits the job cascade (fallback '# '; "
             "job-config.json supplies the shop default); an explicit '' "
-            "disables comment handling. Same file requirement as "
+            "disables comment handling (every non-blank line is raw data; "
+            "blank lines are still dropped). Same file requirement as "
             "replacement_text_delimiter; cascades plate -> pinned label."
         ),
     )
@@ -3420,7 +3425,8 @@ class JobSpec(LabelAttributes):
             line starting with this string is dropped (it produces no label
             copy) and reported. Defaults to ``"# "`` (the code fallback,
             which ``job-config.json`` also ships); ``""`` disables comment
-            handling. Same file requirement as
+            handling, so every non-blank line is raw data (whitespace-only
+            lines are still dropped). Same file requirement as
             ``replacement_text_delimiter``; cascades job -> plate -> label.
         allow_rotation: Whether the bin packer may rotate label instances
             90 degrees to improve plate utilization. When a rotated label
@@ -3503,9 +3509,10 @@ class JobSpec(LabelAttributes):
             "whitespace-stripped text starts with this string is dropped "
             "(it produces no label copy) and reported in a per-file WARNING. "
             "Unset falls back to '# ' (job-config.json supplies the shop "
-            "default); an explicit '' disables comment handling. Requires a "
-            "replacement file at some tier (job, plate, or label); cascades "
-            "job -> plate -> label."
+            "default); an explicit '' disables comment handling (every "
+            "non-blank line is raw data; blank lines are still dropped). "
+            "Requires a replacement file at some tier (job, plate, or "
+            "label); cascades job -> plate -> label."
         ),
     )
 

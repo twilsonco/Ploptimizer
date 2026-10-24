@@ -219,9 +219,13 @@ class TestLoadReplacementFile:
         assert load_replacement_file(path, ";", "//") == [["A", "B"], ["# kept data"]]
 
     def test_empty_comment_string_disables(self, tmp_path: Path) -> None:
-        """'' disables comment handling: every line is data."""
-        path = _write(tmp_path / "r.txt", "# header\nA;B\n")
-        assert load_replacement_file(path, ";", "") == [["# header"], ["A", "B"]]
+        """'' disables comment handling: every non-blank line is raw data."""
+        path = _write(tmp_path / "r.txt", "# header\nA;B\n   \n#noSpace\n")
+        assert load_replacement_file(path, ";", "") == [
+            ["# header"],
+            ["A", "B"],
+            ["#noSpace"],
+        ]
 
     def test_all_comment_file_raises(self, tmp_path: Path) -> None:
         """A file with no data lines left raises SubstitutionError."""

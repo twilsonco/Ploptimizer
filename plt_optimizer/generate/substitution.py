@@ -49,10 +49,11 @@ constraint, enforced by construction).
 
 Replacement files may carry **comments**: a line whose whitespace-stripped
 text starts with ``replacement_text_file_comment_string`` (cascades job ->
-plate -> label; default ``"# "``, ``""`` disables) produces no label copy,
-and whitespace-only lines are dropped too. Every dropped line (blank or
-comment) is reported in a single WARNING per file. A file left with no data
-lines after dropping them raises :class:`SubstitutionError`.
+plate -> label; default ``"# "``) produces no label copy, and whitespace-only
+lines are dropped too. Setting the marker to ``""`` disables comment handling:
+every line is raw data (blank lines are still dropped). Every dropped line
+(blank or comment) is reported in a single WARNING per file. A file left with
+no data lines after dropping them raises :class:`SubstitutionError`.
 
 Example:
     >>> from pathlib import Path
@@ -83,7 +84,8 @@ DEFAULT_REPLACEMENT_DELIMITER: str = ";"
 # Default comment marker for replacement file lines. A line whose
 # whitespace-stripped text starts with this string produces no label copy
 # and is reported in a per-file WARNING. "" (explicitly declared) disables
-# comment handling; the code fallback matches the shipped job-config.json.
+# comment handling -- every line is raw data (blank lines are still
+# dropped); the code fallback matches the shipped job-config.json.
 DEFAULT_REPLACEMENT_COMMENT_STRING: str = "# "
 
 # Width of the zero-padded numeric suffix appended to expanded label ids.
@@ -127,10 +129,11 @@ def load_replacement_file(
     matching EngraveLab/Vision Pro semantics. Two kinds of line produce no
     instance and are reported together in a single WARNING per file:
 
-    - **Blank lines** (empty or whitespace-only) are dropped.
+    - **Blank lines** (empty or whitespace-only) are always dropped.
     - **Comment lines** -- a line whose whitespace-stripped text starts with
-      ``comment_string`` (default ``"# "``; ``""`` disables comment handling)
-      -- are dropped.
+      ``comment_string`` (default ``"# "``) -- are dropped. ``comment_string``
+      ``""`` disables comment handling: every line is raw data (blank lines
+      are still dropped).
 
     A trailing newline at end of file does *not* produce an extra instance.
 

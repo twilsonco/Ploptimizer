@@ -1818,10 +1818,12 @@ whitespace character, never newline/alphanumeric).
 - **File format:** data plus comments — every *data* line is a label copy.
   A line whose whitespace-stripped text starts with
   `replacement_text_file_comment_string` (default `"# "`; `""` disables
-  comment handling) is a comment; whitespace-only lines are blank. Both
+  comment handling, so every non-blank line is raw data) is a comment;
+  whitespace-only lines are blank. Both
   kinds produce **no** copy and are reported together in one WARNING per
   file (1-based line numbers + text) so a shop can see exactly what was
-  ignored. A file left with no data lines raises `SubstitutionError`.
+  ignored. Blank lines are dropped **always** (even with comments disabled).
+  A file left with no data lines raises `SubstitutionError`.
   CRLF/CR endings are normalized; a single trailing newline does
   not create a phantom copy; a UTF-8 BOM is stripped; items are used
   verbatim (no whitespace stripping). Loading failures raise

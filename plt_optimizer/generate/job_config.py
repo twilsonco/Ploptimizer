@@ -184,7 +184,8 @@ class JobDefaults(BaseModel):
         replacement_text_file_comment_string: Default replacement-file
             comment marker (job layer; cascades job -> plate -> label).
             Unset falls back to the code default ``"# "``; ``""`` disables
-            comment handling. Injected only when the spec declares a
+            comment handling (every non-blank line is raw data; blank lines
+            are still dropped). Injected only when the spec declares a
             replacement text file at some tier.
         type: Default label boundary shape ('rect' historical, 'round'
             ellipse/circle). Labels that omit it inherit the job value.
@@ -840,9 +841,10 @@ class JobDefaults(BaseModel):
             "job -> plate -> label): a replacement text file line whose "
             "whitespace-stripped text starts with this string produces no "
             "label copy and is reported in a per-file WARNING. Unset falls "
-            "back to the code default '# '; '' disables comment handling. "
-            "Injected only when the job spec declares a replacement_text_file "
-            "at the job, plate, or label level."
+            "back to the code default '# '; '' disables comment handling "
+            "(every non-blank line is raw data; blank lines are still "
+            "dropped). Injected only when the job spec declares a "
+            "replacement_text_file at the job, plate, or label level."
         ),
     )
     type: Optional[LabelShape] = Field(

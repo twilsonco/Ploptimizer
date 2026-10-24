@@ -104,7 +104,7 @@ job:
     - id: badge
       replacement_text_file: data.txt      # relative to the YAML's directory
       replacement_text_delimiter: ";"      # optional, default ";"
-      replacement_text_file_comment_string: "# "  # optional, default "# "; "" disables
+      replacement_text_file_comment_string: "# "  # default; "" = all lines raw data
       content:
         - text: "PLACEHOLDER L1"           # declares line-1 attributes only
           text_height: 0.45
@@ -166,9 +166,10 @@ A minimal real-world example (job-level file, form 4):
   special/whitespace char, default `;`; must not appear in the data). A line
   whose whitespace-stripped text starts with
   `replacement_text_file_comment_string` (default `"# "`, cascades job →
-  plate → label, `""` disables) is a comment and produces no copy;
-  whitespace-only lines are dropped too. Every dropped line (comment or
-  blank) is reported in **one WARNING per file** (line numbers + text). A
+  plate → label; `""` disables comment handling -- every non-blank line is
+  then raw data) is a comment; whitespace-only lines are dropped too. Every
+  dropped line (comment or blank) is reported in **one WARNING per file**
+  (line numbers + text). A
   file left with no data lines raises. CRLF/CR normalized; one trailing
   newline does not create a phantom copy; UTF-8 BOM stripped; items used
   verbatim (no whitespace stripping).
@@ -219,7 +220,7 @@ always wins at its level. Precedence per attribute:
 | `layout` (per plate) | plate → job → config | — |
 | `material` | label → job; plate → job | `null` (unset) |
 | `replacement_text_delimiter` | label → plate (pinned) → job → config | `;` |
-| `replacement_text_file_comment_string` | label → plate (pinned) → job → config | `"# "` (`""` disables comments) |
+| `replacement_text_file_comment_string` | label → plate (pinned) → job → config | `"# "` (`""` = comments off: every non-blank line is raw data) |
 | `left_clearance`, `top_clearance` | plate → job → config | 0.0 |
 | plate `width`/`height` | plate → config (`plate_width`/`plate_height`) | 24×16 (unbounded auto-allocation only) |
 
