@@ -4,14 +4,18 @@
 job:
   job_name: ADK 111577 UPS2
   replacement_text_file: 2026-09-28 adk.txt
+  material: bw
   width: 6.0
   height: 4.0
   text_height: 0.22
   line_spacing: 0.3
   font: dino
   h_margin: 0.25
+  holes:
+    - location: corners
   content:
     - text: "!!! WARNING !!!"
+      text_color: red
       text_height: 0.5
       line_spacing: 0.4
     - text: "ARC Flash Hazard — Refer to NFPA 70E"
