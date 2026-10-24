@@ -16,7 +16,13 @@ Drift is pinned by `tests/test_job_spec_docs.py`: if `schema.py` /
 `job_config.py` change without regenerating the artifacts, the test suite
 fails. The tool_options table in `JOB_SPEC.md` is auto-generated from the
 live `job-config.json`, so it always reflects the current available engraver
-parameters. All units are **inches**.
+parameters. All units are **inches**. Every model is strict: unknown keys are
+forbidden (`additionalProperties: false`) at **every** tier — job, label,
+content line, list block/item, plate, hole — so a typo fails loudly at
+`parse_yaml()` with its exact path (e.g. `labels.0.content.0.tex_height`)
+instead of being silently ignored. The free-form `tool_options` mapping is
+the one intentional exception: its keys are engraver option names, not
+schema fields.
 
 ## Pipeline context
 

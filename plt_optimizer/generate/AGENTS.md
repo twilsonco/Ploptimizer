@@ -23,6 +23,20 @@ Sub-contracts in this directory tree - read them when touching those modules:
 ### Overview
 The `plt_optimizer/generate/schema.py` module defines the complete data contract for label generation jobs via YAML specifications. All models use **Pydantic** for validation and inherit from typed base classes supporting cascading attributes.
 
+**Strict schema (every model forbids unknown fields):** all 12 spec/config
+models set `model_config = ConfigDict(extra="forbid")` (declared on the
+`HoleSpec` / `TextAttributes` / `PlateSpec` roots — pydantic inheritance
+covers the rest — and on `JobDefaults` in `job_config.py`). A misspelled key
+at any tier (job, label, content line, list block/item, plate, hole) fails
+loudly at `parse_yaml()` with its exact dotted path
+(e.g. `labels.0.content.0.tex_height: Extra inputs are not permitted`) —
+a field the user typed is a field the user expects to engrave, so silent
+ignoring is never acceptable. The free-form `tool_options: dict[str, Any]`
+*field value* is unaffected (its keys are engraver option names, not schema
+fields). Pinned by `tests/test_schema.py::TestStrictUnknownFields`; the
+generated JSON schemas carry the contract as `additionalProperties: false`
+(drift-pinned by `tests/test_job_spec_docs.py`).
+
 ### Core Data Model
 
 **Inheritance Hierarchy (Top-Down Cascade):**

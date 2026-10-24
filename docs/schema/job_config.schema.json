@@ -30,6 +30,7 @@
       "type": "string"
     },
     "HoleSpec": {
+      "additionalProperties": false,
       "description": "Specification for a hole to be drilled in a label.\n\n``location`` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as ``location``\nalone. ``diameter`` is an optional override for non-standard sizes.\n\nGroup locations (``corners`` / ``sides``) are expanded into their\natomic member holes at validation time by the ``holes`` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's ``diameter``.\n\nAttributes:\n    location: The position of the hole on the label edge. Group\n        shorthands ``corners`` (all four corners) and ``sides``\n        (left + right) are accepted and expanded into their members.\n    diameter: The diameter of the hole in inches. Defaults to\n        :data:`DEFAULT_HOLE_DIAMETER` (0.125\"); must be positive.",
       "properties": {
         "location": {

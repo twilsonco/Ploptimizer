@@ -16,7 +16,10 @@ against the `JobSpec` model below. The machine-readable contract is
 
 Validation entry point: `plt_optimizer.generate.schema.parse_yaml(path)`
 (raises `ValueError`; `JobConfigError` for job-config violations). Every
-numeric field is in **inches**.
+numeric field is in **inches**. Every model rejects unknown keys
+(`additionalProperties: false`): a misspelled field fails loudly with
+its exact path (e.g. `labels.0.content.0.tex_height`) instead of being
+silently ignored.
 
 ## Root model: `job:` mapping
 
