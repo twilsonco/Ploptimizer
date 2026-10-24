@@ -1926,12 +1926,20 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
 
 The combined per-plate proof `pdf/[<plate>_][<material>_]all_<job_id>.pdf`
 renders an accurate preview of the engraved label: text ink in its real
-color over the material's background color on a white page. The color logic
-lives in `preview_colors.py` (pure string handling, matplotlib-free,
-Python 3.8-safe -- it sits on the headless export path); only the combined
-plots are colored, the per-cutter `_txt_`/`_bh_` PDFs and the `*_default.pdf`
-diagnostics keep the historical black ink.
+color over the material's background color on the (light grey,
+configurable) proof page. The color logic lives in `preview_colors.py`
+(pure string handling, matplotlib-free, Python 3.8-safe -- it sits on the
+headless export path); only the combined plots are colored, the per-cutter
+`_txt_`/`_bh_` PDFs and the `*_default.pdf` diagnostics keep the historical
+black ink on white.
 
+- **Page background**: `job-config.json` `preview_background_color` (hex
+  `#RGB`/`#RRGGBB`, validated by a `JobDefaults` field validator via
+  `normalize_preview_background_color`, default `#D3D3D3` =
+  `DEFAULT_PREVIEW_BACKGROUND_COLOR`) colors the combined proof's figure +
+  axes (`plot_physical_strokes(background_color=...)`). Display-only: it is
+  deliberately NOT in `_JOB_LAYER_FIELDS`, so it never injects into the
+  (extra-forbidding) `JobSpec` and never touches PLTs.
 - **Material -> colors** (`parse_material_colors`): the free-form cascading
   `material` name yields `(background, text)`. Three case-insensitive forms,
   first match wins: delimiter (`red-on-white`, `red:white`, `red|white`,
@@ -1953,26 +1961,31 @@ diagnostics keep the historical black ink.
   per-character arrays) > the material core color > black, except an
   unresolved color over a DARK background (black/blue/red/green/magenta/
   violet) renders white so the proof stays legible.
+- **Contrast outlines** (`outline_color_for` / `is_white_color`): the label
+  border (SP2) and drill-hole (SP3) inks render OPAQUE in the contrasting
+  color -- black over a white background, white over everything else (the
+  simple automated rule; `#D3D3D3` grey is not white). Borders contrast
+  with the material background, holes with the page background.
 - **Background fills**: the label boundary rectangles (SP2) enclose the
   material; `_write_simple_plots` turns the parsed SP2 closed runs into
   enclosed-area polygons (`diagnostics.stroke_geometry.closed_path_polygons`
   -- union semantics, no cutter width) and passes them as
   `PhysicalFillLayer`s, which `plot_physical_strokes` draws beneath the ink.
-  Borders (SP2) keep the translucent black underlay
-  (`PHYSICAL_STRUCTURAL_ALPHA`). Drill holes (SP3) are the exception: their
-  closed circles punch a white "see-through" disc (a `PhysicalFillLayer`
-  appended after the background fill, so it sits on top of the material
-  color) and their outline ink renders OPAQUE black -- translucent ink
-  vanishes over a dark material background, and the outline must stay
-  visible on white stock too.
+  Drill holes (SP3) punch the preview background color: their closed circles
+  become a second fill set (appended after the background fill, so the disc
+  sits on top of the material color) -- the "see-through" look.
 - **Fallbacks unchanged**: no `pen_widths` (synthetic export) keeps the thin
   centerline preview; a stem whose cutter token cannot be parsed keeps the
   per-file thin render.
-- Pinned by `tests/test_preview_colors.py` (every convention + precedence),
-  `tests_deps/preview_color_job.yaml` + `TestPreviewColors`
-  (`tests/test_phase3_export.py`: bw combined colors, per-file black-only,
-  material-less regression, wb/magenta split), and
-  `TestPlotPhysicalStrokesColors` (`tests/test_plotter.py`).
+- Pinned by `tests/test_preview_colors.py` (every convention + precedence +
+  the hex/contrast helpers), `tests_deps/preview_color_job.yaml` +
+  `TestPreviewColors` (`tests/test_phase3_export.py`: bw combined
+  fill/ink/outline colors, configurable page background, wb black-border
+  contrast, per-file black-only, material-less black-on-white regression),
+  `TestClosedPathPolygons` (`tests/test_stroke_geometry.py`),
+  `TestPlotPhysicalStrokesColors` + `TestPlotPhysicalStrokesBackground`
+  (`tests/test_plotter.py`), and the config-field tests
+  (`tests/test_job_config.py`).
 
 
 ### Integration Points
@@ -2054,6 +2067,13 @@ top-most layer:
   no-config safety net).
 - Malformed JSON or unknown config keys fail loudly (`JobConfigError`);
   `description` is an accepted free-form key (mirrors `tools.json`).
+- `preview_background_color` (hex `#RGB`/`#RRGGBB`, validated by a
+  `JobDefaults` field validator) is the one **display-only** key: it is
+  deliberately NOT in `_JOB_LAYER_FIELDS` (never injected into the
+  extra-forbidding `JobSpec`) and is read directly from
+  `job_config.defaults` by `export_per_cutter_plts` to color the combined
+  `all_*.pdf` proof page (default `#D3D3D3`; see "Colored Combined PDF
+  Previews").
 
 ## Stage timing contract (`utils/stage_timing.py`)
 

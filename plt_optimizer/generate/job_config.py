@@ -55,8 +55,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from plt_optimizer.generate.preview_colors import normalize_preview_background_color
 from plt_optimizer.generate.schema import (
     CounterStyle,
     HoleSpec,
@@ -212,6 +213,11 @@ class JobDefaults(BaseModel):
             specified diameter. Unset falls back to True.
         tool_options: Engraver tool options (header commands) metadata with
             HPGL command prefixes, types, units, dual defaults, and bounds.
+        preview_background_color: Page/plot background color (hex string)
+            of the combined ``all_*.pdf`` proof previews; drill holes punch
+            the same color. Unset falls back to ``#D3D3D3`` (light grey).
+            Display-only: never injected into the job spec and never
+            affects the emitted PLTs.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -896,6 +902,30 @@ class JobDefaults(BaseModel):
             "Populated by the extract_headers.py script from PLT reference files."
         ),
     )
+    preview_background_color: Optional[str] = Field(
+        default=None,
+        description=(
+            "Page/plot background color of the combined 'all_*.pdf' proof "
+            "previews, as a #RGB or #RRGGBB hex string (drill holes punch "
+            "this same color). Unset falls back to '#D3D3D3' (light grey)."
+        ),
+    )
+
+    @field_validator("preview_background_color")
+    @classmethod
+    def _normalize_preview_background_color(cls, value: Optional[str]) -> Optional[str]:
+        """Validate/normalize the configured preview background color.
+
+        Args:
+            value: The configured hex color, or ``None`` (unset).
+
+        Returns:
+            The trimmed hex string, or ``None`` when unset.
+
+        Raises:
+            ValueError: If the value is not a #RGB/#RRGGBB hex color.
+        """
+        return normalize_preview_background_color(value)
 
 
 @dataclass(frozen=True)

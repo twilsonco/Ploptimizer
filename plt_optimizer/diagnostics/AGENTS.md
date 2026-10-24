@@ -56,17 +56,22 @@ font showcases (`fonts/font_showcase.py`) and thin-line fallbacks.
 
 - `PhysicalStrokeLayer(segments, width_inches, alpha=1.0, label="", facecolor="black")` -
   one width-tagged layer (plotter-unit segments, cutter diameter in inches).
-  Text ink: `alpha=1.0`; border/hole underlays: `PHYSICAL_STRUCTURAL_ALPHA`
-  (= `SIMPLE_STRUCTURAL_ALPHA`, 0.3) keeps them visually distinct.
-  `facecolor` colors the engraved ink (the colored `all_*.pdf` proof previews
-  pass the resolved text/material color - see
+  Text ink: `alpha=1.0`; per-file border/hole underlays:
+  `PHYSICAL_STRUCTURAL_ALPHA` (= `SIMPLE_STRUCTURAL_ALPHA`, 0.3) keeps them
+  visually distinct (the colored combined proof renders every pen opaque
+  with contrast outlines). `facecolor` colors the engraved ink (the colored
+  `all_*.pdf` proof previews pass the resolved text/material color - see
   [`../generate/AGENTS.md`](../generate/AGENTS.md) "Colored Combined PDF
   Previews"); the default keeps every other render black.
 - `PhysicalFillLayer(polygons, color, alpha=1.0, label="")` + the
   `plot_physical_strokes(..., fills=...)` parameter - enclosed-area
   background fills drawn *beneath* every stroke layer (the material
-  background under the proof ink). Fills also widen the axis envelope;
-  fills without ink render (the empty-plot placeholder needs both empty).
+  background and the drill-hole "see-through" disc under the proof ink).
+  Fills also widen the axis envelope; fills without ink render (the
+  empty-plot placeholder needs both empty).
+- `plot_physical_strokes(..., background_color=None)` - optional figure +
+  axes facecolor for the proof page (the combined previews pass the
+  configured `preview_background_color`); `None` keeps matplotlib's white.
 - `stroke_geometry.expand_cutting_polygons(segments, width_inches)` is the
   pure-geometry core (shapely `buffer`, round caps/joins, `unary_union`):
   contiguous pen-down runs join into ribbons, arcs flatten via the same

@@ -249,9 +249,11 @@ plate spans 19304 units and a 2in-tall one spans 2032.
 
 The simple-outline PDF previews (one per per-cutter PLT plus one combined
 `[<plate>_][<material>_]all_<job_id>.pdf` per plate) are already written by Phase 3.
-The combined preview is a colored proof: text ink in its resolved color
+The combined preview is a colored proof: the page background is the configured
+`preview_background_color` (default `#D3D3D3` grey), text ink in its resolved color
 (`text_color` / `<tc:color>` pen tag, then the material core, then black) over the
-material's background fill (see `plt_optimizer/generate/preview_colors.py`); the
+material's background fill, with contrasting label/hole outlines and drill holes
+punched in the page color (see `plt_optimizer/generate/preview_colors.py`); the
 per-cutter PDFs stay black. Phase 4
 adds the **color-coded** `*_default.pdf` diagnostic plots (cumulative-distance
 toolpath with rapid-travel visualization) via `write_default_plots()`, one per

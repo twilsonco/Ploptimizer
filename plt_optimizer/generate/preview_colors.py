@@ -3,7 +3,9 @@
 The per-plate combined PDF preview (see
 :func:`plt_optimizer.generate.vectorize.export_per_cutter_plts`) renders an
 accurate proof of the engraved label: text ink in its real color over the
-material's background color on a white page. This module turns the two
+material's background color on a configurable grey page
+(``job-config.json`` ``preview_background_color``, default
+:data:`DEFAULT_PREVIEW_BACKGROUND_COLOR`). This module turns the two
 free-form job-spec fields into that palette:
 
 - ``material`` (cascades job -> plate -> label; a plate carries exactly one
@@ -12,6 +14,9 @@ free-form job-spec fields into that palette:
 - The per-pen stroke-color tag (the ``text_color`` field and inline
   ``<tc:color>`` markup, both of which the pen map already splits into
   separate layers) overrides the material-derived text color.
+- The structural layers (label borders, drill holes) take a simple
+  automated contrast outline via :func:`outline_color_for`: black over a
+  white background, white over everything else.
 
 Material naming conventions (all case-insensitive; anything after the color
 part is a property suffix -- adhesive, UV, etc. -- and is ignored, per the
@@ -106,6 +111,14 @@ _FULL_NAMES_BY_LENGTH: Tuple[str, ...] = tuple(
 _DARK_BACKGROUND_COLORS: frozenset[str] = frozenset(
     {"black", "blue", "red", "green", "magenta", "violet"}
 )
+
+# Default page/plot background of the combined proof previews (light grey,
+# configurable via job-config.json ``preview_background_color``). Drill
+# holes punch this color (the "see-through" disc matches the page).
+DEFAULT_PREVIEW_BACKGROUND_COLOR = "#D3D3D3"
+
+# Hex color literal: #RGB or #RRGGBB (case-insensitive).
+_HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 # "red-on-white" / "red:white" / "red|white" / "red/white": two alphabetic
 # color tokens with an explicit delimiter. Anchored at the start; a trailing
@@ -207,3 +220,70 @@ def resolve_text_color(pen_color: Optional[str], material_colors: MaterialColors
     if material_colors.background in _DARK_BACKGROUND_COLORS:
         return "white"
     return "black"
+
+
+def is_white_color(color: str) -> bool:
+    """Return whether a preview color is (near-)white.
+
+    Accepts the canonical palette names and ``#RGB``/``#RRGGBB`` hex
+    literals (the ``preview_background_color`` form). Only pure white
+    counts: the name ``white`` and the hex spellings ``#FFF``/``#FFFFFF``
+    (case-insensitive). Light greys -- including the default
+    ``#D3D3D3`` page background -- are deliberately NOT white, so
+    outlines over them take the non-white branch.
+
+    Args:
+        color: A canonical preview color name or a hex color string.
+
+    Returns:
+        True when the color is pure white; False for any other value
+        (including unrecognized names).
+    """
+    normalized = color.strip().lower()
+    if normalized == "white":
+        return True
+    return normalized in ("#fff", "#ffffff")
+
+
+def outline_color_for(background: Optional[str]) -> str:
+    """Pick a contrasting outline color for a filled background.
+
+    The simple automated contrast rule of the proof previews: white
+    backgrounds get a black outline, everything else (dark materials, the
+    grey page background, unknown names) gets a white outline.
+
+    Args:
+        background: The background color name/hex to contrast against, or
+            ``None`` (unknown background -> black, the historical look).
+
+    Returns:
+        ``"black"`` or ``"white"``.
+    """
+    if background is None:
+        return "black"
+    return "black" if is_white_color(background) else "white"
+
+
+def normalize_preview_background_color(value: Optional[str]) -> Optional[str]:
+    """Validate/normalize a configured preview background color.
+
+    Args:
+        value: A ``#RGB``/``#RRGGBB`` hex color string, or ``None``
+            (unset -> the caller applies :data:`DEFAULT_PREVIEW_BACKGROUND_COLOR`).
+
+    Returns:
+        The trimmed hex string, or ``None`` when unset.
+
+    Raises:
+        ValueError: If the value is not a hex color string.
+    """
+    if value is None:
+        return None
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError("'preview_background_color' cannot be empty or whitespace-only")
+    if not _HEX_COLOR_RE.match(trimmed):
+        raise ValueError(
+            f"'preview_background_color' must be a hex color like '#D3D3D3', got {value!r}"
+        )
+    return trimmed

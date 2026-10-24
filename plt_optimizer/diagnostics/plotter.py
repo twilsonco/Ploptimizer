@@ -569,6 +569,7 @@ def plot_physical_strokes(
     show_axes: bool = True,
     show_title: bool = True,
     fills: Sequence[PhysicalFillLayer] = (),
+    background_color: Optional[str] = None,
 ) -> Figure:
     """Plot toolpath strokes at their true engraved (cutter) widths.
 
@@ -600,6 +601,9 @@ def plot_physical_strokes(
             :class:`PhysicalFillLayer`) drawn *beneath* every stroke layer --
             the colored proof previews pass the material background under the
             text ink. Fills with no polygons contribute nothing.
+        background_color: Optional page/axes background color (e.g. the
+            proof previews' configured grey). ``None`` (the default) keeps
+            matplotlib's white figure.
 
     Returns:
         The matplotlib Figure object.
@@ -609,6 +613,9 @@ def plot_physical_strokes(
     """
     try:
         fig, ax = plt.subplots(figsize=figure_size)
+        if background_color is not None:
+            fig.patch.set_facecolor(background_color)
+            ax.set_facecolor(background_color)
 
         rendered: List[Tuple[PhysicalStrokeLayer, List[StrokePolygon]]] = []
         for layer in layers:

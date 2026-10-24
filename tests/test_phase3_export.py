@@ -226,7 +226,8 @@ class TestExportAndOptimizePhase3:
 
         The per-file width comes from the file-name cutter token; the
         combined per-plate plot splits the assembly by pen and draws each
-        pen at its own cutter width (structural pens translucent).
+        pen at its own cutter width (per-file structural layers stay
+        translucent; the combined proof renders every pen opaque).
         """
         from unittest.mock import patch
 
@@ -260,15 +261,14 @@ class TestExportAndOptimizePhase3:
             assert [(w, a) for w, a in layers] == [(0.015, pytest.approx(0.3))]
         for layers in txt_plots.values():
             assert [(w, a) for w, a in layers] == [(0.060, 1.0)]
-        # Combined per-plate plot: one layer per pen with content, each at
-        # its own cutter width; pens 2/3 (borders/holes) stay translucent.
+        # Combined per-plate proof: one layer per pen with content, each at
+        # its own cutter width, every pen opaque (contrast outlines).
         all_plots = {n: v for n, v in captured.items() if n.startswith("all_")}
         assert all_plots
         for layers in all_plots.values():
             widths = {round(w, 3) for w, _a in layers}
             assert widths == {0.060, 0.015}
-            assert any(w == 0.015 and a == pytest.approx(0.3) for w, a in layers)
-            assert any(w == 0.060 and a == 1.0 for w, a in layers)
+            assert all(a == 1.0 for _w, a in layers)
         # The fake never saves; PDFs are tracked as usual.
         assert result.pdf_paths
 
@@ -6937,7 +6937,7 @@ class TestPreviewColors:
     """Colored combined `all_*.pdf` proof previews (material + pen colors)."""
 
     @staticmethod
-    def _capture(tmp_path: Path, yaml_path: str, job_id: str) -> dict:
+    def _capture(tmp_path: Path, yaml_path: str, job_id: str, **export_kwargs) -> dict:
         """Export a fixture with plot_physical_strokes patched; return capture."""
         from unittest.mock import patch
 
@@ -6950,6 +6950,7 @@ class TestPreviewColors:
             captured[Path(output_path).name] = {
                 "layers": [(layer.width_inches, layer.alpha, layer.facecolor) for layer in layers],
                 "fills": [(fill.color, fill.alpha) for fill in fills],
+                "background_color": kwargs.get("background_color"),
             }
 
         with patch(
@@ -6962,12 +6963,13 @@ class TestPreviewColors:
                 job_id=job_id,
                 optimize=False,
                 plots=True,
+                **export_kwargs,
             )
         captured["_result"] = result
         return captured
 
     def test_bw_material_colors_combined_preview(self, tmp_path: Path) -> None:
-        """bw stock: black bg fill, white plain ink, pen colors win, bh black."""
+        """bw stock: black bg fill, white plain ink, white contrast outlines."""
         captured = self._capture(tmp_path, "tests_deps/preview_color_job.yaml", "pc")
         result = captured["_result"]
         assert result.material_by_plate == {1: "bw"}
@@ -6975,22 +6977,75 @@ class TestPreviewColors:
         all_plots = {n: v for n, v in captured.items() if n.startswith("bw_all_")}
         assert list(all_plots) == ["bw_all_pc.pdf"]
         (plot,) = all_plots.values()
+        # The proof page background is the default light grey.
+        assert plot["background_color"] == "#D3D3D3"
         # Fills: the label boundary rects (SP2) in the material's top-layer
-        # color (black), then the drill hole's white "see-through" disc.
-        assert plot["fills"] == [("black", 1.0), ("white", 1.0)]
+        # color (black), then the drill hole's "see-through" disc punched in
+        # the preview background color.
+        assert plot["fills"] == [("black", 1.0), ("#D3D3D3", 1.0)]
+        # Every combined layer renders opaque (contrast outlines, no
+        # translucent underlay in the proof).
+        assert all(a == 1.0 for _w, a, _f in plot["layers"])
         # Text pens: green <tc:> run and red text_color win over the
         # material core; the plain "none" pen engraves the core (white).
-        colors = {facecolor for _w, _a, facecolor in plot["layers"]}
-        assert {"green", "red", "white"} <= colors
-        # Borders (SP2) stay the translucent black underlay; the drill hole
-        # (SP3) outline is OPAQUE black (visible over the black fill).
-        boundary = [(a, f) for w, a, f in plot["layers"] if a < 1.0]
-        assert boundary and all(f == "black" for _a, f in boundary)
-        hole_outlines = [(w, a, f) for w, a, f in plot["layers"] if a == 1.0 and f == "black"]
-        assert hole_outlines and all(w < 0.045 for w, _a, _f in hole_outlines)
-        # Text ink never renders black on bw stock.
-        text_inks = {f for w, a, f in plot["layers"] if a == 1.0 and f != "black"}
-        assert {"green", "red", "white"} == text_inks
+        text_inks = {f for w, _a, f in plot["layers"] if w >= 0.045}
+        assert text_inks == {"green", "red", "white"}
+        # Structural pens (0.015 hole cutter): borders AND drill holes take
+        # the contrast outline -- white over the black material background
+        # and over the grey hole disc.
+        outlines = {f for w, _a, f in plot["layers"] if w < 0.045}
+        assert outlines == {"white"}
+
+    def test_preview_background_configurable(self, tmp_path: Path) -> None:
+        """job-config preview_background_color drives page + hole disc color."""
+        import json
+
+        from plt_optimizer.generate.job_config import load_job_config
+
+        config_path = tmp_path / "job-config.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "max_h_compress": 0.7,
+                    "hole_margin": 0.1875,
+                    "min_hole_margin": 0.1875,
+                    "hole_text_collision_distance": 0.1,
+                    "preview_background_color": "#000080",
+                }
+            ),
+            encoding="utf-8",
+        )
+        captured = self._capture(
+            tmp_path / "out",
+            "tests_deps/preview_color_job.yaml",
+            "pcbg",
+            job_config=load_job_config(config_path),
+        )
+        (plot,) = [v for n, v in captured.items() if n.startswith("bw_all_")]
+        assert plot["background_color"] == "#000080"
+        # The hole disc matches the configured page color; the hole outline
+        # contrasts with it (navy is not white -> white outline).
+        assert plot["fills"] == [("black", 1.0), ("#000080", 1.0)]
+        outlines = {f for w, _a, f in plot["layers"] if w < 0.045}
+        assert outlines == {"white"}
+
+    def test_white_material_gets_black_border(self, tmp_path: Path) -> None:
+        """wb stock: black border outline (contrast), grey-punched holes."""
+        captured = self._capture(tmp_path, "tests_deps/material_demo_job.yaml", "wb")
+        all_plots = {n: v for n, v in captured.items() if n.endswith("all_wb.pdf")}
+        assert sorted(all_plots) == ["wb_all_wb.pdf", "wbuv_all_wb.pdf"]
+        for plot in all_plots.values():
+            # Every wb plate's top layer is white -> white background fill.
+            assert plot["fills"] == [("white", 1.0)]
+            # White material background -> BLACK border outline.
+            boundary = [f for w, _a, f in plot["layers"] if w == 0.015]
+            assert boundary and set(boundary) == {"black"}
+        # Plain wb text = the core (black); the uv plate's magenta
+        # text_color pen wins over the core color.
+        plain = {f for _w, a, f in captured["wb_all_wb.pdf"]["layers"] if a == 1.0}
+        assert plain == {"black"}
+        uv = {f for _w, a, f in captured["wbuv_all_wb.pdf"]["layers"] if a == 1.0}
+        assert uv == {"black", "magenta"}
 
     def test_per_cutter_previews_stay_black(self, tmp_path: Path) -> None:
         """Only the combined plot is colored; _txt_/_bh_ files keep black ink."""
@@ -7002,27 +7057,15 @@ class TestPreviewColors:
         for plot in per_file.values():
             assert plot["fills"] == []
             assert {f for _w, _a, f in plot["layers"]} == {"black"}
+            # Per-file plots keep the default white page.
+            assert plot["background_color"] is None
 
-    def test_material_less_job_keeps_black_on_white(self, tmp_path: Path) -> None:
-        """Regression: unset material renders the historical black proof."""
+    def test_material_less_job_keeps_black_ink(self, tmp_path: Path) -> None:
+        """Regression: unset material keeps black ink + black border outlines."""
         captured = self._capture(tmp_path, "tests_deps/test123_spec.yaml", "ml")
         all_plots = {n: v for n, v in captured.items() if n.startswith("all_")}
         assert all_plots
         for plot in all_plots.values():
             assert plot["fills"] == []
+            # Unknown material background -> black border outline; text black.
             assert {f for _w, _a, f in plot["layers"]} == {"black"}
-
-    def test_wb_material_plain_text_is_black(self, tmp_path: Path) -> None:
-        """wb stock: white bg fill, black core ink (material_demo fixture)."""
-        captured = self._capture(tmp_path, "tests_deps/material_demo_job.yaml", "wb")
-        all_plots = {n: v for n, v in captured.items() if n.endswith("all_wb.pdf")}
-        assert sorted(all_plots) == ["wb_all_wb.pdf", "wbuv_all_wb.pdf"]
-        for plot in all_plots.values():
-            # Every wb plate's top layer is white -> white background fill.
-            assert plot["fills"] == [("white", 1.0)]
-        # Plain wb text = the core (black); the uv plate's magenta
-        # text_color pen wins over the core color.
-        plain = {f for _w, a, f in captured["wb_all_wb.pdf"]["layers"] if a == 1.0}
-        assert plain == {"black"}
-        uv = {f for _w, a, f in captured["wbuv_all_wb.pdf"]["layers"] if a == 1.0}
-        assert uv == {"black", "magenta"}

@@ -52,6 +52,7 @@ from plt_optimizer.generate.plate_optimizer import (
     optimize_structural_layer,
     optimize_text_layer,
 )
+from plt_optimizer.generate.preview_colors import DEFAULT_PREVIEW_BACKGROUND_COLOR
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     ResolvedLabel,
@@ -1133,6 +1134,11 @@ def export_per_cutter_plts(
         # Use the nominal text height from the first text line of the first label
         text_height = resolved_labels[0].content[0].nominal_text_height
 
+    # Combined proof previews: the configured page background (drill
+    # holes punch this same color; default light grey).
+    preview_background = (
+        job_config.defaults.preview_background_color if job_config is not None else None
+    ) or DEFAULT_PREVIEW_BACKGROUND_COLOR
     if plots:
         with stage_timer("plots", _LOG, timings=stage_timings):
             result.pdf_paths = _write_simple_plots(
@@ -1143,6 +1149,7 @@ def export_per_cutter_plts(
                 text_height=text_height,
                 pen_widths=pen_widths,
                 pen_colors=pen_colors,
+                preview_background=preview_background,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
@@ -1161,6 +1168,7 @@ def _write_simple_plots(
     text_height: float | None = None,
     pen_widths: Optional[Mapping[int, float]] = None,
     pen_colors: Optional[Mapping[int, str]] = None,
+    preview_background: str = DEFAULT_PREVIEW_BACKGROUND_COLOR,
 ) -> list[Path]:
     """Write true-stroke-width PDF previews for a per-cutter export.
 
@@ -1181,15 +1189,17 @@ def _write_simple_plots(
     to the thin centerline preview.
 
     The combined plots are colored proofs (see
-    :mod:`plt_optimizer.generate.preview_colors`): each text pen's ink takes
-    its resolved color (pen ``text_color`` / ``<tc:>`` tag first, then the
-    plate material's core color, then black -- white over dark material
-    backgrounds), and the label boundary rectangles (SP2) fill with the
-    material's background color under the ink. Borders (SP2) keep the
-    semi-transparent black underlay; drill holes (SP3) render as an opaque
-    black outline over a white "see-through" disc (the punched material),
-    so they stay visible on both dark and light stock. Per-cutter
-    ``_txt_``/``_bh_`` files are never colored.
+    :mod:`plt_optimizer.generate.preview_colors`): the page background is
+    ``preview_background`` (the configured ``preview_background_color``,
+    default light grey); each text pen's ink takes its resolved color (pen
+    ``text_color`` / ``<tc:>`` tag first, then the plate material's core
+    color, then black -- white over dark material backgrounds), and the
+    label boundary rectangles (SP2) fill with the material's background
+    color under the ink. The border outline contrasts with the material
+    background (black on white stock, white otherwise) and the drill holes
+    (SP3) punch the preview background color ("see-through") under an
+    opaque contrasting outline. Per-cutter ``_txt_``/``_bh_`` files are
+    never colored.
 
     Fallbacks keep the historical thin-line
     :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`
@@ -1216,6 +1226,12 @@ def _write_simple_plots(
             :func:`~plt_optimizer.generate.preview_colors.resolve_text_color`
             together with each plate's material. ``None`` keeps black ink
             (material background fills still apply).
+        preview_background: Page/plot background color of the combined
+            proof previews (``job-config.json``
+            ``preview_background_color``, default
+            :data:`~plt_optimizer.generate.preview_colors.DEFAULT_PREVIEW_BACKGROUND_COLOR`).
+            Drill holes punch this same color and their outlines contrast
+            with it.
 
     Returns:
         List of written PDF paths.
@@ -1230,6 +1246,7 @@ def _write_simple_plots(
     )
     from plt_optimizer.diagnostics.stroke_geometry import closed_path_polygons
     from plt_optimizer.generate.preview_colors import (
+        outline_color_for,
         parse_material_colors,
         resolve_text_color,
     )
@@ -1331,10 +1348,19 @@ def _write_simple_plots(
                     PhysicalStrokeLayer(
                         segments=pen_segments,
                         width_inches=pen_widths[pen_id],
-                        alpha=PHYSICAL_STRUCTURAL_ALPHA if is_boundary else 1.0,
+                        alpha=1.0,
                         label=f"pen {pen_id}",
                         facecolor=(
-                            "black"
+                            (
+                                # Contrast outline for the label border: black
+                                # on white stock, white over every other
+                                # material background.
+                                outline_color_for(material_colors.background)
+                                if is_boundary
+                                # Hole outlines contrast with the punched
+                                # disc (the preview background color).
+                                else outline_color_for(preview_background)
+                            )
                             if structural
                             else resolve_text_color(
                                 pen_colors.get(pen_id) if pen_colors else None,
@@ -1357,14 +1383,15 @@ def _write_simple_plots(
                         )
                 elif is_hole:
                     # The hole circles enclose removed material: punch them
-                    # white. Appended after the background fill (pens are
-                    # walked in SP order) so the disc sits on top of it.
+                    # with the preview background color. Appended after the
+                    # background fill (pens are walked in SP order) so the
+                    # disc sits on top of it.
                     polygons = closed_path_polygons(pen_segments)
                     if polygons:
                         fills.append(
                             PhysicalFillLayer(
                                 polygons=polygons,
-                                color="white",
+                                color=preview_background,
                                 label="drill hole",
                             )
                         )
@@ -1376,6 +1403,7 @@ def _write_simple_plots(
                 show_plot=False,
                 gridlines=False,
                 fills=fills,
+                background_color=preview_background,
             )
         else:
             # No pen widths (synthetic export) or no per-pen geometry:

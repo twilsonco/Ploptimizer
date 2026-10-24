@@ -7,12 +7,18 @@ auto-contrast fallback used by the colored combined ``all_*.pdf`` proofs.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import pytest
 
 from plt_optimizer.generate.preview_colors import (
+    DEFAULT_PREVIEW_BACKGROUND_COLOR,
     PREVIEW_COLOR_ABBREVIATIONS,
     PREVIEW_COLOR_NAMES,
     MaterialColors,
+    is_white_color,
+    normalize_preview_background_color,
+    outline_color_for,
     parse_material_colors,
     resolve_text_color,
 )
@@ -200,3 +206,65 @@ class TestResolveTextColor:
     def test_pen_color_case_and_whitespace_tolerant(self) -> None:
         """Pen tags are trimmed and lower-cased before lookup."""
         assert resolve_text_color(" Red ", MaterialColors()) == "red"
+
+
+class TestPreviewBackgroundHelpers:
+    """The configurable page background + contrast-outline helpers."""
+
+    def test_default_background_is_light_grey(self) -> None:
+        """The shipped default is #D3D3D3 (light grey)."""
+        assert DEFAULT_PREVIEW_BACKGROUND_COLOR == "#D3D3D3"
+
+    @pytest.mark.parametrize(
+        ("color", "expected"),
+        [
+            ("white", True),
+            ("WHITE", True),
+            (" white ", True),
+            ("#FFF", True),
+            ("#ffffff", True),
+            ("#FFFFFF", True),
+            ("#D3D3D3", False),
+            ("#FEFEFE", False),
+            ("black", False),
+            ("blue", False),
+            ("bogus", False),
+        ],
+    )
+    def test_is_white_color(self, color: str, expected: bool) -> None:
+        """Only pure white (name or #FFF/#FFFFFF hex) counts as white."""
+        assert is_white_color(color) is expected
+
+    @pytest.mark.parametrize(
+        ("background", "expected"),
+        [
+            (None, "black"),
+            ("white", "black"),
+            ("#FFFFFF", "black"),
+            ("#fff", "black"),
+            ("black", "white"),
+            ("red", "white"),
+            ("yellow", "white"),
+            ("#D3D3D3", "white"),
+            ("#000080", "white"),
+            ("bogus", "white"),
+        ],
+    )
+    def test_outline_color_for(self, background: Optional[str], expected: str) -> None:
+        """White backgrounds get black outlines; everything else white."""
+        assert outline_color_for(background) == expected
+
+    def test_normalize_accepts_hex_forms(self) -> None:
+        """#RGB and #RRGGBB pass through trimmed."""
+        assert normalize_preview_background_color("#D3D3D3") == "#D3D3D3"
+        assert normalize_preview_background_color("  #abc  ") == "#abc"
+        assert normalize_preview_background_color(None) is None
+
+    @pytest.mark.parametrize(
+        "bad",
+        ["", "   ", "D3D3D3", "#GG0000", "#12", "white", "#12345"],
+    )
+    def test_normalize_rejects_non_hex(self, bad: str) -> None:
+        """Anything but a hex literal fails loudly."""
+        with pytest.raises(ValueError, match="preview_background_color"):
+            normalize_preview_background_color(bad)

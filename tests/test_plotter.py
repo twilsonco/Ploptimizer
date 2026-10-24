@@ -2553,3 +2553,29 @@ class TestPlotPhysicalStrokesColors:
         _x_lo, x_hi = sorted(ax.get_xlim())
         assert x_hi > 30.0
         plt.close(fig)
+
+
+class TestPlotPhysicalStrokesBackground:
+    """background_color on plot_physical_strokes (proof page color)."""
+
+    def test_default_background_is_untouched(self) -> None:
+        """No background_color keeps matplotlib's default figure face."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer])
+        assert fig.patch.get_facecolor() == pytest.approx((1.0, 1.0, 1.0, 1.0), abs=1e-9)
+        plt.close(fig)
+
+    def test_background_color_sets_figure_and_axes(self) -> None:
+        """The configured color lands on both the figure and the axes."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer], background_color="#D3D3D3")
+        expected = (0.8274509803921568, 0.8274509803921568, 0.8274509803921568, 1.0)
+        assert fig.patch.get_facecolor() == pytest.approx(expected, abs=1e-6)
+        assert fig.axes[0].get_facecolor() == pytest.approx(expected, abs=1e-6)
+        plt.close(fig)

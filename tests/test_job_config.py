@@ -136,6 +136,24 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(**{"text_color": "magenta"})  # type: ignore
 
+    def test_preview_background_color_hex_accepted(self) -> None:
+        """#RGB/#RRGGBB hex strings validate and pass through trimmed."""
+        assert JobDefaults(preview_background_color="#000080").preview_background_color == "#000080"
+        assert JobDefaults(preview_background_color=" #abc ").preview_background_color == "#abc"
+        assert JobDefaults().preview_background_color is None
+
+    @pytest.mark.parametrize("bad", ["", "  ", "D3D3D3", "#GG0000", "white"])
+    def test_preview_background_color_rejects_non_hex(self, bad: str) -> None:
+        """A malformed preview background color fails at config load."""
+        with pytest.raises(ValidationError, match="preview_background_color"):
+            JobDefaults(preview_background_color=bad)
+
+    def test_preview_background_color_is_not_injected_into_the_job(self) -> None:
+        """Display-only: the key never reaches the (extra-forbidding) JobSpec."""
+        from plt_optimizer.generate.job_config import _JOB_LAYER_FIELDS
+
+        assert "preview_background_color" not in _JOB_LAYER_FIELDS
+
     def test_material_is_not_a_config_field(self) -> None:
         """material is a per-job decision, not a shop-level default."""
         with pytest.raises(ValidationError):
