@@ -1922,6 +1922,54 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   optimize/watch pipeline).
 
 
+### Colored Combined PDF Previews (`preview_colors`)
+
+The combined per-plate proof `pdf/[<plate>_][<material>_]all_<job_id>.pdf`
+renders an accurate preview of the engraved label: text ink in its real
+color over the material's background color on a white page. The color logic
+lives in `preview_colors.py` (pure string handling, matplotlib-free,
+Python 3.8-safe -- it sits on the headless export path); only the combined
+plots are colored, the per-cutter `_txt_`/`_bh_` PDFs and the `*_default.pdf`
+diagnostics keep the historical black ink.
+
+- **Material -> colors** (`parse_material_colors`): the free-form cascading
+  `material` name yields `(background, text)`. Three case-insensitive forms,
+  first match wins: delimiter (`red-on-white`, `red:white`, `red|white`,
+  `red/white`; first token = top layer/background, second = text), full-name
+  prefix (`white`, `black(uv)` -> background only), and the character run
+  (leading recognized color letters, stop at the first unknown one so
+  property suffixes like `bwuv` / `wb(uv)` are ignored): 1 letter =
+  background only, exactly 2 = background + core/text (`bw` = black over
+  white, `wb` = white over black), 3 = multi-layer stock (`wrb` =
+  white/red/black) where only the background is certain. Material letters
+  follow the shop convention **b = black** (not TextColor's b = blue);
+  `k` is black too and `w` is white (blue is only reachable via the
+  full-name/delimiter forms). Unset/unrecognized -> `(None, None)` (the
+  historical black-on-white proof).
+- **Text color precedence** (`resolve_text_color`): the pen's stroke-color
+  tag (the `text_color` field or an inline `<tc:color>` run -- the pen map
+  already splits per `(cutter, color)`, so `export_per_cutter_plts` builds a
+  `pen_colors: dict[int, str]` from `layer_by_pen` and the preview needs no
+  per-character arrays) > the material core color > black, except an
+  unresolved color over a DARK background (black/blue/red/green/magenta/
+  violet) renders white so the proof stays legible.
+- **Background fills**: the label boundary rectangles (SP2) enclose the
+  material; `_write_simple_plots` turns the parsed SP2 closed runs into
+  enclosed-area polygons (`diagnostics.stroke_geometry.closed_path_polygons`
+  -- union semantics, no cutter width) and passes them as
+  `PhysicalFillLayer`s, which `plot_physical_strokes` draws beneath the ink.
+  Structural pens 2/3 keep the translucent black underlay
+  (`PHYSICAL_STRUCTURAL_ALPHA`).
+- **Fallbacks unchanged**: no `pen_widths` (synthetic export) keeps the thin
+  centerline preview; a stem whose cutter token cannot be parsed keeps the
+  per-file thin render.
+- Pinned by `tests/test_preview_colors.py` (every convention + precedence),
+  `tests_deps/preview_color_job.yaml` + `TestPreviewColors`
+  (`tests/test_phase3_export.py`: bw combined colors, per-file black-only,
+  material-less regression, wb/magenta split), and
+  `TestPlotPhysicalStrokesColors` (`tests/test_plotter.py`).
+
+
 ### Integration Points
 - `parse_yaml(file_path)` returns a `JobSpec` ready for downstream bin-packing and rendering pipelines
 - `expand_job_spec(job, yaml_path)` (substitution.py) must run immediately after `parse_yaml()` before `resolve_job_spec()` to flatten replacement-driven labels

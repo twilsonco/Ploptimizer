@@ -23,6 +23,10 @@ Segment model (see :func:`expand_cutting_polygons`):
 - Zero-length segments are dropped; a lone point engraves a round dot
   (the cutter footprint at the plunge point).
 - ``width_inches <= 0`` yields no polygons (degenerate cutter).
+
+:func:`closed_path_polygons` is the companion for proof previews: contiguous
+*closed* cutting runs become enclosed-area polygons (the region a label
+border surrounds), with no cutter-width buffering.
 """
 
 from __future__ import annotations
@@ -31,9 +35,10 @@ import math
 from dataclasses import dataclass
 from typing import List, Sequence, Tuple
 
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
+from shapely.validation import make_valid
 
 from plt_optimizer.core.models import ArcSegment, Coordinate, Segment
 from plt_optimizer.core.units import units_to_inches
@@ -219,6 +224,43 @@ def expand_cutting_polygons(
             shapes.append(Point(run[0]).buffer(half))
         else:
             shapes.append(LineString(run).buffer(half))
+
+    if not shapes:
+        return []
+    merged = unary_union(shapes)
+    return _rings_of(merged)
+
+
+def closed_path_polygons(segments: Sequence[Segment]) -> List[StrokePolygon]:
+    """Turn contiguous *closed* cutting runs into enclosed-area polygons.
+
+    Used by the proof previews to fill the region a label's closed
+    boundary strokes enclose (the material background under the engraved
+    text). Each contiguous pen-down run whose first and last points coincide
+    (within the endpoint tolerance) becomes a polygon of the area it
+    encloses; open runs, rapids, and runs too short to enclose anything
+    contribute nothing.     Overlapping/nested closed runs are unioned (union semantics: a ring
+    inside a ring fills the outer area, it does not punch a hole), and
+    self-intersecting runs are repaired via ``make_valid``.
+
+    Args:
+        segments: Ordered segments in plotter units (any mix of lines and
+            arcs, cutting and rapid).
+
+    Returns:
+        Enclosed-area polygons in inch coordinates; empty when no run is
+        closed.
+    """
+    shapes: List[BaseGeometry] = []
+    for run in _runs_from_segments(segments):
+        if len(run) < 4:
+            continue
+        if not _touches(Coordinate(*run[0]), Coordinate(*run[-1])):
+            continue
+        polygon = Polygon(run)
+        if not polygon.is_valid:
+            polygon = make_valid(polygon)
+        shapes.append(polygon)
 
     if not shapes:
         return []

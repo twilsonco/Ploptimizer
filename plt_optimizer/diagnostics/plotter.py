@@ -156,10 +156,37 @@ class PhysicalStrokeLayer:
             and hole underlays).
         label: Caller-facing layer description (e.g. ``"0.030 txt"``).
             Metadata only -- the clean physical render draws no legend.
+        facecolor: Matplotlib color name of the engraved ink (default
+            ``"black"``; the colored proof previews pass the resolved
+            text/material color).
     """
 
     segments: Sequence[Segment]
     width_inches: float
+    alpha: float = 1.0
+    label: str = ""
+    facecolor: str = "black"
+
+
+@dataclass(frozen=True)
+class PhysicalFillLayer:
+    """One enclosed-area fill layer for :func:`plot_physical_strokes`.
+
+    Fills render *beneath* every stroke layer, so a proof preview can show
+    the material background (the region a label's closed border encloses)
+    under the colored text ink.
+
+    Attributes:
+        polygons: Enclosed-area polygons in inch coordinates (see
+            :func:`~plt_optimizer.diagnostics.stroke_geometry.closed_path_polygons`).
+        color: Matplotlib color name of the fill.
+        alpha: Fill opacity (1.0 = solid).
+        label: Caller-facing layer description. Metadata only -- the clean
+            render draws no legend.
+    """
+
+    polygons: Sequence[StrokePolygon]
+    color: str
     alpha: float = 1.0
     label: str = ""
 
@@ -541,16 +568,18 @@ def plot_physical_strokes(
     gridlines: bool = True,
     show_axes: bool = True,
     show_title: bool = True,
+    fills: Sequence[PhysicalFillLayer] = (),
 ) -> Figure:
     """Plot toolpath strokes at their true engraved (cutter) widths.
 
     Every layer's cutting segments are expanded into constant-width
     polygons -- the physical ink corridor a cutter of ``width_inches``
-    engraves -- and filled in black, so each stroke measures its real
-    cutter diameter on the inch axes at any zoom or export scale (unlike
-    ``simple_mode`` centerline strokes, whose linewidth in points is
-    display-only). Rapid travel, colorbar, start/end markers, and the
-    summary box are omitted; the axes keep the fixed inch drafting grid.
+    engraves -- and filled in the layer's ``facecolor`` (black by default),
+    so each stroke measures its real cutter diameter on the inch axes at any
+    zoom or export scale (unlike ``simple_mode`` centerline strokes, whose
+    linewidth in points is display-only). Rapid travel, colorbar, start/end
+    markers, and the summary box are omitted; the axes keep the fixed inch
+    drafting grid.
 
     Args:
         layers: Width-tagged stroke layers to render (see
@@ -567,6 +596,10 @@ def plot_physical_strokes(
             labels, fixed inch-based ticks, frame). If False, hide all
             ticks, labels, and spines -- the clean-render mode.
         show_title: If True (the default), set ``title`` as the plot title.
+        fills: Enclosed-area background fills (see
+            :class:`PhysicalFillLayer`) drawn *beneath* every stroke layer --
+            the colored proof previews pass the material background under the
+            text ink. Fills with no polygons contribute nothing.
 
     Returns:
         The matplotlib Figure object.
@@ -583,7 +616,9 @@ def plot_physical_strokes(
             if polygons:
                 rendered.append((layer, polygons))
 
-        if not rendered:
+        rendered_fills = [fill for fill in fills if fill.polygons]
+
+        if not rendered and not rendered_fills:
             ax.text(
                 0.5,
                 0.5,
@@ -594,6 +629,31 @@ def plot_physical_strokes(
                 fontsize=14,
             )
             return fig
+
+        # Background fills first (z-order under the ink): each ring becomes
+        # a MOVETO/LINETO subpath; the compound path's even-odd fill renders
+        # interior rings as holes.
+        for fill in rendered_fills:
+            for polygon in fill.polygons:
+                rings = (polygon.exterior, *polygon.interiors)
+                path = matplotlib.path.Path.make_compound_path(
+                    *(
+                        matplotlib.path.Path(
+                            ring,
+                            [matplotlib.path.Path.MOVETO]
+                            + [matplotlib.path.Path.LINETO] * (len(ring) - 1),
+                        )
+                        for ring in rings
+                    )
+                )
+                ax.add_patch(
+                    PathPatch(
+                        path,
+                        facecolor=fill.color,
+                        edgecolor="none",
+                        alpha=fill.alpha,
+                    )
+                )
 
         # Fill each layer's expanded polygons as true-width ink silhouettes.
         # Each ring becomes a MOVETO/LINETO subpath; the compound path's
@@ -614,7 +674,7 @@ def plot_physical_strokes(
                 ax.add_patch(
                     PathPatch(
                         path,
-                        facecolor="black",
+                        facecolor=layer.facecolor,
                         edgecolor="none",
                         alpha=layer.alpha,
                     )
@@ -627,6 +687,10 @@ def plot_physical_strokes(
         all_y: List[float] = []
         for _, polygons in rendered:
             min_x, min_y, max_x, max_y = _polygon_exterior_bounds(polygons)
+            all_x.extend([min_x, max_x])
+            all_y.extend([min_y, max_y])
+        for fill in rendered_fills:
+            min_x, min_y, max_x, max_y = _polygon_exterior_bounds(list(fill.polygons))
             all_x.extend([min_x, max_x])
             all_y.extend([min_y, max_y])
         x_min, x_max = min(all_x), max(all_x)

@@ -1,0 +1,42 @@
+# Fixture for the colored combined `all_*.pdf` proof previews.
+#
+# Job material `bw` (black top layer over white core): the combined preview
+# fills each label's border rectangle (SP2) with black and engraves plain
+# text in white (the material core), while an explicit `text_color: red`
+# label and an inline `<tc:green>` run keep their own pen colors (the tag /
+# field wins over the material). The rect boundary exercises the background
+# fill geometry; the corner drill hole exercises the translucent structural
+# layer.
+#
+# Pinned by tests/test_phase3_export.py::TestPreviewColors (combined-plot
+# facecolor/fill wiring; per-cutter _txt_/_bh_ files stay black).
+#
+# Run with: python scripts/run_integration_test.py tests_deps/preview_color_job.yaml
+job:
+  job_name: Preview Color Demo
+
+  width: 4.0
+  height: 2.0
+  margin: 0.2
+  text_height: 0.4
+  material: bw
+
+  plates:
+    - id: scrap_bw
+      width: 12.0
+      height: 8.0
+      material: bw
+
+  labels:
+    - id: plain
+      content:
+        - text: "PLAIN WHITE"
+    - id: red_label
+      text_color: red
+      content:
+        - text: "RED FIELD"
+    - id: inline_runs
+      holes:
+        - location: top-left
+      content:
+        - text: "BASE <tc:green>GREEN RUN</tc>"

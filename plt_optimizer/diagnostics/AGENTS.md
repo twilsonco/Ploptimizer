@@ -54,16 +54,30 @@ centerline strokes whose linewidth in points is display-only. This is the
 (`generate/vectorize.py::_write_simple_plots`); `simple_mode` stays for the
 font showcases (`fonts/font_showcase.py`) and thin-line fallbacks.
 
-- `PhysicalStrokeLayer(segments, width_inches, alpha=1.0, label="")` - one
-  width-tagged layer (plotter-unit segments, cutter diameter in inches).
+- `PhysicalStrokeLayer(segments, width_inches, alpha=1.0, label="", facecolor="black")` -
+  one width-tagged layer (plotter-unit segments, cutter diameter in inches).
   Text ink: `alpha=1.0`; border/hole underlays: `PHYSICAL_STRUCTURAL_ALPHA`
   (= `SIMPLE_STRUCTURAL_ALPHA`, 0.3) keeps them visually distinct.
+  `facecolor` colors the engraved ink (the colored `all_*.pdf` proof previews
+  pass the resolved text/material color - see
+  [`../generate/AGENTS.md`](../generate/AGENTS.md) "Colored Combined PDF
+  Previews"); the default keeps every other render black.
+- `PhysicalFillLayer(polygons, color, alpha=1.0, label="")` + the
+  `plot_physical_strokes(..., fills=...)` parameter - enclosed-area
+  background fills drawn *beneath* every stroke layer (the material
+  background under the proof ink). Fills also widen the axis envelope;
+  fills without ink render (the empty-plot placeholder needs both empty).
 - `stroke_geometry.expand_cutting_polygons(segments, width_inches)` is the
   pure-geometry core (shapely `buffer`, round caps/joins, `unary_union`):
   contiguous pen-down runs join into ribbons, arcs flatten via the same
   32-segment sampling, lone points engrave round dots, rapids/zero-width
   yield nothing. It converts plotter units -> inches itself and imports NO
   matplotlib (Win7-safe module; usable from headless code).
+- `stroke_geometry.closed_path_polygons(segments)` is the companion for the
+  proof fills: contiguous *closed* pen-down runs (first point = last point)
+  become enclosed-area polygons (no cutter-width buffering; `make_valid`
+  repairs self-intersecting runs; nested rings union, they do not punch
+  holes). Open runs, rapids, and zero-area collapses yield nothing.
 - Stroke-width provenance lives OUTSIDE this package: per-cutter file names
   carry the cutter (`_parse_plt_stem(...).cutter`), the assembled plate
   splits by pen, and `export_per_cutter_plts` builds the pen -> cutter

@@ -2,7 +2,8 @@
 
 Covers the true-width stroke expansion used by the physical-width plots:
 contiguous-run joining, arc flattening, degenerate inputs, and the
-inch-space polygon geometry.
+inch-space polygon geometry, plus the closed-run enclosed-area polygons
+used by the colored proof fills.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from plt_optimizer.core.models import ArcSegment, Coordinate, StrokeSegment
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.diagnostics.stroke_geometry import (
     StrokePolygon,
+    closed_path_polygons,
     expand_cutting_polygons,
 )
 
@@ -188,3 +190,124 @@ class TestUnitConversion:
         polygons = expand_cutting_polygons(segs, 0.25)
         _x_min, y_min, _x_max, y_max = _bounds(polygons)
         assert y_max - y_min == pytest.approx(0.25, abs=1e-9)
+
+
+def _rect_ring(x_max: int, y_max: int) -> list[StrokeSegment]:
+    """Closed rectangle ring in plotter units starting/ending at the origin."""
+    corners = [
+        Coordinate(0, 0),
+        Coordinate(x_max, 0),
+        Coordinate(x_max, y_max),
+        Coordinate(0, y_max),
+        Coordinate(0, 0),
+    ]
+    return [StrokeSegment(start, end, True) for start, end in zip(corners, corners[1:])]
+
+
+class TestClosedPathPolygons:
+    """Enclosed-area polygons from closed cutting runs (proof fills)."""
+
+    def test_closed_rectangle_fills_its_area(self) -> None:
+        """A 2x1in rect ring yields one polygon of the enclosed area."""
+        polygons = closed_path_polygons(_rect_ring(2 * U, U))
+        assert len(polygons) == 1
+        x_min, y_min, x_max, y_max = _bounds(polygons)
+        assert (x_min, y_min, x_max, y_max) == pytest.approx((0.0, 0.0, 2.0, 1.0), abs=1e-9)
+        assert polygons[0].interiors == ()
+        # Enclosed area, NOT the cutter corridor: exactly 2.0 sq in.
+        from shapely.geometry import Polygon
+
+        assert Polygon(polygons[0].exterior).area == pytest.approx(2.0, abs=1e-9)
+
+    def test_open_runs_contribute_nothing(self) -> None:
+        """A polyline that does not return to its start encloses no area."""
+        segs = [
+            StrokeSegment(Coordinate(0, 0), Coordinate(U, 0), True),
+            StrokeSegment(Coordinate(U, 0), Coordinate(U, U), True),
+        ]
+        assert closed_path_polygons(segs) == []
+
+    def test_long_open_run_contributes_nothing(self) -> None:
+        """A 4+-vertex run whose endpoints differ encloses no area."""
+        segs = _rect_ring(2 * U, U)[:-1]
+        assert closed_path_polygons(segs) == []
+
+    def test_rapid_segments_ignored(self) -> None:
+        """Pen-up segments never close a path."""
+        segs = [
+            StrokeSegment(Coordinate(0, 0), Coordinate(U, 0), False),
+            StrokeSegment(Coordinate(U, 0), Coordinate(U, U), False),
+            StrokeSegment(Coordinate(U, U), Coordinate(0, 0), False),
+        ]
+        assert closed_path_polygons(segs) == []
+
+    def test_full_circle_arc_fills_the_disk(self) -> None:
+        """A closed full-circle arc fills its disk (no annulus, no width)."""
+        start = Coordinate(U, 0)
+        arc = ArcSegment(
+            start=start,
+            end=start,
+            center=Coordinate(0, 0),
+            sweep_angle=360.0,
+            is_cutting=True,
+        )
+        polygons = closed_path_polygons([arc])
+        assert len(polygons) == 1
+        assert polygons[0].interiors == ()
+        from shapely.geometry import Polygon
+
+        # Sampled 32-gon area is just under pi*r^2.
+        assert Polygon(polygons[0].exterior).area == pytest.approx(math.pi, abs=0.02)
+
+    def test_nested_rings_union_to_outer_area(self) -> None:
+        """A rect inside a rect unions to one polygon over the outer area.
+
+        Union semantics (not XOR): both closed runs enclose material, so the
+        inner ring does not punch a hole -- the fill covers the outer area.
+        """
+        outer = _rect_ring(4 * U, 4 * U)
+        corners = [
+            Coordinate(U, U),
+            Coordinate(3 * U, U),
+            Coordinate(3 * U, 3 * U),
+            Coordinate(U, 3 * U),
+            Coordinate(U, U),
+        ]
+        inner = [StrokeSegment(a, b, True) for a, b in zip(corners, corners[1:])]
+        polygons = closed_path_polygons(outer + inner)
+        assert len(polygons) == 1
+        assert polygons[0].interiors == ()
+        from shapely.geometry import Polygon
+
+        assert Polygon(polygons[0].exterior).area == pytest.approx(16.0, abs=1e-9)
+
+    def test_self_intersecting_run_repaired(self) -> None:
+        """A bowtie run is made valid instead of raising."""
+        pts = [
+            Coordinate(0, 0),
+            Coordinate(2 * U, 2 * U),
+            Coordinate(2 * U, 0),
+            Coordinate(0, 2 * U),
+            Coordinate(0, 0),
+        ]
+        segs = [StrokeSegment(a, b, True) for a, b in zip(pts, pts[1:])]
+        polygons = closed_path_polygons(segs)
+        # Two valid triangles (the bowtie halves) after make_valid.
+        assert len(polygons) == 2
+
+    def test_degenerate_collapsed_run_yields_nothing(self) -> None:
+        """A run that closes on a line encloses zero area."""
+        segs = [
+            StrokeSegment(Coordinate(0, 0), Coordinate(U, 0), True),
+            StrokeSegment(Coordinate(U, 0), Coordinate(0, 0), True),
+        ]
+        assert closed_path_polygons(segs) == []
+
+    def test_short_runs_cannot_close(self) -> None:
+        """Fewer than four vertices never enclose an area."""
+        segs = [StrokeSegment(Coordinate(0, 0), Coordinate(0, 0), True)]
+        assert closed_path_polygons(segs) == []
+
+    def test_empty_segments(self) -> None:
+        """No input, no polygons."""
+        assert closed_path_polygons([]) == []

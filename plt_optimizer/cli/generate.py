@@ -14,7 +14,7 @@ Output layout (under ``-o``, defaulting to the spec's parent directory)::
     #                                        material spans several sheets
     <out>/plt/15_bh_<job_id>.plt         # borders + holes together
     <out>/pdf/30_txt_<job_id>.pdf        # simple-outline previews
-    <out>/pdf/all_<job_id>.pdf           # combined preview per plate
+    <out>/pdf/all_<job_id>.pdf           # combined colored proof per plate
     <out>/generation_report/report.json  # the machine-readable job report
     <out>/generation_report/summary.txt  # the human-readable job summary
 

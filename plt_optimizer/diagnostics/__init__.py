@@ -10,6 +10,7 @@ try:
 
     from plt_optimizer.diagnostics.plotter import (
         DEFAULT_FIGURE_SIZE,
+        PhysicalFillLayer,
         PhysicalStrokeLayer,
         PlotterError,
         create_path_diagram,
@@ -21,6 +22,7 @@ try:
 
     __all__ = [
         "DEFAULT_FIGURE_SIZE",
+        "PhysicalFillLayer",
         "PhysicalStrokeLayer",
         "PlotterError",
         "create_path_diagram",

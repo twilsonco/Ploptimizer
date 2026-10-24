@@ -14,6 +14,7 @@ import pytest
 # Test that all re-exported names are accessible from the package
 from plt_optimizer.diagnostics import (
     DEFAULT_FIGURE_SIZE,
+    PhysicalFillLayer,
     PhysicalStrokeLayer,
     PlotterError,
     create_path_diagram,
@@ -73,6 +74,15 @@ class TestReexports:
         assert layer.width_inches == 0.03
         assert layer.alpha == 1.0
         assert layer.label == ""
+        assert layer.facecolor == "black"
+
+    def test_physical_fill_layer_is_constructible(self) -> None:
+        """Test PhysicalFillLayer carries colored enclosed-area polygons."""
+        fill = PhysicalFillLayer(polygons=(), color="white")
+        assert fill.color == "white"
+        assert fill.alpha == 1.0
+        assert fill.label == ""
+        assert fill.polygons == ()
 
     def test_no_missing_reexports(self) -> None:
         """Test that all names in __all__ are actually accessible."""
@@ -88,6 +98,7 @@ class TestReexports:
 
         expected = {
             "DEFAULT_FIGURE_SIZE",
+            "PhysicalFillLayer",
             "PhysicalStrokeLayer",
             "PlotterError",
             "create_path_diagram",

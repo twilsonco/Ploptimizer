@@ -32,6 +32,7 @@ from plt_optimizer.diagnostics.plotter import (
     SIMPLE_STRUCTURAL_ALPHA,
     SIMPLE_STRUCTURAL_LINEWIDTH,
     TICK_INTERVAL_INCHES,
+    PhysicalFillLayer,
     PhysicalStrokeLayer,
     PlotterError,
     _safe_range,
@@ -41,6 +42,7 @@ from plt_optimizer.diagnostics.plotter import (
     plot_stroke_path,
     save_figure,
 )
+from plt_optimizer.diagnostics.stroke_geometry import StrokePolygon
 
 # Whole-plotter-scale in integer device units (1 inch), so hand-built
 # coordinates keep meaning whole inches at the HPGL default step size.
@@ -2413,3 +2415,141 @@ class TestPlotPhysicalStrokes:
             # different class object and would never match.
             with pytest.raises(plotter_module.PlotterError, match="boom"):
                 plotter_module.plot_physical_strokes([layer])
+
+
+def _square_polygon(x_min: float, y_min: float, size: float) -> StrokePolygon:
+    """An axis-aligned square polygon in inch coordinates."""
+    ring = (
+        (x_min, y_min),
+        (x_min + size, y_min),
+        (x_min + size, y_min + size),
+        (x_min, y_min + size),
+        (x_min, y_min),
+    )
+    return StrokePolygon(exterior=ring)
+
+
+class TestPlotPhysicalStrokesColors:
+    """facecolor + background fills on plot_physical_strokes (proof previews)."""
+
+    def test_default_facecolor_is_black(self) -> None:
+        """Layers without facecolor keep the historical black ink."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        fig = plot_physical_strokes([layer])
+        ax = fig.axes[0]
+        assert ax.patches[0].get_facecolor()[:3] == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
+        plt.close(fig)
+
+    def test_facecolor_lands_on_patches(self) -> None:
+        """Each layer's facecolor colors exactly its own expanded polygons."""
+        layers = [
+            PhysicalStrokeLayer(
+                segments=[_phys_segment(0, 0, U, 0)],
+                width_inches=0.1,
+                facecolor="red",
+            ),
+            PhysicalStrokeLayer(
+                segments=[_phys_segment(0, 2 * U, U, 2 * U)],
+                width_inches=0.1,
+                facecolor="white",
+            ),
+        ]
+        fig = plot_physical_strokes(layers)
+        ax = fig.axes[0]
+        assert len(ax.patches) == 2
+        # Red is (1, 0, 0); white is (1, 1, 1) in RGBA.
+        colors = {patch.get_facecolor()[:3] for patch in ax.patches}
+        assert colors == {(1.0, 0.0, 0.0), (1.0, 1.0, 1.0)}
+        plt.close(fig)
+
+    def test_fills_render_beneath_ink(self) -> None:
+        """Fill patches are added before stroke patches (z-order under ink)."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, 2 * U, 0)],
+            width_inches=0.1,
+            facecolor="white",
+        )
+        fill = PhysicalFillLayer(
+            polygons=[_square_polygon(0.0, 0.0, 1.0)],
+            color="black",
+        )
+        fig = plot_physical_strokes([layer], fills=[fill])
+        ax = fig.axes[0]
+        # 1 fill + 1 ink patch; the fill was added first (lowest z-order).
+        assert len(ax.patches) == 2
+        fill_patch, ink_patch = ax.patches
+        assert fill_patch.get_facecolor()[:3] == pytest.approx((0.0, 0.0, 0.0), abs=1e-9)
+        assert ink_patch.get_facecolor()[:3] == pytest.approx((1.0, 1.0, 1.0), abs=1e-9)
+        assert fill_patch.get_zorder() <= ink_patch.get_zorder()
+        plt.close(fig)
+
+    def test_fill_alpha_and_holes(self) -> None:
+        """Fill alpha passes through; interior rings render as holes."""
+        exterior = (
+            (0.0, 0.0),
+            (2.0, 0.0),
+            (2.0, 2.0),
+            (0.0, 2.0),
+            (0.0, 0.0),
+        )
+        interior = (
+            (0.5, 0.5),
+            (1.5, 0.5),
+            (1.5, 1.5),
+            (0.5, 1.5),
+            (0.5, 0.5),
+        )
+        polygon = StrokePolygon(exterior=exterior, interiors=(interior,))
+        fill = PhysicalFillLayer(polygons=[polygon], color="red", alpha=0.5)
+        fig = plot_physical_strokes([], fills=[fill])
+        ax = fig.axes[0]
+        assert len(ax.patches) == 1
+        patch = ax.patches[0]
+        assert patch.get_alpha() == pytest.approx(0.5)
+        # Compound path: 5 exterior + 5 interior vertices, one MOVETO each.
+        assert len(patch.get_path().vertices) == 10
+        plt.close(fig)
+
+    def test_fills_render_without_ink_layers(self) -> None:
+        """A fill-only plot renders the background (no placeholder text)."""
+        fill = PhysicalFillLayer(
+            polygons=[_square_polygon(0.0, 0.0, 1.0)],
+            color="white",
+        )
+        fig = plot_physical_strokes([], fills=[fill])
+        ax = fig.axes[0]
+        assert len(ax.patches) == 1
+        texts = [child for child in ax.get_children() if hasattr(child, "get_text")]
+        assert not any("No strokes" in t.get_text() for t in texts)
+        plt.close(fig)
+
+    def test_empty_and_zero_polygon_fills_contribute_nothing(self) -> None:
+        """Fills with no polygons are dropped (placeholder stays on empty)."""
+        fig = plot_physical_strokes(
+            [],
+            fills=[PhysicalFillLayer(polygons=[], color="black")],
+        )
+        ax = fig.axes[0]
+        assert not ax.patches
+        texts = [child for child in ax.get_children() if hasattr(child, "get_text")]
+        assert any("No strokes" in t.get_text() for t in texts)
+        plt.close(fig)
+
+    def test_axis_limits_include_fills(self) -> None:
+        """A fill far from the ink widens the axis envelope."""
+        layer = PhysicalStrokeLayer(
+            segments=[_phys_segment(0, 0, U, 0)],
+            width_inches=0.1,
+        )
+        fill = PhysicalFillLayer(
+            polygons=[_square_polygon(20.0, 0.0, 10.0)],
+            color="black",
+        )
+        fig = plot_physical_strokes([layer], fills=[fill])
+        ax = fig.axes[0]
+        _x_lo, x_hi = sorted(ax.get_xlim())
+        assert x_hi > 30.0
+        plt.close(fig)

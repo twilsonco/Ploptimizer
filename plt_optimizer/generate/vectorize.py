@@ -947,6 +947,11 @@ def export_per_cutter_plts(
     pen_widths[LAYER_BOUNDARY] = hole_cutter
     pen_widths[LAYER_HOLES] = hole_cutter
 
+    # Pen -> stroke-color tag: the colored combined-plot previews resolve
+    # each text pen's ink color from its (text_color / <tc:>) layer tag,
+    # falling back to the plate material (see generate/preview_colors.py).
+    pen_colors: dict[int, str] = {pen: color for pen, (_cutter, color) in layer_by_pen.items()}
+
     # Phase 2: Generate layout with rendered bounds (labels rendered onto
     # their cutter pens).
     with stage_timer("layout_render_pack", _LOG, timings=stage_timings):
@@ -1137,6 +1142,7 @@ def export_per_cutter_plts(
                 job_name=job_name,
                 text_height=text_height,
                 pen_widths=pen_widths,
+                pen_colors=pen_colors,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
@@ -1154,6 +1160,7 @@ def _write_simple_plots(
     job_name: str = "",
     text_height: float | None = None,
     pen_widths: Optional[Mapping[int, float]] = None,
+    pen_colors: Optional[Mapping[int, str]] = None,
 ) -> list[Path]:
     """Write true-stroke-width PDF previews for a per-cutter export.
 
@@ -1172,6 +1179,15 @@ def _write_simple_plots(
     split per pen (the assembly keeps its ``SP`` sections) and every pen
     draws at its own cutter width; without it the combined plot falls back
     to the thin centerline preview.
+
+    The combined plots are colored proofs (see
+    :mod:`plt_optimizer.generate.preview_colors`): each text pen's ink takes
+    its resolved color (pen ``text_color`` / ``<tc:>`` tag first, then the
+    plate material's core color, then black -- white over dark material
+    backgrounds), and the label boundary rectangles (SP2) fill with the
+    material's background color under the ink. Structural pens 2/3 keep the
+    semi-transparent black underlay. Per-cutter ``_txt_``/``_bh_`` files are
+    never colored.
 
     Fallbacks keep the historical thin-line
     :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`
@@ -1192,6 +1208,12 @@ def _write_simple_plots(
             of the assembled plate (text pens from the pen map, structural
             pens 2/3 at the job hole cutter). Enables per-stroke widths in
             the combined plots. ``None`` renders combined plots thin.
+        pen_colors: Stroke-color tag per HPGL pen number (the pen map's
+            ``text_color`` value; ``"none"`` = implicit default). Colors
+            the combined-plot text ink via
+            :func:`~plt_optimizer.generate.preview_colors.resolve_text_color`
+            together with each plate's material. ``None`` keeps black ink
+            (material background fills still apply).
 
     Returns:
         List of written PDF paths.
@@ -1199,9 +1221,15 @@ def _write_simple_plots(
     from plt_optimizer.core.parser import PLTParser
     from plt_optimizer.diagnostics.plotter import (
         PHYSICAL_STRUCTURAL_ALPHA,
+        PhysicalFillLayer,
         PhysicalStrokeLayer,
         plot_physical_strokes,
         plot_plt_document,
+    )
+    from plt_optimizer.diagnostics.stroke_geometry import closed_path_polygons
+    from plt_optimizer.generate.preview_colors import (
+        parse_material_colors,
+        resolve_text_color,
     )
 
     pdf_dir = output_dir / "pdf"
@@ -1277,7 +1305,9 @@ def _write_simple_plots(
             if job_name
             else "PLT Toolpath Visualization"
         )
+        material_colors = parse_material_colors(result.material_by_plate.get(plate_no))
         layers: list[PhysicalStrokeLayer] = []
+        fills: list[PhysicalFillLayer] = []
         if pen_widths:
             # The assembly keeps its SP pen sections, so each pen's strokes
             # can be extracted and drawn at its own cutter width.
@@ -1286,18 +1316,36 @@ def _write_simple_plots(
                 if not plt_has_geometry(pen_content):
                     continue
                 pen_document = parser.parse_string(pen_content)
+                pen_segments = _segments_of(pen_document)
+                structural = pen_id in (LAYER_BOUNDARY, LAYER_HOLES)
                 layers.append(
                     PhysicalStrokeLayer(
-                        segments=_segments_of(pen_document),
+                        segments=pen_segments,
                         width_inches=pen_widths[pen_id],
-                        alpha=(
-                            PHYSICAL_STRUCTURAL_ALPHA
-                            if pen_id in (LAYER_BOUNDARY, LAYER_HOLES)
-                            else 1.0
-                        ),
+                        alpha=PHYSICAL_STRUCTURAL_ALPHA if structural else 1.0,
                         label=f"pen {pen_id}",
+                        facecolor=(
+                            "black"
+                            if structural
+                            else resolve_text_color(
+                                pen_colors.get(pen_id) if pen_colors else None,
+                                material_colors,
+                            )
+                        ),
                     )
                 )
+                # The label boundary rectangles (SP2) enclose the material
+                # background: fill them under the ink for the proof look.
+                if pen_id == LAYER_BOUNDARY and material_colors.background is not None:
+                    polygons = closed_path_polygons(pen_segments)
+                    if polygons:
+                        fills.append(
+                            PhysicalFillLayer(
+                                polygons=polygons,
+                                color=material_colors.background,
+                                label="material background",
+                            )
+                        )
         if layers:
             plot_physical_strokes(
                 layers,
@@ -1305,6 +1353,7 @@ def _write_simple_plots(
                 title=title,
                 show_plot=False,
                 gridlines=False,
+                fills=fills,
             )
         else:
             # No pen widths (synthetic export) or no per-pen geometry:
