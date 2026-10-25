@@ -37,6 +37,8 @@ fields). Pinned by `tests/test_schema.py::TestStrictUnknownFields`; the
 generated JSON schemas carry the contract as `additionalProperties: false`
 (drift-pinned by `tests/test_job_spec_docs.py`).
 
+**Attributes in schema model docstrings not typically necessary:** Because schema.py is Pydantic models (classes), and each attribute already has a `description` field, it is redundant to repeat the same information in the docstring. The docstring should focus on the overall purpose and usage of the model rather than individual attribute details.
+
 ### Core Data Model
 
 **Inheritance Hierarchy (Top-Down Cascade):**
