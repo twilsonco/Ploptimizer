@@ -1,7 +1,7 @@
 {
   "$defs": {
     "CounterStyle": {
-      "description": "Enumeration of enumerated-list counter styles.\n\nThe style decides how an :class:`EnumerateBlock` renders the number of\neach of its items (see :func:`plt_optimizer.generate.list_counter.format_counter`).\n``decimal`` is the historical/plain numbering; the alpha styles count in\nletters (bijective base 26, so ``z`` is followed by ``aa``); the roman\nstyles count in Roman numerals.\n\nAttributes:\n    DECIMAL: Arabic numerals: 1, 2, 3, ...\n    LOWER_ALPHA: Lowercase letters: a, b, c, ..., z, aa, ab, ...\n    UPPER_ALPHA: Uppercase letters: A, B, C, ..., Z, AA, AB, ...\n    LOWER_ROMAN: Lowercase Roman numerals: i, ii, iii, iv, ...\n    UPPER_ROMAN: Uppercase Roman numerals: I, II, III, IV, ...",
+      "description": "Enumeration of enumerated-list counter styles.\n\nThe style decides how an :class:`EnumerateBlock` renders the number of\neach of its items (see :func:`plt_optimizer.generate.list_counter.format_counter`).\n`decimal` is the historical/plain numbering; the alpha styles count in\nletters (bijective base 26, so `z` is followed by `aa`); the roman\nstyles count in Roman numerals.\n\nAttributes:\n    DECIMAL: Arabic numerals: 1, 2, 3, ...\n    LOWER_ALPHA: Lowercase letters: a, b, c, ..., z, aa, ab, ...\n    UPPER_ALPHA: Uppercase letters: A, B, C, ..., Z, AA, AB, ...\n    LOWER_ROMAN: Lowercase Roman numerals: i, ii, iii, iv, ...\n    UPPER_ROMAN: Uppercase Roman numerals: I, II, III, IV, ...",
       "enum": [
         "decimal",
         "lower-alpha",
@@ -13,7 +13,7 @@
       "type": "string"
     },
     "HoleLocation": {
-      "description": "Enumeration of valid hole locations on a label.\n\nBesides the eight atomic positions (four edges and four corners), two\ngroup shorthands are accepted for the most common drilling patterns:\n``corners`` (all four corner holes) and ``sides`` (the left and right\nedge holes). Groups are expanded into their atomic members at schema\nvalidation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream\nconsumers only ever see the eight atomic locations.\n\nAttributes:\n    left: Hole on the left edge.\n    right: Hole on the right edge.\n    top: Hole on the top edge.\n    bottom: Hole on the bottom edge.\n    top_left: Hole at the top-left corner.\n    top_right: Hole at the top-right corner.\n    bottom_left: Hole at the bottom-left corner.\n    bottom_right: Hole at the bottom-right corner.\n    corners: Group shorthand for all four corner holes.\n    sides: Group shorthand for the left and right edge holes.",
+      "description": "Enumeration of valid hole locations on a label.\n\nBesides the eight atomic positions (four edges and four corners), two\ngroup shorthands are accepted for the most common drilling patterns:\n`corners` (all four corner holes) and `sides` (the left and right\nedge holes). Groups are expanded into their atomic members at schema\nvalidation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream\nconsumers only ever see the eight atomic locations.\n\nAttributes:\n    left: Hole on the left edge.\n    right: Hole on the right edge.\n    top: Hole on the top edge.\n    bottom: Hole on the bottom edge.\n    top_left: Hole at the top-left corner.\n    top_right: Hole at the top-right corner.\n    bottom_left: Hole at the bottom-left corner.\n    bottom_right: Hole at the bottom-right corner.\n    corners: Group shorthand for all four corner holes.\n    sides: Group shorthand for the left and right edge holes.",
       "enum": [
         "left",
         "right",
@@ -31,15 +31,15 @@
     },
     "HoleSpec": {
       "additionalProperties": false,
-      "description": "Specification for a hole to be drilled in a label.\n\n``location`` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as ``location``\nalone. ``diameter`` is an optional override for non-standard sizes.\n\nGroup locations (``corners`` / ``sides``) are expanded into their\natomic member holes at validation time by the ``holes`` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's ``diameter``.",
+      "description": "Specification for a hole to be drilled in a label.\n\n`location` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as `location`\nalone. `diameter` is an optional override for non-standard sizes.\n\nGroup locations (`corners` / `sides`) are expanded into their\natomic member holes at validation time by the `holes` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's `diameter`.",
       "properties": {
         "location": {
           "$ref": "#/$defs/HoleLocation",
-          "description": "Hole position on the label edge. Group shorthands 'corners' (all four corners) and 'sides' (left + right) expand into their atomic members at validation time."
+          "description": "Hole position on the label edge. Group shorthands `corners` (all four corners) and `sides` (left + right) expand into their atomic members at validation time."
         },
         "diameter": {
           "default": 0.125,
-          "description": "Hole diameter in inches (default 0.125). A job-config.json 'hole_diameter' fills entries that omit this field.",
+          "description": "Hole diameter in inches (default 0.125). A job-config.json `hole_diameter` fills entries that omit this field.",
           "exclusiveMinimum": 0.0,
           "title": "Diameter",
           "type": "number"
@@ -52,7 +52,7 @@
       "type": "object"
     },
     "LabelShape": {
-      "description": "Enumeration of valid label boundary shapes.\n\n``rect`` (the default) is the historical behavior: the label boundary is\nthe ``width`` x ``height`` rectangle, the packer packs that rectangle, and\nevery collision check measures the rectangle. ``round`` makes the boundary\nan ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when\nthe two are equal -- which switches the label onto the adjacent\nellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)\nand makes the collision checks measure the ellipse boundary.",
+      "description": "Enumeration of valid label boundary shapes.\n\n`rect` (the default) is the historical behavior: the label boundary is\nthe `width` x `height` rectangle, the packer packs that rectangle, and\nevery collision check measures the rectangle. `round` makes the boundary\nan ellipse with semi-axes `width / 2` and `height / 2` -- a circle when\nthe two are equal -- which switches the label onto the adjacent\nellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)\nand makes the collision checks measure the ellipse boundary.\n\nAttributes:\n    RECT: Rectangular label boundary.\n    ROUND: Elliptical (round) label boundary.",
       "enum": [
         "rect",
         "round"
@@ -61,7 +61,7 @@
       "type": "string"
     },
     "LayoutMode": {
-      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.packing.layout``).",
+      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n`rectpack` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n`columns` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see `plt_optimizer.generate.packing.layout`).\n\nAttributes:\n    ROWS: Fill the plate row by row.\n    COLUMNS: Fill the plate column by column.",
       "enum": [
         "rows",
         "columns"
@@ -70,7 +70,7 @@
       "type": "string"
     },
     "TextHAlignment": {
-      "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). ``left`` places the line's\nleft-most point precisely at the left margin; ``right`` places the\nline's right-most point precisely at the right margin; ``center``\n(the default) centers the line horizontally.",
+      "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). `left` places the line's\nleft-most point precisely at the left margin; `right` places the\nline's right-most point precisely at the right margin; `center`\n(the default) centers the line horizontally.\n\nAttributes:\n    LEFT: Align text to the left margin.\n    CENTER: Center text horizontally.\n    RIGHT: Align text to the right margin.",
       "enum": [
         "left",
         "center",
