@@ -64,6 +64,7 @@ from plt_optimizer.generate.schema import (
     LabelShape,
     LayoutMode,
     TextHAlignment,
+    _validate_replacement_delimiter_value,
 )
 
 logger = logging.getLogger(__name__)
@@ -181,6 +182,10 @@ class JobDefaults(BaseModel):
             the mechanism.
         text_chunk_mode: Default plate-space text optimization granularity.
         layout: Default plate fill order.
+        replacement_text_delimiter: Default replacement-file item delimiter
+            (job layer; cascades job -> plate -> label). Unset falls back to
+            the code default ``";"``. Injected only when the spec declares a
+            replacement text file at some tier.
         replacement_text_file_comment_string: Default replacement-file
             comment marker (job layer; cascades job -> plate -> label).
             Unset falls back to the code default ``"# "``; ``""`` disables
@@ -834,6 +839,17 @@ class JobDefaults(BaseModel):
     layout: Optional[LayoutMode] = Field(
         default=None, description="Default plate fill order (job layer)."
     )
+    replacement_text_delimiter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Default replacement-file item delimiter (job layer; cascades "
+            "job -> plate -> label): the single special or whitespace "
+            "character separating text items within a replacement text file "
+            "line. Unset falls back to the code default ';'. Injected only "
+            "when the job spec declares a replacement_text_file at the job, "
+            "plate, or label level."
+        ),
+    )
     replacement_text_file_comment_string: Optional[str] = Field(
         default=None,
         description=(
@@ -946,6 +962,26 @@ class JobDefaults(BaseModel):
         """
         return normalize_preview_background_color(value)
 
+    @field_validator("replacement_text_delimiter")
+    @classmethod
+    def _validate_replacement_delimiter(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the configured replacement-file delimiter.
+
+        Applies the shared rule used by every job-spec tier, so a bad shop
+        delimiter fails at config load instead of on the first job.
+
+        Args:
+            value: The configured delimiter, or ``None`` (unset).
+
+        Returns:
+            The validated delimiter.
+
+        Raises:
+            ValueError: If the delimiter is not exactly one character, is a
+                newline, or is alphanumeric.
+        """
+        return _validate_replacement_delimiter_value(value)
+
 
 @dataclass(frozen=True)
 class JobConfig:
@@ -1029,6 +1065,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "allow_rotation",
     "text_chunk_mode",
     "layout",
+    "replacement_text_delimiter",
     "replacement_text_file_comment_string",
     "type",
     "rounded_rectangle_fraction",
@@ -1044,8 +1081,12 @@ _MARGIN_SUPPRESSED_FIELDS: frozenset[str] = frozenset({"h_margin", "v_margin"})
 
 # Config fields whose job-layer injection is suppressed when the spec
 # declares no replacement text file at any tier (see
-# :func:`_spec_declares_replacement_file`).
-_REPLACEMENT_SUPPRESSED_FIELDS: frozenset[str] = frozenset({"replacement_text_file_comment_string"})
+# :func:`_spec_declares_replacement_file`). The schema rejects a job-level
+# delimiter/comment marker with no file to apply it to, so both cascading
+# replacement fields are gated together.
+_REPLACEMENT_SUPPRESSED_FIELDS: frozenset[str] = frozenset(
+    {"replacement_text_delimiter", "replacement_text_file_comment_string"}
+)
 
 
 def load_job_config(job_config_path: Optional[Path]) -> Optional[JobConfig]:
@@ -1219,9 +1260,10 @@ def apply_job_config_defaults(
     so an injected axis value would silently outrank the spec's margin
     on that axis (see :func:`_spec_declares_margin`).
 
-    The configured ``replacement_text_file_comment_string`` is suppressed
-    for a spec with no replacement text file at any tier, which the schema
-    rejects as a job-level marker with nothing to apply it to (see
+    The configured ``replacement_text_delimiter`` /
+    ``replacement_text_file_comment_string`` are suppressed for a spec with no
+    replacement text file at any tier, which the schema rejects as job-level
+    replacement settings with nothing to apply them to (see
     :func:`_spec_declares_replacement_file`).
 
     Args:
@@ -1243,8 +1285,6 @@ def apply_job_config_defaults(
     suppressed: set[str] = set(_MARGIN_SUPPRESSED_FIELDS) if suppress_margins else set()
     if not _spec_declares_replacement_file(filled):
         suppressed |= _REPLACEMENT_SUPPRESSED_FIELDS
-    if not _spec_declares_replacement_file(filled):
-        suppressed.add("replacement_text_file_comment_string")
     for field_name in _JOB_LAYER_FIELDS:
         if field_name in suppressed:
             continue

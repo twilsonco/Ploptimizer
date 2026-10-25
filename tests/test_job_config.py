@@ -82,6 +82,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "plate_height": 16.0,
     "left_clearance": 0.0,
     "top_clearance": 0.0,
+    "replacement_text_delimiter": ",",
 }
 
 
@@ -1224,6 +1225,110 @@ class TestConfigCommentMarkerInjection:
         assert job.replacement_text_file_comment_string is None
 
 
+class TestConfigDelimiterInjection:
+    """The configured replacement delimiter honors the file requirement."""
+
+    def test_injected_with_job_file(self, tmp_path: Path) -> None:
+        """A spec with a job-level file receives the configured delimiter."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
+        )
+        filled = apply_job_config_defaults(_minimal_job(replacement_text_file="d.txt"), config)
+        assert filled["replacement_text_delimiter"] == ","
+
+    def test_injected_with_label_file(self, tmp_path: Path) -> None:
+        """A label-level file also unlocks the injection (cascade target)."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
+        )
+        job = {
+            "job_name": "Config Test",
+            "labels": [{"id": "l1", "replacement_text_file": "d.txt"}],
+        }
+        filled = apply_job_config_defaults(job, config)
+        assert filled["replacement_text_delimiter"] == ","
+
+    def test_injected_with_plate_file(self, tmp_path: Path) -> None:
+        """A plate-level file unlocks the injection too."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
+        )
+        job = {
+            "job_name": "Config Test",
+            "plates": [
+                {"id": "p1", "width": 24.0, "height": 16.0, "replacement_text_file": "d.txt"}
+            ],
+        }
+        filled = apply_job_config_defaults(job, config)
+        assert filled["replacement_text_delimiter"] == ","
+
+    def test_suppressed_without_file(self, tmp_path: Path) -> None:
+        """A spec with no replacement file anywhere never gets the delimiter."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
+        )
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert "replacement_text_delimiter" not in filled
+
+    def test_yaml_wins_over_config(self, tmp_path: Path) -> None:
+        """A spec-declared delimiter is never overridden by the config."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
+        )
+        filled = apply_job_config_defaults(
+            _minimal_job(replacement_text_file="d.txt", replacement_text_delimiter="|"),
+            config,
+        )
+        assert filled["replacement_text_delimiter"] == "|"
+
+    def test_repo_config_ships_delimiter(self) -> None:
+        """The shipped shop config supplies the delimiter default (adaptive)."""
+        config = load_job_config(Path("job-config.json"))
+        assert config is not None
+        assert config.defaults.replacement_text_delimiter is not None
+
+    def test_repo_config_parses_file_less_job(self) -> None:
+        """The shipped delimiter cannot break a job with no replacement file."""
+        job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
+        assert job.replacement_text_delimiter is None
+
+    def test_config_delimiter_cascades_to_label_file(self, tmp_path: Path) -> None:
+        """The configured job-level delimiter lands on a label-level file."""
+        config_path = _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
+        spec = tmp_path / "job.yaml"
+        spec.write_text(
+            "job:\n"
+            "  job_name: J\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  labels:\n"
+            "    - id: l\n"
+            "      replacement_text_file: data.txt\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec, job_config_path=config_path)
+        assert job.replacement_text_delimiter == ","
+        assert job.labels is not None
+        assert job.labels[0].replacement_text_delimiter == ","
+
+    @pytest.mark.parametrize("delimiter", ["ab", "\n", "\r", "a", "Z", "9"])
+    def test_invalid_config_delimiter_rejected(self, tmp_path: Path, delimiter: str) -> None:
+        """A bad shop delimiter fails at config load, not on the first job."""
+        with pytest.raises(JobConfigError, match="replacement_text_delimiter"):
+            load_job_config(
+                _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": delimiter})
+            )
+
+    def test_whitespace_config_delimiter_accepted(self, tmp_path: Path) -> None:
+        """The shared rule allows whitespace delimiters."""
+        config = load_job_config(
+            _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": " "})
+        )
+        assert config is not None
+        assert config.defaults.replacement_text_delimiter == " "
+
+
 class TestParseYamlWithJobConfig:
     """Integration of parse_yaml() with the job-config layer."""
 
@@ -1244,8 +1349,8 @@ class TestParseYamlWithJobConfig:
         job = parse_yaml("tests_deps/test123_spec.yaml", job_config_path=Path("job-config.json"))
         # The spec declares ``margin``, so the axis-margin injection is
         # suppressed by contract, and it declares no replacement text file,
-        # so the comment-marker injection is suppressed too -- those keys are
-        # the documented exceptions.
+        # so the replacement delimiter/comment injection is suppressed too --
+        # those keys are the documented exceptions.
         checked = 0
         suppressed = _MARGIN_SUPPRESSED_FIELDS | _REPLACEMENT_SUPPRESSED_FIELDS
         for field_name in _JOB_LAYER_FIELDS:

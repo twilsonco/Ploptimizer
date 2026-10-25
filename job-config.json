@@ -62,6 +62,7 @@
   "top_clearance": 0.0,
   "hole_diameter": 0.125,
   "layout": "columns",
+  "replacement_text_delimiter": ";",
   "replacement_text_file_comment_string": "# ",
   "auto_line_spacing_interline_to_top_bottom_ratio": 1.3,
   "tool_options": {
