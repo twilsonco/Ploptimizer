@@ -95,13 +95,6 @@ class HoleSpec(BaseModel):
     atomic member holes at validation time by the ``holes`` field
     validator on :class:`LabelAttributes`; each expanded member inherits
     this spec's ``diameter``.
-
-    Attributes:
-        location: The position of the hole on the label edge. Group
-            shorthands ``corners`` (all four corners) and ``sides``
-            (left + right) are accepted and expanded into their members.
-        diameter: The diameter of the hole in inches. Defaults to
-            :data:`DEFAULT_HOLE_DIAMETER` (0.125"); must be positive.
     """
 
     # Unknown keys are typos: every spec model forbids them so a misspelled
@@ -148,11 +141,6 @@ class TextHAlignment(str, Enum):
     left-most point precisely at the left margin; ``right`` places the
     line's right-most point precisely at the right margin; ``center``
     (the default) centers the line horizontally.
-
-    Attributes:
-        LEFT: Left edge of the line sits at the left margin.
-        CENTER: Line is horizontally centered within the inner content area.
-        RIGHT: Right edge of the line sits at the right margin.
     """
 
     LEFT = "left"
@@ -170,10 +158,6 @@ class LabelShape(str, Enum):
     the two are equal -- which switches the label onto the adjacent
     ellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)
     and makes the collision checks measure the ellipse boundary.
-
-    Attributes:
-        RECT: Rectangular boundary (default; the historical behaviour).
-        ROUND: Elliptical boundary; a circle when ``width == height``.
     """
 
     RECT = "rect"
@@ -250,21 +234,6 @@ class TextColor(str, Enum):
     a color and must never be specified explicitly (see the ``text_color``
     field validator): users pick a real color name to force a toolpath
     split.
-
-    Attributes:
-        cyan: Cyan stroke-color layer (abbreviation ``c``).
-        magenta: Magenta stroke-color layer (abbreviation ``m``).
-        yellow: Yellow stroke-color layer (abbreviation ``y``).
-        black: Black stroke-color layer (abbreviation ``k``, CMYK style).
-        red: Red stroke-color layer (abbreviation ``r``).
-        green: Green stroke-color layer (abbreviation ``g``).
-        blue: Blue stroke-color layer (abbreviation ``b``).
-        violet: Violet stroke-color layer (abbreviation ``v``).
-        orange: Orange stroke-color layer (abbreviation ``o``).
-        pink: Pink stroke-color layer (abbreviation ``p``).
-        teal: Teal stroke-color layer (abbreviation ``t``).
-        none: Implicit default for text that declares no color; cannot be
-            specified explicitly.
     """
 
     CYAN = "cyan"
@@ -320,12 +289,6 @@ class LayoutMode(str, Enum):
     ``columns`` is realized by packing in a transposed frame with a
     bottom-row fill algorithm and mapping every placement back into plate
     space (see ``plt_optimizer.generate.packing.layout``).
-
-    Attributes:
-        ROWS: Fill the plate width first, then extend downward (row-major;
-            the historical packing behaviour).
-        COLUMNS: Fill the plate height first, then extend rightward
-            (column-major; the default).
     """
 
     ROWS = "rows"
@@ -455,365 +418,6 @@ class TextAttributes(BaseModel):
 
     These fields are safe to inherit at the TextLine level because they
     describe typographic properties that apply to rendered glyphs.
-
-    Attributes:
-        text_height: Optional font height in inches.
-        font: Optional font name selecting the glyph outlines used to render
-            text. Valid values are the PLT-extracted font keys of the
-            ``fonts/VP-EL-fonts/catalog/*.json`` files (rendered arc-native)
-            and the basenames
-            of ``*.ttf`` files under ``fonts/`` (extension stripped, rendered
-            through ftext); matching is case-insensitive and the value is
-            canonicalized at validation time. Cascades line -> label -> job
-            (fallback ``"ReliefSingleLineCAD-Regular"``). Unknown names are
-            rejected with the full valid list. Run
-            ``docs/schema/generate_schema_docs.py --show-fonts`` for the
-            current list.
-        character_spacing: Optional extra spacing between characters in inches.
-        line_spacing: Optional extra spacing between text lines in inches,
-            or ``"auto"`` to calculate spacing automatically. When ``"auto"``,
-            spacing is calculated such that all lines have equal spacing.
-            If ``v_margin`` is explicitly specified, the specified v_margin
-            is honored and line_spacing is calculated to fill the remaining
-            space. If ``v_margin`` is not explicitly specified, the functional
-            v_margin equals the inter-line spacing. Cutter widths of the top
-            and bottom lines are considered: half the respective cutter width
-            is added to the functional v_margin to ensure correct placement
-            in the engraved output. Cascades line -> label -> job (fallback 0.1).
-        max_h_compress: Optional maximum horizontal compression fraction in
-            ``[0.0, 1.0]``. When a rendered line is wider than the label's
-            inner content area, the line may be uniformly compressed
-            horizontally down to ``(1 - max_h_compress)`` of its natural
-            width. ``0.0`` (the default) disables compression; ``0.5`` allows
-            squeezing wide lines to 50% of their natural width. Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not currently applied during rendering).
-        text_h_alignment: Optional horizontal alignment of a rendered text
-            line within the label's inner content area. One of ``left``,
-            ``center`` or ``right``. ``left`` places the line's left-most
-            point precisely at the left margin; ``right`` places the right-
-            most point at the right margin; ``center`` (the default)
-            centers the line. Cascades line -> label -> job (and is
-            accepted on plates for schema parity, where it is not currently
-            applied during rendering).
-        min_hole_margin: Optional minimum hole margin in inches; during
-            text-hole collision avoidance, hole margins will not shrink
-            below this value. ``None`` (the default) means collision
-            avoidance may reduce the hole margin all the way to ``0.0``
-            (hole tangent to the label edge). Cascades line -> label ->
-            job (and is accepted on plates for schema parity, where it is
-            not currently applied during rendering).
-        hole_text_collision_distance: Optional minimum air gap in inches
-            between the *engraved* text stroke and the *engraved* drill
-            hole stroke. A (line, hole) pair collides when the geometric
-            gap between the text bounding box and the hole circle is
-            below ``0.5 * (hole_cutter + text_cutter) +
-            hole_text_collision_distance``: the first term is the stroke
-            floor at which the two cut strokes just touch, and this field
-            adds free air between them. Defaults to ``0.15`` inches; an
-            explicit ``0.0`` is honored (strokes may touch but never
-            overlap). Cascades label -> job (and is accepted on text
-            lines and plates for schema parity, where it is not applied
-            at that level).
-        space_width_fraction: Optional space advance as a fraction of the
-            rendered text height (PLT-extracted fonts): a space advances
-            ``space_width_fraction * text_height + character_spacing``.
-            Defaults to ``0.3``; only ``None`` means unset (an explicit
-            ``0.0`` collapses the space to bare ``character_spacing``).
-            Cascades line -> label -> job (and is accepted on plates for
-            schema parity, where it is not applied at that level).
-        min_glyph_width_fraction: Optional global minimum glyph advance
-            width as a **fraction of the rendered cap height**
-            (capline - baseline) for PLT-extracted fonts. The
-            profile-envelope kerning floors each pair's advance at
-            ``min_glyph_width_fraction * cap height``, capped by the left
-            glyph's own bounding-box width, so zero-width glyphs (``!``,
-            ``|``) still reserve real air without inflating thin-glyph
-            pairs past their own silhouette.
-            Defaults to ``0.0`` (pure envelope kerning); only
-            ``None`` means unset. Cascades line -> label -> job (and is
-            accepted on plates for schema parity, where it is not applied
-            at that level).
-        kerning_window_fraction: Optional kerning window for PLT-extracted
-            fonts, in ``[0.0, 1.0]``, as a fraction of the rendered text
-            height. Each profile-envelope sample compares against the
-            opposite silhouette within +/- (half of this fraction) of the
-            text height, so staggered pokes (the glyphs approaching each
-            other at slightly different heights) are detected and can
-            only widen the advance.
-            Defaults to ``0.05``; only ``None`` means unset (an explicit
-            ``0.0`` reproduces the historical same-height maximum-
-            penetration kerning). Cascades line -> label -> job (and is
-            accepted on plates for schema parity, where it is not applied
-            at that level).
-        kerning_penetration_scale: Optional multiplier on the detected
-            profile-envelope penetration for PLT-extracted fonts. ``1.0``
-            keeps the geometric penetration; ``>1.0`` over-kerns tight
-            pairs proportionally. Defaults to ``1.0``; only ``None`` means
-            unset. Cascades line -> label -> job (and is accepted on
-            plates for schema parity, where it is not applied at that
-            level).
-        kerning_recession_scale: Optional multiplier on a *recessed*
-            (negative) detected profile-envelope penetration for
-            PLT-extracted fonts. ``1.0`` keeps the geometric recession
-            (the historical linear behaviour, where lowering
-            ``kerning_penetration_scale`` also pulled gapped pairs
-            closer); ``0.0`` makes a recessed pair advance by nothing
-            beyond the ``min_glyph_width_fraction`` floor, so the
-            penetration dial
-            only tightens pairs whose silhouettes overlap. Defaults to
-            ``1.0``; only ``None`` means unset. Cascades line -> label ->
-            job (and is accepted on plates for schema parity, where it is
-            not applied at that level).
-        kerning_min_gap_fraction: Optional extra air added to every kerned
-            character pair advance for PLT-extracted fonts, as a
-            **fraction of the rendered cap height** (capline - baseline),
-            on top of the cutter-diameter + character-spacing clearance.
-            Defaults to ``0.0`` (no extra gap); only ``None`` means unset.
-            Cascades line -> label -> job (and is accepted on plates for
-            schema parity, where it is not applied at that level).
-        fallback_advance_fraction: Optional multiplier on the
-            bounding-box-width fallback advance used for PLT-extracted
-            glyph pairs without overlapping height (or lacking envelopes).
-            Defaults to ``1.0`` (the left glyph's own width); only ``None``
-            means unset. Cascades line -> label -> job (and is accepted on
-            plates for schema parity, where it is not applied at that
-            level).
-        kern_pos_string: Optional manual-kern **positive marker string**.
-            Every occurrence in a text line is stripped (it never engraves)
-            and replaced by a forward cursor shift of
-            ``kern_width_fraction`` of the cap height (capline - baseline)
-            applied to the following character. Multi-character strings are
-            legal (``"A<->B"``); the value must be non-empty, contain no
-            newline, and differ from ``kern_neg_string``. A marker that
-            parses as inline markup under the line's effective
-            ``html_brackets`` (e.g. ``<s>`` with the default brackets) is
-            rejected at resolution (the tag scan consumes it before the kern
-            strip, so it can never act as a marker); ``<->`` is a legal
-            marker.
-            ``None`` (unset) disables the positive marker. Cascades line ->
-            label -> job (``job-config.json`` supplies the shop default;
-            the code fallback is unset); works on PLT and TTF fonts.
-        kern_neg_string: Optional manual-kern **negative marker string**.
-            Every occurrence is stripped and replaced by a backward cursor
-            shift of ``kern_width_fraction`` of the cap height (no clamp,
-            so a large value lets glyphs overlap). Same validation as
-            ``kern_pos_string``; the two must differ. ``None`` (unset)
-            disables the negative marker. Cascades line -> label -> job
-            (``job-config.json`` supplies the shop default).        kern_width_fraction: Optional manual-kern width as a **fraction of
-            the rendered cap height** (capline - baseline): one positive
-            marker advances ``+fraction * cap height`` inches, one negative
-            marker retreats ``-fraction * cap height`` (adjacent markers
-            accumulate). Defaults to ``0.1``; only ``None`` means unset, an
-            explicit ``0.0`` consumes marker characters while shifting
-            nothing. Cascades line -> label -> job (``job-config.json``
-            supplies the shop default).
-        sc_scale: Optional downscale applied to ASCII lowercase ``a-z`` by
-            a **small-caps** font (a ``font`` name ending in `` SC``, e.g.
-            ``"Dino SC"``): the lowercase character renders as its base
-            font's uppercase glyph uniformly shrunk to ``sc_scale`` of the
-            cap height, **top-down** -- the glyph's own bottom stays exactly
-            in place (it sits on the baseline like a shrunken capital) and
-            its top descends. Uppercase and caseless
-            characters (digits, punctuation, derived symbols) engrave at
-            full size, and the nominal ``text_height`` is untouched (no
-            cutter change). Inert on non-SC fonts. Bound to ``[0.2, 1.0]``
-            (``1.0`` renders the variant identically to its base font).
-            Defaults to ``0.7``; only ``None`` means unset. Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not applied at that level).
-        supersubscript_downscale: Optional downscale applied to a **bare**
-            ``<sup>``/``<sub>`` markup run (``<sup>text</sup>``): the run's
-            glyphs engrave uniformly shrunk to this fraction of the line's
-            size, and the baseline shift is derived from it, centering the
-            shrunken glyph on the line it belongs to -- a superscript rises
-            ``1 - d / 2`` cap heights (its centre lands exactly on the
-            capline) and a subscript drops ``d / 2`` cap heights (its centre
-            lands on the baseline). The argumented forms ``<sup:0.3>`` /
-            ``<sub:-0.2>`` set the baseline shift explicitly (in cap-height
-            units, ``0`` = baseline, ``1`` = capline) and apply **no**
-            scaling, so this field is inert on them. The run engraves with
-            the cutter that ``d * text_height`` of text gets on its own
-            (the ``<scale:N>`` ladder). Bound to ``[0.2, 1.0]``; defaults
-            to ``0.5``; only ``None`` means unset. Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not applied at that level).
-        html_brackets: Optional delimiter pair for the inline markup syntax
-            (``<i>`` italic and future tags). An **even-length** string whose
-            first half is the left delimiter and second half the right
-            delimiter: ``"<>"`` (the default) -> ``<`` / ``>``; ``"<<>>"`` ->
-            ``<<`` / ``>>``; ``"\u00ab\u00bb"`` -> ``\u00ab`` / ``\u00bb``. The two
-            halves must differ, and neither may contain alphanumeric
-            characters or newlines. Choosing a pair absent from the data
-            (e.g. chevrons in the text) keeps markup from misfiring: a
-            bracketed body that is not a registered tag (``<3``, ``<xyz>``)
-            engraves verbatim. Defaults to ``"<>"``; only ``None`` means
-            unset. Cascades line -> label -> job (and is accepted on plates
-            for schema parity, where it is not applied at that level).
-        italic_angle: Optional slant angle in **degrees** for italic markup
-            (``<i>``): PLT-extracted glyphs (and TTF glyphs with no native
-            italic face) are sheared about the baseline, ``x' = x +
-            y * tan(angle)``, so the baseline stays fixed and the glyph
-            leans right. Bound to ``[0, 45]`` (``0`` = upright: the shear is
-            skipped, italic runs engrave like plain text). Defaults to
-            ``12``; only ``None`` means unset. Cascades line -> label -> job
-            (and is accepted on plates for schema parity, where it is not
-            applied at that level).
-        underline_offset_fraction: Optional extra air as a **fraction of
-            the rendered cap height** (capline - baseline) for underline
-            markup (``<u>``). The underline is a centerline stroke cut with
-            the line's own text cutter, positioned
-            ``cutter diameter + underline_offset_fraction * cap height``
-            below the baseline, so
-            the engraved underline's top edge floats exactly
-            ``fraction * cap height`` below the engraved baseline stroke. The break
-            test is strictly horizontal: a glyph breaks the underline where its
-            ink crosses the underline's centerline (dipping past ``cutter
-            diameter + fraction * cap height`` below the baseline), so the
-            offset alone decides *which* glyphs break and raising it lifts the
-            underline clear of a glyph. ``0.0`` (the default) makes the
-            underline's
-            top edge touch the baseline stroke and gaps only where the
-            engraved strokes truly cross. Must be ``>= 0``; only ``None``
-            means unset.
-            Cascades line -> label -> job (and is accepted on plates
-            for schema parity, where it is not applied at that level).
-        underline_break_clearance_fraction: Extra air at each underline
-            break as a **fraction of the rendered cap height** (capline -
-            baseline). Each cut is padded horizontally by ``0.5 * cutter +
-            fraction * cap height`` (the half cutter is the glyph stroke's
-            own half-width -- the ink is a centerline), so the engraved air
-            between a descending glyph's stroke and the underline's cut edge
-            is exactly this clearance (``0.0`` = the cut sits at the ink).
-            Independent of ``underline_offset_fraction`` (which decides
-            *which* glyphs
-            break); this field adds air at the break itself and never causes a
-            break the offset prevents.
-            Must be ``>= 0``; only ``None`` means unset.
-            Cascades line -> label -> job (and is accepted on plates
-            for schema parity, where it is not applied at that level).
-        underline_break_spaces: Whether an underline (``<u>``) **breaks at the
-            spaces** between words. ``False`` (the default) draws one
-            continuous underline across the whole underlined run, spaces
-            included (only descending glyphs that cross the centerline break
-            it). ``True`` ends the underline at each space, so every word gets
-            its own underline spanning its own ink and the space between words
-            stays bare. Cascades line -> label -> job (and is accepted on
-            plates for schema parity, where it is not applied at that level);
-            explicit ``False`` is honored.
-        strikethrough_offset_fraction: Optional strikethrough height as a
-            **fraction of the rendered cap height** (capline - baseline)
-            for strikethrough markup (``<s>``). The strikethrough is a
-            centerline stroke cut with the line's own text cutter,
-            positioned ``strikethrough_offset_fraction * cap height``
-            **above** the baseline (``0.0`` = the
-            stroke sits on the baseline, ``1.0`` = on the capline). Unlike
-            the underline, the stroke is
-            **never broken**: a descender punches through it, so there is no
-            clearance and no break test. ``None`` (the default) centres the
-            stroke on the **cap-band midline** (half the rendered cap height),
-            the classic mid-height strike. Must be ``>= 0``; only ``None``
-            means unset (an explicit ``0.0`` is honored).
-            Cascades line -> label -> job (and is accepted on plates
-            for schema parity, where it is not applied at that level).
-        strikethrough_break_spaces: Whether a strikethrough (``<s>``)
-            **breaks at the spaces** between words. ``False`` (the default)
-            draws one continuous stroke across the whole struck run, spaces
-            included. ``True`` ends the stroke at each space, so every word
-            gets its own strike spanning its own ink and the space between
-            words stays bare. Cascades line -> label -> job (and is accepted
-            on plates for schema parity, where it is not applied at that
-            level); explicit ``False`` is honored.
-        v_center_chars: The character set **auto-centred vertically** between
-            the baseline and the capline. Every text character occurring in
-            this string is raised or lowered (a pure vertical translate) so
-            its own ink is centred on the cap-band midline (half the rendered
-            cap height above the baseline) -- the characters a font typically
-            draws too high (hyphen, colon, en/em dash, ``=``, ``<``, ``>``).
-            The inline ``<vc>...</vc>`` markup tag applies the same centering
-            to any other characters it wraps. ``""`` disables the auto-apply
-            (the ``<vc>`` tag keeps working on its own). Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not applied at that level); an explicit
-            ``""`` is honored. The code fallback is ``""`` (auto-apply off);
-            ``job-config.json`` ships the shop set ``"-:–—=<>"``.
-        cutter_size: Optional cutter diameter in inches to use for the text
-            instead of the tool auto-selected from ``text_height``. When set,
-            the requested diameter is snapped to the shop inventory
-            (``tools.json`` ``available_cutters``: next size down, else next
-            size up) and the rendered toolpath height is recomputed as
-            ``text_height - cutter_size`` (the nominal ``text_height`` itself
-            is untouched, so vertical fit math is unaffected). ``None`` (the
-            default) means unset: the cutter is chosen automatically from
-            ``text_height`` (current behaviour). Must be ``> 0``; a value at
-            or above the line's ``text_height`` is a resolution error. There
-            is deliberately **no** ``job-config.json`` counterpart. Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not applied at that level).
-        cutter_downsize: Optional permission to *reduce* the automatically
-            selected cutter when the rendered line has to be compressed
-            horizontally. When enabled (the default), a line whose effective
-            horizontal scale falls below the midpoint between its current
-            cutter and the next smaller inventory tool swaps to that smaller
-            tool and re-renders at ``text_height - smaller_cutter`` (the
-            nominal ``text_height`` stays the user's intent). The swap is
-            one-way: a downsized cutter is never enlarged again within the
-            same line. An explicit ``cutter_size`` at any level overrides
-            this entirely. Defaults to ``True``; only ``None`` means unset.
-            Cascades line -> label -> job (and is accepted on plates for
-            schema parity, where it is not applied at that level).
-        max_cutter_downsizes: Optional ceiling on how many successive cutter
-            downsizings :attr:`cutter_downsize` may apply to one text line
-            (``0`` disables the mechanism, ``1`` = at most one size down).
-            Each step re-measures the line, because a smaller cutter renders
-            *wider* and can justify a further step. Defaults to ``1``; only
-            ``None`` means unset. Cascades line -> label -> job (and is
-            accepted on plates for schema parity, where it is not applied at
-            that level).
-        optimize_line_content: Optional permission to redistribute this
-            line's words across the consecutive lines that also enable the
-            option. When enabled, whole words move between the enabled lines
-            of the group (word order is never changed -- only the line
-            breaks) so the group's lines reach equal rendered width,
-            minimizing the horizontal compression the label would otherwise
-            need. Consecutive enabled lines form one independent
-            optimization group; a disabled line breaks the group. Consumed
-            by :mod:`plt_optimizer.generate.line_content` as an export
-            pre-pass running *before* the cutter-reduction and shared-
-            compression pre-passes, so those see the reflowed text.
-            Defaults to ``False``; only ``None`` means unset. Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not applied at that level).
-        optimize_line_content_max_lines: Optional ceiling ``N`` on how many
-            consecutive lines an :attr:`optimize_line_content` group may use.
-            The option can only ever **add** lines to a label -- it never
-            removes, blanks or collapses one. Unset (``None``) reflows across
-            the group's existing lines and adds none. When set, the reflow
-            starts from the group's existing line count ``G`` and grows the
-            group -- inserting new lines cloned from the group's typography --
-            until its lines need no horizontal compression, ``M`` reaches
-            ``N``, or ``M`` reaches the number of words in the group (every
-            line keeps at least one word). ``N <= G`` leaves the cap inert.
-            Setting it on any one line of a group applies it to the whole
-            group; two *different* values in one group are an error, and so is
-            specifying it while :attr:`optimize_line_content` is not enabled.
-            Defaults to ``None`` (unset = no growth). Cascades
-            line -> label -> job (and is accepted on plates for schema
-            parity, where it is not applied at that level).
-        text_color: Optional stroke-color layer tag used to split
-            otherwise-identical text into separate toolpaths (one HPGL
-            ``SP`` layer and one PLT file per distinct color), so the
-            cutter depth can be changed between runs on 3-layer material
-            (EngraveLab/Vision Pro-style stroke colors). Accepted on text
-            lines and labels only -- it is deliberately NOT cascaded
-            (unset resolves to ``"none"`` and never reads a parent
-            value), and a job-level value is rejected. Values are
-            :class:`TextColor` full names or single-letter abbreviations,
-            both case-insensitive (``cyan`` / ``c`` ...). ``none`` is the
-            implicit default and cannot be specified explicitly. The inline
-            ``<tc:color>...</tc>`` markup applies the same split per
-            character, overriding this field inside its span (see
-            ``generate/markup/AGENTS.md`` "Inline Text Color").
     """
 
     # Root of the cascading text/label/job tier: unknown keys on any tier
@@ -1037,17 +641,17 @@ class TextAttributes(BaseModel):
         ge=0.2,
         le=1.0,
         description=(
-            "Downscale applied to a bare <sup>/<sub> markup run: the run's "
+            "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's "
             "glyphs engrave uniformly shrunk to this fraction of the line's "
             "size, and the baseline shift derives from it, centering the "
             "shrunken glyph on the line it belongs to (superscript rises "
             "1 - d/2 cap heights, its centre landing on the capline; "
             "subscript drops d/2 cap heights, its centre landing on the "
             "baseline). The "
-            "argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly "
+            "argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly "
             "(cap-height units) and apply no scaling, so this field is "
             "inert on them. The run engraves with the cutter for its "
-            "downscaled height (the <scale:N> ladder). Cascades "
+            "downscaled height (the `<scale:N>` ladder). Cascades "
             "line -> label -> job (fallback 0.5); explicit 0.2/1.0 are "
             "honored."
         ),
@@ -1607,149 +1211,6 @@ class LabelAttributes(TextAttributes):
     Extends TextAttributes with physical label dimensions and layout
     properties. These fields must NOT be inherited by TextLine because
     they describe the label container, not individual glyphs.
-
-    Attributes:
-        width: Label width in inches; must be defined at label or job level.
-        height: Label height in inches; must be defined at label or job level.
-        type: Label boundary shape. ``rect`` (the default) is the historical
-            rectangular behaviour; ``round`` makes the boundary an ellipse with
-            semi-axes ``width / 2`` and ``height / 2`` (a circle when the two
-            are equal). Cascades label -> job (fallback ``rect``); accepted on
-            plates for schema parity only. A ``round`` label is packed by the
-            adjacent ellipse-packing pipeline and its collision checks measure
-            the ellipse boundary -- the rectangular pipeline is untouched.
-        rounded_rectangle_fraction: Corner rounding fraction in ``[0.0, 1.0]``
-            of the rectangular border. Each corner is a superellipse-quadrant
-            patch with exponent ``2 / fraction``, so the curvature varies
-            **continuously** along the whole boundary (G2) -- no circular-fillet
-            curvature jump where the rounding begins. ``0.0`` (the default) is
-            the sharp rectangle, bit-identical. The rounding spans ``fraction``
-            of the **shorter** edge: a 4x8 label at ``0.5`` rounds 2in (50%)
-            of the 4in sides, starting 1in from each corner. At ``1.0`` with
-            :attr:`rounded_rectangle_proportional` true -- or on a square --
-            the boundary is the exact ellipse/circle of ``type: round``. On a
-            non-square at ``1.0`` with proportional false the short edges are
-            fully rounded and the long edges keep straight sections (a
-            smoothed stadium). Cascades job -> plate -> label (fallback 0.0);
-            accepted on plates for schema parity only. Inert on ``type: round``
-            labels (the ellipse owns the boundary).
-        rounded_rectangle_proportional: Whether :attr:`rounded_rectangle_fraction`
-            applies proportionately to width and height (true: the corner
-            semi-axes are ``fraction * width / 2`` and ``fraction * height / 2``,
-            so a 4x8 label at ``0.5`` rounds 50% of the 8in side too) or as one
-            **identical rounding distance** on every side (false, the default:
-            the shorter edge determines the rounding for all sides). Cascades
-            job -> plate -> label (fallback false); accepted on plates for
-            schema parity only.
-        margin: Optional universal margin in inches (used as fallback for
-            h_margin and v_margin when those are unset). Cascades
-            label -> job (fallback 0.125).
-        h_margin: Optional horizontal margin in inches (left and right edges).
-            Cascades label -> job; falls back to ``margin`` if unset.
-        v_margin: Optional vertical margin in inches (top and bottom edges).
-            Cascades label -> job; falls back to ``margin`` if unset.
-        hole_margin: Optional hole margin in inches. The closest point of a
-            hole circle to the label edge will be this far from the edge.
-            Cascades job -> plate -> label (label overrides plate overrides
-            job).
-        holes: Optional list of hole specifications. Group locations
-            (``corners`` / ``sides``) are expanded in place into their
-            atomic member holes at validation time.
-        material: Optional stock material name (free-form string, e.g.
-            ``"wb"`` or ``"wb(uv)"``). Cascades job -> label (and job ->
-            plate, see :class:`PlateSpec`); ``None`` (the default) means
-            unset. Labels are grouped by material at packing time: labels
-            sharing a material pack together and a plate never mixes
-            materials. Comparison is case-insensitive and
-            whitespace-trimmed; the first-declared spelling is kept.
-        use_baseline_spacing: Optional baseline-to-baseline line spacing
-            permission. Cascades job -> plate -> label (deliberately NOT
-            text lines -- spacing is a property of the stacked block, not of
-            one line); ``None`` (the default) means unset and falls back to
-            ``job-config.json`` then ``True``. When enabled, a label's lines
-            stack by baseline pitch (``text_height + line_spacing``) so a
-            line's descenders hang *into* the gap below it and every gap on
-            the label reads as one uniform visual spacing; when disabled,
-            lines stack by rendered ink box (the historical behaviour, where
-            a descender inflates the gap under its own line).
-        v_center_by_content: Optional vertical-centering mode. Cascades
-            job -> plate -> label (deliberately NOT text lines -- centering is
-            a property of the stacked block); ``None`` (the default) means
-            unset and falls back to ``job-config.json`` then ``False``.
-            ``False`` (the default) locks the text block to its
-            **baseline-to-capline band**: the band spans the lowest baseline to
-            the highest capline and is centered in the inner content area, so
-            the visible text is optically centered and descenders hang into the
-            bottom margin, where the descending-character relief
-            (:attr:`auto_descending_character_adjustment`) deals with them
-            against the bottom border. ``True`` centers the block by its
-            **rendered ink** (the historical behaviour): the deepest descender
-            is charged to the block, so a line carrying descenders rides high
-            in the label. Centering by band is only active when the relief is
-            enabled -- with :attr:`auto_descending_character_adjustment`
-            disabled nothing would adjust the descenders, so ink centering is
-            kept and this field is inert.
-        auto_descending_character_adjustment: Optional permission for
-            automatic descending-character relief. Cascades job -> plate ->
-            label (deliberately NOT text lines -- the mechanism compares a
-            line's glyphs against the *following* line's, so it is a property
-            of the stacked block); ``None`` (the default) means unset and
-            falls back to ``job-config.json`` then ``True``. When enabled, a
-            glyph whose ink hangs below its baseline is vertically downscaled
-            and raised (see :attr:`descending_character_v_scale` and
-            :attr:`descending_character_raise`) **only** when a glyph on the
-            following line comes within the required clearance (the
-            engraved-stroke floor scaled by
-            :attr:`descending_character_clearance`) of it -- a per-glyph
-            reaction to a measured near-miss, never a blanket adjustment of
-            every descender on the label.
-        descending_character_v_scale: Maximum vertical downscale allowed for
-            a triggering descending glyph, in ``[0.2, 1.0]``. Cascades
-            job -> plate -> label (never text lines); ``None`` (the default)
-            means unset and falls back to ``job-config.json`` then ``0.5``.
-            ``1.0`` forbids downscaling entirely; ``0.5`` permits squeezing
-            the glyph to 50% of its height; ``0.2`` is the deepest squeeze
-            allowed. The glyph is scaled about its own baseline, so its
-            ascender and descender shrink together.
-        descending_character_raise: Maximum vertical raise allowed for a
-            triggering descending glyph, as a fraction of its own descender
-            depth, in ``[0.0, 1.0]``. Cascades job -> plate -> label (never
-            text lines); ``None`` (the default) means unset and falls back to
-            ``job-config.json`` then ``0.7``. ``0.0`` forbids raising;
-            ``1.0`` permits lifting the glyph until its lowest point sits
-            exactly on the baseline.
-        descending_character_clearance: Extra air demanded between the
-            *engraved* stroke of a descending glyph and the *engraved* stroke
-            of a glyph on the following line, as a **unitless factor of the
-            stroke floor** ``0.5 * (cutter_upper + cutter_lower)`` at which the
-            two strokes would touch: the required gap is
-            ``floor * (1 + clearance)``, so the demanded air scales with the
-            cutter width and reads the same at every text size. Cascades job ->
-            plate -> label (never text lines); ``ge=0.0``, ``None`` (the
-            default) means unset and falls back to ``job-config.json`` then
-            ``0.0``. An explicit ``0.0`` is honored (only true touching
-            triggers the relief).
-        adjust_h_center_for_single_side_hole: Optional permission to apply
-            horizontal shift for asymmetric left/right drill holes. When enabled
-            (true), text is horizontally shifted to center between left and right
-            holes: shift = (left_diameter - right_diameter) / 2. Only applied to
-            center-aligned text; left/right alignment ignores the shift. Vertical
-            shifts (for top/bottom holes) are always applied regardless of this
-            field. Cascades job -> plate -> label (never text lines); ``None``
-            (the default) means unset and falls back to ``job-config.json`` then
-            ``False``. Accepted on plates for schema parity only.
-        hole_adjust_for_cutter: Optional cutter-compensation permission for
-            drill holes. When enabled (the default), the **emitted** hole
-            circle shrinks by the boundary/hole cutter diameter -- the cutter
-            radius on each side of the hole's path -- so the engraved hole
-            measures the specified diameter: a 0.1in hole cut by a 0.015in
-            cutter emits a 0.085in circle. The hole's centre is untouched
-            (placed from the specified diameter), and a hole at or below the
-            cutter diameter clamps to the smallest emittable circle with a
-            WARNING. Cascades job -> plate -> label (never text lines);
-            ``None`` (the default) means unset and falls back to
-            ``job-config.json`` then ``True``. Accepted on plates for schema
-            parity only.
     """
 
     width: Optional[float] = Field(
@@ -2070,11 +1531,6 @@ class ListAttributes(TextAttributes):
     ``list_marker_gap_fraction``) are inherited from :class:`TextAttributes`
     and cascade item -> list block -> label -> job -> job-config.json, so a
     block declares them exactly where a label would.
-
-    Attributes:
-        items: The list's text items (one rendered line each, growing to a
-            hanging-indented multi-line block through
-            ``optimize_line_content``). Must contain at least one item.
     """
 
     items: list[TextLine] = Field(
@@ -2294,41 +1750,6 @@ class LabelSpec(LabelAttributes):
        when omitted, every instance's lines inherit the label-level text
        attributes; when present, its ``text`` values act as placeholders
        declaring the per-line attributes (text height, alignment, etc.).
-
-    Attributes:
-        id: Unique identifier for this label specification.
-        count: Number of instances to produce. Defaults to 1. Mutually
-            exclusive with ``replacement_text_file``.
-        content: List of text lines to render on the label. Required unless
-            ``replacement_text_file`` is provided.
-        replacement_text_file: Path to a replacement text file (resolved
-            relative to the job YAML file's directory unless absolute).
-            Each line produces one label instance; items within a line are
-            separated by ``replacement_text_delimiter``.
-        replacement_text_delimiter: Single special or whitespace character
-            separating text items within a replacement file line. Defaults
-            to ``";"``. Cannot be a newline or an alphanumeric character.
-        replacement_text_file_comment_string: Marker string that makes a
-            replacement file line a comment: after stripping whitespace, a
-            line starting with this string is dropped (it produces no label
-            copy) and reported. Defaults to ``"# "`` (the code fallback, which
-            ``job-config.json`` also ships); ``""`` disables comment handling,
-            so every non-blank line is raw data (whitespace-only/empty lines
-            are still dropped). Requires ``replacement_text_file``.
-        plate_id: Optional id of the plate this label is pinned to. Pinned
-            labels pack exclusively onto that plate, and the plate then
-            accepts no other labels. Normally set by plate-level
-            ``replacement_text_file`` expansion (see
-            :func:`plt_optimizer.generate.substitution.expand_job_spec`);
-            it may also be declared directly to pin a static label to a
-            specific sheet.
-        material: Optional stock material name (inherited from
-            :class:`LabelAttributes`). Cascades job -> label; labels
-            sharing a material pack together and never share a plate with
-            a different material. A plate-level ``replacement_text_file``
-            stamps the declaring plate's material onto its synthesized
-            labels (see
-            :func:`plt_optimizer.generate.substitution.expand_job_spec`).
     """
 
     id: str = Field(description="Unique identifier for this label specification.")
@@ -2486,226 +1907,7 @@ class LabelSpec(LabelAttributes):
 
 
 class PlateSpec(BaseModel):
-    """Specification for a plate (material sheet) to cut labels from.
-
-    Attributes:
-        id: Unique identifier for this plate specification.
-        width: Usable width of the plate in inches (the area available to
-            the packer). The material's right edge sits at
-            ``left_clearance + width``.
-        height: Usable height of the plate in inches (the area available to
-            the packer). The material's bottom edge sits at
-            ``top_clearance + height``.
-        left_clearance: Unused material width along the plate's left edge
-            in inches; shifts the usable area rightward. Defaults to 0.0.
-            Bottom and right clearances need no fields: the material always
-            extends to ``left_clearance + width`` on the right and
-            ``top_clearance + height`` at the bottom.
-        top_clearance: Unused material height along the plate's top edge in
-            inches; shifts the usable area downward (labels stay flush with
-            the bottom edge). Defaults to 0.0.
-        h_margin: Optional horizontal margin in inches. Accepted for schema
-            parity with the job/label ``h_margin`` cascade. NOTE: labels
-            are rendered once and cached before bin-packing (and a single
-            label may span multiple plates), so a per-plate value is not
-            currently applied during rendering; the effective value is
-            resolved from the label -> job -> default cascade.
-        v_margin: Optional vertical margin in inches. Accepted for schema
-            parity with the job/label ``v_margin`` cascade. NOTE: labels
-            are rendered once and cached before bin-packing (and a single
-            label may span multiple plates), so a per-plate value is not
-            currently applied during rendering; the effective value is
-            resolved from the label -> job -> default cascade.
-        hole_margin: Optional hole margin in inches. Accepted for schema
-            parity with the job/label ``hole_margin`` cascade. NOTE: labels
-            are rendered once and cached before bin-packing (and a single
-            label may span multiple plates), so a per-plate value is not
-            currently applied during rendering; the effective value is
-            resolved from the label -> job -> default cascade.
-        max_h_compress: Optional maximum horizontal compression fraction.
-            Accepted for schema parity with the job/label ``max_h_compress``
-            cascade. NOTE: labels are rendered once and cached before
-            bin-packing (and a single label may span multiple plates), so a
-            per-plate value is not currently applied during rendering; the
-            effective value is resolved from the label -> job -> default
-            cascade.
-        text_h_alignment: Optional horizontal text alignment. Accepted for
-            schema parity with the job/label ``text_h_alignment`` cascade.
-            NOTE: labels are rendered once and cached before bin-packing
-            (and a single label may span multiple plates), so a per-plate
-            value is not currently applied during rendering; the effective
-            value is resolved from the label -> job -> default cascade.
-        type: Optional label boundary shape (``rect`` / ``round``). Accepted
-            for schema parity with the label ``type`` cascade. NOTE: label
-            shape is a per-label property resolved before packing; a
-            per-plate value is not applied (parity only).
-        rounded_rectangle_fraction: Optional corner rounding fraction in
-            ``[0.0, 1.0]`` for rectangular borders. Accepted for schema parity
-            with the label ``rounded_rectangle_fraction`` cascade. NOTE: the
-            border is a per-label property resolved before packing; a
-            per-plate value is not applied (parity only).
-        rounded_rectangle_proportional: Optional proportional-rounding flag.
-            Accepted for schema parity with the label
-            ``rounded_rectangle_proportional`` cascade. NOTE: a per-plate
-            value is not applied (parity only).
-        min_hole_margin: Optional minimum hole margin in inches. Accepted
-            for schema parity with the job/label ``min_hole_margin``
-            cascade. NOTE: labels are rendered once and cached before
-            bin-packing (and a single label may span multiple plates), so
-            a per-plate value is not currently applied during rendering;
-            the effective value is resolved from the label -> job ->
-            default cascade.
-        hole_text_collision_distance: Optional minimum engraved-stroke
-            air gap in inches. Accepted for schema parity with the
-            job/label ``hole_text_collision_distance`` cascade. NOTE:
-            labels are rendered once and cached before bin-packing, so a
-            per-plate value is not currently applied during rendering;
-            the effective value is resolved from the label -> job ->
-            default cascade.
-        space_width_fraction: Optional space advance fraction. Accepted
-            for schema parity with the job/label ``space_width_fraction``
-            cascade. NOTE: labels are rendered once and cached before
-            bin-packing, so a per-plate value is not currently applied
-            during rendering; the effective value is resolved from the
-            line -> label -> job -> default cascade.
-        min_glyph_width_fraction: Optional global minimum glyph advance
-            width as a fraction of the rendered cap height. Accepted for
-            schema parity with the job/label
-            ``min_glyph_width_fraction`` cascade. NOTE: labels are rendered
-            once and cached before bin-packing, so a per-plate value is not
-            currently applied during rendering; the effective value is
-            resolved from the line -> label -> job -> default cascade.
-        kerning_window_fraction: Optional kerning window fraction in
-            ``[0.0, 1.0]``. Accepted for schema parity with the job/label
-            ``kerning_window_fraction`` cascade. NOTE: labels are rendered
-            once and cached before bin-packing, so a per-plate value is
-            not currently applied during rendering; the effective value is
-            resolved from the line -> label -> job -> default cascade.
-        kerning_penetration_scale: Optional penetration multiplier.
-            Accepted for schema parity with the job/label
-            ``kerning_penetration_scale`` cascade (not applied at plate
-            level).
-        kerning_recession_scale: Optional recession multiplier. Accepted
-            for schema parity with the job/label
-            ``kerning_recession_scale`` cascade (not applied at plate
-            level).
-        kerning_min_gap_fraction: Optional extra kerning air as a fraction
-            of the rendered cap height. Accepted
-            for schema parity with the job/label ``kerning_min_gap_fraction``
-            cascade (not applied at plate level).
-        fallback_advance_fraction: Optional fallback-advance multiplier.
-            Accepted for schema parity with the job/label
-            ``fallback_advance_fraction`` cascade (not applied at plate
-            level).
-        sc_scale: Optional small-caps downscale for ASCII lowercase ``a-z``
-            (a ``font`` name ending in `` SC``). Accepted for schema parity
-            with the job/label ``sc_scale`` cascade (not applied at plate
-            level).
-        supersubscript_downscale: Optional bare ``<sup>``/``<sub>`` run
-            downscale. Accepted for schema parity with the job/label
-            ``supersubscript_downscale`` cascade (not applied at plate
-            level).
-        html_brackets: Optional inline-markup delimiter pair. Accepted for
-            schema parity with the job/label ``html_brackets`` cascade (not
-            applied at plate level).
-        italic_angle: Optional italic slant angle in degrees. Accepted for
-            schema parity with the job/label ``italic_angle`` cascade (not
-            applied at plate level).
-        underline_offset_fraction: Optional underline air as a fraction of
-            the rendered cap height. Accepted for
-            schema parity with the job/label ``underline_offset_fraction``
-            cascade (not applied at plate level).
-        underline_break_clearance_fraction: Optional air at each underline
-            break as a fraction of the rendered cap height. Accepted for
-            schema parity with the job/label
-            ``underline_break_clearance_fraction`` cascade (not applied at
-            plate level).
-        underline_break_spaces: Optional break-at-spaces flag. Accepted for
-            schema parity with the job/label ``underline_break_spaces``
-            cascade (not applied at plate level).
-        strikethrough_offset_fraction: Optional strikethrough height as a
-            fraction of the rendered cap height, above
-            the baseline. Accepted for schema parity with the job/label
-            ``strikethrough_offset_fraction`` cascade (not applied at plate
-            level).
-        strikethrough_break_spaces: Optional break-at-spaces flag. Accepted
-            for schema parity with the job/label
-            ``strikethrough_break_spaces`` cascade (not applied at plate
-            level).
-        cutter_size: Optional cutter diameter in inches. Accepted for schema
-            parity with the job/label ``cutter_size`` cascade (not applied at
-            plate level).
-        cutter_downsize: Optional compression-driven cutter reduction flag.
-            Accepted for schema parity with the job/label ``cutter_downsize``
-            cascade (not applied at plate level).
-        max_cutter_downsizes: Optional cap on cutter downsizing steps.
-            Accepted for schema parity with the job/label
-            ``max_cutter_downsizes`` cascade (not applied at plate level).
-        optimize_line_content: Optional word-level line-content reflow
-            permission. Accepted for schema parity with the job/label
-            ``optimize_line_content`` cascade (not applied at plate level).
-        optimize_line_content_max_lines: Optional ceiling on the number of
-            consecutive lines a reflow group may use. Accepted for schema
-            parity with the job/label ``optimize_line_content_max_lines``
-            cascade (not applied at plate level).
-        auto_descending_character_adjustment: Optional automatic
-            descending-character relief permission. Accepted for schema parity
-            with the job/label ``auto_descending_character_adjustment``
-            cascade (not applied at plate level -- labels render before
-            packing).
-        descending_character_v_scale: Optional maximum vertical downscale for
-            a triggering descending glyph. Accepted for schema parity with the
-            job/label ``descending_character_v_scale`` cascade (not applied at
-            plate level).
-        descending_character_raise: Optional maximum raise for a triggering
-            descending glyph. Accepted for schema parity with the job/label
-            ``descending_character_raise`` cascade (not applied at plate
-            level).
-        descending_character_clearance: Optional extra engraved-stroke air gap
-            (as a unitless factor of the stroke floor) for descending-character
-            relief. Accepted for schema parity with the job/label
-            ``descending_character_clearance`` cascade (not applied at plate
-            level).
-        layout: Optional per-plate fill-order override (``rows`` /
-            ``columns``). ``None`` (the default) inherits the job-level
-            ``layout``. Unlike the other cascading fields, this one IS
-            applied at packing time: when plates declare different modes,
-            same-mode plates pack in one sequential pass and leftovers
-            cascade to the next group in declaration order.
-        material: Optional stock material name this plate is cut from
-            (free-form, e.g. ``"wb"``). Cascades job -> plate (an explicit
-            plate value wins; an explicit ``null`` counts as unset). Unlike
-            the parity-only fields, this one IS applied at packing time:
-            labels are partitioned by material and each material group
-            packs only onto plates claiming that material, so a plate
-            never mixes materials. A plate that omits material is claimed
-            by one material group (material-less plates spread across the
-            groups). Comparison trims whitespace and ignores case.
-        replacement_text_file: Optional path to an EngraveLab/Vision
-            Pro-style replacement text file (resolved relative to the job
-            YAML directory unless absolute) whose lines each produce one
-            label generated *onto this plate only*. Label dimensions and
-            typography (``width`` / ``height`` / ``text_height`` / ...) are
-            NOT plate fields: they come from the job-level cascade. The
-            plate's usable ``width``/``height`` still describe the pack
-            area.
-        replacement_text_delimiter: Single special or whitespace character
-            separating text items within a replacement file line. Defaults
-            to ``";"``. When declared, a replacement file must exist for
-            this plate: either the plate's own ``replacement_text_file`` or
-            a label-level file on a label pinned to this plate
-            (``LabelSpec.plate_id``). Cascades plate -> label for labels
-            pinned to this plate that omit the field.
-        replacement_text_file_comment_string: Marker string that makes a
-            replacement file line a comment: after stripping whitespace, a
-            line starting with this string is dropped (it produces no label
-            copy) and reported. Defaults to ``"# "`` (the code fallback,
-            which ``job-config.json`` also ships); ``""`` disables comment
-            handling, so every non-blank line is raw data (whitespace-only
-            lines are still dropped). Same file requirement as
-            ``replacement_text_delimiter``; cascades plate -> label for
-            pinned labels that omit the field.
-    """
+    """Specification for a plate (material sheet) to cut labels from."""
 
     # Root of the plate tier: unknown plate keys are typos, so forbid them.
     model_config = ConfigDict(extra="forbid")
@@ -3387,70 +2589,18 @@ class JobSpec(LabelAttributes):
     A job may be specified in one of three forms:
     1. A list of explicit labels (`labels`), each with width/height defined.
     2. A single root-level label definition (`content` + optional `count`),
-       with width/height defined at the job or root level.
+        with width/height defined at the job or root level.
     3. A job-level EngraveLab/Vision Pro-style replacement text file
-       (``replacement_text_file``): each line of the file produces one
-       label, generated from the job-level label attributes. ``width``,
-       ``height`` and ``text_height`` must be defined at the job level;
-       ``content`` is an optional per-line attribute template (exactly
-       like on :class:`LabelSpec`). This form is mutually exclusive with
-       ``labels`` and ``count``.
+        (``replacement_text_file``): each line of the file produces one
+        label, generated from the job-level label attributes. ``width``,
+        ``height`` and ``text_height`` must be defined at the job level;
+        ``content`` is an optional per-line attribute template (exactly
+        like on :class:`LabelSpec`). This form is mutually exclusive with
+        ``labels`` and ``count``.
 
     The label source forms (1-3) are mutually exclusive; exactly one must
     be provided. The ``width`` and ``height`` cascade from label to job;
     they are no longer auto-sized from rendered content.
-
-    Attributes:
-        job_name: Human-readable name for this job.
-        plates: Optional list of plate specifications. If omitted, the
-            generation pipeline auto-allocates default 24x16 sheets.
-        labels: Optional list of unique label specifications to produce.
-        count: Optional count for root-level single-label jobs.
-        content: Optional root-level content for single-label jobs (or the
-            per-line attribute template for a job-level replacement file).
-        replacement_text_file: Job-level replacement text file (resolved
-            relative to the job YAML directory unless absolute). Each line
-            produces one label; items within a line are separated by
-            ``replacement_text_delimiter``. Requires job-level ``width``,
-            ``height`` and ``text_height``; mutually exclusive with
-            ``labels``, ``count`` and plate-level replacement files.
-        replacement_text_delimiter: Single special or whitespace character
-            separating text items within a replacement file line. Defaults
-            to ``";"``. When declared, the job must contain a replacement
-            file at some tier (job, plate, or label): a job-level value
-            cascades job -> plate -> label, so declaring it with no file
-            anywhere is a validation error.
-        replacement_text_file_comment_string: Marker string that makes a
-            replacement file line a comment: after stripping whitespace, a
-            line starting with this string is dropped (it produces no label
-            copy) and reported. Defaults to ``"# "`` (the code fallback,
-            which ``job-config.json`` also ships); ``""`` disables comment
-            handling, so every non-blank line is raw data (whitespace-only
-            lines are still dropped). Same file requirement as
-            ``replacement_text_delimiter``; cascades job -> plate -> label.
-        allow_rotation: Whether the bin packer may rotate label instances
-            90 degrees to improve plate utilization. When a rotated label
-            is assembled onto a plate its whole content (text, border and
-            drill holes) is rotated clockwise. Defaults to True.
-        text_chunk_mode: Granularity at which rendered text becomes a
-            plate-space optimization node: ``"line"`` (the default) routes
-            each whole text line as one unit; ``"word"`` splits lines on
-            whitespace for finer rapid-travel routing at the cost of more
-            TSP nodes.
-        layout: Preferential plate fill order for bin packing. ``columns``
-            (the default) fills each plate's height before extending
-            rightward; ``rows`` fills width before extending downward (the
-            historical behaviour). Cascades job -> plate: a plate may
-            override it via ``PlateSpec.layout``.
-        left_clearance: Job-level default for the plate left-edge
-            clearance in inches. Cascades job -> plate: plates that omit
-            ``left_clearance`` inherit this value; an explicit plate
-            value (including ``0.0``) always wins. Unbounded
-            auto-allocated sheets use it too (threaded through the export
-            call). ``None`` (the default) means no job-level default;
-            plates then fall back to their own ``0.0`` default.
-        top_clearance: Job-level default for the plate top-edge clearance
-            in inches (same cascade as ``left_clearance``).
     """
 
     job_name: str = Field(description="Human-readable name for this job.")
