@@ -32,7 +32,7 @@ Coordinate convention (matches matplotlib/plotter):
 - Scale is a fixed per-font reference: the ink height of the reference glyph
   ``"H"`` (the TrueType analogue of the PLT library's reference character)
   equals the requested toolpath height exactly, on *every* text line. Scaling
-  each line by its own rendered ink box instead (the historical behaviour)
+  each line by its own rendered ink box instead (the historical behavior)
   made every glyph on a line shrink whenever that line contained descenders,
   ascenders, or tall punctuation, so identical ``text_height`` values produced
   visibly different glyph sizes across lines. The result is drop-in compatible
@@ -120,7 +120,7 @@ def _ascii_upper_map(
             ``<sc>`` tag): only the flagged ASCII lowercase characters map,
             every other character maps to itself. ``None`` (the default)
             maps every ASCII lowercase character, the font-level `` SC``
-            behaviour, so every legacy call site renders bit-identically.
+            behavior, so every legacy call site renders bit-identically.
 
     Returns:
         The string whose glyphs are rendered.
@@ -146,7 +146,7 @@ def _glyph_sources(
     source while the pairs stay keyed by the original characters (the map is
     1:1). ``small_caps_flags`` (the inline ``<sc>`` tag) narrows that mapping
     to the flagged characters; ``None`` maps every ASCII lowercase character,
-    the font-level `` SC`` behaviour.
+    the font-level `` SC`` behavior.
 
     Args:
         text: The line's text (the original, not the mapped string).
@@ -432,7 +432,7 @@ def _apply_small_caps(
             ``text`` (spaces included -- the inline ``<sc>`` tag): only the
             flagged ASCII lowercase glyphs shrink. ``None`` (the default)
             shrinks every ASCII lowercase glyph, the font-level `` SC``
-            behaviour, so every legacy call site renders bit-identically.
+            behavior, so every legacy call site renders bit-identically.
 
     Returns:
         The line with the lowercase-origin glyphs shrunk. When the per-glyph
@@ -1125,7 +1125,7 @@ def render_text_line_ftext(
             ``<sc>`` tag): only the flagged ASCII lowercase characters map to
             their uppercase glyph and shrink. Only consulted when
             ``small_caps_scale`` is set. ``None`` (the default) transforms
-            every ASCII lowercase character, the font-level `` SC`` behaviour,
+            every ASCII lowercase character, the font-level `` SC`` behavior,
             so every legacy call site renders bit-identically.
         italic_tan: Italic shear factor ``tan(italic_angle)`` for ``<i>``
             markup: flagged glyphs are italicized in place (see

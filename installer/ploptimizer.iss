@@ -76,7 +76,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 ; A running tray app locks its own EXE, so let Setup detect and close it
-; during upgrade-in-place (default behaviour, made explicit here).
+; during upgrade-in-place (default behavior, made explicit here).
 CloseApplications=yes
 
 [Languages]

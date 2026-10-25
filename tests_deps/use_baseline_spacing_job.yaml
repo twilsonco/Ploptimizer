@@ -4,7 +4,7 @@
 # Baseline mode anchors every text line on its BASELINE with a pitch of
 # (toolpath_text_height + line_spacing), so a descender hangs INTO the gap
 # below its line and every gap reads as one uniform visual spacing. Ink-box
-# mode (false, the historical behaviour) stacks each line's full ink box, so a
+# mode (false, the historical behavior) stacks each line's full ink box, so a
 # line with descenders inflates the gap under it.
 #
 # No plate declares a material and the job packs onto one sheet, so emitted

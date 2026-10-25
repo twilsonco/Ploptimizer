@@ -185,7 +185,7 @@ def simplify_overlapping_strokes(
             ``tol``. Cutting segments whose supporting lines lie within
             ``line_tol`` of each other are treated as the same line (CAD
             export jitter), and their break points snap accordingly.
-            ``None`` (default) keeps the historical behaviour of merging
+            ``None`` (default) keeps the historical behavior of merging
             supporting lines only within ``tol``.
 
     Returns:

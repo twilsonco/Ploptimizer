@@ -48,7 +48,7 @@ job:
         - text: "ON"
 
     # 2. The explicit opt-out: the emitted circle keeps the specified 0.1in
-    #    diameter (the historical behaviour, bit-identical). (The id is
+    #    diameter (the historical behavior, bit-identical). (The id is
     #    'opt_out', not 'off' -- bare on/off/yes/no are YAML 1.1 booleans.)
     - id: opt_out
       hole_adjust_for_cutter: false

@@ -9,7 +9,7 @@
 # scaled TOP-DOWN about their own lowest ink point, so their lowest point never
 # moves and their top descends toward it, capped by
 # descending_character_reciprocal_scale (1.0 = reciprocal downscaling
-# forbidden, the historical behaviour).
+# forbidden, the historical behavior).
 #
 # Dino at 1.5in text, 0.09in cutter, clearance 0.5 => required 0.135in.
 #

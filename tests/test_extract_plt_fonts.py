@@ -7,7 +7,7 @@ framed sheet whose glyph shapes have exactly known dimensions, so the
 baseline normalization, envelope sampling and scaling can be asserted
 numerically.
 
-Two real-world fixtures pin behaviour end-to-end:
+Two real-world fixtures pin behavior end-to-end:
 
 * ``tests_deps/dino_0.5_E.plt`` (a copy of
   ``fonts/VP-EL-fonts/input-plt/dino_0.67_E_S1.plt``'s 0.5in predecessor)
@@ -1034,7 +1034,7 @@ class TestVerticallyCenteredChars:
         assert box["max_y"] == pytest.approx(1000.0, abs=1e-3)
         assert not any("Vertically centred" in record.getMessage() for record in caplog.records)
 
-    def test_disabling_centring_is_the_baseline_behaviour(self) -> None:
+    def test_disabling_centring_is_the_baseline_behavior(self) -> None:
         box = self._extract(vertical_centering=False)["C"]["bounding_box"]
         assert box["min_y"] == pytest.approx(self.RAW_BOTTOM, abs=1e-6)
         assert box["max_y"] == pytest.approx(self.RAW_TOP, abs=1e-6)
@@ -1466,7 +1466,7 @@ class TestShowcaseWiring:
     def test_explicit_showcase_flag_is_a_no_op_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calls: List[Optional[Path]]
     ) -> None:
-        """``--showcase`` is accepted and matches the default behaviour."""
+        """``--showcase`` is accepted and matches the default behavior."""
         out = tmp_path / "catalog"
         monkeypatch.setattr(script, "PLT_FONT_CATALOG_DIR", out)
         assert script.main(self._args(tmp_path, out) + ["--showcase"]) == 0

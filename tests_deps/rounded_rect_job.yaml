@@ -7,7 +7,7 @@
 # curvature varies CONTINUOUSLY along the whole boundary (G2) -- no
 # circular-fillet curvature jump where the rounding begins.
 #
-# The behaviour matrix pinned here:
+# The behavior matrix pinned here:
 #   - fraction = 0.0 (default, `sharp_control`)   -> sharp rectangle,
 #     bit-identical to the historical border.
 #   - 0 < fraction < 1, proportional false        -> one identical rounding

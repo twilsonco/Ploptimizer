@@ -244,7 +244,7 @@ DEFAULT_KERNING_WINDOW_FRACTION: float = 0.05
 DEFAULT_KERNING_PENETRATION_SCALE: float = 1.0
 # Multiplier on a *recessed* (negative) detected penetration (PLT-extracted
 # fonts). 1.0 keeps the geometric recession (the historical linear
-# behaviour); 0.0 makes a recessed pair advance by nothing beyond the
+# behavior); 0.0 makes a recessed pair advance by nothing beyond the
 # min_glyph_width_fraction floor, so the penetration dial only tightens
 # pairs whose
 # silhouettes overlap.
@@ -377,11 +377,11 @@ DEFAULT_V_CENTER_CHARS: str = ""
 # supplies the shop default. See ``generate/markup/AGENTS.md``
 # "Inline Bold (``<b>``)".
 DEFAULT_BOLD_BOLDNESS_MULTIPLIER: float = 1.5
-# Horizontal text alignment defaults to centering (existing behaviour).
+# Horizontal text alignment defaults to centering (existing behavior).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
 # Explicit cutter diameter (inches) override. ``None`` (the default) means
 # unset: the cutter is auto-selected from the nominal text height via
-# ``IDEAL_CUTTER_MAP`` (current behaviour). When set, the requested diameter
+# ``IDEAL_CUTTER_MAP`` (current behavior). When set, the requested diameter
 # is snapped to the shop inventory (next size down, else next size up) and
 # the toolpath height is recomputed as ``text_height - cutter_size``.
 # There is deliberately no job-config.json counterpart to this field.
@@ -442,14 +442,14 @@ DEFAULT_MAX_CUTTER_DOWNSIZES: int = 1
 # always per-label; the job tier only enables the option for its labels).
 DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
 # Job-wide scope of the shared cutter downsize. ``False`` (the default) keeps
-# sharing per-label (the historical behaviour, bit-identical output); ``True``
+# sharing per-label (the historical behavior, bit-identical output); ``True``
 # widens a trigger line's sharing group from its label to every eligible line
 # of the same nominal text height across the whole job, so one text size
 # engraves with one tool job-wide. Requires ``cutter_downsize_global`` true;
-# a line with this flag ``False`` keeps exactly the per-label behaviour.
+# a line with this flag ``False`` keeps exactly the per-label behavior.
 DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE: bool = False
 # Per-label sharing of horizontal compression. ``False`` (the default) keeps
-# the historical per-line behaviour; ``True`` propagates a trigger line's
+# the historical per-line behavior; ``True`` propagates a trigger line's
 # compression scale to every other eligible line of the same nominal text
 # height *within the same label* (sharing is always per-label; the job tier
 # only enables the option for its labels). The shared scale is the group's
@@ -519,7 +519,7 @@ DEFAULT_LIST_MARKER_GAP_FRACTION: float = 0.5
 # text lines by baseline pitch (``nominal_text_height + line_spacing``) so a
 # line's descenders hang *into* the gap below it and every gap on the label
 # reads as one uniform visual spacing. ``False`` stacks by rendered ink box
-# (the historical behaviour): a line carrying descenders pushes the next line
+# (the historical behavior): a line carrying descenders pushes the next line
 # down by its full ink height, inflating that one visual gap. Label-level
 # only -- spacing is a property of the stacked block, never of one line, so
 # the field is deliberately absent from ``TextLine``/``TextAttributes``.
@@ -529,7 +529,7 @@ DEFAULT_USE_BASELINE_SPACING: bool = True
 # lowest baseline to the highest capline, so the visible text is optically
 # centered and descenders hang into the bottom margin, where the descending-
 # character relief handles them against the bottom border. ``True`` centers by
-# the block's **rendered ink** (the historical behaviour): the deepest
+# the block's **rendered ink** (the historical behavior): the deepest
 # descender is charged to the block, so a line carrying descenders rides high
 # in the label. Band centering is active only when the descending-character
 # relief is enabled (see ``center_text_by_band``); with the relief off nothing
@@ -568,7 +568,7 @@ DEFAULT_DESCENDING_CHARACTER_RAISE: float = 0.7
 DEFAULT_DESCENDING_CHARACTER_CLEARANCE: float = 0.0
 # Deepest top-down downscale permitted for the would-be-colliding glyphs on
 # the FOLLOWING line (``1.0`` = reciprocal downscaling forbidden, the
-# historical behaviour; ``0.5`` = squeezed to half height). The lower glyphs
+# historical behavior; ``0.5`` = squeezed to half height). The lower glyphs
 # are scaled about their own lowest ink point, so their lowest point never
 # moves; they share the relief with the descending glyph through the same
 # ramp driving its downscale/raise. Bound to ``[0.2, 1.0]`` by the schema.
@@ -1186,7 +1186,7 @@ class ResolvedTextLine:
             true), a trigger line's swap reaches every *eligible* line of the
             same ``nominal_text_height`` in ANY label of the job, so one text
             size engraves with one tool job-wide; a line with this flag
-            ``False`` keeps exactly the per-label behaviour (it neither shares
+            ``False`` keeps exactly the per-label behavior (it neither shares
             to nor receives from the job-wide group). Consumed by
             :mod:`plt_optimizer.generate.cutter_downsize`. Explicit ``False``
             is honored; only ``None`` means unset.
@@ -3707,7 +3707,7 @@ def _scale_cutter_ladder_cached(
     boldness ladder at the effective height (snap + gap-free step-up, exactly
     like the line-level cutter block), a single-stroke/TTF run font takes the
     height ladder. Without it the plain cutter is the plain height ladder
-    (the shipped ``<scale:N>`` behaviour on the line's own font).
+    (the shipped ``<scale:N>`` behavior on the line's own font).
 
     ``line_cutter`` is the line's OWN resolved cutter, and it clamps the
     plain rung of an **unscaled** run (see :func:`scale_cutter_ladder`): a
@@ -4421,7 +4421,7 @@ def _resolve_content(
         # Determine cutter and compensate for toolpath. An explicit cutter
         # replaces the height-based lookup, snapped to the shop inventory
         # (next size down, else next size up); an unset value keeps the
-        # automatic selection from the nominal height (current behaviour),
+        # automatic selection from the nominal height (current behavior),
         # except for a multi-stroke (bold) PLT font, whose stroke_count
         # drives the boldness ladder below.
         if line_cutter_size is not None:
@@ -4931,7 +4931,7 @@ def _resolve_content(
             line_max_cutter_downsizes = DEFAULT_MAX_CUTTER_DOWNSIZES
 
         # Resolve the per-label downsize-sharing flag with the same
-        # precedence; an intentional ``False`` (per-line behaviour) is honored.
+        # precedence; an intentional ``False`` (per-line behavior) is honored.
         if line.cutter_downsize_global is not None:
             line_cutter_downsize_global: bool = line.cutter_downsize_global
         elif label_input.cutter_downsize_global is not None:

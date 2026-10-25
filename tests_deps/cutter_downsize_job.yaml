@@ -26,7 +26,7 @@ job:
   # keeps its automatic cutter.
   max_h_compress: 0.5
 
-  # This fixture pins the per-line (pre-sharing) behaviour: every label here
+  # This fixture pins the per-line (pre-sharing) behavior: every label here
   # is single-line, so per-label sharing is inert, and the explicit opt-out
   # documents the contract for any future multi-line edit.
   cutter_downsize_global: false

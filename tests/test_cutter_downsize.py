@@ -554,7 +554,7 @@ class TestGlobalSharing:
         assert math.isclose(content[0].cutter_diameter, 0.06)
         assert math.isclose(content[1].cutter_diameter, 0.125)
 
-    def test_flag_off_is_bit_identical_to_per_line_behaviour(self) -> None:
+    def test_flag_off_is_bit_identical_to_per_line_behavior(self) -> None:
         """Disabling sharing reproduces the historical (pre-sharing) result."""
         probe = _probe_by_line({0: {0.09: 0.80}})
         labels = [
@@ -639,7 +639,7 @@ class TestJobWideSharing:
 
     The job-wide flag widens the per-label group to every eligible line of the
     same nominal text height in ANY label, so one text size engraves with one
-    tool job-wide. The default (False) keeps the per-label behaviour exactly.
+    tool job-wide. The default (False) keeps the per-label behavior exactly.
     """
 
     def test_default_keeps_the_per_label_boundary(self) -> None:

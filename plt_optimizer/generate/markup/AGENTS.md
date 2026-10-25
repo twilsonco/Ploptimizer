@@ -245,7 +245,7 @@ geometry is the single contract for both families (TTF parity by construction).
   **continuous across the spaces between words**. `false` (the default) draws
   one continuous underline spanning the whole underlined run, spaces included
   (only descending glyphs that cross the centerline break it) — the shipped
-  behaviour. `true` ends the underline at each space, so every word of a
+  behavior. `true` ends the underline at each space, so every word of a
   multi-word run draws its own underline spanning its own ink and the
   inter-word space stays bare. Implemented in the gate
   (`label_renderer._underline_render_gate` → `_split_runs_at_spaces`): the flag
@@ -847,7 +847,7 @@ caps has no additional effect.
   both envelopes) via `_scale_geometry` **before** kerning, so the small
   silhouette kerns exactly; the transform order stays SC → bold/scale → shear →
   kerning → placement, and the uniform scale keeps `AA` arcs native.
-  `lowercase_flags=None` is the font-level whole-line behaviour, so every
+  `lowercase_flags=None` is the font-level whole-line behavior, so every
   legacy call site renders bit-identically.
 - **TTF** (`ftext_renderer.py`): a companion `small_caps_flags` rides every
   existing `small_caps: bool` parameter so the contour-count probe stays

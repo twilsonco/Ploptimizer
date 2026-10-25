@@ -5,7 +5,7 @@ Covers :func:`plt_optimizer.core.path_merger.is_coincident_junction` and
 
 * tip-to-tail stitching (single pair, transitive runs, barriers);
 * the two-sided predicate (rapid target *and* first segment start);
-* tolerance behaviour (inside/outside, configurable);
+* tolerance behavior (inside/outside, configurable);
 * invariants: segment multiset, cutting distance, traversal order, and
   ``rapid_distance()`` preservation.
 """

@@ -350,7 +350,7 @@ def _optimize_strategy_worker(
     keeps construction (and therefore ``same_row_preference`` wiring) in the
     parent process.
 
-    Going through :class:`OptimizerEngine` keeps the child's behaviour identical
+    Going through :class:`OptimizerEngine` keeps the child's behavior identical
     to the previous in-process runs: the engine emits the established
     "Starting optimization" / "Optimization complete" INFO lines and wraps
     strategy failures in :class:`OptimizationError`.

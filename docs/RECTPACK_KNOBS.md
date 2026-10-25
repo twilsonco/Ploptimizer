@@ -69,7 +69,7 @@ Three algorithm families:
 - **Skyline** (6): `SkylineMwf`, `SkylineMwfl`, `SkylineBl`, and the
   waste-managed `SkylineBlWm`, `SkylineMwfWm`, `SkylineMwflWm`.
 
-Verified behavioural notes (empirical, from our own experiments):
+Verified behavioral notes (empirical, from our own experiments):
 Guillotine `Blsf/Baf` + `Las` with a wide bin fill **row-major** (X-first
 along the bottom); `MaxRectsBssf` fills dimension-dependently (2nd rect goes
 UP, then along the y=h strip); `SkylineBl`'s bottom-row fitness fills the

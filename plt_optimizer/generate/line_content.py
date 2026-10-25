@@ -313,7 +313,7 @@ def _word_tokens(line: ResolvedTextLine) -> List[_WordToken]:
     """Split ``line``'s text into markup-carrying word tokens + separator styles.
 
     A markup-free line yields its plain ``.split()`` words with PLAIN
-    separators (the historical behaviour, bit-identical). A line with inline
+    separators (the historical behavior, bit-identical). A line with inline
     markup yields one serialized token per styled word plus the style of the
     whitespace that followed it: a tag span crossing a word boundary
     decomposes into per-word tags (``<i>foo bar</i>`` -> ``<i>foo</i>

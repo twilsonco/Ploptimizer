@@ -370,7 +370,7 @@ def _extract_packed_plates(
             # the usable area's top-left sits at (left_clearance,
             # top_clearance) inside the material and every placement
             # simply gains those offsets. Zero-clearance output therefore
-            # stays bit-identical to the historical behaviour.
+            # stays bit-identical to the historical behavior.
             if transpose:
                 # Map the placement back out of the transposed frame,
                 # then apply the clearance shift in real plate space.
@@ -589,7 +589,7 @@ def _pack_best(
 
     ``layout`` selects the fill-order frame:
 
-    - :attr:`LayoutMode.ROWS` (historical behaviour): pack in the real frame
+    - :attr:`LayoutMode.ROWS` (historical behavior): pack in the real frame
       with :data:`PACK_CONFIGS`; the Guillotine/MaxRects heuristics fill the
       plate width first, then extend downward.
     - :attr:`LayoutMode.COLUMNS`: pack in the **transposed frame** (bins and
@@ -621,7 +621,7 @@ def _pack_best(
     configs = PACK_CONFIGS_COLUMNS if transpose else PACK_CONFIGS
 
     # Rotation variants to evaluate per packing configuration. With rotation
-    # disabled the behaviour is exactly the historical single-variant sweep.
+    # disabled the behavior is exactly the historical single-variant sweep.
     orientations: tuple[bool, ...] = (False, True) if allow_rotation else (False,)
 
     packer_rects = _transpose_entries(rectangles_with_rid, transpose)
@@ -742,7 +742,7 @@ def _resolve_plate_groups(
 
     Consecutive plates resolving to the same fill mode share one packing
     pass, so single-mode jobs — including every unbounded job — pack in
-    exactly one pass, identically to the historical behaviour. When plates
+    exactly one pass, identically to the historical behavior. When plates
     mix modes, each maximal run of same-mode plates becomes its own group
     and the groups pack sequentially in declaration order: a group receives
     only the label instances left over from the previous groups.
@@ -957,7 +957,7 @@ def _claim_plates_by_material(
     exactly one material, so a claimed plate accepts no other group, and
     spreading the pool keeps every material group from starving. A single
     group therefore claims the entire pool, exactly like the historical
-    no-material behaviour.
+    no-material behavior.
 
     Args:
         plates: Unpinned plates in declaration order.
@@ -1133,7 +1133,7 @@ def _pack_entries_with_pinners(
         default_plate_clearance,
     )
     if not round_entries:
-        # Rectangular-only job: the historical one-pipeline behaviour,
+        # Rectangular-only job: the historical one-pipeline behavior,
         # bit-identical (no ellipse module import, no extra work).
         return rect_plates, rect_leftover
 
@@ -1214,7 +1214,7 @@ def _pack_rect_entries_with_pinners(
     material; in unbounded mode each group auto-allocates its own bin pool
     (material-prefixed ``default_plate_{i}`` ids). A job without materials
     has exactly one ``None`` group, whose pass is bit-identical to the
-    historical one-pass behaviour.
+    historical one-pass behavior.
 
     Args:
         rect_with_rid: All ``(pack_width, pack_height, rid)`` tuples.
@@ -1303,7 +1303,7 @@ def _pack_rect_entries_with_pinners(
                 if display is None:
                     # Material-less group: propagate the leftover so the
                     # callers raise the historical generic fit error
-                    # (bit-identical behaviour for jobs without materials).
+                    # (bit-identical behavior for jobs without materials).
                     leftover.extend(group_leftover)
                 else:
                     raise LayoutFitError(
@@ -1776,7 +1776,7 @@ def generate_layout(
             can rotate their content clockwise accordingly.
         layout: Preferential fill order. ``columns`` (the default) fills
             each plate's height before extending rightward; ``rows`` fills
-            width before extending downward (the historical behaviour).
+            width before extending downward (the historical behavior).
             A plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
         default_plate_size: ``(width, height)`` override (inches) for the
@@ -1885,7 +1885,7 @@ def generate_layout_with_bounds(
             can rotate their content clockwise accordingly.
         layout: Preferential fill order. ``columns`` (the default) fills
             each plate's height before extending rightward; ``rows`` fills
-            width before extending downward (the historical behaviour). A
+            width before extending downward (the historical behavior). A
             plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
         default_plate_size: ``(width, height)`` override (inches) for the

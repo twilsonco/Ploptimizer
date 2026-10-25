@@ -1167,7 +1167,7 @@ class TestInlineSmallCaps:
         return _write_library(tmp_path, characters)
 
     def test_flags_none_matches_the_whole_line_transform(self, sc_lib: Path) -> None:
-        """``lowercase_flags=None`` is the font-level whole-line behaviour."""
+        """``lowercase_flags=None`` is the font-level whole-line behavior."""
         whole = _render("aB", 1.0, sc_lib, lowercase_scale=0.7)
         flagged = _render("aB", 1.0, sc_lib, lowercase_scale=0.7, lowercase_flags=(True, True))
         assert flagged.bounds() == pytest.approx(whole.bounds())

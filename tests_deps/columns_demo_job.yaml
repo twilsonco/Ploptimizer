@@ -1,6 +1,6 @@
 # Column-major fill-order demo job for the PLT-Optimizer generate pipeline.
 #
-# Pins the default ``layout: columns`` behaviour (JobSpec.layout). Sixteen
+# Pins the default ``layout: columns`` behavior (JobSpec.layout). Sixteen
 # 3" x 1" labels pack onto a single 24" x 16" scrap sheet: the packer fills
 # the full 16" plate height with one column of stacked labels and extends
 # rightward only as far as necessary, so the unused material stays one clean

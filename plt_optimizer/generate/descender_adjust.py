@@ -66,7 +66,7 @@ so the lower glyph's top descends toward its (fixed) lowest point while the
 upper glyph shrinks and rises -- the deficit is distributed between the two
 lines in proportion to their allowances, and ``t = 1`` spends all three.
 ``descending_character_reciprocal_scale: 1.0`` disables the reciprocal side
-(the lower glyphs engrave exactly as rendered, the historical behaviour).
+(the lower glyphs engrave exactly as rendered, the historical behavior).
 Because the anchor is the lower glyph's lowest point, a reciprocal fix never
 moves ink *down* past that point: the gap above the line widens monotonically
 and the bottom border is untouched.

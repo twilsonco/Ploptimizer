@@ -101,7 +101,7 @@ def _flip_fixture() -> Tuple[List[StrokePath], List[Tuple[int, ...]]]:
 
 
 class TestSweepGlyphDirections:
-    """Core DP behaviour."""
+    """Core DP behavior."""
 
     def test_reverses_the_glyph_that_shortens_both_gaps(self) -> None:
         """The middle glyph flips and the intra total drops 2.8 -> 1.2."""
@@ -538,7 +538,7 @@ class TestPerStrokeDirection:
 
         assert sweep_glyph_directions(paths, groups).flips == 1
 
-    def test_single_stroke_glyphs_keep_the_two_mode_behaviour(self) -> None:
+    def test_single_stroke_glyphs_keep_the_two_mode_behavior(self) -> None:
         """A one-stroke glyph has exactly the historical forward/reversed pair."""
         paths, groups = _flip_fixture()
 
@@ -576,7 +576,7 @@ class TestPerStrokeDirection:
         """Past the enumeration cap the sweep keeps the historical two modes.
 
         The fallback set is a strict subset of the enumerated one, so a
-        pathological glyph can never be worse than the shipped behaviour.
+        pathological glyph can never be worse than the shipped behavior.
         """
         glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
         paths = [_stroke((0.0, 0.0), (1.0, 0.0))] + [
@@ -693,7 +693,7 @@ class TestPerStrokeDirection:
 
         assert sweep_glyph_directions(paths, groups).flips == 1
 
-    def test_single_stroke_glyph_keeps_the_two_mode_behaviour(self) -> None:
+    def test_single_stroke_glyph_keeps_the_two_mode_behavior(self) -> None:
         """A one-stroke glyph has exactly the historical forward/reversed pair."""
         paths, groups = _flip_fixture()
 
@@ -759,7 +759,7 @@ class TestPerStrokeDirection:
         """Past the enumeration cap the sweep keeps the historical two modes.
 
         The fallback set is a strict subset of the enumerated one, so a
-        pathological glyph can never be worse than the shipped behaviour.
+        pathological glyph can never be worse than the shipped behavior.
         """
         glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
         paths = [_stroke((0.0, 0.0), (1.0, 0.0))] + [

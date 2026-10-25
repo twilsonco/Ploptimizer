@@ -753,7 +753,7 @@ class TestGrowthCap:
         assert len(clone.content) == 3  # never collapsed to 2
 
     def test_uncapped_group_never_renders(self) -> None:
-        """A group without the cap keeps the historical probe-free behaviour."""
+        """A group without the cap keeps the historical probe-free behavior."""
         calls: List[int] = []
         label = _label("plain", _line("AAAAAA BB CC DD"), _line("E"))
         clone = _reflow_label(

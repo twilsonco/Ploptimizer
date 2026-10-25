@@ -218,7 +218,7 @@ class TestCapHeightReference:
     def test_fallback_normalizes_ink_box_and_warns(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """A font without a usable 'H' keeps the old per-line behaviour + WARNING."""
+        """A font without a usable 'H' keeps the old per-line behavior + WARNING."""
         monkeypatch.setattr(ftext_renderer, "_reference_cap_height", lambda path: 0.0)
         with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.ftext_renderer"):
             lc = render_text_line_ftext("Hp", 0.5, DEFAULT_FONT_PATH)
@@ -704,7 +704,7 @@ class TestInlineSmallCaps:
     """
 
     def test_flags_none_matches_the_whole_line_transform(self) -> None:
-        """``small_caps_flags=None`` is the font-level whole-line behaviour."""
+        """``small_caps_flags=None`` is the font-level whole-line behavior."""
         whole = ftext_renderer.render_text_line_ftext(
             "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
         )

@@ -157,7 +157,7 @@ KERNING_PENETRATION_SCALE: float = 1.0
 
 # Fallback multiplier on a *recessed* (negative) detected penetration, used
 # when the caller does not cascade an explicit ``kerning_recession_scale``.
-# ``1.0`` = the geometric recession (the historical linear behaviour, where
+# ``1.0`` = the geometric recession (the historical linear behavior, where
 # lowering ``kerning_penetration_scale`` also pulled gapped pairs closer);
 # ``0.0`` makes a recessed pair advance by nothing beyond the floor, so the
 # penetration dial only ever tightens pairs whose silhouettes overlap.
@@ -580,7 +580,7 @@ def _shear_geometry(
         geometry: Cached glyph geometry in design units.
         tan: Shear factor ``tan(angle)``; ``0.0`` returns ``geometry`` itself.
         preserve_arcs: Refit the sheared ellipse arcs with circular arcs
-            (``False`` polygonizes, the historical behaviour).
+            (``False`` polygonizes, the historical behavior).
 
     Returns:
         The sheared geometry, or ``geometry`` unchanged at ``0.0``.
@@ -717,7 +717,7 @@ def _capline_geometry(
             ``normalized_ref_height``; the reference character is exactly
             this tall).
         preserve_arcs: Refit the clamped ellipse arcs with circular arcs
-            (``False`` polygonizes, the historical behaviour).
+            (``False`` polygonizes, the historical behavior).
 
     Returns:
         The clamped geometry, or ``geometry`` unchanged when it does not
@@ -1091,7 +1091,7 @@ def _walk_line(
             # ``lowercase_flags`` (the inline ``<sc>`` tag) narrows the
             # selection to the flagged characters -- the same idiom the
             # italic shear uses below -- while ``None`` keeps the font-level
-            # `` SC`` whole-line behaviour bit-identically.
+            # `` SC`` whole-line behavior bit-identically.
             small_caps_on = lowercase_scale is not None and (
                 lowercase_flags is None or lowercase_flags[char_index]
             )

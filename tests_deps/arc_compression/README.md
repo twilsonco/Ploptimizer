@@ -27,7 +27,7 @@ arcs, plus the 0–3 genuinely straight strokes.
   | `0.1`    | 0.9   | 271.5   | 257.0   | 300.3   | 226.4   |
   | `0.5`    | 0.5   | 150.9   | 142.8   | 168.0   | 125.9   |
 
-- **Arc counts** (the behaviour we are matching):
+- **Arc counts** (the behavior we are matching):
 
   | glyph | s=1.0 | s=0.9 | s=0.5 |
   |-------|-------|-------|-------|

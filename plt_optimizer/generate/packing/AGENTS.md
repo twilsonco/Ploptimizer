@@ -187,7 +187,7 @@ packer test both orientations (0°/90°) for every label instance.
 preferential plate fill order. `columns` fills each plate's **height** before
 extending rightward (so the used area grows up the engraving area first and
 the unused material stays one clean rectangular block for scrap reuse);
-`rows` fills width before extending downward (the historical behaviour). It
+`rows` fills width before extending downward (the historical behavior). It
 cascades job → plate: `PlateSpec.layout` (`None` = inherit) overrides per
 plate. Threading mirrors `allow_rotation` (read from `JobSpec` at the CLI /
 integration-test call sites, passed as a keyword into
@@ -276,7 +276,7 @@ still receives the usable `width × height` bin — and
 `_extract_packed_plates` adds `(left_clearance, top_clearance)` to every
 placement (in real plate space, after any transpose mapping).
 Zero-clearance output is therefore bit-identical to the historical
-behaviour. `_plate_clearances` builds the per-bin-id `(left, top)` map
+behavior. `_plate_clearances` builds the per-bin-id `(left, top)` map
 (omitting all-zero plates) that `_pack_groups` → `_pack_group` →
 `_extract_packed_plates` threads through.
 
@@ -328,7 +328,7 @@ two are equal. The TODO contract: `width ≠ height` → ellipse; `width = heigh
 → circle; declaring **only one** of the two → circle of that diameter (the
 schema validator relaxes the both-required rule for round labels and
 `resolution._resolve_label` fills the missing dimension from the declared
-one). `rect` is the default and yields the current behaviour.
+one). `rect` is the default and yields the current behavior.
 
 **This is an ADJACENT pipeline, never a replacement.** Every rectangular label
 keeps packing through `rectpack` exactly as before (bit-identical); `round`
@@ -443,7 +443,7 @@ is tangent to the box at its axis vertices, so the rendered bounds equal the
 nominal box exactly (the packer and plate transforms are untouched, and
 `packing/ellipse_packer.py` / `packing/layout.py` see nothing new).
 
-- **The behaviour matrix** (`resolution.rounded_rect_corner_params`,
+- **The behavior matrix** (`resolution.rounded_rect_corner_params`,
   matplotlib-free, returns `None` for the sharp border): `0 < f < 1` = G2
   fillets in the chosen mode; `f = 1` + proportional (or a square) = the
   **exact ellipse/circle** — the renderer routes those labels to the shipped

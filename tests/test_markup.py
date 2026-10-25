@@ -1597,7 +1597,7 @@ class TestCutterParse:
 
         A bare open tag is literal text; the matching close then has no open
         to close, which is the framework's hard error for a mandatory-arg tag
-        (exactly the ``<scale>`` / ``<f>`` behaviour).
+        (exactly the ``<scale>`` / ``<f>`` behavior).
         """
         styled = parse_markup("a <c> b")
         assert styled.plain_text == "a <c> b"

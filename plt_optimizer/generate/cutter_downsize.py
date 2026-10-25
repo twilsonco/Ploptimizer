@@ -47,7 +47,7 @@ the sharing group from the label to the whole job. When a trigger line has it
 enabled (together with ``cutter_downsize_global``), every *eligible* line of
 the same nominal text height in ANY label of the job receives the swap, so one
 text size engraves with one tool job-wide (one per-cutter text layer per size).
-A line with the flag ``false`` keeps exactly the per-label behaviour (it
+A line with the flag ``false`` keeps exactly the per-label behavior (it
 neither shares to nor receives from the job-wide group). The pass runs after
 every label's per-label pass and converges the same way (see
 :func:`_share_downsizes_job_wide`).
@@ -336,7 +336,7 @@ def _shares_job_wide(line: ResolvedTextLine) -> bool:
     requires the per-label permission too: a line with
     ``cutter_downsize_global`` false never shares (in either scope), and a
     line with ``cutter_downsize_global_job_wide`` false keeps exactly the
-    per-label behaviour (it neither shares to nor receives from the job
+    per-label behavior (it neither shares to nor receives from the job
     group). The mechanism eligibility of :func:`_is_eligible` applies on top.
 
     Args:

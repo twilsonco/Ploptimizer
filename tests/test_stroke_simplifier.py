@@ -242,7 +242,7 @@ class TestAxisAlignedInterval:
 
 
 class TestSimplifyOverlappingStrokes:
-    """Document-level behaviour of the dedupe factory."""
+    """Document-level behavior of the dedupe factory."""
 
     def test_empty_document(self) -> None:
         doc = PLTDocument(header_commands=[], stroke_paths=[], footer_commands=[])

@@ -340,7 +340,7 @@ entries that omit it).
   at or above the line's `text_height` aborts the job (`CutterSizeError`,
   non-zero exit). Each distinct cutter — explicit or auto — becomes its own
   per-cutter text layer/PLT file. Omitting it keeps automatic selection
-  (current behaviour). Not a `job-config.json` key.
+  (current behavior). Not a `job-config.json` key.
 - **`cutter_downsize` (default true) + `max_cutter_downsizes` (default 1)**:
   compression-driven cutter reduction. When a text line's *effective*
   horizontal scale (margin × collision compression) falls below the midpoint

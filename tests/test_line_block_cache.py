@@ -103,7 +103,7 @@ def _null_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 
     Strips the ``line_block_cache`` kwarg at the shared seam, so
     ``render_label_to_plt`` runs the full collision-resolution sequence with
-    a fresh glyph walk per render (the pre-cache behaviour).
+    a fresh glyph walk per render (the pre-cache behavior).
     """
     real = _render_positioned_lines
 

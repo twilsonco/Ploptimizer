@@ -31,7 +31,7 @@
     },
     "HoleSpec": {
       "additionalProperties": false,
-      "description": "Specification for a hole to be drilled in a label.\n\n``location`` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as ``location``\nalone. ``diameter`` is an optional override for non-standard sizes.\n\nGroup locations (``corners`` / ``sides``) are expanded into their\natomic member holes at validation time by the ``holes`` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's ``diameter``.\n\nAttributes:\n    location: The position of the hole on the label edge. Group\n        shorthands ``corners`` (all four corners) and ``sides``\n        (left + right) are accepted and expanded into their members.\n    diameter: The diameter of the hole in inches. Defaults to\n        :data:`DEFAULT_HOLE_DIAMETER` (0.125\"); must be positive.",
+      "description": "Specification for a hole to be drilled in a label.\n\n``location`` is the primary (and only required) field: the common case\nis a standard 0.125\" drill hole, which can be written as ``location``\nalone. ``diameter`` is an optional override for non-standard sizes.\n\nGroup locations (``corners`` / ``sides``) are expanded into their\natomic member holes at validation time by the ``holes`` field\nvalidator on :class:`LabelAttributes`; each expanded member inherits\nthis spec's ``diameter``.",
       "properties": {
         "location": {
           "$ref": "#/$defs/HoleLocation",
@@ -52,7 +52,7 @@
       "type": "object"
     },
     "LabelShape": {
-      "description": "Enumeration of valid label boundary shapes.\n\n``rect`` (the default) is the historical behaviour: the label boundary is\nthe ``width`` x ``height`` rectangle, the packer packs that rectangle, and\nevery collision check measures the rectangle. ``round`` makes the boundary\nan ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when\nthe two are equal -- which switches the label onto the adjacent\nellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)\nand makes the collision checks measure the ellipse boundary.\n\nAttributes:\n    RECT: Rectangular boundary (default; the historical behaviour).\n    ROUND: Elliptical boundary; a circle when ``width == height``.",
+      "description": "Enumeration of valid label boundary shapes.\n\n``rect`` (the default) is the historical behavior: the label boundary is\nthe ``width`` x ``height`` rectangle, the packer packs that rectangle, and\nevery collision check measures the rectangle. ``round`` makes the boundary\nan ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when\nthe two are equal -- which switches the label onto the adjacent\nellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)\nand makes the collision checks measure the ellipse boundary.",
       "enum": [
         "rect",
         "round"
@@ -61,7 +61,7 @@
       "type": "string"
     },
     "LayoutMode": {
-      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.packing.layout``).\n\nAttributes:\n    ROWS: Fill the plate width first, then extend downward (row-major;\n        the historical packing behaviour).\n    COLUMNS: Fill the plate height first, then extend rightward\n        (column-major; the default).",
+      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n``rectpack`` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n``columns`` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see ``plt_optimizer.generate.packing.layout``).",
       "enum": [
         "rows",
         "columns"
@@ -70,7 +70,7 @@
       "type": "string"
     },
     "TextHAlignment": {
-      "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). ``left`` places the line's\nleft-most point precisely at the left margin; ``right`` places the\nline's right-most point precisely at the right margin; ``center``\n(the default) centers the line horizontally.\n\nAttributes:\n    LEFT: Left edge of the line sits at the left margin.\n    CENTER: Line is horizontally centered within the inner content area.\n    RIGHT: Right edge of the line sits at the right margin.",
+      "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). ``left`` places the line's\nleft-most point precisely at the left margin; ``right`` places the\nline's right-most point precisely at the right margin; ``center``\n(the default) centers the line horizontally.",
       "enum": [
         "left",
         "center",

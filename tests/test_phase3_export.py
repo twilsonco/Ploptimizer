@@ -1432,7 +1432,7 @@ class TestCutterDownsizeGlobalDemoExample:
     The fixture pins ``cutter_downsize_global`` (default true): a trigger
     line's swap is shared with the fitting siblings of the same text height
     *inside the same label*, while other labels and opted-out labels keep
-    their per-line behaviour.
+    their per-line behavior.
     """
 
     _INVENTORY = [0.03, 0.045, 0.06, 0.09, 0.125]
@@ -1506,7 +1506,7 @@ class TestCutterDownsizeGlobalJobWideDemoExample:
     The fixture opts in to ``cutter_downsize_global_job_wide``: a trigger
     label's swap is shared with the fitting lines of the same text height in
     OTHER labels (one text size, one tool job-wide), while opted-out labels
-    keep exactly the per-label behaviour and explicit cutters are untouched.
+    keep exactly the per-label behavior and explicit cutters are untouched.
     """
 
     _INVENTORY = [0.03, 0.045, 0.06, 0.09, 0.125]
@@ -1549,7 +1549,7 @@ class TestCutterDownsizeGlobalJobWideDemoExample:
         assert math.isclose(line.nominal_text_height, 0.5)
         assert math.isclose(line.toolpath_text_height, 0.5 - 0.045)
 
-    def test_opted_out_label_keeps_the_per_label_behaviour(self, tmp_path: Path) -> None:
+    def test_opted_out_label_keeps_the_per_label_behavior(self, tmp_path: Path) -> None:
         """cutter_downsize_global_job_wide false: the fitting line keeps 0.06in."""
         result = self._export(tmp_path, self._INVENTORY)
         opted_out = result.rendered_labels["opted_out"].source_label
@@ -1586,7 +1586,7 @@ class TestHCompressGlobalDemoExample:
     The fixture opts in to ``h_compress_global``: a compressed line's scale is
     shared with the fitting siblings of the same text height *inside the same
     label*, while other labels and opted-out labels keep their per-line
-    behaviour.
+    behavior.
     """
 
     _SPEC = Path("tests_deps/h_compress_global_job.yaml")
@@ -6500,7 +6500,7 @@ class TestKernDemoExample:
         assert line.kern_values == (0, 1, -1)  # ~~ +1 on B, -- -1 on C
         # B rides +0.044; C rides B's +0.044 then its own -0.044 = net 0, so
         # the line's right edge (C's ink) lands back on the plain control's
-        # width -- the documented accumulate/net-out behaviour.
+        # width -- the documented accumulate/net-out behavior.
         plain = self._width(result.rendered_labels["custom_bracket_markers_plain"].source_label)
         kerned = self._width(result.rendered_labels["custom_bracket_markers"].source_label)
         assert kerned == pytest.approx(plain, abs=1e-6)

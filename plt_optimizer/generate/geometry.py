@@ -533,7 +533,7 @@ def ink_grid_for(ink: Ink, cell_size: float) -> InkGrid:
     instance is exact by construction.
 
     Non-hashable ink (hand-built lists in tests) falls back to a fresh
-    grid -- identical behaviour, just unmemoized.
+    grid -- identical behavior, just unmemoized.
 
     Args:
         ink: Every polyline to index (see :class:`InkGrid`).

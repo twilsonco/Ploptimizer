@@ -1493,7 +1493,7 @@ class TestWriteStringFooterBranch:
         instruction yields ``";"`` and ``formatted = "\\n" + ";"`` is always
         truthy: the ``if formatted:`` guard can never take its false branch
         (187->185 is structurally unreachable). This test pins the observable
-        behaviour of the only reachable side instead.
+        behavior of the only reachable side instead.
         """
         writer = PLTWriter()
         doc = PLTDocument()

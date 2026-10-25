@@ -317,7 +317,7 @@ def _install_pystray_mocks() -> None:
 
     # Only install if pystray isn't already in sys.modules - if a prior test
     # or import successfully brought in real pystray we leave it alone so
-    # behaviour matches what was loaded at interpreter startup.
+    # behavior matches what was loaded at interpreter startup.
     if "pystray" not in sys.modules:
         sys.modules["pystray"] = PystrayModule()  # type: ignore[assignment]
 

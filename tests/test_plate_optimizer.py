@@ -634,7 +634,7 @@ class TestRecordPathsWithGlyphs:
         assert groups == ((0,), (1,))
 
     def test_record_without_groups_returns_empty_partition(self) -> None:
-        """Records with no glyph knowledge keep the historical behaviour."""
+        """Records with no glyph knowledge keep the historical behavior."""
         record = _multi_stroke_record([((0.0, 0.0), (1.0, 0.0)), ((2.0, 0.0), (3.0, 0.0))])
 
         paths, groups = _record_paths_with_glyphs(

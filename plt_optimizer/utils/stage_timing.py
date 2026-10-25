@@ -13,7 +13,7 @@ machine-parseable INFO line on completion::
 The fixed format is the contract consumed by ``scripts/profile_generate.py``
 and ``scripts/profile_optimize.py`` (see :data:`STAGE_LINE_PATTERN`); keep
 the two in sync when changing the format. Timers measure wall-clock time
-(``time.perf_counter``) and never alter pipeline behaviour: the stage body
+(``time.perf_counter``) and never alter pipeline behavior: the stage body
 runs unmodified and exceptions propagate after the timing line is logged.
 
 **Level independence.** The timing line is a log *record*, so the logging

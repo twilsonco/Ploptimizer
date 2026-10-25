@@ -48,7 +48,7 @@ job:
       content:
         - text: "OK"
 
-    # 3. Opt-out: this label keeps exactly the per-label behaviour, so its
+    # 3. Opt-out: this label keeps exactly the per-label behavior, so its
     #    fitting line stays on the automatic 0.06in cutter.
     - id: opted_out
       cutter_downsize_global_job_wide: false

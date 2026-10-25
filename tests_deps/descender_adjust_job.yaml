@@ -85,7 +85,7 @@ job:
         - text: "ROOTS"
 
     # 5c. Reciprocal relief off: the label-5b twin with the reciprocal lever
-    #     forbidden too -- the historical behaviour, no relief at all.
+    #     forbidden too -- the historical behavior, no relief at all.
     - id: reciprocal_off
       descending_character_v_scale: 1.0
       descending_character_raise: 0.0

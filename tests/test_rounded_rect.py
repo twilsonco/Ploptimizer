@@ -3,7 +3,7 @@
 Covers the G2 superellipse-corner border added to
 ``plt_optimizer.generate``:
 
-- the corner-parameter math (``rounded_rect_corner_params``): the behaviour
+- the corner-parameter math (``rounded_rect_corner_params``): the behavior
   matrix over ``fraction`` x ``proportional`` x aspect;
 - the boundary contour (``_rounded_rect_boundary_polygon``): closed, exact
   nominal-box bounds, and **continuous curvature** across every
@@ -112,7 +112,7 @@ def _menger_curvature(a: complex, b: complex, c: complex) -> float:
 
 
 class TestRoundedRectCornerParams:
-    """The behaviour matrix of ``rounded_rect_corner_params``."""
+    """The behavior matrix of ``rounded_rect_corner_params``."""
 
     def test_zero_fraction_is_sharp(self) -> None:
         """fraction 0 (and negatives / NaN) resolve to the sharp rectangle."""

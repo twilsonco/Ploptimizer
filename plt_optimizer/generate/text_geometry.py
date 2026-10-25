@@ -403,7 +403,7 @@ class ArcSeg:
         emitted toolpath keeps ``AA`` commands. Without it -- or when the fit
         cannot meet the tolerance -- the arc is flattened to a chord-bounded
         polyline at :data:`ARC_FLATTEN_CHORD_TOL_INCHES` and the flattened
-        vertices are X-scaled (the historical behaviour).
+        vertices are X-scaled (the historical behavior).
         """
         segments, _ = self._xform(scale_x=factor, anchor_x=anchor_x, preserve_arcs=preserve_arcs)
         return segments

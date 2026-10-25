@@ -1271,7 +1271,7 @@ def _center_text_layer_vertically(
             when descenders hang below). When band centering is active the band
             -- not the ink -- must land on the inner-area center, so the target
             is lowered by this amount. ``0.0`` (the default) centers the ink,
-            the historical behaviour.
+            the historical behavior.
         hole_aware_vertical_shift_inches: Vertical shift in inches to account
             for asymmetric top/bottom holes (positive = downward). Computed
             from ``label.hole_aware_vertical_shift_inches``. ``0.0`` (the
@@ -3164,7 +3164,7 @@ def _walk_small_caps_kwargs(
     * the characters whose ``<f:...>`` font resolves to a PLT small-caps
       variant (the run's own variant, when the run is PLT), and
     * the inline ``<sc>`` gate's flags (merged in, so a line carrying both
-      keeps the shipped inline behaviour exactly -- the gate already owns
+      keeps the shipped inline behavior exactly -- the gate already owns
       ``lowercase_scale``/``lowercase_flags`` in that case).
 
     A character whose ``<f:...>`` font is a **symbol** font
@@ -3300,7 +3300,7 @@ def _small_caps_render_gate(
       engraves every lowercase character as a shrunken capital, so the tag
       has no additional effect there -- the renderers keep the font-level
       whole-line selection (``lowercase_scale`` / ``small_caps_scale`` with
-      no flags), bit-identical to the pre-tag behaviour;
+      no flags), bit-identical to the pre-tag behavior;
     * a **symbol font** (``symbol_font`` in its catalog entry, from the
       sample sheet's ``_sym`` file-name suffix) engraves symbols in its
       ASCII slots and is exempt from the `` SC`` variant because it has no
@@ -4047,7 +4047,7 @@ def _apply_glyph_ramps(
         reciprocal_scale: Smallest permitted top-down scale
             (``descending_character_reciprocal_scale``).
         preserve_arcs: Refit the Y-scaled ellipse arcs with circular arcs
-            (``False`` polygonizes, the historical behaviour).
+            (``False`` polygonizes, the historical behavior).
 
     Returns:
         ``(new_block, applied)`` where ``applied`` lists
@@ -4410,7 +4410,7 @@ def _apply_descender_relief(
         texts: Optional per-line display text, parallel to ``blocks`` (the
             composed ``"marker text"`` of a list line, so the per-glyph
             partition names match the block's strokes). ``None`` reads each
-            line's own ``plain_text`` (the historical behaviour).
+            line's own ``plain_text`` (the historical behavior).
 
     Returns:
         A :class:`_DescenderRelief` carrying the adjusted blocks, spacings and

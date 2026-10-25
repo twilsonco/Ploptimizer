@@ -69,7 +69,7 @@ JobSpec (job-level defaults)
   reference glyph `H` — so the cap height equals `text_height` on *every*
   text line (glyph size is a per-font constant, independent of a line's own
   ink box; descenders hang below the baseline, matching the PLT contract).
-  Scaling each line by its own rendered ink box (the historical behaviour)
+  Scaling each line by its own rendered ink box (the historical behavior)
   shrank every glyph on a line containing descenders/ascenders/tall
   punctuation, so identical `text_height` values engraved at visibly
   different sizes across lines. A TTF lacking a glyph raises
@@ -245,7 +245,7 @@ JobSpec (job-level defaults)
   `0.0` is honored (strokes may touch but never overlap).
 - `cutter_size`: Explicit text cutter diameter in inches (`gt=0.0`, default
   `None` = **automatic cutter selection** from `text_height` via
-  `IDEAL_CUTTER_MAP` + inventory snapping — the current behaviour). When set,
+  `IDEAL_CUTTER_MAP` + inventory snapping — the current behavior). When set,
   the requested diameter is snapped to `tools.json` `available_cutters`
   (`snap_boundary_hole_cutter`: next size down, else next size up; a WARNING
   names the label id + line index when it moves) and the rendered toolpath
@@ -323,7 +323,7 @@ JobSpec (job-level defaults)
   same `text_height` in ANY label of the job, so one text size engraves with
   one tool job-wide (one per-cutter text layer per size — the shop's
   many-single-line-labels shape, where per-label sharing is inert). A line
-  with this flag `false` keeps exactly the per-label behaviour (it neither
+  with this flag `false` keeps exactly the per-label behavior (it neither
   shares to nor receives from the job-wide group); the same eligibility
   opt-outs apply. The pass runs after every label's per-label pass and
   converges the same way (`_share_downsizes_job_wide`).
@@ -359,7 +359,7 @@ JobSpec (job-level defaults)
   redistributed across the consecutive lines that also enable it so the group's
   lines reach equal rendered width (distance, not character count) — whole
   words move up/down, word order is never changed, only the line breaks (the
-  LaTeX paragraph-fill behaviour). Consecutive enabled lines form one
+  LaTeX paragraph-fill behavior). Consecutive enabled lines form one
   independent group; a disabled line breaks the group, and a word may travel
   across the whole group (not just one line). Optimizing the **pre-compression**
   widths is the same objective as minimizing the compression the label needs.
@@ -850,7 +850,7 @@ parity only); `max_cutter_downsizes: 0` disables the mechanism.
   the label id, line index, text and both cutters ("sharing the job's cutter
   downsize"). Job-wide sharing requires `cutter_downsize_global` true (the
   per-label permission gates both scopes); a line with the job-wide flag
-  false keeps exactly the per-label behaviour in both directions. Pinned by
+  false keeps exactly the per-label behavior in both directions. Pinned by
   `tests/test_cutter_downsize.py::TestJobWideSharing` and
   `tests/test_phase3_export.py::TestCutterDownsizeGlobalJobWideDemoExample`
   (fixture `tests_deps/cutter_downsize_global_job_wide_job.yaml`).
@@ -909,7 +909,7 @@ receives a sibling's).
   natural compression is its own business. The renderer applies the map as the
   second-pass margin target (`margin = min(natural, shared / collision)`), so
   the effective scale is `min(natural, shared)` and a trigger line's geometry
-  stays bit-identical to the per-line behaviour.
+  stays bit-identical to the per-line behavior.
 - **Scope guards (free no-ops):** no label has an eligible line; no triggering
   line in a same-height group with two eligible lines. The flag rides resolved
   lines, so no export/CLI threading is needed (unlike `available_cutters`).
@@ -989,7 +989,7 @@ only ever ADD lines, never remove, blank, or collapse them.**
 
 - **M = G..N loop** (`_reflow_label`): the loop's floor is `G`, the group's
   existing line count — `M = G` *is* the plain full-group reflow above, so a
-  capped group always starts from the historical behaviour and only grows
+  capped group always starts from the historical behavior and only grows
   upward. For each `M` the DP repartitions the group's words onto `M` lines
   (`_partition_words` is unchanged; `M - G` clone lines are inserted **after**
   the group's last line, cloning the group's **last** enabled line's
@@ -1290,7 +1290,7 @@ plate tier is schema parity only, like every render-affecting field.
   engraved descender stroke against the engraved border stroke. **No new
   fields:** the border reuses `auto_descending_character_adjustment`, the three
   allowances and `hole_cutter_diameter`. `v_margin` is **not** a constraint —
-  ink spilling into the margin is accepted behaviour, only the border stroke
+  ink spilling into the margin is accepted behavior, only the border stroke
   matters (pinned by the `margin_cross` label of
   `tests_deps/descender_border_job.yaml`). Every line is measured, so a
   single-line label (no inter-line gap at all) still triggers.
@@ -1422,7 +1422,7 @@ plate tier is schema parity only, like every render-affecting field.
   measurement re-shift byte-identical boxes onto byte-identical
   baselines; same fresh-LIST wrapper, the `baseline_y == 0.0` identity
   fast path stays uncached. Unhashable
-  ink falls back to a fresh grid (identical behaviour, unmemoized).
+  ink falls back to a fresh grid (identical behavior, unmemoized).
   Pinned by `tests/test_relief_memoization.py` (identity hits, key
   isolation, randomized equivalence vs cache-cleared recompute, LRU
   bounds, render bit-identity). The border
@@ -1600,7 +1600,7 @@ parity only). Enum `TextHAlignment` (`left`, `center`, `right`).
 - `left`: the line's left-most point sits **precisely at the left margin**.
 - `right`: the line's right-most point sits **precisely at the right margin**.
 - `center`: the line is centered within the inner content area (existing
-  behaviour; backward compatible default).
+  behavior; backward compatible default).
 - `compute_horizontal_offset()` (resolution.py): pure offset math returning
   the target left-edge X for a rendered line; unknown values fall back to
   `center`.

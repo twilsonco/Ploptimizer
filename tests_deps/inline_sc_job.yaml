@@ -17,7 +17,7 @@
 #     every lowercase character as a shrunken capital, so the tag has no
 #     additional effect there (the TODO's "applied to text that is already in
 #     small caps"); the renderers keep the font-level whole-line selection and
-#     the render stays bit-identical to the pre-tag behaviour;
+#     the render stays bit-identical to the pre-tag behavior;
 #   * a symbol font (`Wingdings`, whose catalog entry sets `symbol_font` from
 #     the sample sheet's `_sym` file-name suffix)
 #     is exempt from the ` SC` variant because it has no lowercase to shrink --
@@ -138,7 +138,7 @@ job:
     # 12. Inert on a SYMBOL font (no lowercase to shrink): bit-identical to
     #     label 13. (Wingdings is a multi-stroke S4 sheet, so its cutter comes
     #     from the boldness ladder for BOTH labels -- the step-up WARNING is the
-    #     pre-existing multi-stroke behaviour, not the tag's doing.)
+    #     pre-existing multi-stroke behavior, not the tag's doing.)
     - id: plt_symbol_inert
       width: 2.0
       font: Wingdings

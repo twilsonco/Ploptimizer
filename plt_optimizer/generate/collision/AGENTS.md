@@ -107,7 +107,7 @@ packing); the code fallback is `DEFAULT_HOLE_ADJUST_FOR_CUTTER = True`.
   (banker's rounding), so a half-unit radius emits a degenerate `AA` arc.
 - **The flag rides `ResolvedLabel.hole_adjust_for_cutter`** (explicit-`None`
   cascade label → job → config → true; explicit `false` emits the specified
-  diameter, the historical bit-identical behaviour). No `_LineEntry` /
+  diameter, the historical bit-identical behavior). No `_LineEntry` /
   `RenderedLabel` field; the layout report prints a per-label finding
   `Holes 0.125in -> 0.110in (cutter 0.015in)` (one line per distinct
   specified diameter, compact-mode finding) from

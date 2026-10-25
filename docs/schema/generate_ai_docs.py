@@ -14,7 +14,7 @@ documentation can never drift from the code:
   tables, enum value tables, resolved fallback defaults, and the
   required-when-unconfigured set.
 
-Hand-written semantics (job forms, cascade rules, expansion behaviour,
+Hand-written semantics (job forms, cascade rules, expansion behavior,
 examples) live in ``README.md`` beside the generated artifacts.
 
 Regenerate after any change to ``schema.py`` / ``job_config.py``::
@@ -149,7 +149,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "per-label. True = the sharing group widens from the label to the whole job: every "
     "eligible line of the same text_height in ANY label receives the trigger's final cutter, "
     "so one text size engraves with one tool job-wide. Requires cutter_downsize_global true; "
-    "a line with this flag false keeps exactly the per-label behaviour. Cascades "
+    "a line with this flag false keeps exactly the per-label behavior. Cascades "
     "line/label/job; job-config supplies the shop default.",
     "DEFAULT_H_COMPRESS_GLOBAL": "False = horizontal compression stays per-line. True = a "
     "compressed line's scale is shared across the label: every other eligible line of the same "

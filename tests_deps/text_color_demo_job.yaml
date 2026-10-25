@@ -1,6 +1,6 @@
 # Stroke-color toolpath-split demo job for the PLT-Optimizer generate pipeline.
 #
-# Pins the ``text_color`` layer-tag behaviour (schema.TextColor) for 3-layer
+# Pins the ``text_color`` layer-tag behavior (schema.TextColor) for 3-layer
 # engraving stock: three text lines share identical typography (same height,
 # spacing, alignment and therefore the same cutter), so without colors they
 # would all engrave as ONE toolpath. The label-level line ("BASE") carries no

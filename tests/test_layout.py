@@ -719,7 +719,7 @@ def _plate_bbox(plate: PackedPlate) -> tuple[float, float]:
 
 
 class TestLayoutFillOrder:
-    """Fill-order behaviour of the ``layout`` mode (rows vs columns)."""
+    """Fill-order behavior of the ``layout`` mode (rows vs columns)."""
 
     @staticmethod
     def _scrap(width: float = 24.0, height: float = 16.0) -> list[PlateSpec]:

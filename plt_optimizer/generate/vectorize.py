@@ -830,7 +830,7 @@ def export_per_cutter_plts(
         layout: Preferential plate fill order passed to the bin packer.
             ``columns`` (the default) fills each plate's height before
             extending rightward; ``rows`` fills width before extending
-            downward (the historical behaviour). Individual plates may
+            downward (the historical behavior). Individual plates may
             override it via ``PlateSpec.layout``.
         default_plate_size: ``(width, height)`` override (inches) for the
             auto-allocated unbounded bins (from ``job-config.json``
@@ -876,7 +876,7 @@ def export_per_cutter_plts(
     # default sheets sized by ``default_plate_size`` (from job-config.json)
     # and overflows onto as many as the labels need. Passing ``None``
     # through (rather than synthesizing a single plate) keeps this path
-    # identical to ``generate_layout``'s own unbounded behaviour.
+    # identical to ``generate_layout``'s own unbounded behavior.
     if provided_plates is not None and len(provided_plates) == 0:
         provided_plates = None
 
