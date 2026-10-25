@@ -6,8 +6,8 @@ job specifications used by the generate pipeline. It handles:
 - Top-down inheritance via two-tier mixins (TextAttributes, LabelAttributes)
 - Root-level single-label jobs (no explicit `labels` list required)
 - Strict schema adherence: every model forbids unknown fields
-  (``extra="forbid"``), so a misspelled key fails loudly at parse time
-  with its exact path (e.g. ``labels.0.content.0.tex_height``)
+  (`extra="forbid"`), so a misspelled key fails loudly at parse time
+  with its exact path (e.g. `labels.0.content.0.tex_height`)
 
 Example:
     >>> job = parse_yaml("tests_deps/sample_spec.yaml")
@@ -35,7 +35,7 @@ class HoleLocation(str, Enum):
 
     Besides the eight atomic positions (four edges and four corners), two
     group shorthands are accepted for the most common drilling patterns:
-    ``corners`` (all four corner holes) and ``sides`` (the left and right
+    `corners` (all four corner holes) and `sides` (the left and right
     edge holes). Groups are expanded into their atomic members at schema
     validation time (see :data:`HOLE_LOCATION_GROUPS`), so downstream
     consumers only ever see the eight atomic locations.
@@ -67,7 +67,7 @@ class HoleLocation(str, Enum):
 
 # Group shorthand locations mapped to the atomic locations they expand to.
 # Expansion preserves the order listed here and replaces the group entry
-# in place within the ``holes`` list (see :meth:`HoleSpec.expand`).
+# in place within the `holes` list (see :meth:`HoleSpec.expand`).
 HOLE_LOCATION_GROUPS: dict[HoleLocation, tuple[HoleLocation, ...]] = {
     HoleLocation.CORNERS: (
         HoleLocation.TOP_LEFT,
@@ -80,21 +80,21 @@ HOLE_LOCATION_GROUPS: dict[HoleLocation, tuple[HoleLocation, ...]] = {
 
 
 # Default drill-hole diameter (inches) used when a hole specification omits
-# ``diameter``. 0.125" is the common drill size across the example jobspecs.
+# `diameter`. 0.125" is the common drill size across the example jobspecs.
 DEFAULT_HOLE_DIAMETER: float = 0.125
 
 
 class HoleSpec(BaseModel):
     """Specification for a hole to be drilled in a label.
 
-    ``location`` is the primary (and only required) field: the common case
-    is a standard 0.125" drill hole, which can be written as ``location``
-    alone. ``diameter`` is an optional override for non-standard sizes.
+    `location` is the primary (and only required) field: the common case
+    is a standard 0.125" drill hole, which can be written as `location`
+    alone. `diameter` is an optional override for non-standard sizes.
 
-    Group locations (``corners`` / ``sides``) are expanded into their
-    atomic member holes at validation time by the ``holes`` field
+    Group locations (`corners` / `sides`) are expanded into their
+    atomic member holes at validation time by the `holes` field
     validator on :class:`LabelAttributes`; each expanded member inherits
-    this spec's ``diameter``.
+    this spec's `diameter`.
     """
 
     # Unknown keys are typos: every spec model forbids them so a misspelled
@@ -104,8 +104,8 @@ class HoleSpec(BaseModel):
 
     location: HoleLocation = Field(
         description=(
-            "Hole position on the label edge. Group shorthands 'corners' "
-            "(all four corners) and 'sides' (left + right) expand into their "
+            "Hole position on the label edge. Group shorthands `corners` "
+            "(all four corners) and `sides` (left + right) expand into their "
             "atomic members at validation time."
         )
     )
@@ -114,7 +114,7 @@ class HoleSpec(BaseModel):
         gt=0.0,
         description=(
             "Hole diameter in inches (default 0.125). A job-config.json "
-            "'hole_diameter' fills entries that omit this field."
+            "`hole_diameter` fills entries that omit this field."
         ),
     )
 
@@ -123,7 +123,7 @@ class HoleSpec(BaseModel):
 
         Returns:
             A single-element list containing this spec for atomic
-            locations; for group locations (``corners`` / ``sides``), one
+            locations; for group locations (`corners` / `sides`), one
             clone per member location (in :data:`HOLE_LOCATION_GROUPS`
             order), each preserving this spec's diameter.
         """
@@ -137,9 +137,9 @@ class TextHAlignment(str, Enum):
     """Enumeration of valid horizontal text alignment modes for a text line.
 
     The alignment anchors the rendered line within the label's inner content
-    area (label width minus both margins). ``left`` places the line's
-    left-most point precisely at the left margin; ``right`` places the
-    line's right-most point precisely at the right margin; ``center``
+    area (label width minus both margins). `left` places the line's
+    left-most point precisely at the left margin; `right` places the
+    line's right-most point precisely at the right margin; `center`
     (the default) centers the line horizontally.
     """
 
@@ -151,10 +151,10 @@ class TextHAlignment(str, Enum):
 class LabelShape(str, Enum):
     """Enumeration of valid label boundary shapes.
 
-    ``rect`` (the default) is the historical behaviour: the label boundary is
-    the ``width`` x ``height`` rectangle, the packer packs that rectangle, and
-    every collision check measures the rectangle. ``round`` makes the boundary
-    an ellipse with semi-axes ``width / 2`` and ``height / 2`` -- a circle when
+    `rect` (the default) is the historical behavior: the label boundary is
+    the `width` x `height` rectangle, the packer packs that rectangle, and
+    every collision check measures the rectangle. `round` makes the boundary
+    an ellipse with semi-axes `width / 2` and `height / 2` -- a circle when
     the two are equal -- which switches the label onto the adjacent
     ellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)
     and makes the collision checks measure the ellipse boundary.
@@ -169,8 +169,8 @@ class CounterStyle(str, Enum):
 
     The style decides how an :class:`EnumerateBlock` renders the number of
     each of its items (see :func:`plt_optimizer.generate.list_counter.format_counter`).
-    ``decimal`` is the historical/plain numbering; the alpha styles count in
-    letters (bijective base 26, so ``z`` is followed by ``aa``); the roman
+    `decimal` is the historical/plain numbering; the alpha styles count in
+    letters (bijective base 26, so `z` is followed by `aa`); the roman
     styles count in Roman numerals.
 
     Attributes:
@@ -192,7 +192,7 @@ class CounterStyle(str, Enum):
 # abbreviations (EngraveLab/Vision Pro-style; black is "k" following the
 # CMYK convention). Used both to resolve abbreviations on input
 # (:meth:`TextColor._missing_`) and to tag color-split output files
-# (see ``plt_optimizer.generate.vectorize.export_per_cutter_plts``).
+# (see `plt_optimizer.generate.vectorize.export_per_cutter_plts`).
 TEXT_COLOR_ABBREVIATIONS: dict[str, str] = {
     "cyan": "c",
     "magenta": "m",
@@ -219,19 +219,19 @@ class TextColor(str, Enum):
 
     The color carries no visual meaning in the emitted PLT: it is a layer
     tag that splits otherwise-identical text into separate toolpaths (one
-    HPGL ``SP`` layer and one PLT file per color), so the cutter depth can
+    HPGL `SP` layer and one PLT file per color), so the cutter depth can
     be changed between runs to expose a different material layer color on
     3-layer stock. This mirrors the EngraveLab/Vision Pro workflow where a
     different stroke color forces a separate toolpath.
 
-    Values may be written as the full name (``cyan``) or as the
-    single-letter abbreviation (``c``); both forms are case-insensitive.
-    The inline ``<tc:color>...</tc>`` markup accepts exactly the same
+    Values may be written as the full name (`cyan`) or as the
+    single-letter abbreviation (`c`); both forms are case-insensitive.
+    The inline `<tc:color>...</tc>` markup accepts exactly the same
     values and applies the split per character (the tag wins over the
-    ``text_color`` field inside its span; see
-    ``plt_optimizer/generate/markup/AGENTS.md``).
-    ``none`` is the implicit default for every line that does not declare
-    a color and must never be specified explicitly (see the ``text_color``
+    `text_color` field inside its span; see
+    `plt_optimizer/generate/markup/AGENTS.md`).
+    `none` is the implicit default for every line that does not declare
+    a color and must never be specified explicitly (see the `text_color`
     field validator): users pick a real color name to force a toolpath
     split.
     """
@@ -258,7 +258,7 @@ class TextColor(str, Enum):
 
         Returns:
             The matching member for a case-insensitive full name or a
-            (case-insensitive) single-letter abbreviation; ``None`` for
+            (case-insensitive) single-letter abbreviation; `None` for
             anything else, which re-raises the standard enum error.
         """
         if not isinstance(value, str):
@@ -275,7 +275,7 @@ class TextColor(str, Enum):
         """Return the single-letter abbreviation of this color.
 
         Returns:
-            The one-letter tag (``k`` for black, ``m`` for magenta, ...)
+            The one-letter tag (`k` for black, `m` for magenta, ...)
             used in color-split output file names.
         """
         return TEXT_COLOR_ABBREVIATIONS[self.value]
@@ -284,11 +284,11 @@ class TextColor(str, Enum):
 class LayoutMode(str, Enum):
     """Enumeration of plate fill-order preferences for bin packing.
 
-    ``rectpack`` has no sort option that controls fill order directly (the
+    `rectpack` has no sort option that controls fill order directly (the
     emergent order is a side effect of placement tie-breaking), so
-    ``columns`` is realized by packing in a transposed frame with a
+    `columns` is realized by packing in a transposed frame with a
     bottom-row fill algorithm and mapping every placement back into plate
-    space (see ``plt_optimizer.generate.packing.layout``).
+    space (see `plt_optimizer.generate.packing.layout`).
     """
 
     ROWS = "rows"
@@ -301,17 +301,17 @@ DEFAULT_LAYOUT_MODE: LayoutMode = LayoutMode.COLUMNS
 
 
 def normalize_material(value: Optional[str]) -> Optional[str]:
-    """Normalize a ``material`` name (shared by every level declaring it).
+    """Normalize a `material` name (shared by every level declaring it).
 
     Trims surrounding whitespace and rejects whitespace-only values. The
     first-declared spelling is preserved for display; grouping uses
     :func:`material_key` (case-insensitive).
 
     Args:
-        value: The declared material name, or ``None`` (unset).
+        value: The declared material name, or `None` (unset).
 
     Returns:
-        The trimmed material name, or ``None`` when unset.
+        The trimmed material name, or `None` when unset.
 
     Raises:
         ValueError: If the value is whitespace-only.
@@ -325,17 +325,17 @@ def normalize_material(value: Optional[str]) -> Optional[str]:
 
 
 def material_key(value: Optional[str]) -> Optional[str]:
-    """Return the case-insensitive grouping key for a ``material`` name.
+    """Return the case-insensitive grouping key for a `material` name.
 
     Two materials are considered the same when their keys match: the value
-    is trimmed and case-folded (``"WB(UV)"`` and ``"wb(uv)"`` group
-    together). ``None`` (unset) maps to ``None``.
+    is trimmed and case-folded (`"WB(UV)"` and `"wb(uv)"` group
+    together). `None` (unset) maps to `None`.
 
     Args:
-        value: A normalized material name, or ``None`` (unset).
+        value: A normalized material name, or `None` (unset).
 
     Returns:
-        The case-folded key, or ``None`` when unset.
+        The case-folded key, or `None` when unset.
     """
     if value is None:
         return None
@@ -343,12 +343,12 @@ def material_key(value: Optional[str]) -> Optional[str]:
 
 
 def _validate_html_brackets_value(v: Optional[str]) -> Optional[str]:
-    """Validate an ``html_brackets`` delimiter pair (shared by all levels).
+    """Validate an `html_brackets` delimiter pair (shared by all levels).
 
     The value is an even-length string whose first half is the left
-    delimiter and second half the right delimiter (``"<>"`` -> ``<`` and
-    ``>``; ``"<<>>"`` -> ``<<`` and ``>>``; ``"\u00ab\u00bb"`` -> ``\u00ab`` and
-    ``\u00bb``).
+    delimiter and second half the right delimiter (`"<>"` -> `<` and
+    `>`; `"<<>>"` -> `<<` and `>>`; `"\u00ab\u00bb"` -> `\u00ab` and
+    `\u00bb`).
 
     Args:
         v: The configured bracket pair, or None (unset).
@@ -390,12 +390,12 @@ def _validate_kern_string_value(v: Optional[str], name: str) -> Optional[str]:
 
     Enforces the bracket-agnostic invariants only: non-empty and no
     newline. The markup-shape check runs at resolution time (the effective
-    ``html_brackets`` + the tag registry are not known at field-validation
+    `html_brackets` + the tag registry are not known at field-validation
     time -- the field cascades), so a custom-bracket job may legally use a
-    marker that is markup-shaped under the default ``<>``.
+    marker that is markup-shaped under the default `<>`.
 
     Args:
-        v: The configured marker string, or ``None`` (unset).
+        v: The configured marker string, or `None` (unset).
         name: The field name, for the error messages.
 
     Returns:
@@ -432,20 +432,20 @@ class TextAttributes(BaseModel):
         default=None,
         description=(
             "Font name: a PLT-extracted font key (the font_name fields of "
-            "fonts/VP-EL-fonts/catalog/*.json, rendered arc-native with arcs "
+            "`fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs "
             "preserved) or a TrueType basename "
-            "(*.ttf under fonts/, extension stripped); case-insensitive, "
+            "(`*.ttf` under fonts/, extension stripped); case-insensitive, "
             "canonicalized at validation. Appending ' SC' to any name "
             "selects its synthetic small-caps variant (uppercase glyphs "
             "verbatim, ASCII lowercase a-z downscaled by sc_scale). "
             "Cascades line -> label -> job "
             f"(fallback {DEFAULT_FONT_NAME}). Unknown names are rejected; run "
             "docs/schema/generate_schema_docs.py --show-fonts for the full "
-            "valid list. The inline <f:font name>...</f> markup tag selects "
+            "valid list. The inline `<f:font name>...</f>` markup tag selects "
             "any of these names for the wrapped characters of a text line "
             "(the run engraves with the cutter its own font's ladder gives "
             "that text height); '+' is the canonical space in the tag "
-            "argument (e.g. <f:Dino+SC>)."
+            "argument (e.g. `<f:Dino+SC>`)."
         ),
     )
     character_spacing: Optional[float] = Field(
@@ -545,7 +545,7 @@ class TextAttributes(BaseModel):
         description=(
             "Multiplier on a *recessed* (negative) profile-envelope "
             "penetration for PLT-extracted fonts: 1.0 keeps the geometric "
-            "recession (the historical linear behaviour, where lowering "
+            "recession (the historical linear behavior, where lowering "
             "kerning_penetration_scale also pulled gapped pairs closer), "
             "0.0 makes a recessed pair advance by nothing beyond the "
             "min_glyph_width_fraction floor. Cascades line -> label -> job "
@@ -578,14 +578,14 @@ class TextAttributes(BaseModel):
         description=(
             "Manual-kern positive marker string: every occurrence in a text "
             "line is stripped (it never engraves) and replaced by a forward "
-            "cursor shift of kern_width_fraction * cap height (capline - "
+            "cursor shift of `kern_width_fraction * cap height` (capline - "
             "baseline) applied to the following character. Multi-character "
-            "strings are legal (e.g. '<->'); the value must be non-empty, "
+            "strings are legal (e.g. `<->`); the value must be non-empty, "
             "contain no newline, and differ from kern_neg_string. A marker "
             "that parses as inline markup under the line's effective "
-            "html_brackets (e.g. '<s>' with the default brackets - the "
+            "html_brackets (e.g. `<s>` with the default brackets - the "
             "strikethrough tag consumes it before the kern strip) is "
-            "rejected at resolution; '<->' is a legal marker. Unset (None) "
+            "rejected at resolution; `<->` is a legal marker. Unset (None) "
             "disables the positive marker. Cascades line -> label -> job "
             "(job-config.json supplies the shop default); works on PLT and "
             "TTF fonts."
@@ -596,10 +596,10 @@ class TextAttributes(BaseModel):
         description=(
             "Manual-kern negative marker string: every occurrence in a text "
             "line is stripped (it never engraves) and replaced by a "
-            "backward cursor shift of kern_width_fraction * cap height "
+            "backward cursor shift of `kern_width_fraction * cap height` "
             "(capline - baseline) applied to the following character (no "
             "clamp, so a large value lets glyphs overlap). Same validation "
-            "as kern_pos_string; the two strings must differ. Unset (None) "
+            "as `kern_pos_string`; the two strings must differ. Unset (None) "
             "disables the negative marker. Cascades line -> label -> job "
             "(job-config.json supplies the shop default); works on PLT and "
             "TTF fonts."
@@ -610,11 +610,11 @@ class TextAttributes(BaseModel):
         ge=0.0,
         description=(
             "Manual-kern width as a fraction of the rendered cap height "
-            "(capline - baseline): one kern_pos_string marker advances the "
-            "cursor by +fraction * cap height, one kern_neg_string marker "
-            "retreats it by -fraction * cap height (adjacent markers "
-            "accumulate). Cascades line -> label -> job (fallback 0.1); "
-            "explicit 0.0 is honored (markers consume their characters but "
+            "(capline - baseline): one `kern_pos_string` marker advances the "
+            "cursor by `+fraction * cap height`, one `kern_neg_string` marker "
+            "retreats it by `-fraction * cap height` (adjacent markers "
+            "accumulate). Cascades line -> label -> job (fallback `0.1`); "
+            "explicit `0.0` is honored (markers consume their characters but "
             "shift nothing)."
         ),
     )
@@ -630,8 +630,8 @@ class TextAttributes(BaseModel):
             "own bottom stays in place and its top descends). Uppercase and "
             "caseless characters engrave at full size; the nominal "
             "text_height is untouched (no cutter change). The same field "
-            "drives the inline <sc> small-caps markup tag (the per-character "
-            "selection); inert on a non-SC font carrying no <sc> run. "
+            "drives the inline `<sc>` small-caps markup tag (the per-character "
+            "selection); inert on a non-SC font carrying no `<sc>` run. "
             "Cascades line -> label -> job (fallback "
             "0.7); explicit 0.2/1.0 are honored."
         ),
@@ -659,15 +659,15 @@ class TextAttributes(BaseModel):
     html_brackets: Optional[str] = Field(
         default=None,
         description=(
-            "Delimiter pair for the inline markup syntax (<i> italic and "
+            "Delimiter pair for the inline markup syntax (`<i>` italic and "
             "future tags): an even-length string whose first half is the "
-            "left delimiter and second half the right delimiter ('<>' -> "
-            "'<' + '>', '<<>>' -> '<<' + '>>'). The halves must differ and "
+            "left delimiter and second half the right delimiter (`<>` -> "
+            "`'<' + '>'`, `<<>>` -> `<<' + '>>`). The halves must differ and "
             "contain no alphanumeric characters or newlines. A bracketed "
             "body that is not a registered tag engraves verbatim, so "
             "choosing a pair absent from the data keeps chevrons from "
             "being read as markup. Cascades line -> label -> job (fallback "
-            "'<>'); the slash is only special inside the delimiters."
+            "`<>`); the slash is only special inside the delimiters."
         ),
     )
     italic_angle: Optional[float] = Field(
@@ -675,9 +675,9 @@ class TextAttributes(BaseModel):
         ge=0.0,
         le=45.0,
         description=(
-            "Slant angle in degrees for italic markup (<i>): PLT-extracted "
+            "Slant angle in degrees for italic markup (`<i>`): PLT-extracted "
             "glyphs (and TTF glyphs with no native italic face) are sheared "
-            "about the baseline, x' = x + y * tan(angle), so the baseline "
+            "about the baseline, $x' = x + y * tan(angle)$, so the baseline "
             "stays fixed and the glyph leans right. Bound to [0, 45]; 0 "
             "means upright (the shear is skipped). Cascades line -> label -> "
             "job (fallback 12); explicit 0.0/45.0 are honored."
@@ -687,7 +687,7 @@ class TextAttributes(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Extra air for underline markup (<u>) as a fraction of the "
+            "Extra air for underline markup (`<u>`) as a fraction of the "
             "rendered cap height (capline - baseline): the underline "
             "centerline (cut with the line's own text cutter) sits cutter "
             "diameter + fraction * cap height below the baseline, so the "
@@ -706,7 +706,7 @@ class TextAttributes(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Extra air at each underline (<u>) break as a fraction of the "
+            "Extra air at each underline (`<u>`) break as a fraction of the "
             "rendered cap height (capline - baseline): each cut is "
             "padded horizontally by 0.5 * cutter + fraction * cap height (the half "
             "cutter is the glyph stroke's own half-width), so the "
@@ -721,7 +721,7 @@ class TextAttributes(BaseModel):
     underline_break_spaces: Optional[bool] = Field(
         default=None,
         description=(
-            "Break an underline (<u>) at the spaces between words: false "
+            "Break an underline (`<u>`) at the spaces between words: false "
             "(default) draws one continuous underline across the whole "
             "underlined run (spaces included, broken only by descending "
             "glyphs); true ends the underline at each space so every word "
@@ -734,7 +734,7 @@ class TextAttributes(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Strikethrough (<s>) height ABOVE the baseline as a fraction of "
+            "Strikethrough (`<s>`) height ABOVE the baseline as a fraction of "
             "the rendered cap height (capline - baseline): the stroke (cut "
             "with the line's own text cutter) sits fraction * cap height "
             "above the baseline, so 0.0 puts it on the baseline and 1.0 puts "
@@ -749,7 +749,7 @@ class TextAttributes(BaseModel):
     strikethrough_break_spaces: Optional[bool] = Field(
         default=None,
         description=(
-            "Break a strikethrough (<s>) at the spaces between words: false "
+            "Break a strikethrough (`<s>`) at the spaces between words: false "
             "(default) draws one continuous stroke across the whole struck "
             "run (spaces included); true ends the stroke at each space so "
             "every word gets its own strike and the inter-word space stays "
@@ -766,11 +766,11 @@ class TextAttributes(BaseModel):
             "centred on the cap-band midline (half the rendered cap height "
             "above the baseline) - the characters a font typically draws too "
             "high (hyphen, colon, en/em dash, '=', '<', '>'). The inline "
-            "<vc>...</vc> markup tag applies the same centering to any other "
-            "characters it wraps. Empty string '' disables the auto-apply "
-            "(the <vc> tag keeps working on its own). Cascades "
-            "line -> label -> job (code fallback '' = auto-apply off; "
-            "job-config.json ships the shop set '-:–—=<>'); an explicit '' is "
+            "`<vc>...</vc>` markup tag applies the same centering to any other "
+            "Empty string `''` disables the auto-apply "
+            "(the `<vc>` tag keeps working on its own). Cascades "
+            "line -> label -> job (code fallback `''` = auto-apply off; "
+            "job-config.json ships the shop set '-:–—=<>'); an explicit `''` is "
             "honored."
         ),
     )
@@ -829,11 +829,11 @@ class TextAttributes(BaseModel):
         ge=1.0,
         le=4.0,
         description=(
-            "Boldness boost applied by inline <b> markup to a multi-stroke "
+            "Boldness boost applied by inline `<b>` markup to a multi-stroke "
             "(bold) PLT font: the bold runs re-run the cutter ladder at "
             "target_boldness_factor * this multiplier (clamped to 0.30 with "
             "a WARNING), so their parallel passes engrave heavier than the "
-            "line's plain text. On single-stroke PLT and TTF fonts <b> "
+            "line's plain text. On single-stroke PLT and TTF fonts `<b>` "
             "instead steps to the next larger inventory cutter and this "
             "multiplier is inert. Bound to [1.0, 4.0]; 1.0 disables the "
             "boost. Cascades line -> label -> job (fallback 1.5); accepted "
@@ -887,7 +887,7 @@ class TextAttributes(BaseModel):
             "eligible line of the same text_height in ANY label of the job "
             "receives the same swap (the job converges on one tool per text "
             "size). Requires cutter_downsize_global true; a line with this "
-            "flag false keeps exactly the per-label behaviour (it neither "
+            "flag false keeps exactly the per-label behavior (it neither "
             "shares to nor receives from the job-wide group). The same "
             "eligibility opt-outs apply. Cascades line -> label -> job "
             "(fallback false); explicit true is honored."
@@ -1057,21 +1057,21 @@ class TextAttributes(BaseModel):
     @field_validator("text_color")
     @classmethod
     def _reject_explicit_none_color(cls, value: Optional[TextColor]) -> Optional[TextColor]:
-        """Reject an explicitly specified ``none`` stroke color.
+        """Reject an explicitly specified `none` stroke color.
 
-        ``none`` is the implicit default applied to every line that omits
-        ``text_color``; specifying it explicitly is always a user mistake
+        `none` is the implicit default applied to every line that omits
+        `text_color`; specifying it explicitly is always a user mistake
         (it requests no split while looking like a color), so it is
         rejected wherever the field is accepted.
 
         Args:
-            value: The validated color, or ``None`` (unset).
+            value: The validated color, or `None` (unset).
 
         Returns:
             The validated color.
 
         Raises:
-            ValueError: If the value is explicitly ``none`` / ``n``.
+            ValueError: If the value is explicitly `none` / `n`.
         """
         if value is TextColor.NONE:
             raise ValueError(
@@ -1086,7 +1086,7 @@ class TextAttributes(BaseModel):
         """Validate the markup delimiter pair (shared rule with plates).
 
         Args:
-            value: The configured bracket pair, or ``None`` (unset).
+            value: The configured bracket pair, or `None` (unset).
 
         Returns:
             The validated bracket pair.
@@ -1104,7 +1104,7 @@ class TextAttributes(BaseModel):
         """Validate the manual-kern positive marker (shared rule with plates).
 
         Args:
-            value: The configured marker string, or ``None`` (unset).
+            value: The configured marker string, or `None` (unset).
 
         Returns:
             The validated marker string.
@@ -1121,7 +1121,7 @@ class TextAttributes(BaseModel):
         """Validate the manual-kern negative marker (shared rule with plates).
 
         Args:
-            value: The configured marker string, or ``None`` (unset).
+            value: The configured marker string, or `None` (unset).
 
         Returns:
             The validated marker string.
@@ -1185,16 +1185,16 @@ class TextAttributes(BaseModel):
     def _canonicalize_font_name(cls, value: Optional[str]) -> Optional[str]:
         """Canonicalize a requested font name against the font registry.
 
-        Applies to every model inheriting the ``font`` field (TextLine,
+        Applies to every model inheriting the `font` field (TextLine,
         LabelSpec, JobSpec). Matching is case-insensitive; the stored value
-        becomes the canonical font name (catalog ``font_name`` key or TTF
+        becomes the canonical font name (catalog `font_name` key or TTF
         basename), so downstream consumers never re-match case.
 
         Args:
-            value: The requested font name, or ``None`` (unset).
+            value: The requested font name, or `None` (unset).
 
         Returns:
-            The canonical font name, or ``None`` when unset.
+            The canonical font name, or `None` when unset.
 
         Raises:
             ValueError: If the name matches no known PLT or TrueType font
@@ -1256,8 +1256,8 @@ class LabelAttributes(TextAttributes):
         default=None,
         description=(
             "Whether rounded_rectangle_fraction applies proportionately to "
-            "width and height (true: corner semi-axes fraction*width/2 and "
-            "fraction*height/2) or as one identical rounding distance on every "
+            "width and height (true: corner semi-axes `fraction*width/2` and "
+            "`fraction*height/2`) or as one identical rounding distance on every "
             "side (false, the default: the shorter edge determines the "
             "rounding for all sides). Cascades job -> plate -> label; unset "
             "(null) falls back to job-config.json then false. Accepted on "
@@ -1438,13 +1438,13 @@ class LabelAttributes(TextAttributes):
     @field_validator("material")
     @classmethod
     def _normalize_material(cls, value: Optional[str]) -> Optional[str]:
-        """Normalize the cascading ``material`` field.
+        """Normalize the cascading `material` field.
 
         Args:
-            value: The declared material name, or ``None`` (unset).
+            value: The declared material name, or `None` (unset).
 
         Returns:
-            The trimmed material name, or ``None`` when unset.
+            The trimmed material name, or `None` when unset.
 
         Raises:
             ValueError: If the value is whitespace-only.
@@ -1456,18 +1456,18 @@ class LabelAttributes(TextAttributes):
     def _expand_hole_location_groups(
         cls, value: Optional[list[HoleSpec]]
     ) -> Optional[list[HoleSpec]]:
-        """Expand group hole locations (``corners`` / ``sides``) into members.
+        """Expand group hole locations (`corners` / `sides`) into members.
 
-        Applies to every model inheriting the ``holes`` field (LabelSpec,
+        Applies to every model inheriting the `holes` field (LabelSpec,
         JobSpec). Group entries are replaced in place by their atomic
         member holes; atomic entries pass through unchanged, so drill
         geometry and ordering semantics for existing specs are untouched.
 
         Args:
-            value: The validated hole list, or ``None`` (unset).
+            value: The validated hole list, or `None` (unset).
 
         Returns:
-            The expanded hole list (or ``None`` / empty list unchanged).
+            The expanded hole list (or `None` / empty list unchanged).
         """
         if not value:
             return value
@@ -1481,21 +1481,21 @@ class TextLine(TextAttributes):
         text: The actual text string to render.
         text_height: Optional font height in inches. Inherits from parent
             LabelSpec.text_height or JobSpec.text_height if not set locally.
-        placeholder: When ``True``, this line is replaced by the corresponding
+        placeholder: When `True`, this line is replaced by the corresponding
             item from the replacement file during expansion; all other
             attributes (text height, alignment, color, ...) are preserved on
             the synthesized line. Non-placeholder lines are copied verbatim to
             every generated label instance. Requires the parent label to
-            declare ``replacement_text_file``.
-        new_line: When ``True``, this line begins on its own line in the
+            declare `replacement_text_file`.
+        new_line: When `True`, this line begins on its own line in the
             label. It modifies the word-level line-content reflow
-            (``optimize_line_content``): the line starts a new reflow group,
+            (`optimize_line_content`): the line starts a new reflow group,
             so the lines that follow it (which do not carry the flag
             themselves) reflow together with it instead of with the lines
             above it. The flag is inert when the line does not enable
-            ``optimize_line_content`` (every line then begins on its own line
+            `optimize_line_content` (every line then begins on its own line
             already). Line-level only -- it is never inherited from the label
-            or the job, and it has no ``job-config.json`` counterpart.
+            or the job, and it has no `job-config.json` counterpart.
     """
 
     text: str = Field(description="The text string to render (non-empty).")
@@ -1527,8 +1527,8 @@ class ListAttributes(TextAttributes):
     """Shared fields of a bullet/enumerated list block.
 
     Extends the cascading text attributes with the list's items. The
-    list-level marker settings (``bullet_string``, the counter fields and
-    ``list_marker_gap_fraction``) are inherited from :class:`TextAttributes`
+    list-level marker settings (`bullet_string`, the counter fields and
+    `list_marker_gap_fraction`) are inherited from :class:`TextAttributes`
     and cascade item -> list block -> label -> job -> job-config.json, so a
     block declares them exactly where a label would.
     """
@@ -1545,51 +1545,51 @@ class ListAttributes(TextAttributes):
 
 
 class ItemizeBlock(ListAttributes):
-    """A bullet list nested inside a label's ``content`` list.
+    """A bullet list nested inside a label's `content` list.
 
-    Every item engraves with the resolved ``bullet_string`` as its marker
-    (default ``"•"``), placed in one flush marker column shared by the whole
+    Every item engraves with the resolved `bullet_string` as its marker
+    (default `"•"`), placed in one flush marker column shared by the whole
     list; the item's text (and every continuation line it grows to) starts at
     the hanging-indent column right of the markers.
 
     Attributes:
         items: Inherited from :class:`ListAttributes` -- the bullet items.
         bullet_string: Inherited marker string, resolved for the block from
-            item -> block -> label -> job -> config (fallback ``"•"``).
+            item -> block -> label -> job -> config (fallback `"•"`).
     """
 
 
 class EnumerateBlock(ListAttributes):
-    """An enumerated list nested inside a label's ``content`` list.
+    """An enumerated list nested inside a label's `content` list.
 
     Every item's marker is the computed counter
-    (``counter_prefix + format_counter(start_index + k, counter_style) +
-    counter_suffix``) for the item's zero-based position ``k`` in the block.
-    The counter is always computed -- an item's own ``bullet_string`` has no
+    (`counter_prefix + format_counter(start_index + k, counter_style) +
+    counter_suffix`) for the item's zero-based position `k` in the block.
+    The counter is always computed -- an item's own `bullet_string` has no
     effect here.
 
     Attributes:
         items: Inherited from :class:`ListAttributes` -- the enumerated items.
         counter_start_index: Inherited first counter value (fallback 1).
-        counter_style: Inherited counter style (fallback ``decimal``).
+        counter_style: Inherited counter style (fallback `decimal`).
         counter_prefix: Inherited string before each counter (fallback '').
         counter_suffix: Inherited string after each counter (fallback '').
     """
 
 
 class ContentEntry(TextLine):
-    """One entry of a label's ``content`` list: a text line or a list block.
+    """One entry of a label's `content` list: a text line or a list block.
 
-    A plain entry carries ``text`` (the historical :class:`TextLine` shape,
+    A plain entry carries `text` (the historical :class:`TextLine` shape,
     so every existing spec validates unchanged). A list entry carries exactly
-    one of ``itemize`` / ``enumerate`` (and no ``text``), nesting the list
+    one of `itemize` / `enumerate` (and no `text`), nesting the list
     block's fields and items. The three slots are mutually exclusive.
 
     Attributes:
         itemize: Optional bullet-list block (mutually exclusive with
-            ``text`` and ``enumerate``).
+            `text` and `enumerate`).
         enumerate: Optional enumerated-list block (mutually exclusive with
-            ``text`` and ``itemize``).
+            `text` and `itemize`).
     """
 
     text: Optional[str] = Field(  # type: ignore[assignment]
@@ -1619,7 +1619,7 @@ class ContentEntry(TextLine):
 
     @model_validator(mode="after")
     def _validate_exactly_one_form(self) -> ContentEntry:
-        """Require exactly one of ``text`` / ``itemize`` / ``enumerate``.
+        """Require exactly one of `text` / `itemize` / `enumerate`.
 
         Raises:
             ValueError: If none of the three is set, or more than one is.
@@ -1656,18 +1656,18 @@ class ContentEntry(TextLine):
 def _coerce_content_entries(value: Any) -> Any:
     """Coerce plain :class:`TextLine` content entries to :class:`ContentEntry`.
 
-    ``content`` accepts the historical bare :class:`TextLine` objects (and
+    `content` accepts the historical bare :class:`TextLine` objects (and
     their dicts) everywhere it accepted them: a direct API caller building
-    ``LabelSpec(content=[TextLine(text=...)])`` never sees the new entry
-    model. A value that is already a ``ContentEntry`` (or a dict carrying a
+    `LabelSpec(content=[TextLine(text=...)])` never sees the new entry
+    model. A value that is already a `ContentEntry` (or a dict carrying a
     list block) passes through for normal validation.
 
     Args:
-        value: The raw ``content`` value (list, or anything else).
+        value: The raw `content` value (list, or anything else).
 
     Returns:
-        The value with every bare ``TextLine`` replaced by an equivalent
-        ``ContentEntry``.
+        The value with every bare `TextLine` replaced by an equivalent
+        `ContentEntry`.
     """
     if not isinstance(value, list):
         return value
@@ -1709,10 +1709,10 @@ def _validate_replacement_delimiter_value(v: Optional[str]) -> Optional[str]:
 def _validate_replacement_comment_value(v: Optional[str]) -> Optional[str]:
     """Validate a replacement-text comment string (shared by all levels).
 
-    Any string is a legal marker (``"#"`` and ``"# "`` are the idiomatic
-    choices, and multi-character forms like ``"## "`` work), and the empty
+    Any string is a legal marker (`"#"` and `"# "` are the idiomatic
+    choices, and multi-character forms like `"## "` work), and the empty
     string is meaningful: it **disables** comment handling, so every
-    non-blank line -- including one that starts with ``#`` -- is raw data
+    non-blank line -- including one that starts with `#` -- is raw data
     (whitespace-only/empty lines are still dropped). Only newlines are
     rejected, since a marker can never occur inside a single file line.
 
@@ -1737,18 +1737,18 @@ class LabelSpec(LabelAttributes):
 
     Inherits styling fields (text_height, character_spacing,
     line_spacing, width, height, margin, holes) from LabelAttributes.
-    ``width`` and ``height`` must be defined either on this label or at
+    `width` and `height` must be defined either on this label or at
     the job level; they are no longer auto-sized from rendered content.
 
     A label may be defined in one of two ways:
-    1. Statically, with a ``content`` list (and optional ``count``).
+    1. Statically, with a `content` list (and optional `count`).
     2. As a template driven by an EngraveLab/Vision Pro-style replacement
-       text file (``replacement_text_file``). Each line of the file
+       text file (`replacement_text_file`). Each line of the file
        produces one label instance; delimited items within a line replace
-       the template's text lines. In this mode ``count`` must not be set
-       (the file's line count determines it) and ``content`` is optional:
+       the template's text lines. In this mode `count` must not be set
+       (the file's line count determines it) and `content` is optional:
        when omitted, every instance's lines inherit the label-level text
-       attributes; when present, its ``text`` values act as placeholders
+       attributes; when present, its `text` values act as placeholders
        declaring the per-line attributes (text height, alignment, etc.).
     """
 
@@ -1837,7 +1837,7 @@ class LabelSpec(LabelAttributes):
         """Accept bare TextLine entries as plain content entries.
 
         Args:
-            value: The raw ``content`` value.
+            value: The raw `content` value.
 
         Returns:
             The value with every bare :class:`TextLine` coerced to a
@@ -1850,11 +1850,11 @@ class LabelSpec(LabelAttributes):
         """Enforce the static-content vs replacement-template contract.
 
         Raises:
-            ValueError: If both ``count`` and ``replacement_text_file`` are
-                set, if neither ``content`` nor ``replacement_text_file`` is
-                set, if ``content`` is an empty list, if
-                ``replacement_text_delimiter`` is set without a file, or if
-                ``replacement_text_file_comment_string`` is set without a file.
+            ValueError: If both `count` and `replacement_text_file` are
+                set, if neither `content` nor `replacement_text_file` is
+                set, if `content` is an empty list, if
+                `replacement_text_delimiter` is set without a file, or if
+                `replacement_text_file_comment_string` is set without a file.
 
         Returns:
             Self for method chaining.
@@ -2433,10 +2433,10 @@ class PlateSpec(BaseModel):
     @field_validator("html_brackets")
     @classmethod
     def _validate_html_brackets(cls, value: Optional[str]) -> Optional[str]:
-        """Validate the parity ``html_brackets`` field like the cascading one.
+        """Validate the parity `html_brackets` field like the cascading one.
 
         Args:
-            value: The configured bracket pair, or ``None`` (unset).
+            value: The configured bracket pair, or `None` (unset).
 
         Returns:
             The validated bracket pair.
@@ -2451,10 +2451,10 @@ class PlateSpec(BaseModel):
     @field_validator("kern_pos_string")
     @classmethod
     def _validate_kern_pos_string(cls, value: Optional[str]) -> Optional[str]:
-        """Validate the parity ``kern_pos_string`` field like the cascading one.
+        """Validate the parity `kern_pos_string` field like the cascading one.
 
         Args:
-            value: The configured marker string, or ``None`` (unset).
+            value: The configured marker string, or `None` (unset).
 
         Returns:
             The validated marker string.
@@ -2468,10 +2468,10 @@ class PlateSpec(BaseModel):
     @field_validator("kern_neg_string")
     @classmethod
     def _validate_kern_neg_string(cls, value: Optional[str]) -> Optional[str]:
-        """Validate the parity ``kern_neg_string`` field like the cascading one.
+        """Validate the parity `kern_neg_string` field like the cascading one.
 
         Args:
-            value: The configured marker string, or ``None`` (unset).
+            value: The configured marker string, or `None` (unset).
 
         Returns:
             The validated marker string.
@@ -2522,13 +2522,13 @@ class PlateSpec(BaseModel):
     @field_validator("font")
     @classmethod
     def _canonicalize_font_name(cls, value: Optional[str]) -> Optional[str]:
-        """Canonicalize the parity ``font`` field like the cascading one.
+        """Canonicalize the parity `font` field like the cascading one.
 
         Args:
-            value: The requested font name, or ``None`` (unset).
+            value: The requested font name, or `None` (unset).
 
         Returns:
-            The canonical font name, or ``None`` when unset.
+            The canonical font name, or `None` when unset.
 
         Raises:
             ValueError: If the name matches no known PLT or TrueType font.
@@ -2540,13 +2540,13 @@ class PlateSpec(BaseModel):
     @field_validator("material")
     @classmethod
     def _normalize_material(cls, value: Optional[str]) -> Optional[str]:
-        """Normalize the plate ``material`` field like the cascading one.
+        """Normalize the plate `material` field like the cascading one.
 
         Args:
-            value: The declared material name, or ``None`` (unset).
+            value: The declared material name, or `None` (unset).
 
         Returns:
-            The trimmed material name, or ``None`` when unset.
+            The trimmed material name, or `None` when unset.
 
         Raises:
             ValueError: If the value is whitespace-only.
@@ -2556,14 +2556,14 @@ class PlateSpec(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _drop_null_clearances(cls, data: Any) -> Any:
-        """Treat an explicit ``null`` clearance as unset (inherit semantics).
+        """Treat an explicit `null` clearance as unset (inherit semantics).
 
-        Mirrors the job-config convention that an explicit YAML ``null``
+        Mirrors the job-config convention that an explicit YAML `null`
         counts as unset: dropping the key lets the plate fall through to
-        the job-level ``left_clearance`` / ``top_clearance`` cascade (see
-        :meth:`JobSpec._apply_job_level_clearances`) or its own ``0.0``
-        default. The same rule applies to ``material``: an explicit
-        ``null`` falls through to the job-level cascade (see
+        the job-level `left_clearance` / `top_clearance` cascade (see
+        :meth:`JobSpec._apply_job_level_clearances`) or its own `0.0`
+        default. The same rule applies to `material`: an explicit
+        `null` falls through to the job-level cascade (see
         :meth:`JobSpec._apply_job_level_materials`) or stays unset.
 
         Args:
@@ -2583,23 +2583,23 @@ class JobSpec(LabelAttributes):
     """Top-level specification for a batch label generation job.
 
     Inherits styling fields from LabelAttributes so they can be set at the
-    job level and inherited down to labels and text lines. ``width`` and
-    ``height`` must be defined at either the job level or on each label.
+    job level and inherited down to labels and text lines. `width` and
+    `height` must be defined at either the job level or on each label.
 
     A job may be specified in one of three forms:
     1. A list of explicit labels (`labels`), each with width/height defined.
     2. A single root-level label definition (`content` + optional `count`),
         with width/height defined at the job or root level.
     3. A job-level EngraveLab/Vision Pro-style replacement text file
-        (``replacement_text_file``): each line of the file produces one
-        label, generated from the job-level label attributes. ``width``,
-        ``height`` and ``text_height`` must be defined at the job level;
-        ``content`` is an optional per-line attribute template (exactly
+        (`replacement_text_file`): each line of the file produces one
+        label, generated from the job-level label attributes. `width`,
+        `height` and `text_height` must be defined at the job level;
+        `content` is an optional per-line attribute template (exactly
         like on :class:`LabelSpec`). This form is mutually exclusive with
-        ``labels`` and ``count``.
+        `labels` and `count`.
 
     The label source forms (1-3) are mutually exclusive; exactly one must
-    be provided. The ``width`` and ``height`` cascade from label to job;
+    be provided. The `width` and `height` cascade from label to job;
     they are no longer auto-sized from rendered content.
     """
 
@@ -2738,7 +2738,7 @@ class JobSpec(LabelAttributes):
         """Accept bare TextLine entries as plain content entries.
 
         Args:
-            value: The raw ``content`` value.
+            value: The raw `content` value.
 
         Returns:
             The value with every bare :class:`TextLine` coerced to a
@@ -2783,10 +2783,10 @@ class JobSpec(LabelAttributes):
     def _apply_job_level_clearances(self) -> JobSpec:
         """Cascade job-level edge clearances onto plates that omit them.
 
-        Mirrors the ``layout`` job -> plate cascade: an explicit plate
-        value (including an explicit ``0.0``) always wins; plates that
+        Mirrors the `layout` job -> plate cascade: an explicit plate
+        value (including an explicit `0.0`) always wins; plates that
         omit a clearance inherit the job-level value when set. Without a
-        job-level value, plates keep their own default (``0.0``), so
+        job-level value, plates keep their own default (`0.0`), so
         existing specs are unaffected.
 
         Returns:
@@ -2807,13 +2807,13 @@ class JobSpec(LabelAttributes):
 
     @model_validator(mode="after")
     def _apply_job_level_materials(self) -> JobSpec:
-        """Cascade the job-level ``material`` onto plates that omit it.
+        """Cascade the job-level `material` onto plates that omit it.
 
         Mirrors :meth:`_apply_job_level_clearances`: an explicit plate
-        value always wins (an explicit ``null`` counts as unset, see
+        value always wins (an explicit `null` counts as unset, see
         :meth:`PlateSpec._drop_null_clearances`); plates that omit
-        ``material`` inherit the job-level value when set. Without a
-        job-level value, plates keep ``None`` (material-agnostic), so
+        `material` inherit the job-level value when set. Without a
+        job-level value, plates keep `None` (material-agnostic), so
         existing specs are unaffected.
 
         Returns:
@@ -2832,17 +2832,17 @@ class JobSpec(LabelAttributes):
 
     @model_validator(mode="after")
     def _reject_job_level_text_color(self) -> JobSpec:
-        """Reject a job-level ``text_color`` declaration.
+        """Reject a job-level `text_color` declaration.
 
-        ``text_color`` exists solely to distinguish otherwise-equivalent
+        `text_color` exists solely to distinguish otherwise-equivalent
         text within a label or between labels; a job-wide color would
-        separate nothing (that is exactly what the implicit ``none``
+        separate nothing (that is exactly what the implicit `none`
         default means), so the field is accepted on labels and text lines
         only -- including root-level single-label jobs, where every other
         label attribute is set at the job level.
 
         Raises:
-            ValueError: Always, when ``text_color`` is set at the job level.
+            ValueError: Always, when `text_color` is set at the job level.
 
         Returns:
             Self for method chaining.
@@ -2859,7 +2859,7 @@ class JobSpec(LabelAttributes):
     def _reject_max_lines_disabled_parity(self) -> JobSpec:
         """Reject a plate pairing a reflow line cap with reflow disabled.
 
-        ``optimize_line_content_max_lines`` requires ``optimize_line_content``
+        `optimize_line_content_max_lines` requires `optimize_line_content`
         to be enabled; the authoritative check runs at resolution time (where
         the full line -> label -> job cascade is visible, so a job-level cap
         with a label-level enable is valid). This validator covers only the
@@ -2867,8 +2867,8 @@ class JobSpec(LabelAttributes):
         disables reflow while declaring its cap.
 
         Raises:
-            ValueError: When a plate sets ``optimize_line_content_max_lines``
-                while its own ``optimize_line_content`` is ``False``.
+            ValueError: When a plate sets `optimize_line_content_max_lines`
+                while its own `optimize_line_content` is `False`.
 
         Returns:
             Self for method chaining.
@@ -2888,16 +2888,16 @@ class JobSpec(LabelAttributes):
     def validate_job_structure(self) -> JobSpec:
         """Ensure exactly one label source form is provided.
 
-        The label-source forms are ``labels``, root-level ``content``, a
-        job-level ``replacement_text_file``, and plate-level replacement
+        The label-source forms are `labels`, root-level `content`, a
+        job-level `replacement_text_file`, and plate-level replacement
         files (which synthesize their own labels). With a job-level
-        replacement file, ``content`` is an optional per-line attribute
+        replacement file, `content` is an optional per-line attribute
         template (not a second label source), mirroring :class:`LabelSpec`;
         the same holds for a plate-level file.
 
         Raises:
             ValueError: If no label source is defined, or an explicit
-                ``labels``/``content`` list is combined with a job-level
+                `labels`/`content` list is combined with a job-level
                 replacement file.
 
         Returns:
@@ -2935,23 +2935,23 @@ class JobSpec(LabelAttributes):
         """Enforce the job-level and plate-level replacement-file contracts.
 
         A job-level replacement file synthesizes its labels from the
-        job-level attributes, so it requires job-level ``width``, ``height``
-        and ``text_height`` (and no ``count``). Plate-level replacement
+        job-level attributes, so it requires job-level `width`, `height`
+        and `text_height` (and no `count`). Plate-level replacement
         files pin their generated labels to the declaring plate; the
         synthesized labels likewise carry no label-level dimensions, so the
         same job-level attributes are required.
 
-        The job-level ``replacement_text_delimiter`` /
-        ``replacement_text_file_comment_string`` cascade job -> plate ->
+        The job-level `replacement_text_delimiter` /
+        `replacement_text_file_comment_string` cascade job -> plate ->
         label, so they are legal without a *job-level* file, but the job
         must contain a replacement file at some tier (job, plate, or label)
         for them to mean anything. A plate declaring them without its own
-        file needs a label pinned to it (``LabelSpec.plate_id``) that
+        file needs a label pinned to it (`LabelSpec.plate_id`) that
         declares a file.
 
         Raises:
             ValueError: If a delimiter or comment string is set with no
-                replacement file at the required tier(s), ``count`` is
+                replacement file at the required tier(s), `count` is
                 combined with a job-level file (or with plate-level files
                 in root-content mode), a job-level file is combined with
                 plate-level files, or a replacement file (job- or
@@ -3050,13 +3050,13 @@ class JobSpec(LabelAttributes):
         """Cascade the replacement delimiter/comment string job -> plate -> label.
 
         Mirrors :meth:`_apply_job_level_materials`: a value declared on the
-        lower tier always wins, and an explicit ``null`` counts as unset
+        lower tier always wins, and an explicit `null` counts as unset
         (inherit), matching the job-config convention. Plates inherit the
         job-level values; labels inherit their pinned plate's value when
-        present (``LabelSpec.plate_id``) and otherwise the job-level value.
+        present (`LabelSpec.plate_id`) and otherwise the job-level value.
         The cascade is inert for labels without a replacement file (they are
         never expanded), so existing specs are unaffected: without a
-        job/plate-level value every tier keeps ``None`` and
+        job/plate-level value every tier keeps `None` and
         :mod:`plt_optimizer.generate.substitution` applies its own defaults.
 
         Returns:
@@ -3101,7 +3101,7 @@ class JobSpec(LabelAttributes):
 
     @model_validator(mode="after")
     def _validate_label_plate_references(self) -> JobSpec:
-        """Validate ``LabelSpec.plate_id`` references against the plate list.
+        """Validate `LabelSpec.plate_id` references against the plate list.
 
         Raises:
             ValueError: If a label pins itself to a plate id that is not
@@ -3130,7 +3130,7 @@ class JobSpec(LabelAttributes):
         defined either explicitly at the label level or cascaded from
         the job level. This validator checks that requirement.
 
-        ``round`` labels are the one exception to the both-required rule:
+        `round` labels are the one exception to the both-required rule:
         declaring only one of the two dimensions produces a **circle** of
         that diameter (the TODO contract), so a round label needs at
         least one dimension at label or job level. The missing dimension
@@ -3220,11 +3220,11 @@ def parse_yaml(
 
     Args:
         file_path: Path to the YAML specification file.
-        job_config_path: Optional path to a ``job-config.json`` file (see
+        job_config_path: Optional path to a `job-config.json` file (see
             :mod:`plt_optimizer.generate.job_config`). When provided (and
             the file exists), its defaults are injected at the top-most
             (job/plate) layer before validation, and the
-            required-when-unconfigured fields are enforced. ``None``
+            required-when-unconfigured fields are enforced. `None`
             (the default) keeps the historical all-optional contract.
 
     Returns:
@@ -3235,7 +3235,7 @@ def parse_yaml(
         ValueError: If the YAML content is invalid or fails validation
             (including unknown keys, which every model forbids), or
             if a required field is missing from both the job config and
-            the spec (``JobConfigError``, a ``ValueError`` subclass).
+            the spec (`JobConfigError`, a `ValueError` subclass).
         yaml.YAMLError: For malformed YAML syntax.
 
     Example:
