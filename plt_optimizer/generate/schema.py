@@ -141,6 +141,11 @@ class TextHAlignment(str, Enum):
     left-most point precisely at the left margin; `right` places the
     line's right-most point precisely at the right margin; `center`
     (the default) centers the line horizontally.
+
+    Attributes:
+        LEFT: Align text to the left margin.
+        CENTER: Center text horizontally.
+        RIGHT: Align text to the right margin.
     """
 
     LEFT = "left"
@@ -158,6 +163,10 @@ class LabelShape(str, Enum):
     the two are equal -- which switches the label onto the adjacent
     ellipse-packing pipeline (see :mod:`plt_optimizer.generate.packing.ellipse_packer`)
     and makes the collision checks measure the ellipse boundary.
+
+    Attributes:
+        RECT: Rectangular label boundary.
+        ROUND: Elliptical (round) label boundary.
     """
 
     RECT = "rect"
@@ -234,6 +243,20 @@ class TextColor(str, Enum):
     a color and must never be specified explicitly (see the `text_color`
     field validator): users pick a real color name to force a toolpath
     split.
+
+    Attributes:
+        CYAN: Cyan color layer. Abbreviation: `c`.
+        MAGENTA: Magenta color layer. Abbreviation: `m`.
+        YELLOW: Yellow color layer. Abbreviation: `y`.
+        BLACK: Black color layer. Abbreviation: `k`.
+        RED: Red color layer. Abbreviation: `r`.
+        GREEN: Green color layer. Abbreviation: `g`.
+        BLUE: Blue color layer. Abbreviation: `b`.
+        VIOLET: Violet color layer. Abbreviation: `v`.
+        ORANGE: Orange color layer. Abbreviation: `o`.
+        PINK: Pink color layer. Abbreviation: `p`.
+        TEAL: Teal color layer. Abbreviation: `t`.
+        NONE: No color layer.
     """
 
     CYAN = "cyan"
@@ -289,6 +312,10 @@ class LayoutMode(str, Enum):
     `columns` is realized by packing in a transposed frame with a
     bottom-row fill algorithm and mapping every placement back into plate
     space (see `plt_optimizer.generate.packing.layout`).
+
+    Attributes:
+        ROWS: Fill the plate row by row.
+        COLUMNS: Fill the plate column by column.
     """
 
     ROWS = "rows"
@@ -585,9 +612,9 @@ class TextAttributes(BaseModel):
             "that parses as inline markup under the line's effective "
             "html_brackets (e.g. `<s>` with the default brackets - the "
             "strikethrough tag consumes it before the kern strip) is "
-            "rejected at resolution; `<->` is a legal marker. Unset (None) "
+            "rejected at resolution; `<->` is a legal marker. Unset (`None`) "
             "disables the positive marker. Cascades line -> label -> job "
-            "(job-config.json supplies the shop default); works on PLT and "
+            "(`job-config.json` supplies the shop default); works on PLT and "
             "TTF fonts."
         ),
     )
@@ -599,9 +626,9 @@ class TextAttributes(BaseModel):
             "backward cursor shift of `kern_width_fraction * cap height` "
             "(capline - baseline) applied to the following character (no "
             "clamp, so a large value lets glyphs overlap). Same validation "
-            "as `kern_pos_string`; the two strings must differ. Unset (None) "
+            "as `kern_pos_string`; the two strings must differ. Unset (`None`) "
             "disables the negative marker. Cascades line -> label -> job "
-            "(job-config.json supplies the shop default); works on PLT and "
+            "(`job-config.json` supplies the shop default); works on PLT and "
             "TTF fonts."
         ),
     )
@@ -770,7 +797,7 @@ class TextAttributes(BaseModel):
             "Empty string `''` disables the auto-apply "
             "(the `<vc>` tag keeps working on its own). Cascades "
             "line -> label -> job (code fallback `''` = auto-apply off; "
-            "job-config.json ships the shop set '-:–—=<>'); an explicit `''` is "
+            "`job-config.json` ships the shop set '-:–—=<>'); an explicit `''` is "
             "honored."
         ),
     )
@@ -784,7 +811,7 @@ class TextAttributes(BaseModel):
             "next size up); the rendered toolpath height becomes "
             "`text_height - cutter_size`. Omit (`null`) to keep automatic "
             "cutter selection from `text_height`. Must be > 0 and below the "
-            "line's `text_height`. No job-config.json counterpart. Cascades "
+            "line's `text_height`. No `job-config.json` counterpart. Cascades "
             "line -> label -> job."
         ),
     )
@@ -813,7 +840,7 @@ class TextAttributes(BaseModel):
         description=(
             "Minimum overlap fraction between adjacent cutter passes of a "
             "multi-stroke (bold) PLT font: the automatic cutter is never "
-            "smaller than pass_spacing / (1 - this ratio), so adjacent "
+            "smaller than `pass_spacing / (1 - this ratio)`, so adjacent "
             "engraved strokes always overlap by at least this fraction and "
             "no unengraved stripe can appear between passes (an overlap of "
             "0.25 means the stepover stays within 75% of the cutter width). "
@@ -970,7 +997,7 @@ class TextAttributes(BaseModel):
         default=None,
         description=(
             "Clamp alphanumeric characters to the capline: when true (the "
-            "default), every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink "
+            "default), every ASCII alphanumeric `[0-9a-zA-Z]` glyph whose ink "
             "extends above the per-font cap height is downscaled top-down "
             "(a vertical downscale about the glyph's own bottom, X untouched "
             "-- the aspect ratio changes) so its top lands exactly on the "
@@ -988,7 +1015,7 @@ class TextAttributes(BaseModel):
             "separate toolpaths (labels and text lines only; rejected at the "
             "job level; never cascades). Full name or case-insensitive "
             "single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); "
-            "'none' is the implicit default and cannot be specified. The "
+            "`none` is the implicit default and cannot be specified. The "
             "inline `<tc:color>...</tc>` markup applies the same split to the "
             "wrapped segment, overriding this field per character."
         ),
@@ -1016,9 +1043,9 @@ class TextAttributes(BaseModel):
     counter_style: Optional[CounterStyle] = Field(
         default=None,
         description=(
-            "Style of an enumerate list's counters: 'decimal' (1, 2, 3), "
-            "'lower-alpha' (a, b, ..., z, aa), 'upper-alpha' (A, B, ...), "
-            "'lower-roman' (i, ii, iii) or 'upper-roman' (I, II, III). "
+            "Style of an enumerate list's counters: `decimal` (1, 2, 3), "
+            "`lower-alpha` (a, b, ..., z, aa), `upper-alpha` (A, B, ...), "
+            "`lower-roman` (i, ii, iii) or `upper-roman` (I, II, III). "
             "Cascades item -> enumerate block -> label -> job (fallback "
             "'decimal')."
         ),
@@ -1243,24 +1270,24 @@ class LabelAttributes(TextAttributes):
             "continuously along the boundary (no circular-fillet curvature "
             "jump). The rounding spans 'fraction' of the shorter edge: a 4x8 "
             "label at 0.5 rounds 2in (50%) of the 4in sides, starting 1in from "
-            "each corner. At 1.0 with rounded_rectangle_proportional true (or "
+            "each corner. At 1.0 with `rounded_rectangle_proportional` true (or "
             "on a square) the boundary is the exact ellipse/circle of "
             "type: round; on a non-square at 1.0 with proportional false the "
             "short edges fully round and the long edges keep straights. "
-            "Cascades job -> plate -> label; unset (null) falls back to "
-            "job-config.json then 0.0. Accepted on plates for schema parity "
+            "Cascades job -> plate -> label; unset (`null`) falls back to "
+            "`job-config.json` then 0.0. Accepted on plates for schema parity "
             "only. Inert on type: round labels."
         ),
     )
     rounded_rectangle_proportional: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether rounded_rectangle_fraction applies proportionately to "
+            "Whether `rounded_rectangle_fraction` applies proportionately to "
             "width and height (true: corner semi-axes `fraction*width/2` and "
             "`fraction*height/2`) or as one identical rounding distance on every "
             "side (false, the default: the shorter edge determines the "
             "rounding for all sides). Cascades job -> plate -> label; unset "
-            "(`null`) falls back to job-config.json then `false`. Accepted on "
+            "(`null`) falls back to `job-config.json` then `false`. Accepted on "
             "plates for schema parity only."
         ),
     )
@@ -1308,7 +1335,7 @@ class LabelAttributes(TextAttributes):
             "Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades "
             "job -> label. Labels sharing a material pack together and a plate "
             "never mixes materials. Comparison trims whitespace and ignores "
-            "case; unset (null) labels pack with the job-level material."
+            "case; unset (`null`) labels pack with the job-level material."
         ),
     )
     use_baseline_spacing: Optional[bool] = Field(
@@ -1318,7 +1345,7 @@ class LabelAttributes(TextAttributes):
             "(`text_height` + `line_spacing`) so descenders hang into the gap and "
             "every gap reads as one uniform visual spacing; false stacks by "
             "rendered ink box (historical). Cascades job -> plate -> label "
-            "(never text lines); unset (null) falls back to job-config.json "
+            "(never text lines); unset (`null`) falls back to `job-config.json` "
             "then true. Accepted on plates for schema parity only."
         ),
     )
@@ -1735,8 +1762,8 @@ def _validate_replacement_comment_value(v: Optional[str]) -> Optional[str]:
 class LabelSpec(LabelAttributes):
     """Specification for a label to be generated.
 
-    Inherits styling fields (text_height, character_spacing,
-    line_spacing, width, height, margin, holes) from LabelAttributes.
+    Inherits styling fields (`text_height`, `character_spacing`,
+    `line_spacing`, `width`, `height`, `margin`, `holes`) from `LabelAttributes`.
     `width` and `height` must be defined either on this label or at
     the job level; they are no longer auto-sized from rendered content.
 

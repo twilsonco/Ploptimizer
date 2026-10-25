@@ -1,16 +1,16 @@
 """Resolution engine for flattening JobSpec into strictly typed label objects.
 
 This module bridges the gap between the flexible, highly optional Pydantic
-``JobSpec`` (which accepts many omitted fields) and the strictly typed
+`JobSpec` (which accepts many omitted fields) and the strictly typed
 data structures required by downstream consumers such as the 2D bin
 packer. Every dimension, margin, and spacing value is absolutely resolved
-by the time a ``ResolvedLabel`` is instantiated.
+by the time a `ResolvedLabel` is instantiated.
 
 Resolution order for any given parameter:
-    1. ``TextLine`` (most specific)
-    2. ``LabelSpec``
-    3. ``JobSpec``
-    4. Hardcoded fallback constant (prevents ``NoneType`` math errors)
+    1. `TextLine` (most specific)
+    2. `LabelSpec`
+    3. `JobSpec`
+    4. Hardcoded fallback constant (prevents `NoneType` math errors)
 
 Example:
     >>> from plt_optimizer.generate.schema import parse_yaml
@@ -59,19 +59,19 @@ from plt_optimizer.generate.schema import (
 logger = logging.getLogger(__name__)
 
 # Signature of the probe measuring one resolved text line's vertical ink
-# extents relative to its baseline: ``(ascender, descender)``, both in inches
+# extents relative to its baseline: `(ascender, descender)`, both in inches
 # and both non-negative (the distance from the baseline to the top of the
 # ink, and the depth of the ink hanging below it). Baseline spacing needs
 # render-time knowledge -- how far a line's glyphs reach below their baseline
 # depends on the characters it contains -- so the measurement is injected:
 # :func:`plt_optimizer.generate.label_renderer.measure_line_vertical_extents`
-# supplies it in production, and tests inject a table. ``None`` (the default
+# supplies it in production, and tests inject a table. `None` (the default
 # everywhere) keeps the historical nominal-height spacing math and costs no
 # renders.
 LineExtentsProbe = Callable[["ResolvedTextLine"], tuple[float, float]]
 
 # Type var of the list-settings cascade: every tier of one setting shares its
-# type, so the resolver returns the tier type (never ``object``).
+# type, so the resolver returns the tier type (never `object`).
 _T = TypeVar("_T")
 
 
@@ -79,7 +79,7 @@ def memoize_extents_probe(probe: LineExtentsProbe) -> LineExtentsProbe:
     """Wrap an extents probe so each distinct line is measured at most once.
 
     A job's labels frequently share identical content (replacement-file
-    expansion, ``count`` repetition), and measuring a line means rendering
+    expansion, `count` repetition), and measuring a line means rendering
     it. The cache keys on the line object itself: :class:`ResolvedTextLine`
     is a frozen dataclass with value equality, so identical typography hits the
     same entry, and spacing fitters that measure the same label twice
@@ -90,7 +90,7 @@ def memoize_extents_probe(probe: LineExtentsProbe) -> LineExtentsProbe:
             :func:`plt_optimizer.generate.label_renderer.measure_line_vertical_extents`.
 
     Returns:
-        A probe returning cached ``(ascender, descender)`` extents.
+        A probe returning cached `(ascender, descender)` extents.
     """
     cache: dict[ResolvedTextLine, tuple[float, float]] = {}
 
@@ -105,9 +105,9 @@ def memoize_extents_probe(probe: LineExtentsProbe) -> LineExtentsProbe:
 
 
 class CutterSizeError(ValueError):
-    """Raised when an explicit ``cutter_size`` cannot be applied to a line.
+    """Raised when an explicit `cutter_size` cannot be applied to a line.
 
-    The text toolpath height is ``text_height - cutter_size``; a cutter at
+    The text toolpath height is `text_height - cutter_size`; a cutter at
     or above the line's nominal text height leaves no material to engrave
     (a zero or negative toolpath height), so the job aborts instead of
     emitting degenerate glyphs.
@@ -115,18 +115,18 @@ class CutterSizeError(ValueError):
 
 
 def _canonical_font_name(name: str) -> str:
-    """Resolve a ``<f:...>`` tag argument to its canonical font name.
+    """Resolve a `<f:...>` tag argument to its canonical font name.
 
     The :func:`plt_optimizer.generate.markup.parse_markup` font resolver:
     case-insensitive registry lookup (PLT catalog key, TTF basename, or a
-    ``<base> SC`` variant), identity on canonical names -- so the
+    `<base> SC` variant), identity on canonical names -- so the
     line-content reflow round-trip (serialize -> raw text -> re-parse) is
     exact. An unknown name raises :class:`FontNotFoundError` (a
-    :class:`ValueError`), which ``parse_markup`` wraps into ``MarkupError``
+    :class:`ValueError`), which `parse_markup` wraps into `MarkupError`
     with the tag position -- fail-loud like an unclosed tag (CLI non-zero).
 
     Args:
-        name: The decoded tag argument (``+`` already mapped to spaces).
+        name: The decoded tag argument (`+` already mapped to spaces).
 
     Returns:
         The canonical font name.
@@ -135,17 +135,17 @@ def _canonical_font_name(name: str) -> str:
 
 
 def _canonical_text_color(name: str) -> str:
-    """Resolve a ``<tc:...>`` tag argument to its canonical color name.
+    """Resolve a `<tc:...>` tag argument to its canonical color name.
 
     The :func:`plt_optimizer.generate.markup.parse_markup` color resolver:
     case-insensitive full name or 1-letter abbreviation (exactly the input
-    the ``text_color`` field accepts, via :meth:`TextColor._missing_`),
+    the `text_color` field accepts, via :meth:`TextColor._missing_`),
     identity on canonical names -- so the line-content reflow round-trip
-    (serialize -> raw text -> re-parse) is exact. The implicit ``none`` /
-    ``n`` color is rejected (the field validator's contract: it is the
+    (serialize -> raw text -> re-parse) is exact. The implicit `none` /
+    `n` color is rejected (the field validator's contract: it is the
     default, never a request, and specifying it explicitly is always a user
-    mistake). An unknown or ``none`` value raises :class:`ValueError`, which
-    ``parse_markup`` wraps into ``MarkupError`` with the tag position --
+    mistake). An unknown or `none` value raises :class:`ValueError`, which
+    `parse_markup` wraps into `MarkupError` with the tag position --
     fail-loud like an unclosed tag (CLI non-zero).
 
     Args:
@@ -164,9 +164,9 @@ def _canonical_text_color(name: str) -> str:
 
 
 class LineContentConfigError(ValueError):
-    """Raised when ``optimize_line_content_max_lines`` is misconfigured.
+    """Raised when `optimize_line_content_max_lines` is misconfigured.
 
-    The reflow line cap only governs an ``optimize_line_content`` group, so
+    The reflow line cap only governs an `optimize_line_content` group, so
     two declarations are unresolvable and abort the job rather than being
     silently ignored: a cap resolved onto a label whose lines never enable
     reflow (nothing would ever be reflowed, so the cap is meaningless), and
@@ -180,9 +180,9 @@ class LineContentConfigError(ValueError):
 # Global fallback constants
 # ---------------------------------------------------------------------------
 DEFAULT_TEXT_HEIGHT: float = 0.25
-# Font selected when ``font`` is unset at line/label/job level. The value
+# Font selected when `font` is unset at line/label/job level. The value
 # must be a valid registry name (PLT-extracted key or fonts/ TTF basename);
-# see ``plt_optimizer.generate.font_registry``.
+# see `plt_optimizer.generate.font_registry`.
 DEFAULT_FONT: str = DEFAULT_FONT_NAME
 DEFAULT_MARGIN: float = 0.125
 # Horizontal and vertical margins fall back to margin, then the default.
@@ -192,12 +192,12 @@ DEFAULT_V_MARGIN: Optional[float] = None
 DEFAULT_LINE_SPACING: Union[str, float] = "auto"
 DEFAULT_HOLE_MARGIN: float = 0.1875
 # Lower bound for hole-margin shrinkage during text-hole collision
-# avoidance. ``None`` (the default) means collision avoidance may reduce
-# the hole margin all the way to ``0.0`` (hole tangent to the edge).
+# avoidance. `None` (the default) means collision avoidance may reduce
+# the hole margin all the way to `0.0` (hole tangent to the edge).
 DEFAULT_MIN_HOLE_MARGIN: Optional[float] = None
 # Air gap (inches) kept between the engraved text stroke and the engraved
 # drill-hole stroke on top of the stroke floor
-# ``0.5 * (hole_cutter + text_cutter)``. At 0.0 the two cut strokes just
+# `0.5 * (hole_cutter + text_cutter)`. At 0.0 the two cut strokes just
 # touch; the default keeps 0.15in of free air between them.
 DEFAULT_HOLE_TEXT_COLLISION_DISTANCE: float = 0.15
 # Default cutter diameter (inches) used to cut label boundaries and drill
@@ -205,7 +205,7 @@ DEFAULT_HOLE_TEXT_COLLISION_DISTANCE: float = 0.15
 # effective value is snapped to the shop inventory (next size down, else
 # next size up).
 DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
-# Cutter-compensated drill holes. ``True`` (the default) shrinks the EMITTED
+# Cutter-compensated drill holes. `True` (the default) shrinks the EMITTED
 # hole circle by the boundary/hole cutter diameter -- the cutter radius on
 # each side of the hole's path -- so the engraved hole measures the specified
 # diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The
@@ -213,9 +213,9 @@ DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
 # positions stay bit-identical. See :func:`hole_engraved_radius`.
 DEFAULT_HOLE_ADJUST_FOR_CUTTER: bool = True
 # Smallest emittable drill-hole radius, in inches: ONE plotter unit
-# (``1 / HPGL_UNITS_PER_INCH``). Emitted coordinates are integer plotter
-# units, and ``inches_to_units`` rounds half-to-even, so a half-unit radius
-# (``_INK_EMISSION_FLOOR``) would round to 0 and emit a degenerate ``AA``
+# (`1 / HPGL_UNITS_PER_INCH`). Emitted coordinates are integer plotter
+# units, and `inches_to_units` rounds half-to-even, so a half-unit radius
+# (`_INK_EMISSION_FLOOR`) would round to 0 and emit a degenerate `AA`
 # arc. A hole whose specified diameter is at or below the cutter diameter
 # clamps to a circle of this radius (with a WARNING) -- the smallest circle
 # the plotter can physically engrave.
@@ -223,8 +223,8 @@ MIN_HOLE_EMITTED_RADIUS_INCHES: float = 1.0 / HPGL_UNITS_PER_INCH
 # Horizontal compression is opt-in: 0.0 disables it entirely.
 DEFAULT_MAX_H_COMPRESS: float = 0.0
 # Space advance (PLT-extracted fonts) as a fraction of the rendered text
-# height: a space advances ``DEFAULT_SPACE_WIDTH_FRACTION * text_height +
-# character_spacing``.
+# height: a space advances `DEFAULT_SPACE_WIDTH_FRACTION * text_height +
+# character_spacing`.
 DEFAULT_SPACE_WIDTH_FRACTION: float = 0.3
 # Global minimum glyph advance width (as a fraction of the rendered cap
 # height, capline - baseline) for PLT-extracted fonts.
@@ -256,15 +256,15 @@ DEFAULT_KERNING_MIN_GAP_FRACTION: float = 0.0
 # Multiplier on the bounding-box-width fallback advance (no y-overlap or
 # missing envelopes). 1.0 = the left glyph's own width.
 DEFAULT_FALLBACK_ADVANCE_FRACTION: float = 1.0
-# Manual-kern marker strings: every occurrence of ``kern_pos_string`` in a
+# Manual-kern marker strings: every occurrence of `kern_pos_string` in a
 # text line is stripped (it never engraves) and replaced by a forward cursor
-# shift, every ``kern_neg_string`` occurrence by a backward one, each of
-# ``kern_width_fraction`` of the rendered cap height (capline - baseline).
-# ``None`` (the code fallback for both strings) disables the marker --
-# ``job-config.json`` supplies the shop default. The schema validates the
+# shift, every `kern_neg_string` occurrence by a backward one, each of
+# `kern_width_fraction` of the rendered cap height (capline - baseline).
+# `None` (the code fallback for both strings) disables the marker --
+# `job-config.json` supplies the shop default. The schema validates the
 # bracket-agnostic invariants (non-empty, no newline, the two differ at one
-# level); the markup-collision check against the EFFECTIVE ``html_brackets``
-# + the tag registry runs at resolution time (``_validate_kern_markers``).
+# level); the markup-collision check against the EFFECTIVE `html_brackets`
+# + the tag registry runs at resolution time (`_validate_kern_markers`).
 DEFAULT_KERN_POS_STRING: Optional[str] = None
 DEFAULT_KERN_NEG_STRING: Optional[str] = None
 # Manual-kern width as a fraction of the rendered cap height (capline -
@@ -272,328 +272,328 @@ DEFAULT_KERN_NEG_STRING: Optional[str] = None
 # (positive string forward, negative backward; adjacent markers accumulate).
 DEFAULT_KERN_WIDTH_FRACTION: float = 0.1
 # Downscale applied to ASCII lowercase a-z by a small-caps font variant
-# (a ``font`` name ending in `` SC``): the lowercase character renders as
+# (a `font` name ending in ` SC`): the lowercase character renders as
 # the base font's uppercase glyph uniformly shrunk to this fraction of the
 # cap height, top-down (the glyph's own bottom stays in place, its top
 # descends). Bound to [0.2, 1.0] by the schema;
 # 1.0 renders the variant identically to its base font. Inert on non-SC
-# fonts. See ``plt_optimizer.generate.font_registry``.
+# fonts. See `plt_optimizer.generate.font_registry`.
 DEFAULT_SC_SCALE: float = 0.7
-# Downscale applied to a bare ``<sup>``/``<sub>`` markup run: the run's glyphs
+# Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs
 # engrave uniformly shrunk to this fraction of the line's size, and the
 # baseline shift derives from it, **centering the shrunken glyph on the line
-# it belongs to** -- a superscript rises ``1 - d / 2`` cap heights (its centre
-# lands exactly on the capline) and a subscript drops ``d / 2`` cap heights
-# (its centre lands on the baseline). The argumented forms ``<sup:0.3>`` /
-# ``<sub:-0.2>`` set the shift explicitly (cap-height units) and apply no
+# it belongs to** -- a superscript rises `1 - d / 2` cap heights (its centre
+# lands exactly on the capline) and a subscript drops `d / 2` cap heights
+# (its centre lands on the baseline). The argumented forms `<sup:0.3>` /
+# `<sub:-0.2>` set the shift explicitly (cap-height units) and apply no
 # scaling, so this field is inert on them. The run engraves with the cutter
-# for its downscaled height (the ``<scale:N>`` ladder). Bound to [0.2, 1.0]
-# by the schema. See ``plt_optimizer.generate.markup``.
+# for its downscaled height (the `<scale:N>` ladder). Bound to [0.2, 1.0]
+# by the schema. See `plt_optimizer.generate.markup`.
 DEFAULT_SUPERSUBSCRIPT_DOWNSCALE: float = 0.5
-# Delimiter pair for the inline markup syntax (``<i>`` italic and future
+# Delimiter pair for the inline markup syntax (`<i>` italic and future
 # tags): an even-length string whose first half is the left delimiter and
-# second half the right (``"<>"`` -> ``<`` / ``>``). Text that legitimately
+# second half the right (`"<>"` -> `<` / `>`). Text that legitimately
 # contains chevrons opts out by declaring a pair absent from its data; a
 # bracketed body that is not a registered tag engraves verbatim. The forward
-# slash is only special inside the delimiters (``</i>``), never elsewhere.
-# See ``plt_optimizer.generate.markup``.
+# slash is only special inside the delimiters (`</i>`), never elsewhere.
+# See `plt_optimizer.generate.markup`.
 DEFAULT_HTML_BRACKETS: str = "<>"
 # Slant angle (degrees) for italic markup: PLT-extracted glyphs (and TTF
 # glyphs with no native italic face) are sheared about the baseline,
-# ``x' = x + y * tan(angle)``, so the baseline stays fixed and the glyph
+# `x' = x + y * tan(angle)`, so the baseline stays fixed and the glyph
 # leans right. Bound to [0, 45] by the schema; 0 = upright (shear skipped).
 DEFAULT_ITALIC_ANGLE: float = 12.0
-# Extra air for underline markup (``<u>``) as a fraction of the rendered
+# Extra air for underline markup (`<u>`) as a fraction of the rendered
 # cap height (capline - baseline). The underline is a
 # centerline stroke cut with the line's own text cutter, positioned
-# ``cutter diameter + fraction * cap height`` below the baseline, so the
+# `cutter diameter + fraction * cap height` below the baseline, so the
 # engraved
-# underline's top edge floats exactly ``fraction * cap height`` below the
+# underline's top edge floats exactly `fraction * cap height` below the
 # engraved
 # baseline stroke. The break test is strictly horizontal: a glyph breaks the
 # underline where its ink crosses the underline's centerline (dipping past
-# ``cutter diameter + fraction * cap height`` below the baseline), so the
+# `cutter diameter + fraction * cap height` below the baseline), so the
 # offset alone decides which glyphs break.
 # 0.0 = the underline's top edge touches the baseline stroke and gaps only
 # where strokes truly cross.
-# See ``plt_optimizer.generate.underline``.
+# See `plt_optimizer.generate.underline`.
 DEFAULT_UNDERLINE_OFFSET_FRACTION: float = 0.0
 # Extra air at each underline break, as a fraction of the rendered cap
 # height (capline - baseline). Each cut is padded horizontally
-# by ``0.5 * cutter + fraction * cap height`` (the half cutter is the glyph
+# by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph
 # stroke's own half-width -- the ink is a centerline), so the engraved air
 # between a descending glyph's stroke and the underline's cut edge is exactly
 # this clearance (0.0 = the cut sits at the ink). Independent of the offset
 # (which decides which glyphs break); this adds air at the break itself. The
 # code fallback is 0.0 (the historical cut); job-config.json supplies the shop
 # default.
-# See ``plt_optimizer.generate.underline``.
+# See `plt_optimizer.generate.underline`.
 DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION: float = 0.0
-# Whether an underline (``<u>``) breaks at the spaces between words. ``False``
+# Whether an underline (`<u>`) breaks at the spaces between words. `False`
 # (the default) draws one continuous underline across the whole underlined run
-# (spaces included, broken only by descending glyphs); ``True`` ends the
+# (spaces included, broken only by descending glyphs); `True` ends the
 # underline at each space, so every word gets its own underline spanning its
-# own ink and the inter-word space stays bare. The code fallback is ``False``
+# own ink and the inter-word space stays bare. The code fallback is `False`
 # (the historical continuous underline); job-config.json supplies the shop
 # default.
-# See ``plt_optimizer.generate.label_renderer._underline_render_gate``.
+# See `plt_optimizer.generate.label_renderer._underline_render_gate`.
 DEFAULT_UNDERLINE_BREAK_SPACES: bool = False
-# Strikethrough (``<s>``) height ABOVE the baseline as a fraction of the
+# Strikethrough (`<s>`) height ABOVE the baseline as a fraction of the
 # rendered cap height (capline - baseline). The stroke is a
-# centerline cut with the line's own text cutter, so ``0.0`` puts it on the
-# baseline and ``1.0`` on the capline. ``None`` (the default) centres the
+# centerline cut with the line's own text cutter, so `0.0` puts it on the
+# baseline and `1.0` on the capline. `None` (the default) centres the
 # stroke on the **cap-band
-# midline** -- half the line's rendered cap height (``toolpath_text_height``),
+# midline** -- half the line's rendered cap height (`toolpath_text_height`),
 # the classic mid-height strike. Unlike the underline the stroke is NEVER
 # broken: a descender punches through it, so there is no clearance and no break
-# test. Resolved by ``ResolvedTextLine.strikethrough_cap``.
-# See ``plt_optimizer.generate.label_renderer._strikethrough_strokes``.
+# test. Resolved by `ResolvedTextLine.strikethrough_cap`.
+# See `plt_optimizer.generate.label_renderer._strikethrough_strokes`.
 DEFAULT_STRIKETHROUGH_OFFSET_FRACTION: Optional[float] = None
-# Whether a strikethrough (``<s>``) breaks at the spaces between words.
-# ``False`` (the default) draws one continuous stroke across the whole struck
-# run (spaces included); ``True`` ends the stroke at each space, so every word
+# Whether a strikethrough (`<s>`) breaks at the spaces between words.
+# `False` (the default) draws one continuous stroke across the whole struck
+# run (spaces included); `True` ends the stroke at each space, so every word
 # gets its own strike spanning its own ink and the inter-word space stays bare.
-# The code fallback is ``False``; job-config.json supplies the shop default.
-# See ``plt_optimizer.generate.label_renderer._strikethrough_render_gate``.
+# The code fallback is `False`; job-config.json supplies the shop default.
+# See `plt_optimizer.generate.label_renderer._strikethrough_render_gate`.
 DEFAULT_STRIKETHROUGH_BREAK_SPACES: bool = False
 # The character set that is **auto-centred** vertically between the baseline
 # and the capline (raised or lowered so each glyph's own ink is centred on the
-# cap-band midline) with no markup: every ``plain_text`` character occurring in
-# this string rides the ``<vc>`` transform. The code fallback is ``""`` (the
+# cap-band midline) with no markup: every `plain_text` character occurring in
+# this string rides the `<vc>` transform. The code fallback is `""` (the
 # auto-apply OFF -- every pre-feature line renders bit-identically, the
-# ``strikethrough_break_spaces`` precedent); job-config.json supplies the shop
-# default (``"-:–—=<>"`` -- the characters typographic fonts draw high).
-# The ``<vc>`` tag keeps working on its own at any value. Cascades
-# line -> label -> job. See ``generate/markup/AGENTS.md``
-# "Inline Vertical Centering (``v_center_chars``, ``<vc>``)".
+# `strikethrough_break_spaces` precedent); job-config.json supplies the shop
+# default (`"-:–—=<>"` -- the characters typographic fonts draw high).
+# The `<vc>` tag keeps working on its own at any value. Cascades
+# line -> label -> job. See `generate/markup/AGENTS.md`
+# "Inline Vertical Centering (`v_center_chars`, `<vc>`)".
 DEFAULT_V_CENTER_CHARS: str = ""
-# Multiplier applied to ``target_boldness_factor`` by inline ``<b>`` markup on
+# Multiplier applied to `target_boldness_factor` by inline `<b>` markup on
 # a **multi-stroke (bold)** PLT font: the bold run re-runs the boldness ladder
-# at ``target_boldness_factor * this`` (clamped to
-# ``MAX_TARGET_BOLDNESS_FACTOR`` with a WARNING), so the run's parallel passes
+# at `target_boldness_factor * this` (clamped to
+# `MAX_TARGET_BOLDNESS_FACTOR` with a WARNING), so the run's parallel passes
 # engrave heavier than the line's plain text. On single-stroke PLT and TTF
-# fonts ``<b>`` instead steps to the next larger inventory cutter and this
+# fonts `<b>` instead steps to the next larger inventory cutter and this
 # multiplier is inert. Bound to [1.0, 4.0] by the schema; job-config.json
-# supplies the shop default. See ``generate/markup/AGENTS.md``
-# "Inline Bold (``<b>``)".
+# supplies the shop default. See `generate/markup/AGENTS.md`
+# "Inline Bold (`<b>`)".
 DEFAULT_BOLD_BOLDNESS_MULTIPLIER: float = 1.5
 # Horizontal text alignment defaults to centering (existing behavior).
 DEFAULT_TEXT_H_ALIGNMENT: str = "center"
-# Explicit cutter diameter (inches) override. ``None`` (the default) means
+# Explicit cutter diameter (inches) override. `None` (the default) means
 # unset: the cutter is auto-selected from the nominal text height via
-# ``IDEAL_CUTTER_MAP`` (current behavior). When set, the requested diameter
+# `IDEAL_CUTTER_MAP` (current behavior). When set, the requested diameter
 # is snapped to the shop inventory (next size down, else next size up) and
-# the toolpath height is recomputed as ``text_height - cutter_size``.
+# the toolpath height is recomputed as `text_height - cutter_size`.
 # There is deliberately no job-config.json counterpart to this field.
 DEFAULT_CUTTER_SIZE: Optional[float] = None
 # Target engraved stroke width for multi-stroke (bold) PLT fonts, as a
 # fraction of the nominal text height. A multi-stroke font's glyphs carry
-# ``stroke_count`` parallel cutter passes (stored in the font's catalog file
-# by the extractor's ``_S<n>`` file-name suffix); the automatic cutter is
+# `stroke_count` parallel cutter passes (stored in the font's catalog file
+# by the extractor's `_S<n>` file-name suffix); the automatic cutter is
 # sized so the passes plus their overlaps engrave exactly
-# ``text_height * factor`` of total width. Inert on single-stroke fonts,
-# TTF fonts, and lines with an explicit ``cutter_size``. Bound to
-# ``[0.05, 0.30]`` by the schema; job-config.json supplies the shop default.
+# `text_height * factor` of total width. Inert on single-stroke fonts,
+# TTF fonts, and lines with an explicit `cutter_size`. Bound to
+# `[0.05, 0.30]` by the schema; job-config.json supplies the shop default.
 DEFAULT_TARGET_BOLDNESS_FACTOR: float = 0.14
-# Upper bound of the schema's ``target_boldness_factor`` domain. A ``<b>``
-# run's boosted factor (``target_boldness_factor * bold_boldness_multiplier``)
+# Upper bound of the schema's `target_boldness_factor` domain. A `<b>`
+# run's boosted factor (`target_boldness_factor * bold_boldness_multiplier`)
 # is clamped to this value with a WARNING, so the bold ladder never leaves its
 # certified range.
 MAX_TARGET_BOLDNESS_FACTOR: float = 0.30
-# Floor for a degenerate ``<scale:N>`` geometry scale (a run whose engraved
-# silhouette ``N * nominal - cutter`` is not positive -- only reachable on
-# a line with an explicit ``cutter_size``, which the cutter step never
+# Floor for a degenerate `<scale:N>` geometry scale (a run whose engraved
+# silhouette `N * nominal - cutter` is not positive -- only reachable on
+# a line with an explicit `cutter_size`, which the cutter step never
 # touches). The centerlines collapse to 2% of the toolpath height: the run
 # engraves as a near-baseline blob of cutter width, the best the tool
 # allows. A WARNING names the line.
 MIN_SCALED_GLYPH_FACTOR: float = 0.02
 # The narrower/wider snap tolerance :func:`get_cutter_diameter` applies when
-# a ``<scale:N>`` run's effective height has no exact inventory rung (the
+# a `<scale:N>` run's effective height has no exact inventory rung (the
 # resolution-time default; stored on the line so the ladder re-derives
 # identically in every pre-pass).
 DEFAULT_CUTTER_LADDER_TOLERANCE: float = 3.0
 # Minimum overlap fraction between adjacent cutter passes of a multi-stroke
 # font (the gap-free floor): the derived cutter is never smaller than
-# ``pass_spacing / (1 - ratio)``, so engraved strokes always overlap by at
+# `pass_spacing / (1 - ratio)`, so engraved strokes always overlap by at
 # least this fraction and no unengraved stripe can appear between passes.
 # The actual overlap is derived from the chosen cutter and logged. Bound to
-# ``[0.1, 0.5]`` by the schema; job-config.json supplies the shop default.
+# `[0.1, 0.5]` by the schema; job-config.json supplies the shop default.
 DEFAULT_MULTISTROKE_OVERLAP_RATIO: float = 0.25
 # The overlap ratio the multi-stroke sample sheets are assumed to have been
 # engraved at, so the pass spacing baked into the stored glyph geometry is
-# ``design_stepover * design_cutter`` with ``design_stepover = 1 - this``.
+# `design_stepover * design_cutter` with `design_stepover = 1 - this`.
 # At the default boldness factor and overlap floor the cutter ladder
-# reproduces the classic formula ``W = text_height * 0.14 / (1 +
-# (N - 1) * 0.75)`` exactly (the design point sits on the floor).
+# reproduces the classic formula `W = text_height * 0.14 / (1 +
+# (N - 1) * 0.75)` exactly (the design point sits on the floor).
 DESIGN_MULTISTROKE_OVERLAP: float = 0.25
 # Permission for the compression-driven cutter reduction (see
-# ``plt_optimizer.generate.cutter_downsize``). ``True`` (the default) lets the
+# `plt_optimizer.generate.cutter_downsize`). `True` (the default) lets the
 # pipeline swap the *automatic* cutter for the next smaller inventory tool
 # when a line is compressed past the midpoint toward it; an explicit
-# ``cutter_size`` overrides the mechanism entirely.
+# `cutter_size` overrides the mechanism entirely.
 DEFAULT_CUTTER_DOWNSIZE: bool = True
 # How many successive downsizings one text line may apply (1 = at most one
 # size down, 0 = disabled). Each step re-measures the line because a smaller
 # cutter renders wider, which can justify a further step.
 DEFAULT_MAX_CUTTER_DOWNSIZES: int = 1
-# Per-label sharing of compression-driven cutter downsizes. ``True`` (the
+# Per-label sharing of compression-driven cutter downsizes. `True` (the
 # default) propagates a trigger line's final cutter to every other eligible
 # line of the same nominal text height *within the same label* (sharing is
 # always per-label; the job tier only enables the option for its labels).
 DEFAULT_CUTTER_DOWNSIZE_GLOBAL: bool = True
-# Job-wide scope of the shared cutter downsize. ``False`` (the default) keeps
-# sharing per-label (the historical behavior, bit-identical output); ``True``
+# Job-wide scope of the shared cutter downsize. `False` (the default) keeps
+# sharing per-label (the historical behavior, bit-identical output); `True`
 # widens a trigger line's sharing group from its label to every eligible line
 # of the same nominal text height across the whole job, so one text size
-# engraves with one tool job-wide. Requires ``cutter_downsize_global`` true;
-# a line with this flag ``False`` keeps exactly the per-label behavior.
+# engraves with one tool job-wide. Requires `cutter_downsize_global` true;
+# a line with this flag `False` keeps exactly the per-label behavior.
 DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE: bool = False
-# Per-label sharing of horizontal compression. ``False`` (the default) keeps
-# the historical per-line behavior; ``True`` propagates a trigger line's
+# Per-label sharing of horizontal compression. `False` (the default) keeps
+# the historical per-line behavior; `True` propagates a trigger line's
 # compression scale to every other eligible line of the same nominal text
 # height *within the same label* (sharing is always per-label; the job tier
 # only enables the option for its labels). The shared scale is the group's
 # most-compressed (minimum) scale, clamped to each receiver's own
-# ``1 - max_h_compress`` budget floor.
+# `1 - max_h_compress` budget floor.
 DEFAULT_H_COMPRESS_GLOBAL: bool = False
-# Arc-preserving non-uniform text transforms. ``True`` (the default) refits
+# Arc-preserving non-uniform text transforms. `True` (the default) refits
 # each PLT glyph arc's ellipse image (horizontal compression, the cap-line
 # clamp, the descender relief, the italic shear) with a short chain of
-# circular ``AA`` arcs (see :mod:`plt_optimizer.generate.arc_fit`) instead of
-# polygonizing, so compressed/italic/clamped lines engrave far faster. ``False``
+# circular `AA` arcs (see :mod:`plt_optimizer.generate.arc_fit`) instead of
+# polygonizing, so compressed/italic/clamped lines engrave far faster. `False`
 # restores the historical polygonized output. Consumed by
 # :mod:`plt_optimizer.generate.text_geometry` through the renderers.
 DEFAULT_ARC_PRESERVE_COMPRESSION: bool = True
 # The grouping scope of the shared horizontal compression (see
-# ``plt_optimizer.generate.h_compress``). ``True`` (the default) shares the
+# `plt_optimizer.generate.h_compress`). `True` (the default) shares the
 # compression only between the lines of the SAME nominal text height within
-# a label (one text size, one glyph density). ``False`` shares it across
+# a label (one text size, one glyph density). `False` shares it across
 # EVERY eligible line of the label, whatever their nominal height, so one
 # label engraves at one glyph density throughout.
 DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY: bool = True
-# Word-level line-content reflow (see ``plt_optimizer.generate.line_content``).
-# ``False`` (the default) keeps the historical per-line text: lines never
-# exchange words. ``True`` lets consecutive enabled lines redistribute their
+# Word-level line-content reflow (see `plt_optimizer.generate.line_content`).
+# `False` (the default) keeps the historical per-line text: lines never
+# exchange words. `True` lets consecutive enabled lines redistribute their
 # words (word order preserved, only the line breaks move) to equalize the
 # group's rendered widths, minimizing horizontal compression.
 DEFAULT_OPTIMIZE_LINE_CONTENT: bool = False
-# Ceiling on the consecutive lines one reflow group may use. ``None`` (the
+# Ceiling on the consecutive lines one reflow group may use. `None` (the
 # default) is *unset*: the group reflows across its existing lines and never
 # gains one. The option is growth-only -- a numeric value may ADD lines to a
 # label (the group starts at its existing line count and grows while its lines
 # still need horizontal compression) and never removes any. Consumed by
 # :mod:`plt_optimizer.generate.line_content`.
 DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES: Optional[int] = None
-# Alphanumeric cap-line clamping. ``True`` (the default) clamps every ASCII
-# alphanumeric ``[0-9a-zA-Z]`` glyph whose ink extends above the per-font cap
+# Alphanumeric cap-line clamping. `True` (the default) clamps every ASCII
+# alphanumeric `[0-9a-zA-Z]` glyph whose ink extends above the per-font cap
 # height: the glyph is downscaled top-down (a vertical scale about its own
 # bottom, X untouched -- the aspect ratio changes) so its top lands exactly on
 # the capline. The enforcement is strictly pre-markup -- it applies before the
 # small-caps, bold, scale, italic and superscript/subscript transforms. Non-
 # alphanumeric characters (punctuation, spaces, derived Unicode symbols) are
-# never clamped. Consumed by both renderers (PLT ``_walk_line``, TTF
-# ``render_text_line_ftext``).
+# never clamped. Consumed by both renderers (PLT `_walk_line`, TTF
+# `render_text_line_ftext`).
 DEFAULT_ENFORCE_CAP_LINE: bool = True
-# Bullet-list marker used when ``bullet_string`` is unset at every tier. The
-# derived bullet glyph (``fonts/glyph_transforms.py``), engraved by every PLT
+# Bullet-list marker used when `bullet_string` is unset at every tier. The
+# derived bullet glyph (`fonts/glyph_transforms.py`), engraved by every PLT
 # catalog font except the symbol fonts. Cascades item -> list block -> label
 # -> job -> job-config.json; an explicit empty string engraves no marker.
 DEFAULT_BULLET_STRING: str = "•"
-# First counter value of an enumerate list when ``counter_start_index`` is
+# First counter value of an enumerate list when `counter_start_index` is
 # unset at every tier.
 DEFAULT_COUNTER_START_INDEX: int = 1
-# Counter style of an enumerate list when ``counter_style`` is unset at every
-# tier (the ``decimal`` value of ``schema.CounterStyle``).
+# Counter style of an enumerate list when `counter_style` is unset at every
+# tier (the `decimal` value of `schema.CounterStyle`).
 DEFAULT_COUNTER_STYLE: str = "decimal"
-# String prepended to each enumerate counter when ``counter_prefix`` is unset
+# String prepended to each enumerate counter when `counter_prefix` is unset
 # at every tier (empty = no prefix).
 DEFAULT_COUNTER_PREFIX: str = ""
-# String appended to each enumerate counter when ``counter_suffix`` is unset
+# String appended to each enumerate counter when `counter_suffix` is unset
 # at every tier (empty = no suffix).
 DEFAULT_COUNTER_SUFFIX: str = ""
 # Gap between a list marker and its text, as a fraction of the line's
-# rendered cap height, when ``list_marker_gap_fraction`` is unset at every
+# rendered cap height, when `list_marker_gap_fraction` is unset at every
 # tier. The marker column is the widest marker of the list plus this gap.
 DEFAULT_LIST_MARKER_GAP_FRACTION: float = 0.5
-# Baseline-to-baseline line spacing. ``True`` (the default) stacks a label's
-# text lines by baseline pitch (``nominal_text_height + line_spacing``) so a
+# Baseline-to-baseline line spacing. `True` (the default) stacks a label's
+# text lines by baseline pitch (`nominal_text_height + line_spacing`) so a
 # line's descenders hang *into* the gap below it and every gap on the label
-# reads as one uniform visual spacing. ``False`` stacks by rendered ink box
+# reads as one uniform visual spacing. `False` stacks by rendered ink box
 # (the historical behavior): a line carrying descenders pushes the next line
 # down by its full ink height, inflating that one visual gap. Label-level
 # only -- spacing is a property of the stacked block, never of one line, so
-# the field is deliberately absent from ``TextLine``/``TextAttributes``.
+# the field is deliberately absent from `TextLine`/`TextAttributes`.
 DEFAULT_USE_BASELINE_SPACING: bool = True
-# Vertical centering mode for a label's text block. ``False`` (the default)
+# Vertical centering mode for a label's text block. `False` (the default)
 # centers the block by its **baseline-to-capline band** -- the band spans the
 # lowest baseline to the highest capline, so the visible text is optically
 # centered and descenders hang into the bottom margin, where the descending-
-# character relief handles them against the bottom border. ``True`` centers by
+# character relief handles them against the bottom border. `True` centers by
 # the block's **rendered ink** (the historical behavior): the deepest
 # descender is charged to the block, so a line carrying descenders rides high
 # in the label. Band centering is active only when the descending-character
-# relief is enabled (see ``center_text_by_band``); with the relief off nothing
+# relief is enabled (see `center_text_by_band`); with the relief off nothing
 # would adjust the descenders, so ink centering is kept. Label-level only --
 # centering is a property of the stacked block, never of one line, so the
-# field is deliberately absent from ``TextLine``/``TextAttributes``.
+# field is deliberately absent from `TextLine`/`TextAttributes`.
 DEFAULT_V_CENTER_BY_CONTENT: bool = False
-# Automatic descending-character relief. ``True`` (the default) lets the
+# Automatic descending-character relief. `True` (the default) lets the
 # renderer vertically downscale and raise a glyph whose ink hangs below its
 # baseline, but ONLY when a glyph on the following line comes within the
 # required clearance (the engraved-stroke floor scaled by
-# ``DEFAULT_DESCENDING_CHARACTER_CLEARANCE``) of it.
+# `DEFAULT_DESCENDING_CHARACTER_CLEARANCE`) of it.
 # The relief is per triggering glyph -- a descender with no tall neighbour
 # below it is left exactly as rendered. When the allowances
-# (``DEFAULT_DESCENDING_CHARACTER_V_SCALE`` / ``DEFAULT_DESCENDING_CHARACTER_RAISE``)
+# (`DEFAULT_DESCENDING_CHARACTER_V_SCALE` / `DEFAULT_DESCENDING_CHARACTER_RAISE`)
 # are exhausted, the gap below the line grows instead. Label-level only -- the
 # mechanism compares a line's glyphs against the following line's, so it is a
 # property of the stacked block, never of one line, and the field is
-# deliberately absent from ``TextLine``/``TextAttributes``.
+# deliberately absent from `TextLine`/`TextAttributes`.
 DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT: bool = True
 # Deepest vertical downscale permitted for a triggering descending glyph
-# (``1.0`` = downscaling forbidden, ``0.5`` = squeezed to half height). The
+# (`1.0` = downscaling forbidden, `0.5` = squeezed to half height). The
 # glyph is scaled about its own baseline, so ascender and descender shrink
-# together. Bound to ``[0.2, 1.0]`` by the schema.
+# together. Bound to `[0.2, 1.0]` by the schema.
 DEFAULT_DESCENDING_CHARACTER_V_SCALE: float = 0.5
 # Deepest raise permitted for a triggering descending glyph, as a fraction of
-# its own descender depth (``0.0`` = no raising, ``1.0`` = lift until the
+# its own descender depth (`0.0` = no raising, `1.0` = lift until the
 # glyph's lowest point sits exactly at the baseline).
 DEFAULT_DESCENDING_CHARACTER_RAISE: float = 0.7
 # Extra air demanded between the engraved strokes of a descending glyph and
 # the glyph below it, as a **unitless factor of the stroke floor**
-# ``0.5 * (cutter_upper + cutter_lower)``: the required gap is
-# ``floor * (1 + clearance)``, so the demand scales with the cutter width and
-# reads the same at every text size. An explicit ``0.0`` is honored (only true
+# `0.5 * (cutter_upper + cutter_lower)`: the required gap is
+# `floor * (1 + clearance)`, so the demand scales with the cutter width and
+# reads the same at every text size. An explicit `0.0` is honored (only true
 # touching triggers).
 DEFAULT_DESCENDING_CHARACTER_CLEARANCE: float = 0.0
 # Deepest top-down downscale permitted for the would-be-colliding glyphs on
-# the FOLLOWING line (``1.0`` = reciprocal downscaling forbidden, the
-# historical behavior; ``0.5`` = squeezed to half height). The lower glyphs
+# the FOLLOWING line (`1.0` = reciprocal downscaling forbidden, the
+# historical behavior; `0.5` = squeezed to half height). The lower glyphs
 # are scaled about their own lowest ink point, so their lowest point never
 # moves; they share the relief with the descending glyph through the same
-# ramp driving its downscale/raise. Bound to ``[0.2, 1.0]`` by the schema.
+# ramp driving its downscale/raise. Bound to `[0.2, 1.0]` by the schema.
 DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE: float = 0.5
-# Stroke-color layer tag default. ``"none"`` is the implicit color of
-# every line that omits ``text_color``; it never cascades (the field is
+# Stroke-color layer tag default. `"none"` is the implicit color of
+# every line that omits `text_color`; it never cascades (the field is
 # label/line-local by design, see schema.TextColor) and the resolution
 # engine never reads a job-level value (the schema rejects one).
 DEFAULT_TEXT_COLOR: str = "none"
 
-#: Fallback label boundary shape when the ``type`` cascade resolves to unset
-#: (see :attr:`plt_optimizer.generate.schema.LabelAttributes.type`).
+# Fallback label boundary shape when the `type` cascade resolves to unset
+# (see :attr:`plt_optimizer.generate.schema.LabelAttributes.type`).
 DEFAULT_LABEL_SHAPE: str = LabelShape.RECT.value
 
-#: Fallback rectangular-border corner rounding fraction when the
-#: ``rounded_rectangle_fraction`` cascade resolves to unset (see
-#: :attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_fraction`).
-#: ``0.0`` is the sharp rectangle, bit-identical to the historical border.
+# Fallback rectangular-border corner rounding fraction when the
+# `rounded_rectangle_fraction` cascade resolves to unset (see
+# :attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_fraction`).
+# `0.0` is the sharp rectangle, bit-identical to the historical border.
 DEFAULT_ROUNDED_RECTANGLE_FRACTION: float = 0.0
 
-#: Fallback proportional-rounding flag when the
-#: ``rounded_rectangle_proportional`` cascade resolves to unset (see
-#: :attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_proportional`).
-#: ``False`` uses one identical rounding distance on every side (the shorter
-#: edge determines it).
+# Fallback proportional-rounding flag when the
+# `rounded_rectangle_proportional` cascade resolves to unset (see
+# :attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_proportional`).
+# `False` uses one identical rounding distance on every side (the shorter
+# edge determines it).
 DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL: bool = False
 
 # The corner exponent of a superellipse |x/rx|^n + |y/ry|^n = 1 that produces
@@ -653,7 +653,7 @@ def get_cutter_diameter(
             the shop. If None or empty, the ideal cutter is returned.
         tolerance_factor: The multiplier used to decide between narrower and
             wider cutters. If the distance to the closest narrower cutter
-            exceeds ``tolerance_factor`` times the distance to the closest
+            exceeds `tolerance_factor` times the distance to the closest
             wider cutter, the wider cutter is selected. Defaults to 3.0.
 
     Returns:
@@ -705,9 +705,9 @@ def snap_boundary_hole_cutter(
 
     Args:
         requested: The requested cutter diameter in inches (e.g. from
-            ``tools.json`` ``boundary_hole_cutter_size`` or the default).
+            `tools.json` `boundary_hole_cutter_size` or the default).
         available_inventory: Optional list of cutter diameters available
-            in the shop. If None or empty, ``requested`` is returned
+            in the shop. If None or empty, `requested` is returned
             unchanged (the ideal tool is assumed available).
 
     Returns:
@@ -731,8 +731,8 @@ def hole_engraved_radius(
 
     The drill path is the circle the cutter *center* follows, so the cutter
     engraves a stroke half a cutter width on each side of it: a path of
-    diameter ``D`` engraves a hole of ``D + cutter_diameter``. With cutter
-    compensation enabled (``adjust=True``), the emitted diameter therefore
+    diameter `D` engraves a hole of `D + cutter_diameter`. With cutter
+    compensation enabled (`adjust=True`), the emitted diameter therefore
     shrinks by the cutter diameter -- the cutter radius on each side of the
     path -- so the engraved hole measures the specified diameter: a 0.1in
     hole cut by a 0.015in cutter emits a 0.085in circle. The hole CENTRE is
@@ -743,14 +743,14 @@ def hole_engraved_radius(
     draw (the cutter alone is at least the target hole); the radius clamps
     to :data:`MIN_HOLE_EMITTED_RADIUS_INCHES` -- the smallest circle the
     plotter can emit (one plotter unit; a literal point is not emittable as
-    an ``AA`` arc). The caller logs the clamp.
+    an `AA` arc). The caller logs the clamp.
 
     Args:
         diameter: The specified (nominal) hole diameter in inches.
         cutter_diameter: The boundary/hole cutter diameter in inches
-            (``ResolvedLabel.hole_cutter_diameter``).
-        adjust: Cutter compensation on/off (``hole_adjust_for_cutter``
-            cascade). ``False`` returns the historical ``diameter / 2``.
+            (`ResolvedLabel.hole_cutter_diameter`).
+        adjust: Cutter compensation on/off (`hole_adjust_for_cutter`
+            cascade). `False` returns the historical `diameter / 2`.
 
     Returns:
         The emitted circle's radius in inches (always positive).
@@ -775,12 +775,12 @@ def next_smaller_cutter(
 
     Args:
         current: The cutter diameter currently in use, in inches.
-        available_inventory: Shop cutter diameters in inches (``None`` or
+        available_inventory: Shop cutter diameters in inches (`None` or
             empty disables the mechanism).
 
     Returns:
-        The largest inventory diameter strictly below ``current``, or ``None``
-        when the inventory is empty or ``current`` is already the smallest (or
+        The largest inventory diameter strictly below `current`, or `None`
+        when the inventory is empty or `current` is already the smallest (or
         smaller than every) tool.
     """
     if not available_inventory:
@@ -797,19 +797,19 @@ def next_larger_cutter(
 ) -> Optional[float]:
     """Find the next larger cutter in the shop inventory.
 
-    The multi-stroke cutter ladder snaps down like ``snap_boundary_hole_cutter``
+    The multi-stroke cutter ladder snaps down like `snap_boundary_hole_cutter`
     and then re-checks its gap-free floor: when the snapped tool falls below
     the floor, the ladder steps *up* to the smallest inventory diameter at or
     above the floor, so adjacent engraved passes always overlap.
 
     Args:
         current: The cutter diameter currently in use, in inches.
-        available_inventory: Shop cutter diameters in inches (``None`` or
+        available_inventory: Shop cutter diameters in inches (`None` or
             empty disables the mechanism).
 
     Returns:
-        The smallest inventory diameter strictly above ``current``, or ``None``
-        when the inventory is empty or ``current`` is already the largest (or
+        The smallest inventory diameter strictly above `current`, or `None`
+        when the inventory is empty or `current` is already the largest (or
         larger than every) tool.
     """
     if not available_inventory:
@@ -824,8 +824,8 @@ def next_larger_cutter(
 def snapped_cutter(requested: float, inventory: Optional[Tuple[float, ...]]) -> float:
     """Snap a requested cutter diameter to the shop inventory (cached).
 
-    The ``<c:D>`` markup's snap: the same rule the line-level
-    ``cutter_size`` field uses (:func:`snap_boundary_hole_cutter` -- an exact
+    The `<c:D>` markup's snap: the same rule the line-level
+    `cutter_size` field uses (:func:`snap_boundary_hole_cutter` -- an exact
     match is kept, otherwise the next size *down* is preferred, and only when
     no smaller tool exists the next size *up*).
 
@@ -838,7 +838,7 @@ def snapped_cutter(requested: float, inventory: Optional[Tuple[float, ...]]) -> 
 
     Args:
         requested: The requested cutter diameter in inches.
-        inventory: The shop cutter inventory in inches (``None`` or empty
+        inventory: The shop cutter inventory in inches (`None` or empty
             = no inventory, so the requested tool is used verbatim).
 
     Returns:
@@ -858,19 +858,19 @@ def should_downsize_cutter(
 
     The rule is the midpoint between the current cutter and the next smaller
     one: the smaller tool is used when the line's effective horizontal scale
-    is *closer to* ``next_cutter / current_cutter`` than to ``1.0``. With a
+    is *closer to* `next_cutter / current_cutter` than to `1.0`. With a
     0.1in cutter and a 0.08in next size (ratio 0.8) the midpoint is 0.9, so a
     line compressed to 89% takes the 0.08in tool while a line at 90% keeps the
     0.1in tool (a tie keeps the current cutter).
 
     Args:
-        effective_scale: The line's effective horizontal scale in ``(0, 1]``
+        effective_scale: The line's effective horizontal scale in `(0, 1]`
             (collision-avoidance scale x margin-overflow scale).
         current_cutter: Cutter diameter currently in use, in inches.
         next_cutter: Candidate smaller cutter diameter, in inches.
 
     Returns:
-        ``True`` when the smaller cutter should be adopted.
+        `True` when the smaller cutter should be adopted.
     """
     if current_cutter <= 0.0 or next_cutter <= 0.0:
         return False
@@ -887,18 +887,18 @@ class MultiStrokeCutter:
         cutter: Ideal (pre-snap) cutter diameter in inches - one engraved
             pass width. The N passes of the glyph sit at
             :func:`design_pass_spacing` apart, so the total engraved stroke
-            width is ``cutter + (N - 1) * spacing``.
+            width is `cutter + (N - 1) * spacing`.
         ideal: The boldness target's cutter before the gap-free floor is
-            applied (``text_height * factor - (N - 1) * spacing``); equal to
+            applied (`text_height * factor - (N - 1) * spacing`); equal to
             :attr:`cutter` unless :attr:`clamped`.
         floor: The gap-free minimum cutter in inches
-            (``spacing / (1 - overlap_floor)``): any cutter below it would
+            (`spacing / (1 - overlap_floor)`): any cutter below it would
             leave an unengraved stripe between adjacent passes.
-        clamped: ``True`` when the boldness target asked for a thinner
+        clamped: `True` when the boldness target asked for a thinner
             cutter than the floor allows and the floor won (the engraved
             width exceeds the requested boldness).
         implicit_overlap: The overlap fraction the resolved cutter produces
-            at the baked pass spacing, ``1 - spacing / cutter`` (reported,
+            at the baked pass spacing, `1 - spacing / cutter` (reported,
             never an input).
     """
 
@@ -918,10 +918,10 @@ def design_pass_spacing(
     """Return the pass spacing baked into a multi-stroke font's glyphs.
 
     The sample sheets are engraved at the *design* point: boldness factor
-    ``DEFAULT_TARGET_BOLDNESS_FACTOR`` with adjacent passes overlapping by
-    ``design_overlap``, so the design cutter is
-    ``text_height * factor / (1 + (N - 1) * (1 - design_overlap))`` and the
-    passes sit ``design_stepover * design_cutter`` apart. The extractor
+    `DEFAULT_TARGET_BOLDNESS_FACTOR` with adjacent passes overlapping by
+    `design_overlap`, so the design cutter is
+    `text_height * factor / (1 + (N - 1) * (1 - design_overlap))` and the
+    passes sit `design_stepover * design_cutter` apart. The extractor
     stores those engraved passes verbatim, so this spacing is a pure
     function of the text height - the renderer scales the glyph geometry
     linearly, carrying the spacing with it.
@@ -950,14 +950,14 @@ def multi_stroke_cutter_diameter(
 ) -> MultiStrokeCutter:
     """Size the cutter for a multi-stroke (bold) font line.
 
-    The engraved width of a glyph's N passes at spacing ``d`` with cutter
-    ``W`` is ``W + (N - 1) * d``, so the boldness target
-    ``W_total = text_height * boldness_factor`` inverts to
-    ``W = W_total - (N - 1) * d``. The overlap floor
-    ``overlap_floor`` (the ``multistroke_overlap_ratio`` field) guards the
+    The engraved width of a glyph's N passes at spacing `d` with cutter
+    `W` is `W + (N - 1) * d`, so the boldness target
+    `W_total = text_height * boldness_factor` inverts to
+    `W = W_total - (N - 1) * d`. The overlap floor
+    `overlap_floor` (the `multistroke_overlap_ratio` field) guards the
     result from below: adjacent passes must overlap by at least that
-    fraction, i.e. ``W >= d / (1 - overlap_floor)``. At the defaults the
-    result equals the classic ``text_height * 0.14 / (1 + (N - 1) * 0.75)``
+    fraction, i.e. `W >= d / (1 - overlap_floor)`. At the defaults the
+    result equals the classic `text_height * 0.14 / (1 + (N - 1) * 0.75)`
     (the design point sits exactly on the floor); a larger boldness factor
     grows the cutter and the *implicit* overlap with it, which is how the
     ladder escapes the floor toward heavier engraving without stripes.
@@ -976,7 +976,7 @@ def multi_stroke_cutter_diameter(
     floor = spacing / (1.0 - overlap_floor) if overlap_floor < 1.0 else math.inf
     ideal = nominal_height * boldness_factor - (stroke_count - 1) * spacing
     # The design point (default factor + default floor) lands *exactly* on the
-    # floor; the division in ``floor`` makes that a few ULPs apart in binary,
+    # floor; the division in `floor` makes that a few ULPs apart in binary,
     # so the comparison needs the same tolerance the downsize midpoint uses.
     clamped = ideal < floor - _DOWNSIZE_SCALE_TOLERANCE
     cutter = max(ideal, floor)
@@ -1021,39 +1021,39 @@ class ResolvedTextLine:
         character_spacing: Extra spacing between characters in inches.
         line_spacing: Extra spacing between text lines in inches.
         max_h_compress: Maximum horizontal compression fraction in
-            ``[0.0, 1.0]`` (cascaded line -> label -> job, default ``0.0``).
+            `[0.0, 1.0]` (cascaded line -> label -> job, default `0.0`).
             When the rendered line is wider than the label's inner content
             area, the renderer may uniformly compress it horizontally down
-            to ``(1 - max_h_compress)`` of its natural width. ``0.0``
+            to `(1 - max_h_compress)` of its natural width. `0.0`
             disables compression.
         text_h_alignment: Horizontal alignment of the rendered line within
             the label's inner content area (cascaded line -> label -> job,
-            default ``"center"``). One of ``"left"``, ``"center"`` or
-            ``"right"``. ``"left"`` places the line's left-most point
-            precisely at the left margin; ``"right"`` places the right-most
+            default `"center"`). One of `"left"`, `"center"` or
+            `"right"`. `"left"` places the line's left-most point
+            precisely at the left margin; `"right"` places the right-most
             point precisely at the right margin.
-        text_color: Stroke-color layer tag (``"none"`` default) splitting
+        text_color: Stroke-color layer tag (`"none"` default) splitting
             otherwise-identical text into separate toolpaths. Resolved
             line -> label -> default (deliberately NOT cascaded from the
             job; see :class:`~plt_optimizer.generate.schema.TextColor`).
-            Consumed by the pen map so each ``(cutter, color)`` pair gets
-            its own HPGL ``SP`` layer and PLT file. The inline
-            ``<tc:color>`` markup overrides it per character (see
+            Consumed by the pen map so each `(cutter, color)` pair gets
+            its own HPGL `SP` layer and PLT file. The inline
+            `<tc:color>` markup overrides it per character (see
             :attr:`color_runs` / :attr:`per_char_colors`); the pen map keys
             on :attr:`used_layers`.
         font: Canonical font name selecting the glyph outlines (cascaded
-            line -> label -> job, default ``DEFAULT_FONT``). Either a
-            PLT-extracted catalog ``font_name`` key (rendered arc-native) or a
-            ``fonts/`` TTF basename (rendered through ftext); resolve the
-            kind via ``font_registry.resolve_font``. A trailing `` SC``
+            line -> label -> job, default `DEFAULT_FONT`). Either a
+            PLT-extracted catalog `font_name` key (rendered arc-native) or a
+            `fonts/` TTF basename (rendered through ftext); resolve the
+            kind via `font_registry.resolve_font`. A trailing ` SC`
             selects the base font's synthetic small-caps variant (see
             :attr:`sc_scale`).
         space_width_fraction: Space advance as a fraction of the rendered
             text height (PLT-extracted fonts): a space advances
-            ``space_width_fraction * text_height + character_spacing``.
+            `space_width_fraction * text_height + character_spacing`.
             Cascaded line -> label -> job, default
-            ``DEFAULT_SPACE_WIDTH_FRACTION`` (0.3). Explicit ``0.0`` is
-            honored; only ``None`` means unset.
+            `DEFAULT_SPACE_WIDTH_FRACTION` (0.3). Explicit `0.0` is
+            honored; only `None` means unset.
         min_glyph_width_fraction: Global minimum glyph advance width as a
             fraction of the rendered cap height (capline - baseline)
             (PLT-extracted fonts): the profile-envelope kerning floors
@@ -1062,9 +1062,9 @@ class ResolvedTextLine:
             own width, so zero-width glyphs still reserve real air without
             thin-glyph pairs being inflated past their own silhouette.
             Cascaded line ->
-            label -> job, default ``DEFAULT_MIN_GLYPH_WIDTH_FRACTION``
+            label -> job, default `DEFAULT_MIN_GLYPH_WIDTH_FRACTION`
             (0.0 = pure
-            envelope kerning). Explicit ``0.0`` is honored; only ``None``
+            envelope kerning). Explicit `0.0` is honored; only `None`
             means unset.
         kerning_window_fraction: Kerning window as a fraction of the
             rendered text height in [0.0, 1.0] (PLT-extracted fonts):
@@ -1072,299 +1072,299 @@ class ResolvedTextLine:
             within +/- (half of this fraction) of the text height and the
             effective penetration is the worst windowed penetration, so
             staggered pokes widen the advance. Cascaded line -> label ->
-            job, default ``DEFAULT_KERNING_WINDOW_FRACTION`` (0.05).
-            Explicit ``0.0`` is honored (= historical same-height
-            kerning); only ``None`` means unset.
+            job, default `DEFAULT_KERNING_WINDOW_FRACTION` (0.05).
+            Explicit `0.0` is honored (= historical same-height
+            kerning); only `None` means unset.
         kerning_penetration_scale: Multiplier on the detected windowed
             penetration (PLT-extracted fonts): 1.0 keeps the geometric
             penetration, >1.0 over-kerns tight pairs. Cascaded line ->
-            label -> job, default ``DEFAULT_KERNING_PENETRATION_SCALE``
-            (1.0). Explicit ``0.0`` is honored; only ``None`` means unset.
+            label -> job, default `DEFAULT_KERNING_PENETRATION_SCALE`
+            (1.0). Explicit `0.0` is honored; only `None` means unset.
         kerning_recession_scale: Multiplier on a *recessed* (negative)
             detected penetration (PLT-extracted fonts): 1.0 keeps the
             geometric recession, 0.0 makes a recessed pair advance by
-            nothing beyond the ``min_glyph_width_fraction`` floor. Cascaded
+            nothing beyond the `min_glyph_width_fraction` floor. Cascaded
             line ->
-            label -> job, default ``DEFAULT_KERNING_RECESSION_SCALE``
-            (1.0). Explicit ``0.0`` is honored; only ``None`` means unset.
+            label -> job, default `DEFAULT_KERNING_RECESSION_SCALE`
+            (1.0). Explicit `0.0` is honored; only `None` means unset.
         kerning_min_gap_fraction: Extra air added to every kerned pair
             advance on top of the clearance, as a fraction of the rendered
             cap height (capline - baseline) (PLT-extracted fonts).
             Cascaded line -> label -> job,
-            default ``DEFAULT_KERNING_MIN_GAP_FRACTION`` (0.0). Explicit
-            ``0.0`` is honored;
-            only ``None`` means unset.
+            default `DEFAULT_KERNING_MIN_GAP_FRACTION` (0.0). Explicit
+            `0.0` is honored;
+            only `None` means unset.
         fallback_advance_fraction: Multiplier on the bounding-box-width
             fallback advance for pairs without overlapping height (or
             lacking envelopes). Cascaded line -> label -> job, default
-            ``DEFAULT_FALLBACK_ADVANCE_FRACTION`` (1.0). Explicit ``0.0``
-            is honored; only ``None`` means unset.
+            `DEFAULT_FALLBACK_ADVANCE_FRACTION` (1.0). Explicit `0.0`
+            is honored; only `None` means unset.
         kern_pos_string: Manual-kern positive marker string: every
             occurrence in the line's raw text is stripped (it never
             engraves) and the following character carries a +1
             :attr:`kern_values` count (the cursor advances by
             :attr:`kern_width_fraction` of the cap height there). Cascaded
-            line -> label -> job, default ``DEFAULT_KERN_POS_STRING``
-            (``None`` = disabled; ``job-config.json`` supplies the shop
-            default). Validated against the effective ``html_brackets`` at
-            resolution (a marker that is markup raises ``MarkupError``).
+            line -> label -> job, default `DEFAULT_KERN_POS_STRING`
+            (`None` = disabled; `job-config.json` supplies the shop
+            default). Validated against the effective `html_brackets` at
+            resolution (a marker that is markup raises `MarkupError`).
         kern_neg_string: Manual-kern negative marker string: every
             occurrence is stripped and the following character carries a -1
             :attr:`kern_values` count (the cursor retreats by
             :attr:`kern_width_fraction` of the cap height, unclamped).
             Cascaded line -> label -> job, default
-            ``DEFAULT_KERN_NEG_STRING`` (``None`` = disabled).
+            `DEFAULT_KERN_NEG_STRING` (`None` = disabled).
         kern_width_fraction: Manual-kern width as a fraction of the
             rendered cap height (capline - baseline): one marker shifts the
             cursor by this fraction of the cap height (positive string
             forward, negative backward; adjacent markers accumulate).
             Cascaded line -> label -> job, default
-            ``DEFAULT_KERN_WIDTH_FRACTION`` (0.1). Explicit ``0.0`` is
+            `DEFAULT_KERN_WIDTH_FRACTION` (0.1). Explicit `0.0` is
             honored (markers consume their characters, shift nothing);
-            only ``None`` means unset. Consumed by
+            only `None` means unset. Consumed by
             :attr:`kern_shifts_inches`.
-        sc_scale: Downscale applied to ASCII lowercase ``a-z`` by a
-            small-caps font variant (a ``font`` name ending in `` SC``):
+        sc_scale: Downscale applied to ASCII lowercase `a-z` by a
+            small-caps font variant (a `font` name ending in ` SC`):
             the lowercase character renders as the base font's uppercase
             glyph uniformly shrunk to this fraction of the cap height,
             **top-down** (the glyph's own bottom stays exactly in place and
             its top descends; uppercase and caseless characters
             engrave at full size; the nominal/toolpath text height is
             untouched, so the cutter is unaffected). Cascaded line ->
-            label -> job, default ``DEFAULT_SC_SCALE`` (0.7). Explicit
-            ``1.0`` (base-identical rendering) is honored; only ``None``
-            means unset. Inert when the resolved ``font`` is not an SC
+            label -> job, default `DEFAULT_SC_SCALE` (0.7). Explicit
+            `1.0` (base-identical rendering) is honored; only `None`
+            means unset. Inert when the resolved `font` is not an SC
             variant.
         supersubscript_downscale: Downscale applied to a **bare**
-            ``<sup>``/``<sub>`` markup run: the run's glyphs engrave
+            `<sup>`/`<sub>` markup run: the run's glyphs engrave
             uniformly shrunk to this fraction of the line's size, and the
             baseline shift derives from it, centering the shrunken glyph on
-            the line it belongs to (superscript rises ``1 - d / 2`` cap
+            the line it belongs to (superscript rises `1 - d / 2` cap
             heights, its centre landing on the capline; subscript drops
-            ``d / 2`` cap heights, its centre landing on the baseline). The
-            argumented forms ``<sup:0.3>`` / ``<sub:-0.2>`` set the shift
+            `d / 2` cap heights, its centre landing on the baseline). The
+            argumented forms `<sup:0.3>` / `<sub:-0.2>` set the shift
             explicitly (in cap-height units) and apply **no** scaling, so
             this field is inert on them. The run engraves with the cutter
-            for its downscaled height (the ``<scale:N>`` ladder). Cascaded
-            line -> label -> job, default ``DEFAULT_SUPERSUBSCRIPT_DOWNSCALE``
-            (0.5). Explicit ``0.2``/``1.0`` are honored; only ``None``
+            for its downscaled height (the `<scale:N>` ladder). Cascaded
+            line -> label -> job, default `DEFAULT_SUPERSUBSCRIPT_DOWNSCALE`
+            (0.5). Explicit `0.2`/`1.0` are honored; only `None`
             means unset.
         cutter_size: The explicit cutter diameter in inches requested for
             this line (cascaded line -> label -> job), verbatim as declared,
-            or ``None`` when unset. ``None`` means the cutter was
-            auto-selected from ``nominal_text_height`` via
-            :func:`get_cutter_diameter` (``cutter_size`` is then ``None``
+            or `None` when unset. `None` means the cutter was
+            auto-selected from `nominal_text_height` via
+            :func:`get_cutter_diameter` (`cutter_size` is then `None`
             while :attr:`cutter_diameter` carries the auto-selected tool);
             when set, :attr:`cutter_diameter` carries the inventory-snapped
             value (equal to it when no inventory is in play) and
-            :attr:`toolpath_text_height` is ``nominal_text_height -
-            cutter_diameter``. Default ``DEFAULT_CUTTER_SIZE`` (``None``).
+            :attr:`toolpath_text_height` is `nominal_text_height -
+            cutter_diameter`. Default `DEFAULT_CUTTER_SIZE` (`None`).
         cutter_downsize: Whether the compression-driven cutter reduction may
             act on this line (cascaded line -> label -> job, default
-            ``DEFAULT_CUTTER_DOWNSIZE`` (``True``)). Consumed by
+            `DEFAULT_CUTTER_DOWNSIZE` (`True`)). Consumed by
             :mod:`plt_optimizer.generate.cutter_downsize` after rendering,
             where the effective horizontal scale is measurable; an explicit
             :attr:`cutter_size` disables the mechanism for the line.
-            Explicit ``False`` is honored; only ``None`` means unset.
+            Explicit `False` is honored; only `None` means unset.
         max_cutter_downsizes: Ceiling on the number of successive cutter
             downsizings applied to this line (cascaded line -> label -> job,
-            default ``DEFAULT_MAX_CUTTER_DOWNSIZES`` (1)). ``0`` disables the
-            mechanism. Explicit ``0`` is honored; only ``None`` means unset.
+            default `DEFAULT_MAX_CUTTER_DOWNSIZES` (1)). `0` disables the
+            mechanism. Explicit `0` is honored; only `None` means unset.
         cutter_downsize_global: Whether a compression-driven cutter downsize
             is shared across the lines of the label (cascaded line -> label
-            -> job, default ``DEFAULT_CUTTER_DOWNSIZE_GLOBAL`` (``True``)).
+            -> job, default `DEFAULT_CUTTER_DOWNSIZE_GLOBAL` (`True`)).
             When a trigger line swaps to a smaller tool, every other
-            *eligible* line of the same ``nominal_text_height`` in the same
-            label receives the same swap; a line with this flag ``False``
+            *eligible* line of the same `nominal_text_height` in the same
+            label receives the same swap; a line with this flag `False`
             neither shares its own downsize nor receives a sibling's.
             Consumed by :mod:`plt_optimizer.generate.cutter_downsize`.
-            Explicit ``False`` is honored; only ``None`` means unset.
+            Explicit `False` is honored; only `None` means unset.
         cutter_downsize_global_job_wide: Whether the shared cutter downsize
             is scoped to the whole job instead of the label (cascaded line ->
-            label -> job, default ``DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE``
-            (``False``)). When true (and :attr:`cutter_downsize_global` is
+            label -> job, default `DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE`
+            (`False`)). When true (and :attr:`cutter_downsize_global` is
             true), a trigger line's swap reaches every *eligible* line of the
-            same ``nominal_text_height`` in ANY label of the job, so one text
+            same `nominal_text_height` in ANY label of the job, so one text
             size engraves with one tool job-wide; a line with this flag
-            ``False`` keeps exactly the per-label behavior (it neither shares
+            `False` keeps exactly the per-label behavior (it neither shares
             to nor receives from the job-wide group). Consumed by
-            :mod:`plt_optimizer.generate.cutter_downsize`. Explicit ``False``
-            is honored; only ``None`` means unset.
+            :mod:`plt_optimizer.generate.cutter_downsize`. Explicit `False`
+            is honored; only `None` means unset.
         h_compress_global: Whether horizontal compression is shared across
             the lines of the label (cascaded line -> label -> job, default
-            ``DEFAULT_H_COMPRESS_GLOBAL`` (``False``)). When a trigger line
+            `DEFAULT_H_COMPRESS_GLOBAL` (`False`)). When a trigger line
             is horizontally compressed, every other *eligible* line of the
-            same ``nominal_text_height`` in the same label is compressed to
+            same `nominal_text_height` in the same label is compressed to
             the group's minimum (most-compressed) scale, clamped to each
-            receiver's own ``1 - max_h_compress`` budget floor; a line with
-            this flag ``False`` neither shares its own compression nor
-            receives a sibling's, and a line with a zero ``max_h_compress``
+            receiver's own `1 - max_h_compress` budget floor; a line with
+            this flag `False` neither shares its own compression nor
+            receives a sibling's, and a line with a zero `max_h_compress`
             budget is never touched. Consumed by
-            :mod:`plt_optimizer.generate.h_compress`. Explicit ``True`` is
-            honored; only ``None`` means unset.
+            :mod:`plt_optimizer.generate.h_compress`. Explicit `True` is
+            honored; only `None` means unset.
         h_compress_global_same_height_only: The grouping scope of the shared
             horizontal compression (cascaded line -> label -> job, default
-            ``DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY`` (``True``)).
-            ``True`` shares the compression only between the lines of the
-            same ``nominal_text_height`` in the label (one text size, one
-            glyph density); ``False`` shares it across EVERY eligible line
+            `DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY` (`True`)).
+            `True` shares the compression only between the lines of the
+            same `nominal_text_height` in the label (one text size, one
+            glyph density); `False` shares it across EVERY eligible line
             of the label, whatever their nominal height, so one label
             engraves at one glyph density throughout. Consumed by
-            :mod:`plt_optimizer.generate.h_compress`. Explicit ``False`` is
-            honored; only ``None`` means unset.
+            :mod:`plt_optimizer.generate.h_compress`. Explicit `False` is
+            honored; only `None` means unset.
         arc_preserve_compression: Whether the non-uniform text transforms
             (horizontal compression, the cap-line clamp, the descender relief,
             the italic shear) keep PLT glyph arcs native by refitting each
-            arc's ellipse image with a short chain of circular ``AA`` arcs
+            arc's ellipse image with a short chain of circular `AA` arcs
             (cascaded line -> label -> job, default
-            ``DEFAULT_ARC_PRESERVE_COMPRESSION`` (``True``); see
-            :mod:`plt_optimizer.generate.arc_fit`). ``False`` restores the
-            historical polygonized output. Explicit ``False`` is honored;
-            only ``None`` means unset.
+            `DEFAULT_ARC_PRESERVE_COMPRESSION` (`True`); see
+            :mod:`plt_optimizer.generate.arc_fit`). `False` restores the
+            historical polygonized output. Explicit `False` is honored;
+            only `None` means unset.
         optimize_line_content: Whether this line's words may be
             redistributed across the consecutive lines that also enable the
             option (cascaded line -> label -> job, default
-            ``DEFAULT_OPTIMIZE_LINE_CONTENT`` (``False``)). Consecutive
+            `DEFAULT_OPTIMIZE_LINE_CONTENT` (`False`)). Consecutive
             enabled lines form one independent reflow group; the export
             pre-pass :mod:`plt_optimizer.generate.line_content` moves whole
             words between the group's lines (word order preserved, only the
             line breaks change) so the group's rendered widths equalize,
             minimizing horizontal compression. Consumed before the
             cutter-reduction and shared-compression pre-passes. Explicit
-            ``True`` is honored; only ``None`` means unset.
-        optimize_line_content_max_lines: Ceiling ``N`` on the consecutive
+            `True` is honored; only `None` means unset.
+        optimize_line_content_max_lines: Ceiling `N` on the consecutive
             lines the reflow group this line belongs to may use (cascaded
-            line -> label -> job, default ``None`` = unset). Growth-only: the
-            group starts at its existing line count ``G`` and may gain lines
+            line -> label -> job, default `None` = unset). Growth-only: the
+            group starts at its existing line count `G` and may gain lines
             (cloned from its own typography) while its lines still need
-            horizontal compression, up to ``N``; it never removes, blanks or
-            collapses a line. ``N <= G`` leaves the cap inert. Setting it on
+            horizontal compression, up to `N`; it never removes, blanks or
+            collapses a line. `N <= G` leaves the cap inert. Setting it on
             any one line of a group applies it to the whole group (the
             resolution post-pass fans the value out onto every group line),
             two *different* values in one group raise
             :class:`LineContentConfigError`, and so does declaring it while
-            no line of the label enables ``optimize_line_content``.
+            no line of the label enables `optimize_line_content`.
         new_line: Whether this line begins on its own line in the label
-            (default ``False``). Line-level only -- it is never cascaded from
-            the label or the job, and ``job-config.json`` has no counterpart.
+            (default `False`). Line-level only -- it is never cascaded from
+            the label or the job, and `job-config.json` has no counterpart.
             It modifies the word-level reflow: the line *starts* a new reflow
             group, so the lines that follow it (which do not carry the flag)
             reflow with it rather than with the lines above it, and the
             group's words fill the lines from this one downward. The flag is
-            inert when the line does not enable ``optimize_line_content``
+            inert when the line does not enable `optimize_line_content`
             (every line already begins on its own line then). Consumed by
             :mod:`plt_optimizer.generate.line_content`.
         enforce_cap_line: Whether alphanumeric glyphs are clamped to the
             capline (cascaded line -> label -> job, default
-            ``DEFAULT_ENFORCE_CAP_LINE`` (``True``)). When enabled, every
-            ASCII alphanumeric ``[0-9a-zA-Z]`` glyph whose ink extends above
+            `DEFAULT_ENFORCE_CAP_LINE` (`True`)). When enabled, every
+            ASCII alphanumeric `[0-9a-zA-Z]` glyph whose ink extends above
             the per-font cap height is downscaled top-down (a vertical scale
             about its own bottom, X untouched) so its top lands exactly on
             the capline. The enforcement is strictly pre-markup: it applies
             before the small-caps, bold, scale, italic and superscript/
             subscript transforms. Consumed by both renderers. Explicit
-            ``False`` is honored; only ``None`` means unset.
+            `False` is honored; only `None` means unset.
         html_brackets: Delimiter pair for the inline markup syntax
             (cascaded line -> label -> job, default
-            ``DEFAULT_HTML_BRACKETS`` (``"<>"``)): an even-length string
+            `DEFAULT_HTML_BRACKETS` (`"<>"`)): an even-length string
             whose first half is the left delimiter and second half the
             right. Split by :func:`plt_optimizer.generate.markup.split_brackets`
             at parse time; a bracketed body that is not a registered tag
             engraves verbatim.
-        italic_angle: Italic slant angle in degrees for ``<i>`` markup
-            (cascaded line -> label -> job, default ``DEFAULT_ITALIC_ANGLE``
+        italic_angle: Italic slant angle in degrees for `<i>` markup
+            (cascaded line -> label -> job, default `DEFAULT_ITALIC_ANGLE`
             (12)). PLT glyphs (and TTF glyphs with no native italic face)
-            are sheared about the baseline, ``x' = x + y * tan(angle)``;
-            ``0.0`` is upright (the shear is skipped). Bound to [0, 45] by
+            are sheared about the baseline, `x' = x + y * tan(angle)`;
+            `0.0` is upright (the shear is skipped). Bound to [0, 45] by
             the schema.
-        underline_offset_fraction: Extra air for ``<u>`` markup as a
+        underline_offset_fraction: Extra air for `<u>` markup as a
             fraction of the rendered cap height (capline - baseline)
             (cascaded
             line -> label -> job, default
-            ``DEFAULT_UNDERLINE_OFFSET_FRACTION``
+            `DEFAULT_UNDERLINE_OFFSET_FRACTION`
             (0.0)). The underline centerline (cut with the line's own text
-            cutter) sits ``cutter diameter + fraction * cap height`` below
+            cutter) sits `cutter diameter + fraction * cap height` below
             the baseline; the break test is strictly horizontal, so a glyph
             breaks
             the underline where its ink crosses the underline's centerline
-            (dipping past ``cutter diameter + fraction * cap height`` below
+            (dipping past `cutter diameter + fraction * cap height` below
             the baseline). Raising it lifts the underline clear of a glyph and
             stops it breaking. Bound to
-            ``[0, inf)`` by the schema; an explicit ``0.0`` is honored.
-        underline_break_clearance_fraction: Extra air at each ``<u>`` break
+            `[0, inf)` by the schema; an explicit `0.0` is honored.
+        underline_break_clearance_fraction: Extra air at each `<u>` break
             as a fraction of the rendered cap height (capline - baseline)
             (cascaded line -> label -> job, default
-            ``DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION`` (0.0)). Each cut
+            `DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION` (0.0)). Each cut
             is padded
-            horizontally by ``0.5 * cutter + fraction * cap height`` (the
+            horizontally by `0.5 * cutter + fraction * cap height` (the
             half cutter is the glyph stroke's own half-width), so the engraved
             air between a descending glyph's stroke and the underline's cut
             edge is exactly this clearance (0.0 = the cut sits at the ink).
             Independent of :attr:`underline_offset_fraction`
             (which decides which glyphs break); this adds air at the break
             itself.
-            Bound to ``[0, inf)`` by the schema; an explicit ``0.0`` is
+            Bound to `[0, inf)` by the schema; an explicit `0.0` is
             honored.
-        underline_break_spaces: Whether a ``<u>`` underline breaks at the
+        underline_break_spaces: Whether a `<u>` underline breaks at the
             spaces between words (cascaded line -> label -> job, default
-            ``DEFAULT_UNDERLINE_BREAK_SPACES`` (False)). False draws one
+            `DEFAULT_UNDERLINE_BREAK_SPACES` (False)). False draws one
             continuous underline across the whole underlined run (spaces
             included, broken only by descending glyphs); True ends the
             underline at each space, so every word gets its own underline
             spanning its own ink and the inter-word space stays bare. An
-            explicit ``False`` is honored.
-        strikethrough_offset_fraction: Strikethrough (``<s>``) height ABOVE
+            explicit `False` is honored.
+        strikethrough_offset_fraction: Strikethrough (`<s>`) height ABOVE
             the baseline as a fraction of the rendered cap height (capline
             - baseline) (cascaded line -> label -> job, default
-            ``DEFAULT_STRIKETHROUGH_OFFSET_FRACTION`` (``None``)). ``None``
+            `DEFAULT_STRIKETHROUGH_OFFSET_FRACTION` (`None`)). `None`
             means
             unset -- the stroke centres on the cap-band midline (see
-            :attr:`strikethrough_cap`); an explicit value (``0.0`` included)
-            places the centerline ``fraction * cap height`` above the
-            baseline (``1.0`` = on the capline). The stroke is never broken
+            :attr:`strikethrough_cap`); an explicit value (`0.0` included)
+            places the centerline `fraction * cap height` above the
+            baseline (`1.0` = on the capline). The stroke is never broken
             (no clearance, no break
             test -- the underline's minimal-break model deliberately does
             not apply).
-        strikethrough_break_spaces: Whether a ``<s>`` strikethrough breaks at
+        strikethrough_break_spaces: Whether a `<s>` strikethrough breaks at
             the spaces between words (cascaded line -> label -> job, default
-            ``DEFAULT_STRIKETHROUGH_BREAK_SPACES`` (False)). False draws one
+            `DEFAULT_STRIKETHROUGH_BREAK_SPACES` (False)). False draws one
             continuous stroke across the whole struck run (spaces included);
             True ends the stroke at each space, so every word gets its own
             strike spanning its own ink and the inter-word space stays bare.
-            An explicit ``False`` is honored.
+            An explicit `False` is honored.
         v_center_chars: The character set auto-centred vertically between the
             baseline and the capline (cascaded line -> label -> job, default
-            ``DEFAULT_V_CENTER_CHARS`` (``""`` = the auto-apply OFF; job-config
-            ships the shop set ``"-:–—=<>"``)): every ``plain_text``
-            character occurring in this string rides the ``<vc>`` transform
+            `DEFAULT_V_CENTER_CHARS` (`""` = the auto-apply OFF; job-config
+            ships the shop set `"-:–—=<>"`)): every `plain_text`
+            character occurring in this string rides the `<vc>` transform
             (raised or lowered -- a pure vertical translate on the renderers'
-            ``baseline_shifts`` array -- so its ink centre lands on the
-            cap-band midline ``toolpath_text_height / 2``). ``""`` disables
-            the auto-apply; the ``<vc>`` tag keeps working on its own.
+            `baseline_shifts` array -- so its ink centre lands on the
+            cap-band midline `toolpath_text_height / 2`). `""` disables
+            the auto-apply; the `<vc>` tag keeps working on its own.
         bold_boldness_multiplier: Multiplier applied to
-            :attr:`target_boldness_factor` by inline ``<b>`` markup on a
+            :attr:`target_boldness_factor` by inline `<b>` markup on a
             multi-stroke (bold) PLT font (cascaded line -> label -> job,
-            default ``DEFAULT_BOLD_BOLDNESS_MULTIPLIER`` (1.5), bound to
+            default `DEFAULT_BOLD_BOLDNESS_MULTIPLIER` (1.5), bound to
             [1.0, 4.0]); the product is clamped to
-            ``MAX_TARGET_BOLDNESS_FACTOR`` (0.30) with a WARNING. Inert on
+            `MAX_TARGET_BOLDNESS_FACTOR` (0.30) with a WARNING. Inert on
             single-stroke PLT fonts, TTF fonts, and lines with no bold run.
-        bold_cutter_diameter: The thicker cutter the ``<b>`` runs of this
-            line engrave with, in inches (``None`` when the line has no
+        bold_cutter_diameter: The thicker cutter the `<b>` runs of this
+            line engrave with, in inches (`None` when the line has no
             bold run). Single-stroke PLT and TTF lines: the next larger
-            inventory rung above :attr:`cutter_diameter` (``None`` stays
-            ``None`` at the top rung, with a WARNING -- the run engraves
+            inventory rung above :attr:`cutter_diameter` (`None` stays
+            `None` at the top rung, with a WARNING -- the run engraves
             with the plain cutter). Multi-stroke PLT fonts: the boldness
-            ladder at ``target_boldness_factor * bold_boldness_multiplier``.
+            ladder at `target_boldness_factor * bold_boldness_multiplier`.
             The compression-driven cutter reduction steps this cutter down
             in lockstep with :attr:`cutter_diameter`, so the bold run stays
             one rung above the line's final plain cutter.
-        bold_toolpath_text_height: ``nominal_text_height -
-            bold_cutter_diameter`` (``None`` with no bold run) -- the
+        bold_toolpath_text_height: `nominal_text_height -
+            bold_cutter_diameter` (`None` with no bold run) -- the
             rendered cap height of the bold glyphs, mirroring
             :attr:`toolpath_text_height` for the plain run.
         scale_cutter_inventory: The shop cutter inventory (inches) the
-            ``<scale:N>`` runs' cutters snap into -- the ladder inputs for
-            :attr:`per_char_cutters` (``None`` = no inventory, so the ideal
+            `<scale:N>` runs' cutters snap into -- the ladder inputs for
+            :attr:`per_char_cutters` (`None` = no inventory, so the ideal
             ladder cutter is used unsnapped). Stored as the *inputs* to the
             ladder, never as a per-character result array: the per-character
             cutters are derived from each character's scale factor, so a
@@ -1379,12 +1379,12 @@ class ResolvedTextLine:
             :attr:`text` when the line contains no parsed tag.
         styled_runs: The parsed markup runs (empty tuple when the line has
             no markup -- the renderers' fast path, which keeps markup-free
-            jobs bit-identical). When non-empty, ``"".join(r.text for r in
-            styled_runs)`` equals :attr:`plain_text` and the renderers
+            jobs bit-identical). When non-empty, `"".join(r.text for r in
+            styled_runs)` equals :attr:`plain_text` and the renderers
             dispatch per run (italic runs shear; plain runs render as
             today). Populated by :func:`parse_markup` at resolution time.
-        scale_values: Per-character ``<scale:N>`` factors aligned with
-            :attr:`plain_text` (``()`` with no markup, ``1.0`` = unscaled
+        scale_values: Per-character `<scale:N>` factors aligned with
+            :attr:`plain_text` (`()` with no markup, `1.0` = unscaled
             character) -- see :meth:`scale_values`.
     """
 
@@ -1449,28 +1449,28 @@ class ResolvedTextLine:
         """Default :attr:`plain_text` to :attr:`text` (markup-free fast path).
 
         Direct API/test callers construct lines without going through
-        :func:`parse_markup`; an unset ``plain_text`` then means "no markup",
+        :func:`parse_markup`; an unset `plain_text` then means "no markup",
         so the plain text is the raw text itself.
         """
         if not self.plain_text:
             object.__setattr__(self, "plain_text", self.text)
 
     def with_markup(self, text: str) -> ResolvedTextLine:
-        """Return a copy whose ``text`` is re-parsed for inline markup.
+        """Return a copy whose `text` is re-parsed for inline markup.
 
         The pre-passes (line-content reflow, cutter reduction, shared
-        compression) rebuild lines with ``dataclasses.replace``; a raw text
+        compression) rebuild lines with `dataclasses.replace`; a raw text
         swap would leave :attr:`plain_text` / :attr:`styled_runs` stale (the
         renderers would engrave the old plain text). This helper is the only
         supported way to change a resolved line's text: it re-parses with the
         line's own resolved delimiters, so a markup-free line lands on the
-        historical fast path (empty runs, ``plain_text == text``).
+        historical fast path (empty runs, `plain_text == text`).
 
         Args:
             text: The new raw text (may contain markup).
 
         Returns:
-            The updated line (``self`` when the text is unchanged).
+            The updated line (`self` when the text is unchanged).
 
         Raises:
             MarkupError: If the new text carries malformed markup (a
@@ -1509,10 +1509,10 @@ class ResolvedTextLine:
 
     @property
     def scale_values(self) -> Tuple[float, ...]:
-        """Per-character ``<scale:N>`` factors aligned with :attr:`plain_text`.
+        """Per-character `<scale:N>` factors aligned with :attr:`plain_text`.
 
         Empty tuple when the line carries no parsed markup (the renderers'
-        fast path); ``1.0`` marks an unscaled character. Mirrors
+        fast path); `1.0` marks an unscaled character. Mirrors
         :meth:`markup.StyledText.scale_values` so the renderers never need
         to re-expand the runs.
         """
@@ -1522,15 +1522,15 @@ class ResolvedTextLine:
 
     @property
     def has_scale(self) -> bool:
-        """True when any markup run of this line carries a ``<scale:N>`` tag."""
+        """True when any markup run of this line carries a `<scale:N>` tag."""
         return any(run.style.scale != 1.0 for run in self.styled_runs)
 
     @property
     def sup_sub_values(self) -> Tuple[Optional[SupSub], ...]:
-        """Per-character ``<sup>``/``<sub>`` shifts aligned with :attr:`plain_text`.
+        """Per-character `<sup>`/`<sub>` shifts aligned with :attr:`plain_text`.
 
         Empty tuple when the line carries no parsed markup (the renderers'
-        fast path); ``None`` marks an unmarked character. Mirrors
+        fast path); `None` marks an unmarked character. Mirrors
         :meth:`markup.StyledText.sup_sub_values`.
         """
         return tuple(
@@ -1539,19 +1539,19 @@ class ResolvedTextLine:
 
     @property
     def has_sup_sub(self) -> bool:
-        """True when any markup run of this line carries a ``<sup>``/``<sub>`` tag."""
+        """True when any markup run of this line carries a `<sup>`/`<sub>` tag."""
         return any(run.style.sup_sub is not None for run in self.styled_runs)
 
     @property
     def has_strikethrough(self) -> bool:
-        """True when any markup run of this line carries a ``<s>`` strikethrough tag."""
+        """True when any markup run of this line carries a `<s>` strikethrough tag."""
         return any(run.style.strikethrough for run in self.styled_runs)
 
     @property
     def strikethrough_flags(self) -> Tuple[bool, ...]:
-        """Per-character ``<s>`` flags aligned with :attr:`plain_text`.
+        """Per-character `<s>` flags aligned with :attr:`plain_text`.
 
-        Mirrors :attr:`bold_flags`: ``()`` with no markup, one flag per
+        Mirrors :attr:`bold_flags`: `()` with no markup, one flag per
         character otherwise (the renderer's gate expands the runs itself).
         """
         return tuple(
@@ -1562,18 +1562,18 @@ class ResolvedTextLine:
 
     @property
     def has_small_caps(self) -> bool:
-        """True when any markup run of this line carries a ``<sc>`` small-caps tag."""
+        """True when any markup run of this line carries a `<sc>` small-caps tag."""
         return any(run.style.small_caps for run in self.styled_runs)
 
     @property
     def small_caps_flags(self) -> Tuple[bool, ...]:
-        """Per-character ``<sc>`` flags aligned with :attr:`plain_text`.
+        """Per-character `<sc>` flags aligned with :attr:`plain_text`.
 
-        Mirrors :attr:`strikethrough_flags`: ``()`` with no markup, one flag
+        Mirrors :attr:`strikethrough_flags`: `()` with no markup, one flag
         per character otherwise. DERIVED from :attr:`styled_runs` (never a
         stored positional array), so a pre-pass that rewrites the line's text
         (:meth:`with_markup`, the line-content reflow) keeps every run on its
-        own style -- the same rule the ``<scale:N>`` cutters follow.
+        own style -- the same rule the `<scale:N>` cutters follow.
         """
         return tuple(
             style.small_caps for run in self.styled_runs for style in (run.style,) * len(run.text)
@@ -1581,11 +1581,11 @@ class ResolvedTextLine:
 
     @property
     def font_runs(self) -> Tuple[Optional[str], ...]:
-        """Per-character ``<f:...>`` font names aligned with :attr:`plain_text`.
+        """Per-character `<f:...>` font names aligned with :attr:`plain_text`.
 
-        ``None`` marks a character the line's own :attr:`font` engraves; the
-        canonical font name inside an ``<f:...>`` span. Mirrors
-        :attr:`small_caps_flags`: ``()`` with no markup, DERIVED from
+        `None` marks a character the line's own :attr:`font` engraves; the
+        canonical font name inside an `<f:...>` span. Mirrors
+        :attr:`small_caps_flags`: `()` with no markup, DERIVED from
         :attr:`styled_runs` (never a stored positional array), so a pre-pass
         that rewrites the line's text (:meth:`with_markup`, the line-content
         reflow) keeps every run on its own font.
@@ -1596,16 +1596,16 @@ class ResolvedTextLine:
 
     @property
     def has_font_runs(self) -> bool:
-        """True when any markup run of this line carries a ``<f:...>`` font tag."""
+        """True when any markup run of this line carries a `<f:...>` font tag."""
         return any(run.style.font is not None for run in self.styled_runs)
 
     @property
     def color_runs(self) -> Tuple[Optional[str], ...]:
-        """Per-character ``<tc:...>`` stroke-color names aligned with :attr:`plain_text`.
+        """Per-character `<tc:...>` stroke-color names aligned with :attr:`plain_text`.
 
-        ``None`` marks a character the line's own :attr:`text_color` engraves;
-        the canonical color name inside a ``<tc:...>`` span (the resolver
-        stores full names). Mirrors :attr:`font_runs`: ``()`` with no markup,
+        `None` marks a character the line's own :attr:`text_color` engraves;
+        the canonical color name inside a `<tc:...>` span (the resolver
+        stores full names). Mirrors :attr:`font_runs`: `()` with no markup,
         DERIVED from :attr:`styled_runs` (never a stored positional array), so
         a pre-pass that rewrites the line's text (:meth:`with_markup`, the
         line-content reflow) keeps every run on its own layer.
@@ -1616,18 +1616,18 @@ class ResolvedTextLine:
 
     @property
     def has_color_runs(self) -> bool:
-        """True when any markup run of this line carries a ``<tc:...>`` color tag."""
+        """True when any markup run of this line carries a `<tc:...>` color tag."""
         return any(run.style.text_color is not None for run in self.styled_runs)
 
     @property
     def per_char_colors(self) -> Tuple[str, ...]:
         """Per-character resolved stroke-color layers aligned with :attr:`plain_text`.
 
-        Each character's toolpath layer color: the canonical ``<tc:...>`` name
+        Each character's toolpath layer color: the canonical `<tc:...>` name
         inside a color span (the tag WINS over the line's own
-        :attr:`text_color`, the ``<c:D>``-over-the-line precedent), the
-        line's :attr:`text_color` outside one. ``()`` when the line carries no
-        ``<tc:...>`` run -- the renderers' and pen map's fast path (a
+        :attr:`text_color`, the `<c:D>`-over-the-line precedent), the
+        line's :attr:`text_color` outside one. `()` when the line carries no
+        `<tc:...>` run -- the renderers' and pen map's fast path (a
         uniform-color line keeps the historical single-color routing,
         bit-identical). DERIVED from the runs (never a stored positional
         array), so the line-content reflow keeps every run on its own layer.
@@ -1638,11 +1638,11 @@ class ResolvedTextLine:
 
     @property
     def cutter_overrides(self) -> Tuple[Optional[float], ...]:
-        """Per-character ``<c:...>`` cutter diameters, aligned with :attr:`plain_text`.
+        """Per-character `<c:...>` cutter diameters, aligned with :attr:`plain_text`.
 
-        ``None`` at every position the line's own :attr:`cutter_diameter`
+        `None` at every position the line's own :attr:`cutter_diameter`
         engraves; the **requested** cutter diameter in inches inside a
-        ``<c:...>`` span. Mirrors :attr:`font_runs`: DERIVED from
+        `<c:...>` span. Mirrors :attr:`font_runs`: DERIVED from
         :attr:`styled_runs` (never a stored positional array), so a pre-pass
         that rewrites the line's text (:meth:`with_markup`, the line-content
         reflow) keeps every run on its own tool.
@@ -1660,14 +1660,14 @@ class ResolvedTextLine:
 
     @property
     def has_cutter_runs(self) -> bool:
-        """True when any markup run of this line carries a ``<c:...>`` cutter tag."""
+        """True when any markup run of this line carries a `<c:...>` cutter tag."""
         return any(run.style.cutter is not None for run in self.styled_runs)
 
     @property
     def original_cutter_flags(self) -> Tuple[bool, ...]:
-        """Per-character ``<oc>`` flags aligned with :attr:`plain_text`.
+        """Per-character `<oc>` flags aligned with :attr:`plain_text`.
 
-        ``True`` at every position wrapped in an ``<oc>...</oc>`` span (and
+        `True` at every position wrapped in an `<oc>...</oc>` span (and
         therefore engraving with the line's own plain cutter, immune to the
         markup-induced cutter changes). Mirrors :attr:`cutter_overrides`:
         DERIVED from :attr:`styled_runs` (never a stored positional array),
@@ -1684,24 +1684,24 @@ class ResolvedTextLine:
 
     @property
     def has_original_cutter(self) -> bool:
-        """True when any markup run of this line carries an ``<oc>`` tag."""
+        """True when any markup run of this line carries an `<oc>` tag."""
         return any(run.style.original_cutter for run in self.styled_runs)
 
     @property
     def v_center_flags(self) -> Tuple[bool, ...]:
         """Per-character vertical-centering selection aligned with :attr:`plain_text`.
 
-        ``True`` where the character is wrapped in a ``<vc>`` span **or**
+        `True` where the character is wrapped in a `<vc>` span **or**
         occurs in :attr:`v_center_chars` (the auto-centred set -- the hyphen,
-        colon, dashes, ``=`` ...). The transform centres the glyph's own ink
+        colon, dashes, `=` ...). The transform centres the glyph's own ink
         between the baseline and the capline (a pure vertical translate
-        riding the renderers' ``baseline_shifts`` array). The set membership
+        riding the renderers' `baseline_shifts` array). The set membership
         is scanned over :attr:`plain_text` (so a markup-free line auto-centres
-        too), with the ``<vc>`` runs layered on top; DERIVED from
+        too), with the `<vc>` runs layered on top; DERIVED from
         :attr:`styled_runs` and the character set (never a stored positional
         array), so a pre-pass that rewrites the line's text
         (:meth:`with_markup`, the line-content reflow) keeps every run
-        centred. A space is never selected (it owns no ink). ``()`` when the
+        centred. A space is never selected (it owns no ink). `()` when the
         line carries neither (the renderers' fast path).
         """
         chars = self.v_center_chars
@@ -1728,16 +1728,16 @@ class ResolvedTextLine:
 
     @property
     def strikethrough_cap(self) -> float:
-        """The ``<s>`` strikethrough centerline height in inches above the baseline.
+        """The `<s>` strikethrough centerline height in inches above the baseline.
 
         The single Y rule the renderer draws with (and the per-cutter pen
         split compares against when identifying a strike stroke): the
         cascaded :attr:`strikethrough_offset_fraction` times
         :attr:`toolpath_text_height` (the per-font cap height) when set
-        (``0.0`` = the stroke sits on the baseline, ``1.0`` = on the
+        (`0.0` = the stroke sits on the baseline, `1.0` = on the
         capline), else the **cap-band midline** -- half of
         :attr:`toolpath_text_height` (the per-font cap height, the same cap
-        basis the ``<sup>``/``<sub>`` shift conversion uses) -- the classic
+        basis the `<sup>`/`<sub>` shift conversion uses) -- the classic
         mid-height strike. The multiplication happens here (not at
         resolution time) so the height always tracks the line's CURRENT cap
         height, including after a compression-driven cutter downsize grows
@@ -1749,11 +1749,11 @@ class ResolvedTextLine:
 
     @property
     def underline_offset_inches(self) -> float:
-        """The ``<u>`` underline offset in inches (fraction x cap height).
+        """The `<u>` underline offset in inches (fraction x cap height).
 
         :attr:`underline_offset_fraction` resolved against this line's
         :attr:`toolpath_text_height` (the capline - baseline distance). The
-        underline centerline sits ``cutter + this`` inches below the
+        underline centerline sits `cutter + this` inches below the
         baseline; the offset term is a **line-level** constant (uniform for
         every run of the line, never word to word) -- only the cutter term
         varies per run. Resolved at consumption (not at resolution time) so
@@ -1763,11 +1763,11 @@ class ResolvedTextLine:
 
     @property
     def underline_break_clearance_inches(self) -> float:
-        """The ``<u>`` break clearance in inches (fraction x cap height).
+        """The `<u>` break clearance in inches (fraction x cap height).
 
         :attr:`underline_break_clearance_fraction` resolved against this
         line's :attr:`toolpath_text_height`; each break cut is padded
-        horizontally by ``0.5 * cutter + this``. See
+        horizontally by `0.5 * cutter + this`. See
         :attr:`underline_offset_inches` for why the conversion happens here.
         """
         return self.underline_break_clearance_fraction * self.toolpath_text_height
@@ -1780,7 +1780,7 @@ class ResolvedTextLine:
         :attr:`toolpath_text_height`; added to every kerned pair advance on
         top of the stroke-floor clearance. The same multiplication the
         space advance already does
-        (``space_width_fraction * toolpath_text_height``). See
+        (`space_width_fraction * toolpath_text_height`). See
         :attr:`underline_offset_inches` for why the conversion happens here.
         """
         return self.kerning_min_gap_fraction * self.toolpath_text_height
@@ -1789,10 +1789,10 @@ class ResolvedTextLine:
     def kern_values(self) -> Tuple[int, ...]:
         """Per-character signed manual-kern marker counts aligned with :attr:`plain_text`.
 
-        ``()`` when the line carries no parsed markup (the renderers' fast
-        path); ``0`` at every position no ``kern_pos_string`` /
-        :attr:`kern_neg_string` marker precedes, ``+1`` per positive marker
-        and ``-1`` per negative one (adjacent markers accumulate). Mirrors
+        `()` when the line carries no parsed markup (the renderers' fast
+        path); `0` at every position no `kern_pos_string` /
+        :attr:`kern_neg_string` marker precedes, `+1` per positive marker
+        and `-1` per negative one (adjacent markers accumulate). Mirrors
         :attr:`scale_values`: DERIVED from :attr:`styled_runs` (never a
         stored positional array), so a pre-pass that rewrites the line's
         text (:meth:`with_markup`, the line-content reflow) keeps every
@@ -1814,9 +1814,9 @@ class ResolvedTextLine:
         :attr:`kern_values` resolved against this line's
         :attr:`toolpath_text_height` (the capline - baseline distance) times
         :attr:`kern_width_fraction`: a positive marker advances the cursor
-        by ``+fraction * cap height``, a negative one retreats it by the
+        by `+fraction * cap height`, a negative one retreats it by the
         same amount (no clamp -- a large negative value lets glyphs
-        overlap). ``()`` when the line carries no marker (the renderers'
+        overlap). `()` when the line carries no marker (the renderers'
         fast path, bit-identical). The multiplication happens here (not at
         resolution time) so the width always tracks the CURRENT cap height,
         including after a compression-driven cutter downsize grows
@@ -1836,11 +1836,11 @@ class ResolvedTextLine:
 
     @property
     def sup_sub_scales(self) -> Tuple[float, ...]:
-        """Per-character ``<sup>``/``<sub>`` geometry scales, aligned with plain text.
+        """Per-character `<sup>`/`<sub>` geometry scales, aligned with plain text.
 
         The **bare** tag downscales to :attr:`supersubscript_downscale`;
-        the argumented form (``<sup:0.3>``) scales by ``1.0`` (it shifts
-        only), and unmarked characters are ``1.0``. Derived from the style
+        the argumented form (`<sup:0.3>`) scales by `1.0` (it shifts
+        only), and unmarked characters are `1.0`. Derived from the style
         (never a stored positional array), so it stays correct when a
         pre-pass rewrites the line's text.
         """
@@ -1853,19 +1853,19 @@ class ResolvedTextLine:
 
     @property
     def sup_sub_shifts(self) -> Tuple[float, ...]:
-        """Per-character ``<sup>``/``<sub>`` baseline shifts in cap-height units.
+        """Per-character `<sup>`/`<sub>` baseline shifts in cap-height units.
 
         The bare tag derives the shift from :attr:`supersubscript_downscale`
-        ``d``, **centering the shrunken glyph on the line it belongs to**
-        (superscript ``1 - d / 2`` so its centre lands on the capline,
-        subscript ``-d / 2`` so its centre lands on the baseline -- parking
+        `d`, **centering the shrunken glyph on the line it belongs to**
+        (superscript `1 - d / 2` so its centre lands on the capline,
+        subscript `-d / 2` so its centre lands on the baseline -- parking
         a top on the capline left the glyph visually below the cap-height
         text, resting a bottom on the baseline left a subscript barely
         lowered); the argumented form uses its explicit shift; unmarked
-        characters are ``0.0``. A bare tag therefore grows the line's ink
-        box by ``d / 2`` cap heights (the glyph straddles the line it is
+        characters are `0.0`. A bare tag therefore grows the line's ink
+        box by `d / 2` cap heights (the glyph straddles the line it is
         centered on). The renderer converts to inches by multiplying with
-        the line's ``toolpath_text_height`` (the per-font cap height).
+        the line's `toolpath_text_height` (the per-font cap height).
         """
         downscale = self.supersubscript_downscale
         shifts: List[float] = []
@@ -1886,15 +1886,15 @@ class ResolvedTextLine:
     def used_cutters(self) -> Tuple[float, ...]:
         """Every distinct cutter diameter this line engraves with, ascending.
 
-        The line's own cutter, its ``<b>`` bold rung (when one resolved), and
-        each ``<scale:N>`` run's effective-height cutter. This is the layer
+        The line's own cutter, its `<b>` bold rung (when one resolved), and
+        each `<scale:N>` run's effective-height cutter. This is the layer
         set :func:`build_cutter_pen_map` keys, so a scaled run's strokes land
         on their own tool's pen (and per-cutter PLT file) exactly like the
         bold rung does.
 
         The bold rung is only a layer when some character actually engraves
-        with it: a line whose every bold character is pinned by an ``<oc>``
-        (or overridden by a ``<c:D>``) never takes the rung, so the rung
+        with it: a line whose every bold character is pinned by an `<oc>`
+        (or overridden by a `<c:D>`) never takes the rung, so the rung
         would add a phantom pen -- and an empty per-cutter PLT file -- that
         no stroke lands on.
         """
@@ -1912,16 +1912,16 @@ class ResolvedTextLine:
 
     @property
     def used_layers(self) -> Tuple[Tuple[float, str], ...]:
-        """Every distinct ``(cutter, color)`` layer this line engraves, ascending.
+        """Every distinct `(cutter, color)` layer this line engraves, ascending.
 
-        The layer set :func:`build_cutter_pen_map` keys. Without ``<tc:...>``
-        markup this is exactly ``{(cutter, text_color) for cutter in
-        used_cutters}`` -- the historical (cutter-only, line-color) layers,
-        bit-identical. A ``<tc:...>`` run adds its own
-        ``(per-character cutter, run color)`` pairs, so a colored run's
+        The layer set :func:`build_cutter_pen_map` keys. Without `<tc:...>`
+        markup this is exactly `{(cutter, text_color) for cutter in
+        used_cutters}` -- the historical (cutter-only, line-color) layers,
+        bit-identical. A `<tc:...>` run adds its own
+        `(per-character cutter, run color)` pairs, so a colored run's
         strokes land on their own color's pen (and per-color PLT file)
-        exactly like the ``<b>`` bold rung and the ``<scale:N>`` ladder
-        cutters do; the line's own ``(cutter_diameter, text_color)`` layer
+        exactly like the `<b>` bold rung and the `<scale:N>` ladder
+        cutters do; the line's own `(cutter_diameter, text_color)` layer
         always stays (the fallback the renderer's stroke map uses for
         decoration and list-marker strokes). Derived (like
         :attr:`per_char_cutters` / :attr:`per_char_colors`), so the
@@ -1941,23 +1941,23 @@ class ResolvedTextLine:
     def per_char_cutters(self) -> Tuple[float, ...]:
         """Per-character cutter diameters aligned with :attr:`plain_text`.
 
-        Each character's engraving tool: a ``<c:D>`` character takes the
-        **explicit** diameter ``D`` it declares (snapped to the shop
+        Each character's engraving tool: a `<c:D>` character takes the
+        **explicit** diameter `D` it declares (snapped to the shop
         inventory) -- overriding every other cutter setting for the segment
-        (the line's own tool, the ``<b>`` bold rung, the ``<scale:N>`` height
-        ladder) -- an ``<oc>`` character takes the **line's own** tool,
-        immune to every markup-induced cutter change (the ``<scale:N>``
-        ladder, the ``<b>`` bold rung, the bare ``<sup>``/``<sub>`` downscale
-        ladder, the ``<f:...>`` run ladder), while still following the line
+        (the line's own tool, the `<b>` bold rung, the `<scale:N>` height
+        ladder) -- an `<oc>` character takes the **line's own** tool,
+        immune to every markup-induced cutter change (the `<scale:N>`
+        ladder, the `<b>` bold rung, the bare `<sup>`/`<sub>` downscale
+        ladder, the `<f:...>` run ladder), while still following the line
         through a compression-driven downsize (the pin is derived from
-        :attr:`cutter_diameter`, never a captured literal) -- a ``<scale:N>``
+        :attr:`cutter_diameter`, never a captured literal) -- a `<scale:N>`
         character takes the ladder cutter for its
-        effective height (``N * nominal_text_height``) -- the tool that size
+        effective height (`N * nominal_text_height`) -- the tool that size
         of text gets authored on its own, so a downscaled run engraves
-        *lighter*, not heavier -- a bare ``<sup>``/``<sub>`` character takes
+        *lighter*, not heavier -- a bare `<sup>`/`<sub>` character takes
         the same ladder at its downscaled height
-        (``supersubscript_downscale * nominal_text_height``, the composition
-        ``scale_values * sup_sub_scales``), a ``<b>`` character takes
+        (`supersubscript_downscale * nominal_text_height`, the composition
+        `scale_values * sup_sub_scales`), a `<b>` character takes
         :attr:`bold_cutter_diameter` (when one resolved), and every other
         character takes the line's :attr:`cutter_diameter`. A bold+scaled
         character takes the bold rung at the effective height.
@@ -1997,7 +1997,7 @@ class ResolvedTextLine:
         # bare <sup>/<sub> downscale ladder, the <f:...> run ladder). The pin
         # is a DERIVED reference to the line's own cutter (never a captured
         # literal), so the compression-driven downsize -- which replaces
-        # ``cutter_diameter`` on the line -- moves the pinned segment with
+        # `cutter_diameter` on the line -- moves the pinned segment with
         # it (the <oc> contract: markup-induced changes are blocked, the
         # line's own compression-driven downsize is not).
         originals = self.original_cutter_flags
@@ -2082,18 +2082,18 @@ class ResolvedTextLine:
 
         The engraved-baseline alignment rule. A glyph's stored geometry is
         the *design* cutter's path, so the plain run's engraved silhouette
-        spans ``[-c/2, nominal - c/2]`` (centerline baseline at ``y = 0``,
-        capline at ``nominal - c`` centerline). A run that engraves with a
-        different cutter ``d`` at the centerline scale ``g`` spans
-        ``[r - d/2, r + g * plain + d/2]`` when raised by ``r``. Raising it
-        by ``(d - c) / 2`` aligns the **engraved baseline** bottoms with the
-        plain run's; for a bold run (``d`` = the bold rung, ``g`` =
+        spans `[-c/2, nominal - c/2]` (centerline baseline at `y = 0`,
+        capline at `nominal - c` centerline). A run that engraves with a
+        different cutter `d` at the centerline scale `g` spans
+        `[r - d/2, r + g * plain + d/2]` when raised by `r`. Raising it
+        by `(d - c) / 2` aligns the **engraved baseline** bottoms with the
+        plain run's; for a bold run (`d` = the bold rung, `g` =
         :meth:`_bold_glyph_scale`) the same value aligns the **engraved
         capline** too -- bottom- and top-alignment both reduce to this
         identical half-decrease, so the bold text's engraved baseline and
         capline are exactly the normal text's.
 
-        A plain character (``d == c``) and a shift-only run raise ``0.0``;
+        A plain character (`d == c`) and a shift-only run raise `0.0`;
         a downscaled run (its ladder cutter below the line's) drops (a
         negative raise) so its thinner stroke's floor meets the plain
         stroke's floor. Derived from :attr:`per_char_cutters` (itself
@@ -2109,10 +2109,10 @@ class ResolvedTextLine:
 
         The centerline contract: a glyph's stored geometry is the path the
         *design* cutter follows, so the line's plain run scales it to
-        ``nominal - cutter`` and the bold run scales the same geometry to
-        ``nominal - bold_cutter``. The ratio ``<= 1`` (a thicker tool
+        `nominal - cutter` and the bold run scales the same geometry to
+        `nominal - bold_cutter`. The ratio `<= 1` (a thicker tool
         engraves a fatter stroke, so the centerlines shrink to keep the
-        engraved silhouette inside its box). ``1.0`` when the line has no
+        engraved silhouette inside its box). `1.0` when the line has no
         bold run, the bold cutter equals the plain one (top-of-inventory
         fallback), or the geometry would leave no material.
         """
@@ -2146,133 +2146,133 @@ class ResolvedLabel:
             value.
         holes: List of resolved hole specifications.
         content: List of resolved text lines.
-        min_hole_margin: Lower bound (in inches) applied to ``hole_margin``
-            during text-hole collision avoidance. ``None`` (the default)
-            allows shrinking the hole margin all the way to ``0.0``; the
+        min_hole_margin: Lower bound (in inches) applied to `hole_margin`
+            during text-hole collision avoidance. `None` (the default)
+            allows shrinking the hole margin all the way to `0.0`; the
             resolution engine always populates the cascaded value.
         collision_compress_by_line: Mapping of line index to per-line
-            horizontal scale in ``(0.0, 1.0]`` when text-hole collision
+            horizontal scale in `(0.0, 1.0]` when text-hole collision
             avoidance had to compress specific lines away from drill holes.
             An empty dict (the default) means no collision-driven compression
             was applied. Each line can have its own compression scale;
-            lines not in the dict use scale ``1.0`` (uncompressed). Set by
-            the renderer via ``dataclasses.replace``; never sourced from the
+            lines not in the dict use scale `1.0` (uncompressed). Set by
+            the renderer via `dataclasses.replace`; never sourced from the
             YAML schema.
-        cutter_downsize_by_line: Mapping of line index to the ``(original,
-            final)`` cutter diameters in inches for lines whose *automatic*
+        cutter_downsize_by_line: Mapping of line index to the `(original,
+            final)` cutter diameters in inches for lines whose *automatic*
             cutter was reduced by the compression-driven cutter reduction
             (see :mod:`plt_optimizer.generate.cutter_downsize`). An empty
             dict (the default) means no line was downsized. Each entry's
-            ``final`` cutter is strictly below its ``original`` (the swap is
+            `final` cutter is strictly below its `original` (the swap is
             one-way: a downsized cutter is never enlarged again within the
             same line), and the line's :attr:`ResolvedTextLine.toolpath_text_height`
             already reflects the final cutter. Set by the export pre-pass via
-            ``dataclasses.replace``; never sourced from the YAML schema.
+            `dataclasses.replace`; never sourced from the YAML schema.
         global_compress_by_line: Mapping of line index to a shared horizontal
-            scale in ``(0.0, 1.0)`` applied by the per-label compression
+            scale in `(0.0, 1.0)` applied by the per-label compression
             sharing pre-pass (see
             :mod:`plt_optimizer.generate.h_compress`). When
-            ``ResolvedTextLine.h_compress_global`` is enabled and one line of
-            a ``nominal_text_height`` group is horizontally compressed, every
+            `ResolvedTextLine.h_compress_global` is enabled and one line of
+            a `nominal_text_height` group is horizontally compressed, every
             eligible line of that group receives the group's minimum scale
-            (clamped to its own ``1 - max_h_compress`` budget floor). An empty
+            (clamped to its own `1 - max_h_compress` budget floor). An empty
             dict (the default) means no shared compression was applied; lines
-            not in the dict use scale ``1.0``. Applied by the renderer on top
+            not in the dict use scale `1.0`. Applied by the renderer on top
             of :attr:`collision_compress_by_line`. Set by the export pre-pass
-            via ``dataclasses.replace``; never sourced from the YAML schema.
+            via `dataclasses.replace`; never sourced from the YAML schema.
         hole_text_collision_distance: Minimum air gap in inches kept
             between the engraved text stroke and the engraved drill-hole
-            stroke (cascaded label -> job, default ``0.15``). Combined
-            with the stroke floor ``0.5 * (hole_cutter_diameter +
-            line.cutter_diameter)`` this forms the effective collision
+            stroke (cascaded label -> job, default `0.15`). Combined
+            with the stroke floor `0.5 * (hole_cutter_diameter +
+            line.cutter_diameter)` this forms the effective collision
             threshold used by the renderer.
         hole_cutter_diameter: Cutter diameter in inches used to cut label
-            boundaries and drill holes (from ``tools.json``
-            ``boundary_hole_cutter_size``, snapped to the inventory;
-            default ``0.015``). Used to compute the collision stroke floor
+            boundaries and drill holes (from `tools.json`
+            `boundary_hole_cutter_size`, snapped to the inventory;
+            default `0.015`). Used to compute the collision stroke floor
             and -- when :attr:`hole_adjust_for_cutter` is enabled -- the
             cutter-compensated emitted hole diameter.
         hole_adjust_for_cutter: Shrink the emitted drill-hole circle by
             :attr:`hole_cutter_diameter` so the engraved hole measures the
-            specified diameter (from the ``hole_adjust_for_cutter`` cascade,
-            label -> job, default ``True``; see
+            specified diameter (from the `hole_adjust_for_cutter` cascade,
+            label -> job, default `True`; see
             :func:`hole_engraved_radius`). The hole centres are placed from
             the specified diameter and never move. Applied by
             :func:`plt_optimizer.generate.collision.holes.hole_circles_local`,
             which is the single source of hole geometry for both emission and
             text-hole collision detection.
         text_chunk_mode: Plate-space text optimization granularity
-            (``"line"`` or ``"word"``, cascaded from the job; default
-            ``"line"``). Consumed by the renderer (chunk-record
+            (`"line"` or `"word"`, cascaded from the job; default
+            `"line"`). Consumed by the renderer (chunk-record
             granularity) and the plate-space optimizer.
         plate_id: Optional id of the plate this label is pinned to (from
-            ``LabelSpec.plate_id``; set by plate-level replacement
+            `LabelSpec.plate_id`; set by plate-level replacement
             expansion). Pinned labels pack exclusively onto that plate,
-            which then accepts no other labels. ``None`` (the default)
+            which then accepts no other labels. `None` (the default)
             packs normally across all plates.
         material: Stock material name this label must be cut from (from
-            the ``material`` cascade, label -> job). Labels sharing a
+            the `material` cascade, label -> job). Labels sharing a
             material pack together and a plate never mixes materials (see
             :func:`plt_optimizer.generate.packing.layout.generate_layout`).
-            ``None`` (the default) means unset: the label groups with the
+            `None` (the default) means unset: the label groups with the
             job-level material, and a job without materials packs exactly
             like a single material group.
         use_baseline_spacing: Stack this label's text lines by
-            baseline-to-baseline pitch (``nominal_text_height +
-            line_spacing``) instead of by rendered ink box (from the
-            ``use_baseline_spacing`` cascade, label -> job, default
-            ``True``). Under baseline spacing a line's descenders hang into
+            baseline-to-baseline pitch (`nominal_text_height +
+            line_spacing`) instead of by rendered ink box (from the
+            `use_baseline_spacing` cascade, label -> job, default
+            `True`). Under baseline spacing a line's descenders hang into
             the gap below it, so every gap on the label reads as one uniform
             visual spacing; the render-time clamp
             (:func:`fit_baseline_spacing_to_margins`) shrinks the spacings
             only when the descender-extended block no longer fits the inner
-            area. ``False`` reproduces the historical ink-box stacking.
+            area. `False` reproduces the historical ink-box stacking.
         v_center_by_content: Center the text block by its rendered ink
-            (``True``, historical -- the deepest descender is charged to the
+            (`True`, historical -- the deepest descender is charged to the
             block, so lines with descenders ride high) or by its
-            baseline-to-capline band (``False``, the default -- the visible
+            baseline-to-capline band (`False`, the default -- the visible
             text is optically centered and descenders hang into the bottom
             margin for the relief to handle) (from the
-            ``v_center_by_content`` cascade, label -> job, default ``False``).
+            `v_center_by_content` cascade, label -> job, default `False`).
             Band centering is active only together with an enabled
             :attr:`auto_descending_character_adjustment`; see
             :attr:`center_text_by_band`.
         auto_descending_character_adjustment: Permit automatic vertical
             downscaling + raising of descending glyphs that come close to
             colliding with glyphs on the following line (from the
-            ``auto_descending_character_adjustment`` cascade, label -> job,
-            default ``True``). Applied per triggering glyph by the renderer.
+            `auto_descending_character_adjustment` cascade, label -> job,
+            default `True`). Applied per triggering glyph by the renderer.
         descending_character_v_scale: Smallest vertical scale a triggering
             descending glyph may be squeezed to, about its own baseline (from
-            the ``descending_character_v_scale`` cascade, default ``0.5``).
+            the `descending_character_v_scale` cascade, default `0.5`).
         descending_character_raise: Largest raise a triggering descending
             glyph may receive, as a fraction of its own descender depth (from
-            the ``descending_character_raise`` cascade, default ``0.7``).
+            the `descending_character_raise` cascade, default `0.7`).
         descending_character_clearance: Extra engraved-stroke air gap demanded
             between a descending glyph and the glyph below it, as a unitless
             factor of the stroke floor -- the required gap is
-            ``floor * (1 + clearance)`` (from the
-            ``descending_character_clearance`` cascade, default ``0.0``).
+            `floor * (1 + clearance)` (from the
+            `descending_character_clearance` cascade, default `0.0`).
         descending_character_reciprocal_scale: Smallest top-down scale the
             colliding glyphs on the following line may be squeezed to, about
             their own lowest ink point (from the
-            ``descending_character_reciprocal_scale`` cascade, default
-            ``0.5``; ``1.0`` = reciprocal downscaling forbidden).
-        shape_type: Label boundary shape (``"rect"`` / ``"round"``, from the
-            ``type`` cascade, label -> job, default ``"rect"``). ``"round"``
-            makes the boundary an ellipse with semi-axes ``width / 2`` and
-            ``height / 2`` (a circle when equal): the label packs through the
+            `descending_character_reciprocal_scale` cascade, default
+            `0.5`; `1.0` = reciprocal downscaling forbidden).
+        shape_type: Label boundary shape (`"rect"` / `"round"`, from the
+            `type` cascade, label -> job, default `"rect"`). `"round"`
+            makes the boundary an ellipse with semi-axes `width / 2` and
+            `height / 2` (a circle when equal): the label packs through the
             adjacent ellipse-packing pipeline and the collision checks measure
-            the ellipse boundary. ``"rect"`` keeps the rectangular pipeline
+            the ellipse boundary. `"rect"` keeps the rectangular pipeline
             bit-identical.
         rounded_rectangle_fraction: Rectangular-border corner rounding
-            fraction in ``[0.0, 1.0]`` (from the
-            ``rounded_rectangle_fraction`` cascade, label -> job, default
-            ``0.0``). Each corner is a superellipse-quadrant patch with
-            exponent ``2 / fraction`` so the curvature varies continuously
-            along the boundary; ``0.0`` is the sharp rectangle. The rounding
-            spans ``fraction`` of the shorter edge (see
-            :attr:`rounded_rectangle_proportional`). Inert on ``"round"``
+            fraction in `[0.0, 1.0]` (from the
+            `rounded_rectangle_fraction` cascade, label -> job, default
+            `0.0`). Each corner is a superellipse-quadrant patch with
+            exponent `2 / fraction` so the curvature varies continuously
+            along the boundary; `0.0` is the sharp rectangle. The rounding
+            spans `fraction` of the shorter edge (see
+            :attr:`rounded_rectangle_proportional`). Inert on `"round"`
             labels (the ellipse owns the boundary).
         rounded_rectangle_proportional: Whether
             :attr:`rounded_rectangle_fraction` applies proportionately to
@@ -2281,18 +2281,18 @@ class ResolvedLabel:
         hole_aware_vertical_shift_inches: Automatic vertical shift (in inches)
             applied to center the text block in the available space between
             top and bottom axis holes, accounting for their diameter
-            difference. Computed automatically as ``(top_hole_dia -
-            bottom_hole_dia) / 2``; positive = downward shift. ``0.0`` when
+            difference. Computed automatically as `(top_hole_dia -
+            bottom_hole_dia) / 2`; positive = downward shift. `0.0` when
             no axis holes or when top and bottom holes have equal diameters.
             Set by the resolution engine; never sourced from the YAML schema.
         hole_aware_horizontal_shift_inches: Automatic horizontal shift (in
             inches) applied to center horizontally-centered text in the
             available space between left and right axis holes, accounting for
             their diameter difference. Computed automatically as
-            ``(left_hole_dia - right_hole_dia) / 2``; positive = rightward
-            shift. Applied only when ``text_h_alignment`` is ``"center"``;
-            fixed-edge alignment (``"left"`` / ``"right"``) ignores this shift.
-            ``0.0`` when no axis holes, when holes have equal diameters, or
+            `(left_hole_dia - right_hole_dia) / 2`; positive = rightward
+            shift. Applied only when `text_h_alignment` is `"center"`;
+            fixed-edge alignment (`"left"` / `"right"`) ignores this shift.
+            `0.0` when no axis holes, when holes have equal diameters, or
             when text is edge-aligned. Set by the resolution engine; never
             sourced from the YAML schema.
     """
@@ -2364,12 +2364,12 @@ def _compute_hole_aware_shifts(resolved_label: ResolvedLabel) -> tuple[float, fl
       - Positive value → shift rightward (left hole is larger)
       - Negative value → shift leftward (right hole is larger)
       - Zero → holes are equal or both absent
-      - Applied only when ``adjust_h_center_for_single_side_hole`` is enabled
+      - Applied only when `adjust_h_center_for_single_side_hole` is enabled
       - Applied only to center-aligned text; fixed-edge alignment ignores it
 
     Args:
         resolved_label: A resolved label with populated holes list and
-            ``adjust_h_center_for_single_side_hole`` flag.
+            `adjust_h_center_for_single_side_hole` flag.
 
     Returns:
         Tuple of (vertical_shift_inches, horizontal_shift_inches).
@@ -2410,13 +2410,13 @@ def fit_line_spacing_to_margins(
     Margins take precedence over requested line spacing: when the stacked
     block (sum of line heights plus inter-line spacing) exceeds the
     available inner height, the spacings are scaled down proportionally
-    (down to a floor of ``0.0``) until the block fits exactly.
+    (down to a floor of `0.0`) until the block fits exactly.
 
     Args:
         line_heights: Rendered (or nominal) height of each text line in
-            inches. Length ``n``.
+            inches. Length `n`.
         line_spacings: Extra spacing applied *after* each line except the
-            last, in inches. Length ``n - 1``.
+            last, in inches. Length `n - 1`.
         available_height: Inner content height in inches
             (label height minus both margins).
 
@@ -2424,7 +2424,7 @@ def fit_line_spacing_to_margins(
         A new list of inter-line spacings. Equal to the input when the
         block already fits; proportionally reduced otherwise. Spacing is
         never increased and never negative. Note that if the line heights
-        alone exceed ``available_height``, all spacings collapse to ``0.0``
+        alone exceed `available_height`, all spacings collapse to `0.0`
         and the block still overflows (text height is never reduced).
     """
     spacings = [max(0.0, float(s)) for s in line_spacings]
@@ -2444,15 +2444,15 @@ def fit_line_spacing_to_margins(
 
 
 # ---------------------------------------------------------------------------
-# Baseline-spacing geometry (``use_baseline_spacing``)
+# Baseline-spacing geometry (`use_baseline_spacing`)
 #
 # Baseline spacing stacks lines by the distance between their baselines
-# (``pitch_i = nominal_text_height_i + line_spacing_i``) instead of by their
-# rendered ink boxes. Each line's ink spans ``[b_i - D_i, b_i + A_i]`` where
-# ``b_i`` is its baseline, ``A_i`` the ascender extent (ink above the
-# baseline) and ``D_i`` the descender depth (ink hanging below it), all in
+# (`pitch_i = nominal_text_height_i + line_spacing_i`) instead of by their
+# rendered ink boxes. Each line's ink spans `[b_i - D_i, b_i + A_i]` where
+# `b_i` is its baseline, `A_i` the ascender extent (ink above the
+# baseline) and `D_i` the descender depth (ink hanging below it), all in
 # inches. Because the baselines descend monotonically, the block's ink height
-# is ``max_i(b_i + A_i) - min_i(b_i - D_i)``: a maximum and a minimum of
+# is `max_i(b_i + A_i) - min_i(b_i - D_i)`: a maximum and a minimum of
 # affine functions of the spacings, hence convex, continuous and
 # non-decreasing in every spacing. That monotonicity is what lets the fit
 # helpers below solve the block height by bisection -- the closed-form
@@ -2466,21 +2466,21 @@ _BISECTION_MAX_ITERATIONS: int = 100
 def baseline_pitch(line_heights: Sequence[float], line_spacings: Sequence[float]) -> list[float]:
     """Return the baseline-to-baseline pitch of each inter-line gap.
 
-    The pitch of the gap below line ``i`` is ``line_heights[i] +
-    line_spacings[i]``: the nominal (cap) height carries the baseline down to
-    the next line's cap line, and ``line_spacing`` is the engraved-stroke air
+    The pitch of the gap below line `i` is `line_heights[i] +
+    line_spacings[i]`: the nominal (cap) height carries the baseline down to
+    the next line's cap line, and `line_spacing` is the engraved-stroke air
     gap measured from that baseline to the next line's ink top. Lines without
     descenders therefore produce exactly the ink-box geometry, and a descender
-    of depth ``d`` shortens the visual gap by exactly ``d``.
+    of depth `d` shortens the visual gap by exactly `d`.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Nominal text height of each line in inches. Length `n`.
         line_spacings: Spacing applied *after* each line except the last, in
-            inches. Length ``n - 1`` (longer input is truncated).
+            inches. Length `n - 1` (longer input is truncated).
 
     Returns:
-        One pitch per gap (length ``min(n - 1, len(line_spacings))``), in
-        inches. Negative spacings are clamped to ``0.0``.
+        One pitch per gap (length `min(n - 1, len(line_spacings))`), in
+        inches. Negative spacings are clamped to `0.0`.
     """
     return [
         float(height) + max(0.0, float(spacing))
@@ -2491,17 +2491,17 @@ def baseline_pitch(line_heights: Sequence[float], line_spacings: Sequence[float]
 def baseline_offsets(line_heights: Sequence[float], line_spacings: Sequence[float]) -> list[float]:
     """Return each line's baseline Y in a baseline-stacked block.
 
-    Coordinates are ``+y`` up with the **first** baseline at ``0.0``, so the
+    Coordinates are `+y` up with the **first** baseline at `0.0`, so the
     offsets are non-increasing (each line sits one pitch below the previous
     one). Callers translate the block as a whole; only the relative offsets
     matter.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Nominal text height of each line in inches. Length `n`.
         line_spacings: Spacing below each line except the last, in inches.
 
     Returns:
-        One baseline Y per line (length ``len(line_heights)``), in inches.
+        One baseline Y per line (length `len(line_heights)`), in inches.
     """
     offsets = [0.0]
     for pitch in baseline_pitch(line_heights, line_spacings):
@@ -2520,15 +2520,15 @@ def baseline_block_height(
     """Return the ink height of a baseline-stacked text block.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
-        ascenders: Ink extent above each line's baseline, in inches (``A_i``,
-            non-negative). Length ``n``.
-        descenders: Ink depth below each line's baseline, in inches (``D_i``,
-            non-negative). Length ``n``.
+        line_heights: Nominal text height of each line in inches. Length `n`.
+        ascenders: Ink extent above each line's baseline, in inches (`A_i`,
+            non-negative). Length `n`.
+        descenders: Ink depth below each line's baseline, in inches (`D_i`,
+            non-negative). Length `n`.
         line_spacings: Spacing below each line except the last, in inches.
-        charge_descenders: When ``True`` (the default) the block's bottom is
+        charge_descenders: When `True` (the default) the block's bottom is
             its deepest descender, so descenders claim a share of the inner
-            content height. When ``False`` the bottom is the **lowest
+            content height. When `False` the bottom is the **lowest
             baseline** -- the block is measured as its baseline-to-capline
             band, which is what a band-centered label fits to the margins
             (descenders hang into the bottom margin, where the
@@ -2536,7 +2536,7 @@ def baseline_block_height(
 
     Returns:
         The distance from the block's highest ink point to its lowest, in
-        inches. Equal to the ink-box height when every descender is ``0.0``
+        inches. Equal to the ink-box height when every descender is `0.0`
         and every ascender equals its line's nominal height.
     """
     offsets = baseline_offsets(line_heights, line_spacings)
@@ -2553,17 +2553,17 @@ def _solve_monotone_root(
     lower: float,
     upper: float,
 ) -> float:
-    """Bisect a non-decreasing function's root inside ``[lower, upper]``.
+    """Bisect a non-decreasing function's root inside `[lower, upper]`.
 
     Args:
         function: Non-decreasing objective; the root is where it reaches
-            ``0.0``.
-        lower: Lower bracket; ``function(lower) <= 0`` is expected (the
+            `0.0`.
+        lower: Lower bracket; `function(lower) <= 0` is expected (the
             largest admissible value).
-        upper: Upper bracket; ``function(upper) >= 0`` is expected.
+        upper: Upper bracket; `function(upper) >= 0` is expected.
 
     Returns:
-        The largest admissible value (``function(value) <= 0``) found, within
+        The largest admissible value (`function(value) <= 0`) found, within
         :data:`_BISECTION_TOLERANCE`.
     """
     if function(lower) >= 0.0:
@@ -2592,14 +2592,14 @@ def fit_baseline_spacing_to_margins(
 
     The baseline-spacing counterpart of :func:`fit_line_spacing_to_margins`:
     margins take precedence over requested spacing, and the spacings are
-    scaled down by one common factor (never increased, floor ``0.0``) until
+    scaled down by one common factor (never increased, floor `0.0`) until
     the block's **ink** height -- which includes the descenders hanging into
-    the gaps -- fits ``available_height``. Because that height is convex and
+    the gaps -- fits `available_height`. Because that height is convex and
     non-decreasing in the scale factor, the factor is found by bisection
     rather than the linear closed form.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Nominal text height of each line in inches. Length `n`.
         ascenders: Ink extent above each line's baseline, in inches.
         descenders: Ink depth below each line's baseline, in inches.
         line_spacings: Spacing below each line except the last, in inches.
@@ -2609,7 +2609,7 @@ def fit_baseline_spacing_to_margins(
     Returns:
         A new list of spacings. Equal to the (clamped) input when the block
         already fits; proportionally reduced otherwise. When the block
-        overflows even with zero spacing, every spacing collapses to ``0.0``
+        overflows even with zero spacing, every spacing collapses to `0.0`
         and the block still overflows (text height is never reduced).
     """
     spacings = [max(0.0, float(s)) for s in line_spacings]
@@ -2643,9 +2643,9 @@ def solve_baseline_spacing_to_fill(
     *,
     charge_descenders: bool = True,
 ) -> float:
-    """Return the uniform spacing that fills ``available_height`` exactly.
+    """Return the uniform spacing that fills `available_height` exactly.
 
-    Auto line spacing under baseline stacking (explicit ``v_margin``): every
+    Auto line spacing under baseline stacking (explicit `v_margin`): every
     gap gets the same spacing, chosen so the block's ink height -- descenders
     included -- equals the inner content height. This is the render-accurate
     counterpart of the ink-box arithmetic in
@@ -2654,14 +2654,14 @@ def solve_baseline_spacing_to_fill(
     below its baseline.
 
     Args:
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Nominal text height of each line in inches. Length `n`.
         ascenders: Ink extent above each line's baseline, in inches.
         descenders: Ink depth below each line's baseline, in inches.
         available_height: Inner content height in inches.
 
     Returns:
-        The uniform spacing in inches (``0.0`` when the block overflows even
-        with no spacing, mirroring the ink-box path's ``max(0.0, ...)``).
+        The uniform spacing in inches (`0.0` when the block overflows even
+        with no spacing, mirroring the ink-box path's `max(0.0, ...)`).
     """
     if len(line_heights) < 2:
         return 0.0
@@ -2690,26 +2690,26 @@ def solve_baseline_spacing_to_ratio(
     *,
     charge_descenders: bool = True,
 ) -> tuple[float, float]:
-    """Return ``(interline_spacing, v_margin)`` for ratio-balanced gaps.
+    """Return `(interline_spacing, v_margin)` for ratio-balanced gaps.
 
-    Auto line spacing **and** auto ``v_margin`` under baseline stacking: the
+    Auto line spacing **and** auto `v_margin` under baseline stacking: the
     top and bottom gaps are equal, every inter-line gap is that gap scaled by
-    ``interline_to_top_bottom_ratio``, and the three together fill the label.
-    The equation solved is ``label_height = 2 * gap + block_height(pitch_i =
-    line_heights[i] + ratio * gap)`` -- the render-accurate form of the
+    `interline_to_top_bottom_ratio`, and the three together fill the label.
+    The equation solved is `label_height = 2 * gap + block_height(pitch_i =
+    line_heights[i] + ratio * gap)` -- the render-accurate form of the
     nominal-height division used by :func:`_resolve_auto_line_spacing`.
 
     Args:
         label_height: Final label height in inches (outer boundary).
-        line_heights: Nominal text height of each line in inches. Length ``n``.
+        line_heights: Nominal text height of each line in inches. Length `n`.
         ascenders: Ink extent above each line's baseline, in inches.
         descenders: Ink depth below each line's baseline, in inches.
         interline_to_top_bottom_ratio: Inter-line gap as a multiple of the
-            top/bottom gap. ``1.0`` makes every gap equal.
+            top/bottom gap. `1.0` makes every gap equal.
 
     Returns:
-        ``(interline_spacing, v_margin)`` in inches. Single-line content
-        returns ``(0.0, label_height / 2.0)`` (no gaps; the ink centers).
+        `(interline_spacing, v_margin)` in inches. Single-line content
+        returns `(0.0, label_height / 2.0)` (no gaps; the ink centers).
     """
     if len(line_heights) < 2:
         return 0.0, label_height / 2.0
@@ -2740,8 +2740,8 @@ def compute_horizontal_scale(
     Margin precedence for width: when a rendered line is wider than the
     label's inner content area, the line is compressed horizontally (never
     stretched, never taller) down to the available width. Compression is
-    bounded by the resolved ``max_h_compress`` fraction, so a line is never
-    squeezed below ``(1 - max_h_compress)`` of its natural width. When the
+    bounded by the resolved `max_h_compress` fraction, so a line is never
+    squeezed below `(1 - max_h_compress)` of its natural width. When the
     limit cannot fully resolve the overflow, the returned factor still
     compresses as far as allowed and the caller is responsible for logging
     the residual overflow.
@@ -2751,12 +2751,12 @@ def compute_horizontal_scale(
             positive for any scaling to apply).
         available_width: Inner content width in inches (label width minus
             both margins).
-        max_h_compress: Maximum compression fraction in ``[0.0, 1.0]``.
-            ``0.0`` disables compression; ``0.5`` allows squeezing to 50%
+        max_h_compress: Maximum compression fraction in `[0.0, 1.0]`.
+            `0.0` disables compression; `0.5` allows squeezing to 50%
             of natural width.
 
     Returns:
-        A scale factor in ``[1 - max_h_compress, 1.0]``. ``1.0`` means no
+        A scale factor in `[1 - max_h_compress, 1.0]`. `1.0` means no
         compression (the line fits or compression is disabled).
     """
     limit = min(max(0.0, max_h_compress), 1.0)
@@ -2775,35 +2775,35 @@ def ellipse_content_inset(
     h_margin: float,
     v_margin: float,
 ) -> tuple[float, float]:
-    """Inner content extents of a ``round`` (elliptical) label, in inches.
+    """Inner content extents of a `round` (elliptical) label, in inches.
 
     The margin on a round label applies **radially**: content must stay
-    ``margin`` away from the engraved boundary stroke, not sit inside a box
+    `margin` away from the engraved boundary stroke, not sit inside a box
     inset from the enclosing rectangle. The boundary is the ellipse with
-    semi-axes ``a = width / 2`` and ``b = height / 2``; keeping ``m`` of air
+    semi-axes `a = width / 2` and `b = height / 2`; keeping `m` of air
     from that curve gives the concentric **inset ellipse** with semi-axes
-    ``a - h_margin`` and ``b - v_margin`` (exact for a circle, the standard
+    `a - h_margin` and `b - v_margin` (exact for a circle, the standard
     inset for a general ellipse).
 
     Text stacks as a centered, axis-aligned block, so the radial rule
     constrains the block's **corners**: they must lie on or inside the inset
     ellipse. The returned extents are the largest centered block of the
     label's own aspect ratio whose corners sit exactly on the inset ellipse
-    -- at parametric angle ``theta`` the inscribed block is
-    ``2 a' cos(theta)`` by ``2 b' sin(theta)``, and fixing the aspect picks
-    ``theta`` in closed form. The result is strictly smaller than the
-    rectangular inset ``width - 2 h_margin`` by ``height - 2 v_margin``,
+    -- at parametric angle `theta` the inscribed block is
+    `2 a' cos(theta)` by `2 b' sin(theta)`, and fixing the aspect picks
+    `theta` in closed form. The result is strictly smaller than the
+    rectangular inset `width - 2 h_margin` by `height - 2 v_margin`,
     which is exactly the point of the radial rule: near the ellipse's
     shoulders there is far less room than a box inset assumes.
 
-    **Not applied while rendering.** ``type: round`` labels trust the
+    **Not applied while rendering.** `type: round` labels trust the
     user-specified margins directly (fix 4757694): recomputing the local
     margins from this inset double-applies the margin and spuriously
     compresses text that already fits. This function ships as the tested
     geometry primitive for the inset rule (and the reference contract for
     :func:`rounded_rect_content_inset`, which IS applied for
-    ``0 < fraction < 1``); do not wire it back into
-    ``label_renderer._render_positioned_lines``.
+    `0 < fraction < 1`); do not wire it back into
+    `label_renderer._render_positioned_lines`.
 
     Args:
         width: Label width in inches (> 0).
@@ -2812,7 +2812,7 @@ def ellipse_content_inset(
         v_margin: Vertical (Y-direction) margin in inches (>= 0).
 
     Returns:
-        ``(inner_width, inner_height)`` in inches. ``(0.0, 0.0)`` when a
+        `(inner_width, inner_height)` in inches. `(0.0, 0.0)` when a
         margin reaches past the centre (the inset ellipse vanishes).
     """
     semi_a = width / 2.0 - h_margin
@@ -2833,16 +2833,16 @@ def ellipse_content_inset(
 
 
 # ---------------------------------------------------------------------------
-# Rounded-rectangle border geometry (``rounded_rectangle_fraction``)
+# Rounded-rectangle border geometry (`rounded_rectangle_fraction`)
 # ---------------------------------------------------------------------------
 
-#: Corner exponent of the smoothed-stadium limit (``rounded_rectangle_fraction
-#: == 1.0``, ``rounded_rectangle_proportional == False``, non-square label).
-#: The corner patches fully round the short edges and meet at their midpoints;
-#: a quarter-circle (n = 2) would join the long-edge straights with a
-#: curvature jump, so the exponent is clamped above 2, where the patch
-#: curvature at its axis vertices is exactly zero and the whole boundary
-#: stays G2.
+# Corner exponent of the smoothed-stadium limit (`rounded_rectangle_fraction
+# == 1.0`, `rounded_rectangle_proportional == False`, non-square label).
+# The corner patches fully round the short edges and meet at their midpoints;
+# a quarter-circle (n = 2) would join the long-edge straights with a
+# curvature jump, so the exponent is clamped above 2, where the patch
+# curvature at its axis vertices is exactly zero and the whole boundary
+# stays G2.
 STADIUM_G2_EXPONENT: float = 4.0
 
 
@@ -2855,10 +2855,10 @@ class RoundedRectCorner:
             along the label's width), inches.
         ry: Corner patch semi-axis along Y (the rounding distance measured
             along the label's height), inches.
-        exponent: Superellipse exponent ``n`` of the corner patch
-            ``|X / rx| ^ n + |Y / ry| ^ n = 1``. ``2 / fraction`` for
-            ``0 < fraction <= 1`` (so ``fraction -> 0`` is the sharp
-            rectangle and ``fraction == 1`` is the exact ellipse), and
+        exponent: Superellipse exponent `n` of the corner patch
+            `|X / rx| ^ n + |Y / ry| ^ n = 1`. `2 / fraction` for
+            `0 < fraction <= 1` (so `fraction -> 0` is the sharp
+            rectangle and `fraction == 1` is the exact ellipse), and
             :data:`STADIUM_G2_EXPONENT` in the smoothed-stadium limit.
     """
 
@@ -2876,35 +2876,35 @@ def rounded_rect_corner_params(
     """Corner-patch parameters of a rounded-rectangle border, in inches.
 
     The boundary is four straight edges joined by four **superellipse
-    quadrants** ``|X / rx| ^ n + |Y / ry| ^ n = 1``. For ``n > 2`` the curve's
+    quadrants** `|X / rx| ^ n + |Y / ry| ^ n = 1`. For `n > 2` the curve's
     curvature at its axis vertices is exactly zero (near a vertex
-    ``x = rx - c * y ^ n``, so ``kappa`` scales as ``y ^ (n - 2) -> 0``) and
+    `x = rx - c * y ^ n`, so `kappa` scales as `y ^ (n - 2) -> 0`) and
     its tangent there is exactly axis-aligned, so the straight edges (zero
     curvature) join the patches with **continuously varying curvature** --
     the G2 continuity a circular fillet cannot provide.
 
-    The exponent ``n = 2 / fraction`` pins the endpoints of the family:
+    The exponent `n = 2 / fraction` pins the endpoints of the family:
 
-    * ``fraction == 0`` -- ``n -> infinity``: the sharp rectangle (this
-      function returns ``None``; the renderer keeps the historical
+    * `fraction == 0` -- `n -> infinity`: the sharp rectangle (this
+      function returns `None`; the renderer keeps the historical
       unsampled border).
-    * ``fraction == 0.5`` -- ``n == 4``: the classic squircle corner.
-    * ``fraction == 1`` -- ``n == 2``: the exact ellipse (a circle on a
-      square), identical to ``type: round``.
+    * `fraction == 0.5` -- `n == 4`: the classic squircle corner.
+    * `fraction == 1` -- `n == 2`: the exact ellipse (a circle on a
+      square), identical to `type: round`.
 
     The rounding distance follows the two cascade modes:
 
-    * ``proportional == False`` (the default) -- one **identical** rounding
+    * `proportional == False` (the default) -- one **identical** rounding
       distance on every side, set by the shorter edge:
-      ``rx = ry = fraction * min(width, height) / 2``. A 4x8 label at
-      ``0.5`` rounds 2in (50%) of the 4in sides, starting 1in from each
+      `rx = ry = fraction * min(width, height) / 2`. A 4x8 label at
+      `0.5` rounds 2in (50%) of the 4in sides, starting 1in from each
       corner.
-    * ``proportional == True`` -- the fraction applies to each dimension:
-      ``rx = fraction * width / 2``, ``ry = fraction * height / 2``, so the
+    * `proportional == True` -- the fraction applies to each dimension:
+      `rx = fraction * width / 2`, `ry = fraction * height / 2`, so the
       same 4x8 label rounds 50% of the 8in side too.
 
-    The one degenerate endpoint is ``fraction == 1`` with
-    ``proportional == False`` on a non-square: the short edges are fully
+    The one degenerate endpoint is `fraction == 1` with
+    `proportional == False` on a non-square: the short edges are fully
     rounded and the long edges keep straight sections (a stadium). A
     quarter-circle there would break G2 at the four junctions, so the
     exponent is clamped to :data:`STADIUM_G2_EXPONENT` -- a smoothed
@@ -2913,12 +2913,12 @@ def rounded_rect_corner_params(
     Args:
         width: Label width in inches (> 0).
         height: Label height in inches (> 0).
-        fraction: Corner rounding fraction in ``[0.0, 1.0]``.
+        fraction: Corner rounding fraction in `[0.0, 1.0]`.
         proportional: Proportional (true) or equal-distance (false) rounding.
 
     Returns:
-        The corner parameters, or ``None`` when the border is the sharp
-        rectangle (``fraction <= 0``, a non-finite fraction, or a
+        The corner parameters, or `None` when the border is the sharp
+        rectangle (`fraction <= 0`, a non-finite fraction, or a
         degenerate size).
     """
     if not (width > 0.0) or not (height > 0.0):
@@ -2964,7 +2964,7 @@ def rounded_rect_content_inset(
     """Inner content extents of a rounded-rectangle label, in inches.
 
     The margin on a rounded label applies to the **engraved boundary**, not
-    to the enclosing rectangle: content must stay ``margin`` away from the
+    to the enclosing rectangle: content must stay `margin` away from the
     rounded stroke, so the rectangular inset overstates the room near the
     corners (the rounding cuts that material away). The rule mirrors
     :func:`ellipse_content_inset`: text stacks as a centered, axis-aligned
@@ -2973,8 +2973,8 @@ def rounded_rect_content_inset(
     largest centered block of the label's own aspect ratio satisfying that.
 
     The inset boundary is the centered rounded rectangle with half-extents
-    ``width / 2 - h_margin`` by ``height / 2 - v_margin`` and corner radii
-    shrunk by ``min(h_margin, v_margin)`` -- the standard superellipse
+    `width / 2 - h_margin` by `height / 2 - v_margin` and corner radii
+    shrunk by `min(h_margin, v_margin)` -- the standard superellipse
     erosion, exact for a circle and for the straight-edge parts, and the
     same standard inset :func:`ellipse_content_inset` applies to an ellipse.
 
@@ -2983,11 +2983,11 @@ def rounded_rect_content_inset(
         height: Label height in inches (> 0).
         h_margin: Horizontal (X-direction) margin in inches (>= 0).
         v_margin: Vertical (Y-direction) margin in inches (>= 0).
-        corner: The label's corner parameters (never ``None`` here -- the
+        corner: The label's corner parameters (never `None` here -- the
             sharp rectangle keeps the plain rectangular inset).
 
     Returns:
-        ``(inner_width, inner_height)`` in inches. ``(0.0, 0.0)`` when a
+        `(inner_width, inner_height)` in inches. `(0.0, 0.0)` when a
         margin reaches past the centre.
     """
     semi_x = width / 2.0 - h_margin
@@ -3005,7 +3005,7 @@ def rounded_rect_content_inset(
 
     exponent = corner.exponent
     aspect = width / height
-    # The block's corner is ``(aspect * v, v)`` about the centre (the label's
+    # The block's corner is `(aspect * v, v)` about the centre (the label's
     # own aspect, the ellipse-inset rule). Both corner-patch coordinates grow
     # monotonically with v, so the fit test is monotone -- bisect.
     v_max = min(semi_y, semi_x / aspect)
@@ -3042,37 +3042,37 @@ def compute_horizontal_offset(
 ) -> float:
     """Compute the target left-edge X for a rendered line inside the margin box.
 
-    The label's inner content area spans ``[margin, margin +
-    available_width]``. The alignment anchors the rendered line within
+    The label's inner content area spans `[margin, margin +
+    available_width]`. The alignment anchors the rendered line within
     that span:
 
-    - ``"left"``: the line's left-most point sits precisely at the left
-      margin (``margin``).
-    - ``"right"``: the line's right-most point sits precisely at the right
-      margin (``margin + available_width``).
-    - ``"center"`` (default): the line is centered within the span, plus any
+    - `"left"`: the line's left-most point sits precisely at the left
+      margin (`margin`).
+    - `"right"`: the line's right-most point sits precisely at the right
+      margin (`margin + available_width`).
+    - `"center"` (default): the line is centered within the span, plus any
       hole-aware horizontal shift.
 
     When the line is wider than the available width (e.g. compression is
-    disabled), ``"center"`` overflows symmetrically and ``"left"`` /
-    ``"right"`` keep their respective margin edges anchored, spilling out
+    disabled), `"center"` overflows symmetrically and `"left"` /
+    `"right"` keep their respective margin edges anchored, spilling out
     the opposite side. The hole-aware shift applies only to center-aligned
-    text; fixed-edge alignment (``"left"`` / ``"right"``) ignores the shift.
+    text; fixed-edge alignment (`"left"` / `"right"`) ignores the shift.
 
     Args:
         rendered_width: Measured rendered line width in inches.
         available_width: Inner content width in inches (label width minus
             both margins).
         margin: Resolved label margin in inches (left inner edge position).
-        alignment: One of ``"left"``, ``"center"`` or ``"right"``. Unknown
-            values fall back to ``"center"``.
+        alignment: One of `"left"`, `"center"` or `"right"`. Unknown
+            values fall back to `"center"`.
         hole_aware_h_shift: Optional horizontal shift in inches to account for
             asymmetric left/right holes (positive = rightward). Applied only
-            when ``alignment`` is ``"center"``; fixed-edge alignment ignores it.
-            ``0.0`` (the default) applies no shift.
+            when `alignment` is `"center"`; fixed-edge alignment ignores it.
+            `0.0` (the default) applies no shift.
 
     Returns:
-        The X coordinate where the line's left-most point (its ``min_x``)
+        The X coordinate where the line's left-most point (its `min_x`)
         should be translated to.
     """
     if alignment == "left":
@@ -3097,11 +3097,11 @@ def _resolve_auto_line_spacing(
 ) -> tuple[list[ResolvedTextLine], Optional[float]]:
     """Resolve any auto line spacing values in content.
 
-    When ``line_spacing="auto"``, spacing is calculated such that all lines
+    When `line_spacing="auto"`, spacing is calculated such that all lines
     have equal functional spacing (or proportional spacing if a ratio > 1.0
-    is provided). If ``v_margin`` is explicitly specified, it is honored and
-    ``line_spacing`` is calculated to fill the remaining space. If ``v_margin``
-    is not explicitly specified, the functional ``v_margin`` is set equal to
+    is provided). If `v_margin` is explicitly specified, it is honored and
+    `line_spacing` is calculated to fill the remaining space. If `v_margin`
+    is not explicitly specified, the functional `v_margin` is set equal to
     the inter-line spacing (or scaled by the ratio).
 
     Cutter width is a horizontal measure (stroke width) and does not affect
@@ -3109,7 +3109,7 @@ def _resolve_auto_line_spacing(
     among inter-line gaps and top/bottom margins, with the ratio controlling
     their relative sizes.
 
-    Baseline spacing (``use_baseline_spacing`` with an ``extents_probe``)
+    Baseline spacing (`use_baseline_spacing` with an `extents_probe`)
     fills the same space against the block's **ink** height instead of the sum
     of nominal heights: each line's real ascender/descender extents are
     measured through the probe, so a line whose glyphs hang below the baseline
@@ -3131,10 +3131,10 @@ def _resolve_auto_line_spacing(
             Values > 1.0 increase inter-line spacing at the expense of
             top/bottom margins.
         use_baseline_spacing: Resolve auto spacing against the baseline-stacked
-            ink height (see above). Takes effect only with ``extents_probe``.
+            ink height (see above). Takes effect only with `extents_probe`.
         extents_probe: Optional probe measuring a line's
-            ``(ascender, descender)`` ink extents in inches.
-        charge_descenders: When ``False`` (band-centered labels) the fill
+            `(ascender, descender)` ink extents in inches.
+        charge_descenders: When `False` (band-centered labels) the fill
             equation sizes the space against the baseline-to-capline band, so
             descenders are NOT charged to the inner area -- they hang into the
             bottom margin for the descending-character relief to handle.
@@ -3175,7 +3175,7 @@ def _resolve_auto_line_spacing(
     # Baseline spacing measures the real ink extents once (callers memoize the
     # probe, so a label's lines render at most once) and solves the fill
     # equation against the descender-extended block height. Its pitch basis is
-    # the line's cap height (``toolpath_text_height``) -- a per-font constant
+    # the line's cap height (`toolpath_text_height`) -- a per-font constant
     # independent of the line's own characters -- which is exactly what the
     # renderer stacks by.
     baseline_extents: Optional[tuple[list[float], list[float]]] = None
@@ -3283,11 +3283,11 @@ def _fit_content_to_margins(
     Uses nominal text heights for the fit estimate; the renderer applies a
     final safety check against measured glyph heights.
 
-    Under baseline spacing (``use_baseline_spacing`` with an
-    ``extents_probe``) the estimate uses the baseline-stacked **ink** height
+    Under baseline spacing (`use_baseline_spacing` with an
+    `extents_probe`) the estimate uses the baseline-stacked **ink** height
     (:func:`fit_baseline_spacing_to_margins`) instead of the sum of nominal
     heights, so a line's descenders claim their space in the resolved
-    ``line_spacing`` values. That keeps the resolved spacing equal to what the
+    `line_spacing` values. That keeps the resolved spacing equal to what the
     renderer will actually engrave (the layout report compares the two) and
     keeps the renderer's own clamp silent.
 
@@ -3297,17 +3297,17 @@ def _fit_content_to_margins(
         margin: Resolved label margin in inches.
         label_id: Identifier used in log messages.
         use_baseline_spacing: Fit against the baseline-stacked ink height.
-            Takes effect only with ``extents_probe``.
+            Takes effect only with `extents_probe`.
         extents_probe: Optional probe measuring a line's
-            ``(ascender, descender)`` ink extents in inches.
-        charge_descenders: When ``False`` (band-centered labels) the fit
+            `(ascender, descender)` ink extents in inches.
+        charge_descenders: When `False` (band-centered labels) the fit
             measures the block as its baseline-to-capline band, so descenders
             are not charged to the inner area and the spacing is not shrunk to
             make them fit -- they hang into the bottom margin for the relief.
 
     Returns:
         The original content list when no adjustment is needed, otherwise
-        a new list with reduced ``line_spacing`` values.
+        a new list with reduced `line_spacing` values.
     """
     if len(content) < 2:
         return content
@@ -3320,7 +3320,7 @@ def _fit_content_to_margins(
     if extents is not None:
         ascenders, descenders = extents
         # The pitch basis is the cap height, matching the renderer's stacking
-        # (see ``_render_positioned_lines``); the nominal heights above stay
+        # (see `_render_positioned_lines`); the nominal heights above stay
         # the ink-box basis for the historical path and the overflow warning.
         adjusted = fit_baseline_spacing_to_margins(
             [line.toolpath_text_height for line in content],
@@ -3365,7 +3365,7 @@ def _measure_extents(
     use_baseline_spacing: bool,
     extents_probe: Optional[LineExtentsProbe],
 ) -> Optional[tuple[list[float], list[float]]]:
-    """Measure every line's ``(ascender, descender)`` ink extents, if enabled.
+    """Measure every line's `(ascender, descender)` ink extents, if enabled.
 
     Shared by the two spacing fitters so a label's lines are measured through
     one probe call per line (the production probe memoizes per line, so labels
@@ -3377,7 +3377,7 @@ def _measure_extents(
         extents_probe: Optional probe measuring a line's ink extents.
 
     Returns:
-        ``(ascenders, descenders)`` in inches, or ``None`` when baseline
+        `(ascenders, descenders)` in inches, or `None` when baseline
         spacing is disabled, no probe is wired, or the label has a single line
         (no gaps to fit).
     """
@@ -3460,18 +3460,18 @@ def reflow_groups(content: Sequence[ResolvedTextLine]) -> list[list[int]]:
     """Split a label's lines into the reflow groups of the word-level reflow.
 
     A group is a maximal run of consecutive lines that enable
-    ``optimize_line_content``; a disabled line breaks the run. A line that
-    carries ``new_line`` additionally breaks the run **before** it, so the
+    `optimize_line_content`; a disabled line breaks the run. A line that
+    carries `new_line` additionally breaks the run **before** it, so the
     line starts a fresh group: the lines that follow it (which do not carry
     the flag) then reflow with it instead of with the lines above it.
 
-    A list item (``list_item``) is its **own** group: the run breaks both
+    A list item (`list_item`) is its **own** group: the run breaks both
     before and after it, so an item's words never cross into the neighbouring
     item or into a plain line -- each item reflows (and grows) as its own
     paragraph. An item that does not enable reflow forms no group at all.
 
     This is the single source of truth for group membership: the resolution
-    post-pass (the ``optimize_line_content_max_lines`` fan-out) and the export
+    post-pass (the `optimize_line_content_max_lines` fan-out) and the export
     pre-pass (:mod:`plt_optimizer.generate.line_content`) must agree on the
     groups, or a cap would be fanned out onto lines the pre-pass never
     reflows together.
@@ -3513,27 +3513,27 @@ def _apply_reflow_line_caps(
     resolved_content: list[ResolvedTextLine],
     label_id: str,
 ) -> list[ResolvedTextLine]:
-    """Validate and fan out ``optimize_line_content_max_lines`` per group.
+    """Validate and fan out `optimize_line_content_max_lines` per group.
 
     Runs over the *resolved* lines (so config injection and the full
     line -> label -> job cascade are already visible) and enforces the two
     authoring rules of the reflow line cap, then fans the agreed value out:
 
     1. a cap resolved onto some line while *no* line of the label has
-       ``optimize_line_content`` enabled raises :class:`LineContentConfigError`
+       `optimize_line_content` enabled raises :class:`LineContentConfigError`
        (the cap governs a reflow group and this label forms none, so the
        declaration is meaningless). A cap cascading onto lines that are
        individually disabled is fine as long as the label has an enabled line
        somewhere -- the pre-pass reads the cap from the group's own lines;
     2. within one maximal run of consecutive enabled lines, two *different*
-       non-``None`` caps raise (the group grows to one agreed ceiling);
-    3. the group's single cap (else ``None``) is written onto every line of
+       non-`None` caps raise (the group grows to one agreed ceiling);
+    3. the group's single cap (else `None`) is written onto every line of
        the group, so the reflow pre-pass reads it from the group's first line
        without re-scanning.
 
     Group membership comes from :func:`reflow_groups` (the single source of
-    truth shared with the export pre-pass), so a ``new_line`` line also ends
-    the group above it: the caps of two groups separated by a ``new_line``
+    truth shared with the export pre-pass), so a `new_line` line also ends
+    the group above it: the caps of two groups separated by a `new_line`
     line never conflict.
 
     Labels whose groups need no fan-out are returned unchanged (same line
@@ -3598,26 +3598,26 @@ def glyph_render_plan(
 ) -> Optional[Tuple[Tuple[float, ...], Tuple[float, ...]]]:
     """Return the per-character (cutter diameter, geometry scale) plan for a line.
 
-    The unified centerline contract for the ``<b>`` and ``<scale:N>`` markup
-    (see ``generate/markup/AGENTS.md`` "Inline Bold" / "Inline Text Scaling").
+    The unified centerline contract for the `<b>` and `<scale:N>` markup
+    (see `generate/markup/AGENTS.md` "Inline Bold" / "Inline Text Scaling").
     A glyph's
     stored geometry is the path the *design* cutter follows; the line's
-    plain run scales it to ``nominal - cutter`` so the engraved silhouette
-    is exactly ``nominal`` tall with the plain tool. A run that engraves
-    its silhouette ``s`` times the plain run's through cutter ``d`` needs
+    plain run scales it to `nominal - cutter` so the engraved silhouette
+    is exactly `nominal` tall with the plain tool. A run that engraves
+    its silhouette `s` times the plain run's through cutter `d` needs
     the geometry scale
 
-    ``g = (s * nominal - d) / (nominal - cutter)``
+    `g = (s * nominal - d) / (nominal - cutter)`
 
-    (uniform, about the baseline -- ``AA`` arcs stay native). At ``s = 1``
-    and ``d = bold_cutter`` this is exactly
-    :meth:`ResolvedTextLine._bold_glyph_scale`, so ``<b>`` is the plan's
-    special case; at ``s = N`` and ``d = cutter`` it is the pure markup
-    scale; at ``s = 1`` and ``d = D`` (the ``<c:D>`` explicit tool) it is
-    the explicit-tool scale, so a ``<c:D>`` run's engraved silhouette is
-    exactly ``nominal - D`` tall -- the same invariant the plain and bold
+    (uniform, about the baseline -- `AA` arcs stay native). At `s = 1`
+    and `d = bold_cutter` this is exactly
+    :meth:`ResolvedTextLine._bold_glyph_scale`, so `<b>` is the plan's
+    special case; at `s = N` and `d = cutter` it is the pure markup
+    scale; at `s = 1` and `d = D` (the `<c:D>` explicit tool) it is
+    the explicit-tool scale, so a `<c:D>` run's engraved silhouette is
+    exactly `nominal - D` tall -- the same invariant the plain and bold
     runs uphold. The resolution-time cutter step guarantees a positive
-    numerator for every run, except on an explicit-``cutter_size`` line,
+    numerator for every run, except on an explicit-`cutter_size` line,
     where a degenerate factor clamps to :data:`MIN_SCALED_GLYPH_FACTOR`
     (WARNING).
 
@@ -3625,10 +3625,10 @@ def glyph_render_plan(
         line: The resolved text line (flags, cutters, nominal height).
 
     Returns:
-        ``(cutter_diameters, glyph_scales)`` tuples aligned with
+        `(cutter_diameters, glyph_scales)` tuples aligned with
         :attr:`ResolvedTextLine.plain_text` (spaces included; the diameter
         is what kerning's per-pair stroke floor uses, the scale is the
-        geometry transform), or ``None`` when the line carries neither a
+        geometry transform), or `None` when the line carries neither a
         bold run with a bold cutter nor a scaled run (the renderers' fast
         path -- the historical call shape, bit-identical output).
     """
@@ -3698,18 +3698,18 @@ def _scale_cutter_ladder_cached(
     character of each distinct scale, and the ladder's INFO/WARNING lines fire
     once per distinct (font, effective height, factors) -- not once per access.
 
-    ``need_bold`` skips the bold-rung lookup entirely for a run that is not
-    bold: ``_bold_cutter_diameter`` warns when no larger rung exists, and that
+    `need_bold` skips the bold-rung lookup entirely for a run that is not
+    bold: `_bold_cutter_diameter` warns when no larger rung exists, and that
     warning is meaningless for a line with no bold run at all.
 
-    ``run_ladder`` selects the RUN font's own plain-cutter ladder (the
-    ``<f:...>`` contract): a multi-stroke (bold) run font re-runs the
+    `run_ladder` selects the RUN font's own plain-cutter ladder (the
+    `<f:...>` contract): a multi-stroke (bold) run font re-runs the
     boldness ladder at the effective height (snap + gap-free step-up, exactly
     like the line-level cutter block), a single-stroke/TTF run font takes the
     height ladder. Without it the plain cutter is the plain height ladder
-    (the shipped ``<scale:N>`` behavior on the line's own font).
+    (the shipped `<scale:N>` behavior on the line's own font).
 
-    ``line_cutter`` is the line's OWN resolved cutter, and it clamps the
+    `line_cutter` is the line's OWN resolved cutter, and it clamps the
     plain rung of an **unscaled** run (see :func:`scale_cutter_ladder`): a
     run that changes only the FONT never engraves with a wider tool than the
     line it sits in, so the compression-driven downsize (which moves the
@@ -3789,33 +3789,33 @@ def scale_cutter_ladder(
     run_ladder: bool = False,
     line_cutter: Optional[float] = None,
 ) -> Tuple[float, float]:
-    """Return the ``(plain, bold)`` cutters a ``<scale:N>``/``<f:...>`` run uses.
+    """Return the `(plain, bold)` cutters a `<scale:N>`/`<f:...>` run uses.
 
     A scaled run is a smaller (or larger) glyph, so it engraves with the
-    cutter that ``scale * nominal_text_height`` of text would get on its own
+    cutter that `scale * nominal_text_height` of text would get on its own
     -- the same height-based ladder the automatic cutter uses, snapped to the
     shop inventory. The run's engraved stroke weight therefore matches text
     authored at that height: a 0.5x run on 1in text takes the 0.5in text's
     tool, not the 1in tool (which fills a half-size glyph into a blob).
 
-    A **``<f:...>`` font run** passes ``font`` (the run's canonical font name)
-    and ``run_ladder=True``: the plain cutter comes from the RUN font's own
+    A **`<f:...>` font run** passes `font` (the run's canonical font name)
+    and `run_ladder=True`: the plain cutter comes from the RUN font's own
     ladder at the effective height -- the tool that size of text in that font
     gets authored on its own, multi-stroke boldness ladder included -- so a
     symbol run on large text drops to its own tool instead of engraving a
-    blob with the line's fat cutter (the ``<scale:N>`` symptom). The bold
+    blob with the line's fat cutter (the `<scale:N>` symptom). The bold
     rung then resolves against the run font too.
 
     A **bold + scaled** run takes the bold rung at the effective height (the
     next larger rung, or the boosted multi-stroke ladder re-run at that
-    height), mirroring ``<b>`` at the run's own size.
+    height), mirroring `<b>` at the run's own size.
 
-    **The line-cutter clamp (an unscaled font run).** A ``<f:...>`` run that
+    **The line-cutter clamp (an unscaled font run).** A `<f:...>` run that
     changes only the FONT keeps the line's nominal height, so it must not
     engrave with a *wider* tool than the line it sits in: the clamp caps the
-    run's plain rung at ``line_cutter`` (the line's own resolved tool, which
+    run's plain rung at `line_cutter` (the line's own resolved tool, which
     the compression-driven downsize may have moved). The clamp is applied
-    only to a run at ``scale == 1.0`` -- a ``<scale:N>``/``<sup>``/``<sub>``
+    only to a run at `scale == 1.0` -- a `<scale:N>`/`<sup>`/`<sub>`
     run has a height of its own and keeps its own ladder. A multi-stroke run
     font keeps its gap-free floor through the clamp (the floor may pull the
     cutter back above the line's tool, never below it). The clamp makes the
@@ -3829,21 +3829,21 @@ def scale_cutter_ladder(
 
     Args:
         line: The resolved text line carrying the ladder inputs.
-        scale: The effective silhouette factor (``1.0`` for a bare font run).
+        scale: The effective silhouette factor (`1.0` for a bare font run).
         need_bold: Look up the bold rung at the effective height. Pass False
             for a run that is not bold (the common case) to skip the lookup
             and its "no larger rung" warning.
-        font: The font the ladder resolves against (``None`` = the line's).
+        font: The font the ladder resolves against (`None` = the line's).
         run_ladder: Use the run font's own plain-cutter ladder (multi-stroke
             aware) instead of the plain height ladder.
         line_cutter: The line's own resolved cutter diameter, used as the
-            clamp ceiling for an unscaled (``scale == 1.0``) run. ``None``
+            clamp ceiling for an unscaled (`scale == 1.0`) run. `None`
             disables the clamp (the run keeps its own ladder tool).
 
     Returns:
-        ``(plain_cutter, bold_cutter)`` at ``scale * nominal_text_height``;
-        ``bold_cutter`` equals ``plain_cutter`` when no rung sits above it (or
-        ``need_bold`` is False).
+        `(plain_cutter, bold_cutter)` at `scale * nominal_text_height`;
+        `bold_cutter` equals `plain_cutter` when no rung sits above it (or
+        `need_bold` is False).
     """
     return _scale_cutter_ladder_cached(
         line.nominal_text_height,
@@ -3874,20 +3874,20 @@ def _bold_cutter_diameter(
     bold_boldness_multiplier: float,
     available_cutters: Optional[list[float]] = None,
 ) -> Optional[float]:
-    """Size the thicker cutter a ``<b>`` run of a text line engraves with.
+    """Size the thicker cutter a `<b>` run of a text line engraves with.
 
     Single-stroke PLT fonts and TTF fonts: the smallest inventory diameter
-    strictly above the line's resolved ``cutter_diameter`` (the TODO's "next
+    strictly above the line's resolved `cutter_diameter` (the TODO's "next
     size up in inventory"). Multi-stroke (bold) PLT fonts
-    (``stroke_count > 1``): the boldness ladder re-run at
-    ``target_boldness_factor * bold_boldness_multiplier`` (clamped to
+    (`stroke_count > 1`): the boldness ladder re-run at
+    `target_boldness_factor * bold_boldness_multiplier` (clamped to
     :data:`MAX_TARGET_BOLDNESS_FACTOR` with a WARNING), snapped and stepped
     up exactly like the plain rung, so the run's parallel passes engrave
     heavier.
 
-    ``None`` (the bold runs engrave with the plain cutter) when:
+    `None` (the bold runs engrave with the plain cutter) when:
 
-    - the line carries an explicit ``cutter_size``: an explicit tool is a
+    - the line carries an explicit `cutter_size`: an explicit tool is a
       human decision, never overridden automatically (the same contract the
       compression-driven downsize honours), with a WARNING naming the line;
     - a single-stroke/TTF line sits at the top of the inventory (no larger
@@ -3901,14 +3901,14 @@ def _bold_cutter_diameter(
         nominal_height: The line's nominal text height in inches.
         cutter_dia: The line's resolved (plain) cutter diameter in inches.
         explicit_cutter: True when the line resolved an explicit
-            ``cutter_size`` (bold is inert then).
+            `cutter_size` (bold is inert then).
         target_boldness_factor: The line's resolved boldness factor.
         multistroke_overlap_ratio: The line's resolved overlap floor.
-        bold_boldness_multiplier: The line's resolved ``<b>`` multiplier.
+        bold_boldness_multiplier: The line's resolved `<b>` multiplier.
         available_cutters: Optional shop inventory in inches.
 
     Returns:
-        The bold cutter diameter in inches, or ``None`` when the bold runs
+        The bold cutter diameter in inches, or `None` when the bold runs
         keep the plain cutter.
     """
     if explicit_cutter:
@@ -4009,12 +4009,12 @@ def _validate_cutter_markup(
     styled_runs: Sequence[Run],
     available_cutters: Optional[list[float]],
 ) -> None:
-    """Validate the ``<c:D>`` cutter markup of one text line.
+    """Validate the `<c:D>` cutter markup of one text line.
 
     Every distinct diameter the line declares is checked once:
 
     - **Snap**: the requested diameter is snapped to the shop inventory with
-      the same rule the line-level ``cutter_size`` uses
+      the same rule the line-level `cutter_size` uses
       (:func:`snap_boundary_hole_cutter` -- an exact match is kept, else the
       next size down, else the next size up), with a WARNING naming the line
       when the snap moves it (a tool the shop does not own cannot be
@@ -4022,7 +4022,7 @@ def _validate_cutter_markup(
     - **Material**: a tool at or above the line's nominal text height leaves
       no material to engrave, so the job aborts with a
       :class:`CutterSizeError` (the same fail-loud contract an out-of-range
-      line-level ``cutter_size`` obeys).
+      line-level `cutter_size` obeys).
 
     The snapped value is NOT stored here: the per-character derivation
     (:attr:`ResolvedTextLine.per_char_cutters`) re-derives it from the same
@@ -4083,25 +4083,25 @@ def _validate_kern_markers(
     """Reject a manual-kern marker string that is (or contains) markup.
 
     The schema's field validator rejects a marker with the shape of a
-    DEFAULT-bracket tag (the ``<s>`` footgun); this is the authoritative
-    check against the line's EFFECTIVE ``html_brackets`` and the live tag
+    DEFAULT-bracket tag (the `<s>` footgun); this is the authoritative
+    check against the line's EFFECTIVE `html_brackets` and the live tag
     registry. The test is the real scanner: parsing the marker on its own
     must find no tag. A marker the scan consumes as markup can never act as
     a marker -- the kern strip runs after the scan and would never see it --
     so the job aborts loudly (the fail-loud contract of an unknown font /
     malformed markup) rather than silently engraving the marker.
 
-    ``<->`` passes with the default brackets (the body ``-`` is not a
+    `<->` passes with the default brackets (the body `-` is not a
     registered tag, so the scan leaves it literal); a custom-bracket job
-    using ``«k»`` passes too, and a marker that is markup-shaped under
-    ``<>`` is legal there.
+    using `«k»` passes too, and a marker that is markup-shaped under
+    `<>` is legal there.
 
     Args:
         label_id: Identifier used in the error message.
         line_index: Index of the line (for the message).
         line_text: The line's raw text (for the message).
-        kern_pos: The resolved positive marker string, or ``None``.
-        kern_neg: The resolved negative marker string, or ``None``.
+        kern_pos: The resolved positive marker string, or `None`.
+        kern_neg: The resolved negative marker string, or `None`.
         left: The line's resolved left delimiter.
         right: The line's resolved right delimiter.
 
@@ -4130,18 +4130,18 @@ def _validate_kern_markers(
 
 
 def _cascade_list_setting(*tiers: Optional[_T], fallback: _T) -> _T:
-    """Return the first set (non-``None``) value in a list-settings cascade.
+    """Return the first set (non-`None`) value in a list-settings cascade.
 
     The list-level marker settings cascade item -> list block -> label -> job
-    -> code fallback, using the repo's explicit-``None`` precedence (an
-    intentional ``0``/``""``/``False`` is honored, only ``None`` means unset).
+    -> code fallback, using the repo's explicit-`None` precedence (an
+    intentional `0`/`""`/`False` is honored, only `None` means unset).
 
     Args:
         *tiers: The cascade values, most specific first.
-        fallback: The code fallback used when every tier is ``None``.
+        fallback: The code fallback used when every tier is `None`.
 
     Returns:
-        The first non-``None`` tier, else ``fallback``.
+        The first non-`None` tier, else `fallback`.
     """
     for tier in tiers:
         if tier is not None:
@@ -4159,12 +4159,12 @@ def _list_marker_text(
 ) -> str:
     """Resolve one list item's marker text (bullet string or counter).
 
-    A bullet item engraves the resolved ``bullet_string`` (an explicit empty
+    A bullet item engraves the resolved `bullet_string` (an explicit empty
     string yields no marker -- an indent-only list). An enumerated item
-    engraves ``prefix + format_counter(start_index + position, style) +
-    suffix``, every setting cascading item -> block -> label -> job ->
+    engraves `prefix + format_counter(start_index + position, style) +
+    suffix`, every setting cascading item -> block -> label -> job ->
     fallback. The counter is always computed, so an enumerated item's own
-    ``bullet_string`` is inert.
+    `bullet_string` is inert.
 
     Args:
         block: The list block owning the item (carries its own settings).
@@ -4229,11 +4229,11 @@ def _merge_item_with_block(item: TextLine, block: ListAttributes) -> TextLine:
     """Merge a list item's model with its block's cascading attributes.
 
     Every :class:`~plt_optimizer.generate.schema.TextAttributes` field the
-    item leaves unset (``None``) is filled from the block, so the ordinary
+    item leaves unset (`None`) is filled from the block, so the ordinary
     line -> label -> job cascade downstream transparently sees the full
     item -> block -> label -> job chain for every typographic field (height,
     font, alignment, reflow permission, line cap, ...). The item's own
-    ``text`` is never touched; a block value fills only what the item omits
+    `text` is never touched; a block value fills only what the item omits
     (an explicit item value always wins).
 
     Args:
@@ -4263,11 +4263,11 @@ def _flatten_content(
 
     A plain entry yields its own model with no marker. A list block yields one
     record per item, each carrying its resolved marker text, a fresh
-    ``align_group_id`` shared by every line of the block (so the renderer
+    `align_group_id` shared by every line of the block (so the renderer
     aligns the whole list as one block with one flush marker column), and the
-    ``list_item`` flag (which makes the reflow group per item). The item
+    `list_item` flag (which makes the reflow group per item). The item
     model is merged with the block first (see :func:`_merge_item_with_block`),
-    so the ordinary line -> label -> job cascade inside ``_resolve_content``
+    so the ordinary line -> label -> job cascade inside `_resolve_content`
     transparently sees item -> block -> label -> job for every cascading
     typographic field.
 
@@ -4277,9 +4277,9 @@ def _flatten_content(
         job: The outer job providing the job cascade tier.
 
     Returns:
-        ``(line_model, marker_text, align_group_id, list_item,
-        marker_gap_fraction)`` per line, in content order. Plain lines get
-        ``(-1, False)`` group/flag values and the default gap fraction.
+        `(line_model, marker_text, align_group_id, list_item,
+        marker_gap_fraction)` per line, in content order. Plain lines get
+        `(-1, False)` group/flag values and the default gap fraction.
     """
     flattened: list[tuple[TextLine, str, int, bool, float]] = []
     group_id = 0
@@ -4319,20 +4319,20 @@ def _resolve_content(
     the appropriate cutter diameter and subtracts it from the nominal
     height to produce the toolpath height.
 
-    An explicit ``cutter_size`` (cascaded line -> label -> job) overrides
+    An explicit `cutter_size` (cascaded line -> label -> job) overrides
     the automatic height-based selection: the requested diameter is snapped
-    to ``available_cutters`` (next size down, else next size up) and the
+    to `available_cutters` (next size down, else next size up) and the
     nominal height is kept as the user's intent, so only the toolpath
-    height (``nominal_height - cutter_size``) changes. When the explicit
+    height (`nominal_height - cutter_size`) changes. When the explicit
     cutter leaves no material to engrave (toolpath height <= 0),
     :class:`CutterSizeError` is raised.
 
     When no explicit cutter is set and the line's font is a multi-stroke
-    (bold) PLT font (``stroke_count > 1`` in its catalog file), the
+    (bold) PLT font (`stroke_count > 1` in its catalog file), the
     automatic selection is replaced by the boldness ladder
     (:func:`multi_stroke_cutter_diameter`): the cutter is sized so the
-    engraved passes total ``text_height * target_boldness_factor``, with
-    ``multistroke_overlap_ratio`` guarding the gap-free floor, then snapped
+    engraved passes total `text_height * target_boldness_factor`, with
+    `multistroke_overlap_ratio` guarding the gap-free floor, then snapped
     to the shop inventory (stepping up when the snap breaks the floor).
 
     Args:
@@ -4342,7 +4342,7 @@ def _resolve_content(
             the shop. If provided, the cutter is snapped to the closest
             available tool.
         tolerance_factor: The multiplier used to decide between narrower and
-            wider cutters. See ``get_cutter_diameter`` for details.
+            wider cutters. See `get_cutter_diameter` for details.
         label_id: Identifier used in WARNING/ERROR messages (the label
             owning the lines being resolved).
 
@@ -4350,12 +4350,12 @@ def _resolve_content(
         A list of fully resolved text lines with cutter compensation.
 
     Raises:
-        CutterSizeError: If an explicit ``cutter_size`` (or a multi-stroke
+        CutterSizeError: If an explicit `cutter_size` (or a multi-stroke
             ladder cutter) is greater than or equal to the line's nominal
             text height (no material left to engrave).
         LineContentConfigError: If a line declares
-            ``optimize_line_content_max_lines`` while its reflow permission
-            resolves ``False``, or one reflow group declares two different
+            `optimize_line_content_max_lines` while its reflow permission
+            resolves `False`, or one reflow group declares two different
             caps (see :func:`_apply_reflow_line_caps`).
     """
     resolved_content: list[ResolvedTextLine] = []
@@ -4540,7 +4540,7 @@ def _resolve_content(
             )
 
         # Resolve horizontal compression limit explicitly so an intentional
-        # ``0.0`` (compression disabled) is honored instead of falling
+        # `0.0` (compression disabled) is honored instead of falling
         # through to a parent value.
         if line.max_h_compress is not None:
             line_max_h_compress: float = line.max_h_compress
@@ -4573,7 +4573,7 @@ def _resolve_content(
             line_text_color = DEFAULT_TEXT_COLOR
 
         # Resolve the PLT-font space advance fraction explicitly so an
-        # intentional ``0.0`` is honored instead of falling through to a
+        # intentional `0.0` is honored instead of falling through to a
         # parent value (line -> label -> job -> default).
         if line.space_width_fraction is not None:
             line_space_width_fraction: float = line.space_width_fraction
@@ -4645,7 +4645,7 @@ def _resolve_content(
             line_fallback_advance_fraction = DEFAULT_FALLBACK_ADVANCE_FRACTION
 
         # Resolve the manual-kern marker strings with the same explicit-None
-        # precedence (line -> label -> job -> unset). ``None`` disables the
+        # precedence (line -> label -> job -> unset). `None` disables the
         # marker, so a job that configures nothing keeps every line on the
         # historical bit-identical render path.
         if line.kern_pos_string is not None:
@@ -4750,7 +4750,7 @@ def _resolve_content(
 
         # Resolve the underline break-at-spaces permission with the same
         # explicit-None precedence (line -> label -> job -> default) so an
-        # intentional ``False`` (continuous underline) is honored.
+        # intentional `False` (continuous underline) is honored.
         if line.underline_break_spaces is not None:
             line_underline_break_spaces: bool = line.underline_break_spaces
         elif label_input.underline_break_spaces is not None:
@@ -4763,9 +4763,9 @@ def _resolve_content(
         # Resolve the strikethrough height fraction with the same
         # explicit-None precedence (line -> label -> job -> default); an
         # intentional 0.0 (the stroke sits on the baseline) is honored, and
-        # the default ``None`` keeps the cap-band-midline centering (the
-        # value stays ``None`` all the way to ResolvedTextLine, whose
-        # ``strikethrough_cap`` property resolves the midline).
+        # the default `None` keeps the cap-band-midline centering (the
+        # value stays `None` all the way to ResolvedTextLine, whose
+        # `strikethrough_cap` property resolves the midline).
         if line.strikethrough_offset_fraction is not None:
             line_strikethrough_offset_fraction: Optional[float] = line.strikethrough_offset_fraction
         elif label_input.strikethrough_offset_fraction is not None:
@@ -4777,7 +4777,7 @@ def _resolve_content(
 
         # Resolve the strikethrough break-at-spaces permission with the same
         # explicit-None precedence (line -> label -> job -> default) so an
-        # intentional ``False`` (continuous stroke) is honored.
+        # intentional `False` (continuous stroke) is honored.
         if line.strikethrough_break_spaces is not None:
             line_strikethrough_break_spaces: bool = line.strikethrough_break_spaces
         elif label_input.strikethrough_break_spaces is not None:
@@ -4839,21 +4839,21 @@ def _resolve_content(
             color_resolver=_canonical_text_color,
         )
 
-        # Scale markup: a ``<scale:N>`` run engraves with the cutter that its
-        # effective height (``N * nominal_height``) of text would get on its
+        # Scale markup: a `<scale:N>` run engraves with the cutter that its
+        # effective height (`N * nominal_height`) of text would get on its
         # own, so the run's stroke weight matches text authored at that size.
         # The ladder runs on demand from each character's scale factor (see
         # :func:`scale_cutter_ladder`), so nothing is resolved here -- the line
         # only stores the ladder's inputs (the inventory + tolerance) below.
 
-        # Cutter markup: a ``<c:D>`` run engraves with the EXPLICIT diameter
+        # Cutter markup: a `<c:D>` run engraves with the EXPLICIT diameter
         # it declares, overriding every other cutter setting for the segment
-        # (the line's own tool, the ``<b>`` bold rung, the ``<scale:N>``
+        # (the line's own tool, the `<b>` bold rung, the `<scale:N>`
         # ladder). The diameter is snapped to the shop inventory here (the
-        # same rule the line-level ``cutter_size`` uses) and validated
+        # same rule the line-level `cutter_size` uses) and validated
         # against the line's nominal height: a tool at or above the text
         # height leaves no material to engrave, so the job aborts (the
-        # ``CutterSizeError`` contract, fail-loud). The per-character
+        # `CutterSizeError` contract, fail-loud). The per-character
         # derivation (:attr:`ResolvedTextLine.per_char_cutters`) re-derives
         # the same snapped value from the same cached helper, so the two can
         # never disagree.
@@ -4867,11 +4867,11 @@ def _resolve_content(
                 available_cutters=available_cutters,
             )
 
-        # Bold markup: the ``<b>`` runs engrave with a thicker cutter (see
-        # ``generate/markup/AGENTS.md`` "Inline Bold (``<b>``)"). Single-stroke
+        # Bold markup: the `<b>` runs engrave with a thicker cutter (see
+        # `generate/markup/AGENTS.md` "Inline Bold (`<b>`)"). Single-stroke
         # PLT and TTF
         # lines step to the next larger inventory rung; a multi-stroke (bold)
-        # PLT font re-runs the boldness ladder at the boosted factor. ``None``
+        # PLT font re-runs the boldness ladder at the boosted factor. `None`
         # (no rung above, e.g. the top of the inventory) leaves the bold runs
         # on the plain cutter (WARNING logged there).
         bold_cutter: Optional[float] = None
@@ -4893,8 +4893,8 @@ def _resolve_content(
             if bold_cutter is not None:
                 bold_toolpath = nominal_height - bold_cutter
 
-        # Per-run scale cutters: each ``<scale:N>`` run engraves with the
-        # cutter for ``N * nominal_height`` of text (the same ladder the
+        # Per-run scale cutters: each `<scale:N>` run engraves with the
+        # cutter for `N * nominal_height` of text (the same ladder the
         # automatic cutter uses), so a 0.5x run on 1in text engraves with the
         # 0.5in text's tool instead of the 1in tool. The line stores the
         # ladder's *inputs* (the inventory + snap tolerance) and derives each
@@ -4908,7 +4908,7 @@ def _resolve_content(
 
         # Resolve the compression-driven cutter reduction permission with the
         # same explicit-None precedence (line -> label -> job -> default) so an
-        # intentional ``False`` (opt-out) is honored instead of falling through
+        # intentional `False` (opt-out) is honored instead of falling through
         # to a parent value.
         if line.cutter_downsize is not None:
             line_cutter_downsize: bool = line.cutter_downsize
@@ -4920,7 +4920,7 @@ def _resolve_content(
             line_cutter_downsize = DEFAULT_CUTTER_DOWNSIZE
 
         # Resolve the downsizing step budget with the same precedence; an
-        # intentional ``0`` (mechanism disabled) is honored.
+        # intentional `0` (mechanism disabled) is honored.
         if line.max_cutter_downsizes is not None:
             line_max_cutter_downsizes: int = line.max_cutter_downsizes
         elif label_input.max_cutter_downsizes is not None:
@@ -4931,7 +4931,7 @@ def _resolve_content(
             line_max_cutter_downsizes = DEFAULT_MAX_CUTTER_DOWNSIZES
 
         # Resolve the per-label downsize-sharing flag with the same
-        # precedence; an intentional ``False`` (per-line behavior) is honored.
+        # precedence; an intentional `False` (per-line behavior) is honored.
         if line.cutter_downsize_global is not None:
             line_cutter_downsize_global: bool = line.cutter_downsize_global
         elif label_input.cutter_downsize_global is not None:
@@ -4942,7 +4942,7 @@ def _resolve_content(
             line_cutter_downsize_global = DEFAULT_CUTTER_DOWNSIZE_GLOBAL
 
         # Resolve the job-wide sharing scope with the same precedence; an
-        # intentional ``False`` (per-label sharing) is honored.
+        # intentional `False` (per-label sharing) is honored.
         if line.cutter_downsize_global_job_wide is not None:
             line_cutter_downsize_global_job_wide: bool = line.cutter_downsize_global_job_wide
         elif label_input.cutter_downsize_global_job_wide is not None:
@@ -4953,7 +4953,7 @@ def _resolve_content(
             line_cutter_downsize_global_job_wide = DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE
 
         # Resolve the per-label horizontal-compression-sharing flag with the
-        # same precedence; an intentional ``True`` (opt-in) is honored.
+        # same precedence; an intentional `True` (opt-in) is honored.
         if line.h_compress_global is not None:
             line_h_compress_global: bool = line.h_compress_global
         elif label_input.h_compress_global is not None:
@@ -4964,7 +4964,7 @@ def _resolve_content(
             line_h_compress_global = DEFAULT_H_COMPRESS_GLOBAL
 
         # Resolve the grouping scope of the shared compression with the same
-        # precedence; an intentional ``False`` (label-wide sharing) is
+        # precedence; an intentional `False` (label-wide sharing) is
         # honored.
         if line.h_compress_global_same_height_only is not None:
             line_h_compress_global_same_height_only: bool = line.h_compress_global_same_height_only
@@ -4976,7 +4976,7 @@ def _resolve_content(
             line_h_compress_global_same_height_only = DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY
 
         # Resolve the arc-preserving-transforms flag with the same precedence;
-        # an intentional ``False`` (polygonize) is honored.
+        # an intentional `False` (polygonize) is honored.
         if line.arc_preserve_compression is not None:
             line_arc_preserve_compression: bool = line.arc_preserve_compression
         elif label_input.arc_preserve_compression is not None:
@@ -4987,7 +4987,7 @@ def _resolve_content(
             line_arc_preserve_compression = DEFAULT_ARC_PRESERVE_COMPRESSION
 
         # Resolve the word-level line-content reflow permission with the same
-        # precedence; an intentional ``True`` (opt-in) is honored.
+        # precedence; an intentional `True` (opt-in) is honored.
         if line.optimize_line_content is not None:
             line_optimize_line_content: bool = line.optimize_line_content
         elif label_input.optimize_line_content is not None:
@@ -4997,7 +4997,7 @@ def _resolve_content(
         else:
             line_optimize_line_content = DEFAULT_OPTIMIZE_LINE_CONTENT
 
-        # Resolve the reflow line cap with the same precedence; only ``None``
+        # Resolve the reflow line cap with the same precedence; only `None`
         # means unset (no growth), so no explicit value is ever shadowed.
         if line.optimize_line_content_max_lines is not None:
             line_max_lines: Optional[int] = line.optimize_line_content_max_lines
@@ -5009,7 +5009,7 @@ def _resolve_content(
             line_max_lines = DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES
 
         # Resolve the alphanumeric cap-line clamping flag with the same
-        # precedence; an intentional ``False`` (no clamping) is honored.
+        # precedence; an intentional `False` (no clamping) is honored.
         if line.enforce_cap_line is not None:
             line_enforce_cap_line: bool = line.enforce_cap_line
         elif label_input.enforce_cap_line is not None:
@@ -5097,17 +5097,17 @@ def _resolve_label(
         available_cutters: Optional list of cutter diameters available in
             the shop.
         tolerance_factor: The multiplier used to decide between narrower and
-            wider cutters. See ``get_cutter_diameter`` for details.
+            wider cutters. See `get_cutter_diameter` for details.
         boundary_hole_cutter_size: Optional requested cutter diameter in
             inches for label boundaries and drill holes (from
-            ``tools.json``). Snapped to ``available_cutters`` via
-            :func:`snap_boundary_hole_cutter`; ``None`` falls back to
-            ``DEFAULT_BOUNDARY_HOLE_CUTTER``.
-        extents_probe: Optional probe measuring a line's ``(ascender,
-            descender)`` ink extents in inches. When provided **and** the
-            label resolves ``use_baseline_spacing`` on, the auto-spacing and
+            `tools.json`). Snapped to `available_cutters` via
+            :func:`snap_boundary_hole_cutter`; `None` falls back to
+            `DEFAULT_BOUNDARY_HOLE_CUTTER`.
+        extents_probe: Optional probe measuring a line's `(ascender,
+            descender)` ink extents in inches. When provided **and** the
+            label resolves `use_baseline_spacing` on, the auto-spacing and
             margin-fitting math measures the real descender extents (see
-            :func:`_resolve_auto_line_spacing`); ``None`` (the default) keeps
+            :func:`_resolve_auto_line_spacing`); `None` (the default) keeps
             the nominal-height arithmetic and costs no renders.
 
     Returns:
@@ -5123,7 +5123,7 @@ def _resolve_label(
     # Resolve h_margin and v_margin with fallback to margin then defaults
     label_h_margin, label_v_margin = _resolve_margins(label_input, job)
 
-    # Resolve hole margin explicitly so an intentional ``0.0`` (hole tangent
+    # Resolve hole margin explicitly so an intentional `0.0` (hole tangent
     # to the edge) is honored instead of falling through to the default.
     if label_input.hole_margin is not None:
         label_hole_margin: float = label_input.hole_margin
@@ -5133,7 +5133,7 @@ def _resolve_label(
         label_hole_margin = DEFAULT_HOLE_MARGIN
 
     # Resolve the collision-avoidance floor for hole margin explicitly so an
-    # intentional ``0.0`` (shrink all the way to tangent) is honored instead
+    # intentional `0.0` (shrink all the way to tangent) is honored instead
     # of falling through to the parent value.
     if label_input.min_hole_margin is not None:
         label_min_hole_margin: Optional[float] = label_input.min_hole_margin
@@ -5143,7 +5143,7 @@ def _resolve_label(
         label_min_hole_margin = DEFAULT_MIN_HOLE_MARGIN
 
     # Resolve the engraved-stroke air gap explicitly so an intentional
-    # ``0.0`` (strokes may touch but never overlap) is honored instead of
+    # `0.0` (strokes may touch but never overlap) is honored instead of
     # falling through to the 0.15in default.
     if label_input.hole_text_collision_distance is not None:
         label_collision_distance: float = label_input.hole_text_collision_distance
@@ -5154,10 +5154,10 @@ def _resolve_label(
 
     # Cutter-compensated drill holes (cascades label -> job; the plate tier
     # is schema parity only, see schema.PlateSpec). Resolved at the LABEL
-    # level because hole geometry is a per-label property. Explicit ``False``
+    # level because hole geometry is a per-label property. Explicit `False`
     # is honored (the emitted circle keeps the specified diameter), and only
-    # ``None`` means unset. Consumed by the renderer's
-    # ``_hole_circles_local`` (see ``hole_engraved_radius``).
+    # `None` means unset. Consumed by the renderer's
+    # `_hole_circles_local` (see `hole_engraved_radius`).
     if label_input.hole_adjust_for_cutter is not None:
         label_hole_adjust_for_cutter: bool = label_input.hole_adjust_for_cutter
     elif job.hole_adjust_for_cutter is not None:
@@ -5186,7 +5186,7 @@ def _resolve_label(
 
     # Stock material (cascades label -> job; both tiers carry the field, so
     # a root-level job masquerading as a label resolves to its own value).
-    # ``None`` stays ``None``: unset labels group with the job-level material
+    # `None` stays `None`: unset labels group with the job-level material
     # at packing time, and a fully unset job packs exactly like before.
     label_material: Optional[str] = (
         label_input.material if label_input.material is not None else job.material
@@ -5195,7 +5195,7 @@ def _resolve_label(
     # Baseline-to-baseline line spacing (cascades label -> job; the plate tier
     # is schema parity only, see schema.PlateSpec). Resolved at the LABEL level
     # because spacing governs the stacked block, never one line -- an
-    # intentional ``False`` (ink-box stacking) is honored, and only ``None``
+    # intentional `False` (ink-box stacking) is honored, and only `None`
     # means unset. A root-level job masquerading as a label carries the field
     # itself, so its own value resolves.
     if label_input.use_baseline_spacing is not None:
@@ -5208,9 +5208,9 @@ def _resolve_label(
     # Vertical centering mode (cascades label -> job; the plate tier is schema
     # parity only, see schema.PlateSpec). Resolved at the LABEL level because
     # centering is a property of the stacked block, never of one line.
-    # Explicit ``True`` is honored (ink centering), and only ``None`` means
+    # Explicit `True` is honored (ink centering), and only `None` means
     # unset. Band centering is applied only together with an enabled
-    # descending-character relief -- see ``ResolvedLabel.center_text_by_band``.
+    # descending-character relief -- see `ResolvedLabel.center_text_by_band`.
     if label_input.v_center_by_content is not None:
         label_v_center_by_content: bool = label_input.v_center_by_content
     elif job.v_center_by_content is not None:
@@ -5222,9 +5222,9 @@ def _resolve_label(
     # tier is schema parity only, see schema.PlateSpec). Resolved at the LABEL
     # level because the mechanism compares a line's glyphs against the
     # following line's -- it is a property of the stacked block, never of one
-    # line. Explicit ``False`` is honored, and only ``None`` means unset; the
-    # four numeric allowances follow the same explicit-``None`` precedence so
-    # an explicit ``0.0`` clearance is honored (only true touching triggers).
+    # line. Explicit `False` is honored, and only `None` means unset; the
+    # four numeric allowances follow the same explicit-`None` precedence so
+    # an explicit `0.0` clearance is honored (only true touching triggers).
     if label_input.auto_descending_character_adjustment is not None:
         label_descender_adjustment: bool = label_input.auto_descending_character_adjustment
     elif job.auto_descending_character_adjustment is not None:
@@ -5263,7 +5263,7 @@ def _resolve_label(
     # Hole-aware horizontal centering (cascades label -> job; the plate tier
     # is schema parity only, see schema.PlateSpec). Resolved at the LABEL
     # level because the adjustment affects the entire label's text layout.
-    # Explicit ``False`` is honored, and only ``None`` means unset.
+    # Explicit `False` is honored, and only `None` means unset.
     if label_input.adjust_h_center_for_single_side_hole is not None:
         label_adjust_h_for_side_holes: bool = label_input.adjust_h_center_for_single_side_hole
     elif job.adjust_h_center_for_single_side_hole is not None:
@@ -5285,8 +5285,8 @@ def _resolve_label(
     final_height: float = label_input.height if label_input.height is not None else job.height  # type: ignore[assignment]
 
     # Label boundary shape (cascades label -> job; the plate tier is schema
-    # parity only, see schema.PlateSpec). Only ``None`` means unset; an
-    # explicit ``rect`` is honored. A ``round`` label declaring only one
+    # parity only, see schema.PlateSpec). Only `None` means unset; an
+    # explicit `rect` is honored. A `round` label declaring only one
     # dimension is a **circle** of that diameter (the schema validator allows
     # exactly one dimension for round labels), so fill the missing dimension
     # from the declared one before the dimension sanity check below.
@@ -5304,8 +5304,8 @@ def _resolve_label(
 
     # Rectangular-border corner rounding (cascades label -> job; the plate
     # tier is schema parity only, see schema.PlateSpec). The border is a
-    # per-label property, so it resolves here next to the shape. Only ``None``
-    # means unset; an explicit ``0.0`` (sharp) is honored. Inert on ``round``
+    # per-label property, so it resolves here next to the shape. Only `None`
+    # means unset; an explicit `0.0` (sharp) is honored. Inert on `round`
     # labels -- the ellipse already owns the boundary.
     if label_input.rounded_rectangle_fraction is not None:
         label_rounded_fraction: float = label_input.rounded_rectangle_fraction
@@ -5414,42 +5414,42 @@ def build_cutter_pen_map(
 ) -> dict[tuple[float, str], int]:
     """Map each distinct text (cutter, color) layer to an HPGL pen number.
 
-    Per-cutter export assigns one pen (HPGL ``SP`` layer) per distinct
+    Per-cutter export assigns one pen (HPGL `SP` layer) per distinct
     text cutter diameter *and* stroke-color tag so every cutter ends up
     in its own PLT file, and lines sharing a cutter but carrying
-    different ``text_color`` values still split into separate toolpaths
+    different `text_color` values still split into separate toolpaths
     (depth changes between runs on 3-layer material). Pen numbers are
     reserved for the structural layers:
 
-    - ``SP1``: the smallest text layer (kept as pen 1 for backward
+    - `SP1`: the smallest text layer (kept as pen 1 for backward
       compatibility with single-cutter jobs, where all text lands on the
       historical text layer).
-    - ``SP2``: label boundaries (reserved, never a text pen).
-    - ``SP3``: drill holes (reserved, never a text pen).
-    - ``SP4+``: remaining text layers, sorted by ``(cutter, color)``.
+    - `SP2`: label boundaries (reserved, never a text pen).
+    - `SP3`: drill holes (reserved, never a text pen).
+    - `SP4+`: remaining text layers, sorted by `(cutter, color)`.
 
     A text cutter that happens to equal the boundary/hole cutter still
     gets its own pen (it is engraved in a separate run). Jobs whose lines
-    all carry the implicit ``"none"`` color produce exactly the
-    historical cutter-only pen assignment. A line with a ``<b>`` bold run
+    all carry the implicit `"none"` color produce exactly the
+    historical cutter-only pen assignment. A line with a `<b>` bold run
     contributes *two* layers -- its plain cutter and its
-    ``bold_cutter_diameter`` -- so the bold strokes land on the thicker
+    `bold_cutter_diameter` -- so the bold strokes land on the thicker
     tool's pen (and PLT file) while the rest of the line stays on its own.
-    A line with ``<scale:N>`` runs contributes a layer per distinct
+    A line with `<scale:N>` runs contributes a layer per distinct
     effective-height cutter (see
     :attr:`ResolvedTextLine.used_cutters`), so each scaled run engraves with
-    its own tool. A line with inline ``<tc:color>`` runs contributes a layer
-    per distinct ``(cutter, color)`` pair (see
+    its own tool. A line with inline `<tc:color>` runs contributes a layer
+    per distinct `(cutter, color)` pair (see
     :attr:`ResolvedTextLine.used_layers`), so each colored run's strokes land
     on their own color's pen (and per-color PLT file) exactly like the
-    line-level ``text_color`` split does.
+    line-level `text_color` split does.
 
     Args:
         resolved_labels: Fully resolved labels whose text lines carry
-            ``cutter_diameter`` and ``text_color`` values.
+            `cutter_diameter` and `text_color` values.
 
     Returns:
-        Mapping of ``(cutter diameter (inches), text color)`` to pen
+        Mapping of `(cutter diameter (inches), text color)` to pen
         number. Empty when no label has any text content.
 
     Example:
@@ -5478,8 +5478,8 @@ def resolve_job_spec(
 ) -> list[ResolvedLabel]:
     """Flatten a JobSpec into a list of fully resolved labels.
 
-    Handles both the explicit ``labels`` form and the root-level
-    ``content``/``count`` form. For root-level jobs, a synthetic ID is
+    Handles both the explicit `labels` form and the root-level
+    `content`/`count` form. For root-level jobs, a synthetic ID is
     generated.
 
     Args:
@@ -5488,17 +5488,17 @@ def resolve_job_spec(
             the shop. If provided, the cutter matching will snap to the
             closest available tool.
         tolerance_factor: The multiplier used to decide between narrower and
-            wider cutters. See ``get_cutter_diameter`` for details.
+            wider cutters. See `get_cutter_diameter` for details.
         boundary_hole_cutter_size: Optional requested cutter diameter in
             inches for label boundaries and drill holes (from
-            ``tools.json`` ``boundary_hole_cutter_size``). Snapped to
-            ``available_cutters`` (next size down, else next size up);
-            ``None`` falls back to ``DEFAULT_BOUNDARY_HOLE_CUTTER``.
+            `tools.json` `boundary_hole_cutter_size`). Snapped to
+            `available_cutters` (next size down, else next size up);
+            `None` falls back to `DEFAULT_BOUNDARY_HOLE_CUTTER`.
             Feeds the text-hole collision stroke floor only.
-        extents_probe: Optional probe measuring a text line's ``(ascender,
-            descender)`` ink extents in inches, used by labels that resolve
-            ``use_baseline_spacing`` on so auto spacing and margin fitting
-            account for descenders. ``None`` (the default) keeps the
+        extents_probe: Optional probe measuring a text line's `(ascender,
+            descender)` ink extents in inches, used by labels that resolve
+            `use_baseline_spacing` on so auto spacing and margin fitting
+            account for descenders. `None` (the default) keeps the
             nominal-height spacing math and costs no renders. Production
             callers pass
             :func:`plt_optimizer.generate.label_renderer.measure_line_vertical_extents`

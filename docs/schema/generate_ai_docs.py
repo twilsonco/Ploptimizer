@@ -7,26 +7,26 @@ The single source of truth is the Pydantic contract itself
 that contract into three artifacts written next to this file so the
 documentation can never drift from the code:
 
-- ``job_spec.schema.json``   JSON Schema for a job YAML's ``job:`` mapping
-  (directly usable by ``jsonschema.validate`` or any JSON-Schema-aware AI).
-- ``job_config.schema.json`` JSON Schema for ``job-config.json`` shop defaults.
-- ``JOB_SPEC.md``            Dense markdown reference: per-model field
+- `job_spec.schema.json`   JSON Schema for a job YAML's `job:` mapping
+  (directly usable by `jsonschema.validate` or any JSON-Schema-aware AI).
+- `job_config.schema.json` JSON Schema for `job-config.json` shop defaults.
+- `JOB_SPEC.md`            Dense markdown reference: per-model field
   tables, enum value tables, resolved fallback defaults, and the
   required-when-unconfigured set.
 
 Hand-written semantics (job forms, cascade rules, expansion behavior,
-examples) live in ``README.md`` beside the generated artifacts.
+examples) live in `README.md` beside the generated artifacts.
 
-Regenerate after any change to ``schema.py`` / ``job_config.py``::
+Regenerate after any change to `schema.py` / `job_config.py`::
 
     uv run python docs/schema/generate_ai_docs.py
 
 The committed artifacts are pinned against drift by
-``tests/test_job_spec_docs.py``. Output is deterministic (no timestamps).
+`tests/test_job_spec_docs.py`. Output is deterministic (no timestamps).
 
 Keep this script import-light (no matplotlib-transitive modules such as
-``layout``/``label_renderer``); the plate-size constants are scraped from
-``layout.py`` source text instead of imported.
+`layout`/`label_renderer`); the plate-size constants are scraped from
+`layout.py` source text instead of imported.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ _ENUM_ORDER = ("HoleLocation", "TextHAlignment", "LayoutMode", "TextColor", "Cou
 _TYPE_NAMES = {"number": "float", "integer": "int", "string": "str", "boolean": "bool"}
 
 # Curation notes for the resolved fallback constants scraped from
-# ``resolution.py`` / ``schema.py`` / ``layout.py`` (the *values* always come
+# `resolution.py` / `schema.py` / `layout.py` (the *values* always come
 # from source; only the explanation is curated here).
 _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_TEXT_HEIGHT": "Font height when unset at line/label/job level.",
@@ -75,11 +75,11 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_MIN_HOLE_MARGIN": "None = collision avoidance may shrink hole_margin all the way "
     "to 0.0. Required from config-or-spec when a job-config is in play.",
     "DEFAULT_HOLE_TEXT_COLLISION_DISTANCE": "Engraved-stroke air gap on top of the stroke floor "
-    "0.5 * (hole_cutter + text_cutter). Required from config-or-spec when a job-config is in "
-    "play (the shop job-config.json currently sets 0.1).",
+    "`0.5 * (hole_cutter + text_cutter)`. Required from config-or-spec when a job-config is in "
+    "play (the shop `job-config.json` currently sets 0.1).",
     "DEFAULT_BOUNDARY_HOLE_CUTTER": "Boundary/hole cutter diameter feeding the collision stroke "
-    "floor; tools.json boundary_hole_cutter_size overrides it.",
-    "DEFAULT_HOLE_ADJUST_FOR_CUTTER": "True = the emitted drill-hole circle shrinks by the "
+    "floor; `tools.json` `boundary_hole_cutter_size` overrides it.",
+    "DEFAULT_HOLE_ADJUST_FOR_CUTTER": "`True` = the emitted drill-hole circle shrinks by the "
     "boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the "
     "engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits "
     "a 0.085in circle. The hole centre is placed from the specified diameter and never moves; a "
@@ -89,9 +89,9 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from text_height "
     "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
-    "up) and the toolpath height becomes text_height - cutter_size.",
+    "up) and the toolpath height becomes `text_height - cutter_size`.",
     "DEFAULT_TARGET_BOLDNESS_FACTOR": "0.14 = the target engraved stroke width (as a fraction "
-    "of text height) for multi-stroke (bold) PLT fonts (stroke_count > 1 in the font's "
+    "of text height) for multi-stroke (bold) PLT fonts (`stroke_count` > 1 in the font's "
     "catalog file). "
     "The automatic cutter is sized so the N engraved passes total this width, then snapped to "
     "the inventory (stepping up when the snap-down breaks the gap-free floor). Inert on "
@@ -99,66 +99,66 @@ _FALLBACK_NOTES: dict[str, str] = {
     "line/label/job; job-config supplies the shop default.",
     "DEFAULT_MULTISTROKE_OVERLAP_RATIO": "0.25 = the minimum overlap fraction between adjacent "
     "cutter passes of a multi-stroke (bold) PLT font: the derived cutter is never smaller than "
-    "pass_spacing / (1 - ratio), so engraved passes always overlap and no unengraved stripe "
+    "`pass_spacing / (1 - ratio)`, so engraved passes always overlap and no unengraved stripe "
     "appears. The actual overlap is derived from the chosen cutter and logged. Inert on "
-    "single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Cascades "
+    "single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Cascades "
     "line/label/job; job-config supplies the shop default.",
-    "DEFAULT_BOLD_BOLDNESS_MULTIPLIER": "1.5 = the multiplier inline <b> markup applies to "
+    "DEFAULT_BOLD_BOLDNESS_MULTIPLIER": "1.5 = the multiplier inline `<b>` markup applies to "
     "target_boldness_factor on a multi-stroke (bold) PLT font (the bold runs re-run the cutter "
     "ladder at factor * multiplier, clamped to 0.30 with a WARNING). On single-stroke PLT and "
-    "TTF fonts <b> instead steps to the next larger inventory cutter and this multiplier is "
+    "TTF fonts `<b>` instead steps to the next larger inventory cutter and this multiplier is "
     "inert. Cascades line/label/job; job-config supplies the shop default.",
-    "DEFAULT_KERN_POS_STRING": "None = the manual-kern positive marker is disabled (no "
-    "occurrence is stripped). When set (kern_pos_string, cascades line/label/job; job-config "
+    "DEFAULT_KERN_POS_STRING": "`None` = the manual-kern positive marker is disabled (no "
+    "occurrence is stripped). When set (`kern_pos_string`, cascades line/label/job; job-config "
     "supplies the shop default), every occurrence of the string in a text line is stripped - "
-    "it never engraves - and the following character's cursor advances by kern_width_fraction "
+    "it never engraves - and the following character's cursor advances by `kern_width_fraction` "
     "of the cap height. Multi-character markers are legal ('<->'); the value must be non-empty, "
-    "newline-free, and not markup-shaped (a letters-only body like '<s>' is consumed by the "
+    "newline-free, and not markup-shaped (a letters-only body like `<s>` is consumed by the "
     "tag scan, so the schema rejects it; the resolution-time check validates against the "
-    "effective html_brackets). Works on PLT and TTF fonts.",
-    "DEFAULT_KERN_NEG_STRING": "None = the manual-kern negative marker is disabled. When set "
-    "(kern_neg_string), every occurrence is stripped and the following character's cursor "
-    "retreats by kern_width_fraction of the cap height (no clamp, so a large value lets glyphs "
-    "overlap). Same validation as kern_pos_string; the two strings must differ.",
+    "effective `html_brackets`). Works on PLT and TTF fonts.",
+    "DEFAULT_KERN_NEG_STRING": "`None` = the manual-kern negative marker is disabled. When set "
+    "(`kern_neg_string`), every occurrence is stripped and the following character's cursor "
+    "retreats by `kern_width_fraction` of the cap height (no clamp, so a large value lets glyphs "
+    "overlap). Same validation as `kern_pos_string`; the two strings must differ.",
     "DEFAULT_KERN_WIDTH_FRACTION": "0.1 = the manual-kern width as a fraction of the rendered "
     "cap height (capline - baseline): one marker shifts the cursor by this fraction of the cap "
     "height (positive string forward, negative backward; adjacent markers accumulate). "
     "Cascades line/label/job; job-config supplies the shop default. Explicit 0.0 is honored "
     "(markers consume their characters, shift nothing).",
     "DEFAULT_CUTTER_LADDER_TOLERANCE": "3.0 = the narrower/wider snap tolerance the ladder "
-    "applies when a <scale:N> run's effective height (N * text_height) has no exact "
-    "tools.json rung: it prefers the narrower tool unless that is more than "
+    "applies when a `<scale:N>` run's effective height `(N * text_height)` has no exact "
+    "`tools.json` rung: it prefers the narrower tool unless that is more than "
     "tolerance x the distance to the wider tool away. The same tolerance the "
     "automatic line cutter uses; stored on the resolved line (with the inventory) "
     "as a ladder *input* so the per-run cutters re-derive identically in every "
-    "pre-pass. Not a cascading schema field - the <scale:N> value rides the tag "
+    "pre-pass. Not a cascading schema field - the `<scale:N>` value rides the tag "
     "argument.",
-    "DEFAULT_CUTTER_DOWNSIZE": "True = the automatic cutter may be reduced one rung per "
+    "DEFAULT_CUTTER_DOWNSIZE": "`True` = the automatic cutter may be reduced one rung per "
     "allowed step when a text line is horizontally compressed past the midpoint between the "
-    "current cutter and the next smaller inventory cutter (requires tools.json inventory; an "
-    "explicit cutter_size disables it).",
+    "current cutter and the next smaller inventory cutter (requires `tools.json` inventory; an "
+    "explicit `cutter_size` disables it).",
     "DEFAULT_MAX_CUTTER_DOWNSIZES": "Maximum number of cutter downsizings per text line "
     "(0 = disabled). Cascades line/label/job; job-config supplies the shop default.",
-    "DEFAULT_CUTTER_DOWNSIZE_GLOBAL": "True = a compression-driven cutter downsize is shared "
-    "across the label: every other eligible line of the same text_height in the same label "
+    "DEFAULT_CUTTER_DOWNSIZE_GLOBAL": "`True` = a compression-driven cutter downsize is shared "
+    "across the label: every other eligible line of the same `text_height` in the same label "
     "receives the trigger's final cutter (then each continues its own one-way loop; the group "
-    "converges to the smallest). Explicit cutter_size / cutter_downsize false / "
-    "max_cutter_downsizes 0 / max_h_compress 0.0 lines are never touched. Cascades "
+    "converges to the smallest). Explicit `cutter_size` / `cutter_downsize` false / "
+    "`max_cutter_downsizes` 0 / `max_h_compress` 0.0 lines are never touched. Cascades "
     "line/label/job; job-config supplies the shop default.",
-    "DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE": "False = the shared cutter downsize stays "
+    "DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE": "`False` = the shared cutter downsize stays "
     "per-label. True = the sharing group widens from the label to the whole job: every "
-    "eligible line of the same text_height in ANY label receives the trigger's final cutter, "
-    "so one text size engraves with one tool job-wide. Requires cutter_downsize_global true; "
+    "eligible line of the same `text_height` in ANY label receives the trigger's final cutter, "
+    "so one text size engraves with one tool job-wide. Requires `cutter_downsize_global` `true`; "
     "a line with this flag false keeps exactly the per-label behavior. Cascades "
     "line/label/job; job-config supplies the shop default.",
-    "DEFAULT_H_COMPRESS_GLOBAL": "False = horizontal compression stays per-line. True = a "
+    "DEFAULT_H_COMPRESS_GLOBAL": "`False` = horizontal compression stays per-line. `True` = a "
     "compressed line's scale is shared across the label: every other eligible line of the same "
-    "text_height in the same label is compressed to the group's most-compressed (minimum) "
-    "scale, clamped to each line's own 1 - max_h_compress budget floor. max_h_compress 0.0 "
+    "`text_height` in the same label is compressed to the group's most-compressed (minimum) "
+    "scale, clamped to each line's own 1 - `max_h_compress` budget floor. `max_h_compress` 0.0 "
     "lines are never touched. Cascades line/label/job; job-config supplies the shop default.",
-    "DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY": "True = the shared compression is scoped to "
-    "the lines of the same text_height (one text size, one glyph density). False = the "
-    "compression is shared across EVERY eligible line of the label, whatever its text_height, "
+    "DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY": "`True` = the shared compression is scoped to "
+    "the lines of the same `text_height` (one text size, one glyph density). `False` = the "
+    "compression is shared across EVERY eligible line of the label, whatever its `text_height`, "
     "so one label engraves at one glyph density throughout. Cascades line/label/job; job-config "
     "supplies the shop default.",
     "DEFAULT_ARC_PRESERVE_COMPRESSION": "True = the non-uniform PLT glyph transforms (horizontal "
@@ -169,29 +169,29 @@ _FALLBACK_NOTES: dict[str, str] = {
     "polygonized output. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_MAX_H_COMPRESS": "0.0 = horizontal compression disabled. Required from config-or-"
     "spec when a job-config is in play.",
-    "DEFAULT_OPTIMIZE_LINE_CONTENT": "False = every text line keeps its authored words. True = "
+    "DEFAULT_OPTIMIZE_LINE_CONTENT": "`False` = every text line keeps its authored words. `True` = "
     "consecutive enabled lines exchange whole words (word order kept, only the line breaks move) "
     "so the group's natural rendered widths equalize, minimizing the compression the label needs. "
     "A disabled line breaks the group; runs of one line, blank lines and groups with fewer words "
     "than lines are left alone. Runs as an export pre-pass before the cutter-reduction and "
     "shared-compression pre-passes. Cascades line/label/job; job-config supplies the shop default.",
-    "DEFAULT_ENFORCE_CAP_LINE": "True = every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink "
+    "DEFAULT_ENFORCE_CAP_LINE": "`True` = every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink "
     "extends above the per-font capline is downscaled top-down (a vertical scale about the "
     "glyph's own bottom, X untouched - the aspect ratio changes) so its top lands exactly on the "
     "capline. Strictly pre-markup: applied before the small-caps, bold, scale, italic and "
     "superscript/subscript transforms. Non-alphanumerics (punctuation, derived Unicode symbols) "
     "are never clamped. Cascades line/label/job; job-config supplies the shop default.",
     "DEFAULT_TEXT_H_ALIGNMENT": "Horizontal alignment fallback when unset everywhere.",
-    "DEFAULT_USE_BASELINE_SPACING": "True = a label's text lines stack by baseline pitch "
-    "(cap height + line_spacing), so descenders hang into the gap below their line and every "
-    "gap reads as one uniform visual spacing; auto line_spacing and the margin clamp measure "
-    "each line's real descender extent. False = lines stack by rendered ink box (historical), "
+    "DEFAULT_USE_BASELINE_SPACING": "`True` = a label's text lines stack by baseline pitch "
+    "(cap height + `line_spacing`), so descenders hang into the gap below their line and every "
+    "gap reads as one uniform visual spacing; auto `line_spacing` and the margin clamp measure "
+    "each line's real descender extent. `False` = lines stack by rendered ink box (historical), "
     "where a descender inflates the gap under its own line. Cascades label/job (accepted on "
     "plates for schema parity only, never text lines); job-config supplies the shop default.",
-    "DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT": "True = a descending glyph is vertically "
+    "DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT": "`True` = a descending glyph is vertically "
     "downscaled and raised when a glyph on the FOLLOWING line comes within the required "
-    "clearance (the engraved-stroke floor 0.5*(cutter_upper+cutter_lower) scaled by "
-    "1 + descending_character_clearance) of it. The "
+    "clearance (the engraved-stroke floor `0.5*(cutter_upper+cutter_lower)` scaled by "
+    "1 + `descending_character_clearance`) of it. The "
     "relief is per triggering glyph (never a blanket adjustment) and runs at render time; when "
     "the allowances are exhausted the gap below the line grows, and a collision that neither "
     "the allowances nor the admissible spacing can clear aborts the job. False = descenders "
@@ -211,8 +211,8 @@ _FALLBACK_NOTES: dict[str, str] = {
     "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
     "explicitly.",
     "DEFAULT_FONT": "Font fallback when unset at line/label/job level (and when job-config "
-    "font is unset). Must be a valid font_registry name: a PLT-extracted catalog font_name key "
-    "(arc-native) or a fonts/ TTF basename; run generate_schema_docs.py --show-fonts.",
+    "font is unset). Must be a valid font_registry name: a PLT-extracted catalog `font_name` key "
+    "(arc-native) or a fonts/ TTF basename; run `generate_schema_docs.py --show-fonts`.",
     "DEFAULT_FONT_NAME": "Registry-level default font name (font_registry.DEFAULT_FONT_NAME); "
     "resolution.DEFAULT_FONT mirrors it.",
     "DEFAULT_SC_SCALE": "0.7 = a small-caps font (a font name ending in ' SC', a synthetic "
@@ -225,29 +225,29 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_HOLE_DIAMETER": "Drill-hole diameter when a hole entry omits 'diameter' (a "
     "job-config hole_diameter fills hole entries too).",
     "DEFAULT_PLATE_WIDTH": "Auto-allocated (unbounded mode) default plate width when job-config "
-    "plate_width is unset. Required from config when a job-config is in play and plates are "
+    "`plate_width` is unset. Required from config when a job-config is in play and plates are "
     "undeclared.",
     "DEFAULT_PLATE_HEIGHT": "Auto-allocated (unbounded mode) default plate height when job-config "
-    "plate_height is unset. Required from config when a job-config is in play and plates are "
+    "`plate_height` is unset. Required from config when a job-config is in play and plates are "
     "undeclared.",
-    "DEFAULT_SUPERSUBSCRIPT_DOWNSCALE": "0.5 = a bare <sup>/<sub> markup run engraves its glyphs "
+    "DEFAULT_SUPERSUBSCRIPT_DOWNSCALE": "0.5 = a bare `<sup>`/`<sub>` markup run engraves its glyphs "
     "uniformly shrunk to 50% of the line's size, and the baseline shift derives from the same "
     "number, centering the shrunken glyph on the line it belongs to: a superscript rises "
-    "1 - d/2 = 0.75 cap heights (its centre lands exactly on the capline) and a subscript drops "
-    "d/2 = 0.25 cap heights (its centre lands on the baseline). The argumented forms "
-    "<sup:0.3>/<sub:-0.2> set the shift explicitly in cap-height units (bound [-1.0, 1.0]) and "
+    "$1 - d/2 = 0.75$ cap heights (its centre lands exactly on the capline) and a subscript drops "
+    "$d/2 = 0.25$ cap heights (its centre lands on the baseline). The argumented forms "
+    "`<sup:0.3>`/`<sub:-0.2>` set the shift explicitly in cap-height units (bound [-1.0, 1.0]) and "
     "apply no scaling, so this field is inert on them. A downscaled run engraves with the cutter "
-    "for its downscaled height (the <scale:N> ladder), so it lands on its own per-cutter layer. "
+    "for its downscaled height (the `<scale:N>` ladder), so it lands on its own per-cutter layer. "
     "Bound [0.2, 1.0]. Cascades line/label/job; job-config supplies the shop default.",
-    "DEFAULT_STRIKETHROUGH_OFFSET_FRACTION": "None = an inline <s> strikethrough centres its "
+    "DEFAULT_STRIKETHROUGH_OFFSET_FRACTION": "`None` = an inline `<s>` strikethrough centres its "
     "centerline stroke on the cap-band midline (half the rendered cap height), the "
     "classic mid-height strike. An explicit value is the stroke's height as a "
-    "fraction of the rendered cap height (capline - baseline) ABOVE the baseline "
+    "fraction of the rendered cap height (`capline - baseline`) ABOVE the baseline "
     "(0.0 = the stroke sits on the baseline, 1.0 = on the capline). The stroke spans each "
     "struck run's ink width and is cut with the run's own text cutter; unlike the "
     "underline it is NEVER broken, so a descender punches through it (no clearance, no "
     "break test). Cascades line/label/job; job-config supplies the shop default.",
-    "DEFAULT_STRIKETHROUGH_BREAK_SPACES": "False = an inline <s> strikethrough draws "
+    "DEFAULT_STRIKETHROUGH_BREAK_SPACES": "False = an inline `<s>` strikethrough draws "
     "one continuous stroke across the whole struck run, inter-word spaces included. "
     "True ends the stroke at each space, so every word gets its own strike spanning its "
     "own ink and the space stays bare. Cascades line/label/job; job-config supplies the "
@@ -259,9 +259,122 @@ _FALLBACK_NOTES: dict[str, str] = {
     "or lowered (a pure vertical translate) so its own ink is centred on the cap-band "
     "midline (half the rendered cap height above the baseline) -- the characters a font "
     "typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline "
-    "<vc>...</vc> markup tag applies the same centering to any other characters it wraps. "
-    "An empty string disables the auto-apply (the <vc> tag keeps working on its own). "
+    "`<vc>...</vc>` markup tag applies the same centering to any other characters it wraps. "
+    "An empty string disables the auto-apply (the `<vc>` tag keeps working on its own). "
     "Cascades line/label/job; job-config supplies the shop default.",
+    "DEFAULT_BULLET_STRING": "Bullet-list marker used when `bullet_string` is unset at every tier. The "
+    "derived bullet glyph (`fonts/glyph_transforms.py`), engraved by every PLT "
+    "catalog font except the symbol fonts. Cascades item -> list block -> label "
+    "-> job -> `job-config.json`; an explicit empty string engraves no marker.",
+    "DEFAULT_COUNTER_PREFIX": "String prepended to each enumerate counter when `counter_prefix` is unset "
+    "at every tier (empty = no prefix).",
+    "DEFAULT_COUNTER_START_INDEX": "First counter value of an enumerate list when `counter_start_index` is "
+    "unset at every tier.",
+    "DEFAULT_COUNTER_STYLE": "Counter style of an enumerate list when `counter_style` is unset at every "
+    "tier (the `decimal` value of `schema.CounterStyle`). One of `decimal`, `lower_alpha`, `upper_alpha`, `lower_roman`, `upper_roman`.",
+    "DEFAULT_COUNTER_SUFFIX": "String appended to each enumerate counter when `counter_suffix` is unset "
+    "at every tier (empty = no suffix).",
+    "DEFAULT_DESCENDING_CHARACTER_RECIPROCAL_SCALE": "Deepest top-down downscale permitted for the would-be-colliding glyphs on "
+    "the FOLLOWING line (`1.0` = reciprocal downscaling forbidden, the "
+    "historical behavior; `0.5` = squeezed to half height). The lower glyphs "
+    "are scaled about their own lowest ink point, so their lowest point never "
+    "moves; they share the relief with the descending glyph through the same "
+    "ramp driving its downscale/raise. Bound to `[0.2, 1.0]` by the schema.",
+    "DEFAULT_FALLBACK_ADVANCE_FRACTION": "Multiplier on the bounding-box-width fallback advance (no y-overlap or "
+    "missing envelopes). 1.0 = the left glyph's own width.",
+    "DEFAULT_HTML_BRACKETS": "Delimiter pair for the inline markup syntax (`<i>` italic and future "
+    "tags): an even-length string whose first half is the left delimiter and "
+    "second half the right (`\"<>\"` -> `<` / `>`). Text that legitimately "
+    "contains chevrons opts out by declaring a pair absent from its data; a "
+    "bracketed body that is not a registered tag engraves verbatim. The forward "
+    "slash is only special inside the delimiters (`</i>`), never elsewhere. "
+    "See `plt_optimizer.generate.markup`.",
+    "DEFAULT_H_MARGIN": "Horizontal margin fall back to margin, then the default. "
+    "Both are None to indicate \"unset\"; resolution logic fills them in.",
+    "DEFAULT_V_MARGIN": "Vertical margin fall back to margin, then the default. "
+    "Both are None to indicate \"unset\"; resolution logic fills them in.",
+    "DEFAULT_ITALIC_ANGLE": "Slant angle (degrees) for italic markup: PLT-extracted glyphs (and TTF "
+    "glyphs with no native italic face) are sheared about the baseline, "
+    "$x' = x + y * tan(angle)$, so the baseline stays fixed and the glyph "
+    "leans right. Bound to [0, 45] by the schema; 0 = upright (shear skipped).",
+    "DEFAULT_KERNING_MIN_GAP_FRACTION": "Extra air added to every kerned pair advance on top of the "
+    "cutter + character-spacing clearance, as a fraction of the rendered cap "
+    "height (capline - baseline). 0.0 = no extra gap.",
+    "DEFAULT_KERNING_PENETRATION_SCALE": "Multiplier on the detected windowed penetration (PLT-extracted fonts). "
+    "1.0 keeps the geometric penetration; >1.0 over-kerns tight pairs.",
+    "DEFAULT_KERNING_RECESSION_SCALE": "Multiplier on a *recessed* (negative) detected penetration (PLT-extracted "
+    "fonts). 1.0 keeps the geometric recession (the historical linear "
+    "behavior); 0.0 makes a recessed pair advance by nothing beyond the "
+    "min_glyph_width_fraction floor, so the penetration dial only tightens "
+    "pairs whose silhouettes overlap.",
+    "DEFAULT_KERNING_WINDOW_FRACTION": "Kerning window (fraction of the rendered text height, in [0.0, 1.0]). "
+    "For PLT-extracted fonts. Each envelope sample compares against the "
+    "opposite silhouette within +/- (half of this fraction) of the text "
+    "height and the effective penetration is the worst windowed "
+    "penetration, so staggered pokes widen the advance; "
+    "0.0 reproduces the historical same-height maximum-penetration kerning.",
+    "DEFAULT_LABEL_SHAPE": "Fallback label boundary shape when the `type` cascade resolves to unset. "
+    "See :attr:`plt_optimizer.generate.schema.LabelAttributes.type`.",
+    "DEFAULT_LIST_MARKER_GAP_FRACTION": "Gap between a list marker and its text, as a fraction of the line's "
+    "rendered cap height, when `list_marker_gap_fraction` is unset at every "
+    "tier. The marker column is the widest marker of the list plus this gap.",
+    "DEFAULT_MIN_GLYPH_WIDTH_FRACTION": "Global minimum glyph advance width (as a fraction of the rendered cap "
+    "height, capline - baseline) for PLT-extracted fonts. "
+    "The profile-envelope kerning floors each pair's advance at this fraction "
+    "of the cap height, capped by the left glyph's own width; 0.0 means pure "
+    "envelope kerning.",
+    "DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES": "Ceiling on the consecutive lines one reflow group may use. `None` (the "
+    "default) is *unset*: the group reflows across its existing lines and never "
+    "gains one. The option is growth-only -- a numeric value may ADD lines to a "
+    "label (the group starts at its existing line count and grows while its lines "
+    "still need horizontal compression) and never removes any. Consumed by "
+    ":mod:`plt_optimizer.generate.line_content`.",
+    "DEFAULT_ROUNDED_RECTANGLE_FRACTION": "Fallback rectangular-border corner rounding fraction when the "
+    "`rounded_rectangle_fraction` cascade resolves to unset (see "
+    ":attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_fraction`). "
+    "`0.0` is the sharp rectangle, bit-identical to the historical border.",
+    "DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL": "Fallback proportional-rounding flag when the "
+    "`rounded_rectangle_proportional` cascade resolves to unset (see "
+    ":attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_proportional`). "
+    "`False` uses one identical rounding distance on every side (the shorter "
+    "edge determines it).",
+    "DEFAULT_SPACE_WIDTH_FRACTION": "Space advance (PLT-extracted fonts) as a fraction of the rendered text "
+    "height: a space advances `DEFAULT_SPACE_WIDTH_FRACTION * text_height + "
+    "character_spacing`.",
+    "DEFAULT_UNDERLINE_BREAK_CLEARANCE_FRACTION": "Extra air at each underline break, as a fraction of the rendered cap "
+    "height (capline - baseline). Each cut is padded horizontally by `0.5 * cutter + fraction * cap height` "
+    "(the half cutter is the glyph stroke's own half-width -- the ink is a centerline), so the engraved air "
+    "between a descending glyph's stroke and the underline's cut edge is exactly this clearance (0.0 = the cut "
+    "sits at the ink). Independent of the offset (which decides which glyphs break); this adds air at the break "
+    "itself. The code fallback is 0.0 (the historical cut); job-config.json supplies the shop default. See "
+    "`plt_optimizer.generate.underline`.",
+    "DEFAULT_UNDERLINE_BREAK_SPACES": "Whether an underline (`<u>`) breaks at the spaces between words. `False` "
+    "(the default) draws one continuous underline across the whole underlined run "
+    "(spaces included, broken only by descending glyphs); `True` ends the "
+    "underline at each space, so every word gets its own underline spanning its "
+    "own ink and the inter-word space stays bare. The code fallback is `False` "
+    "(the historical continuous underline); job-config.json supplies the shop "
+    "default. See `plt_optimizer.generate.label_renderer._underline_render_gate`.",
+    "DEFAULT_UNDERLINE_OFFSET_FRACTION": "Extra air for underline markup (`<u>`) as a fraction of the rendered "
+    "cap height (capline - baseline). The underline is a centerline stroke cut with the line's own text cutter, "
+    "positioned `cutter diameter + fraction * cap height` below the baseline, so the engraved underline's top "
+    "edge floats exactly `fraction * cap height` below the engraved baseline stroke. The break test is strictly "
+    "horizontal: a glyph breaks the underline where its ink crosses the underline's centerline (dipping past "
+    "`cutter diameter + fraction * cap height` below the baseline), so the offset alone decides which glyphs break. "
+    "0.0 = the underline's top edge touches the baseline stroke and gaps only where strokes truly cross. See "
+    "`plt_optimizer.generate.underline`.",
+    "DEFAULT_V_CENTER_BY_CONTENT": "Vertical centering mode for a label's text block. `False` (the default) "
+    "centers the block by its **baseline-to-capline band** -- the band spans the"
+    " lowest baseline to the highest capline, so the visible text is optically"
+    " centered and descenders hang into the bottom margin, where the descending-"
+    " character relief handles them against the bottom border. `True` centers by"
+    " the block's **rendered ink** (the historical behavior): the deepest"
+    " descender is charged to the block, so a line carrying descenders rides high"
+    " in the label. Band centering is active only when the descending-character"
+    " relief is enabled (see `center_text_by_band`); with the relief off nothing"
+    " would adjust the descenders, so ink centering is kept. Label-level only --"
+    " centering is a property of the stacked block, never of one line, so the"
+    " field is deliberately absent from `TextLine`/`TextAttributes`."
 }
 
 
@@ -271,7 +384,7 @@ _FALLBACK_NOTES: dict[str, str] = {
 
 
 def build_job_spec_schema() -> str:
-    """Render the ``job:`` mapping JSON Schema as deterministic pretty JSON.
+    """Render the `job:` mapping JSON Schema as deterministic pretty JSON.
 
     Returns:
         Pretty-printed JSON Schema text for :class:`JobSpec` (trailing
@@ -281,7 +394,7 @@ def build_job_spec_schema() -> str:
 
 
 def build_job_config_schema() -> str:
-    """Render the ``job-config.json`` JSON Schema as deterministic pretty JSON.
+    """Render the `job-config.json` JSON Schema as deterministic pretty JSON.
 
     Returns:
         Pretty-printed JSON Schema text for :class:`JobDefaults` (trailing
@@ -296,13 +409,13 @@ def build_job_config_schema() -> str:
 
 
 def _ref_name(ref: str) -> str:
-    """Return the bare definition name of a ``$ref`` pointer.
+    """Return the bare definition name of a `$ref` pointer.
 
     Args:
-        ref: A JSON Schema ``$ref`` such as ``"#/$defs/HoleSpec"``.
+        ref: A JSON Schema `$ref` such as `"#/$defs/HoleSpec"`.
 
     Returns:
-        The trailing name (``"HoleSpec"``).
+        The trailing name (`"HoleSpec"`).
     """
     return ref.rsplit("/", 1)[-1]
 
@@ -314,8 +427,8 @@ def _type_label(node: dict[str, Any]) -> str:
         node: A JSON Schema fragment (property or item position).
 
     Returns:
-        A markdown-table-safe type string, e.g. ``float \\| null``,
-        ``list[HoleSpec]`` or ``line \\| word`` (pipes escaped).
+        A markdown-table-safe type string, e.g. `float \\| null`,
+        `list[HoleSpec]` or `line \\| word` (pipes escaped).
     """
     return _pipe_escape(_type_label_raw(node))
 
@@ -327,7 +440,7 @@ def _type_label_raw(node: dict[str, Any]) -> str:
         node: A JSON Schema fragment (property or item position).
 
     Returns:
-        The raw type string, possibly containing ``|`` separators.
+        The raw type string, possibly containing `|` separators.
     """
     if "$ref" in node:
         return _ref_name(node["$ref"])
@@ -344,23 +457,23 @@ def _type_label_raw(node: dict[str, Any]) -> str:
 
 
 def _pipe_escape(text: str) -> str:
-    """Escape ``|`` characters so a string survives a markdown table cell.
+    """Escape `|` characters so a string survives a markdown table cell.
 
     Args:
         text: Raw text possibly containing pipes.
 
     Returns:
-        The text with every ``|`` replaced by ``\\|``.
+        The text with every `|` replaced by `\\|`.
     """
     return text.replace("|", "\\|")
 
 
 def _constraints_label(node: dict[str, Any]) -> str:
-    """Render numeric constraints (``ge``/``le``/``gt``/``lt``) as ``>=0`` etc.
+    """Render numeric constraints (`ge`/`le`/`gt`/`lt`) as `>=0` etc.
 
     Args:
         node: A JSON Schema fragment (constraints may sit directly on it or
-            inside its sole non-null ``anyOf`` branch).
+            inside its sole non-null `anyOf` branch).
 
     Returns:
         A space-joined constraint string, or an em dash when unconstrained.
@@ -389,7 +502,7 @@ def _default_label(node: dict[str, Any], required: bool) -> str:
         required: Whether the property is required (no default shown then).
 
     Returns:
-        ``required`` for required fields, ``null (unset)`` for unsettable
+        `required` for required fields, `null (unset)` for unsettable
         optional fields, otherwise the JSON literal.
     """
     if required:
@@ -413,14 +526,14 @@ def _md_cell(text: str) -> str:
 
 
 def _model_description(node: dict[str, Any]) -> str:
-    """Return a model description with the docstring ``Attributes:`` block cut.
+    """Return a model description with the docstring `Attributes:` block cut.
 
     The field tables already document every attribute, so the docstring
-    attribute list is dropped; everything before ``Attributes:`` (and any
-    ``Example:`` section) is kept.
+    attribute list is dropped; everything before `Attributes:` (and any
+    `Example:` section) is kept.
 
     Args:
-        node: A ``$defs`` model schema node.
+        node: A `$defs` model schema node.
 
     Returns:
         The trimmed single-paragraph-friendly description (may be empty).
@@ -435,10 +548,10 @@ def _model_description(node: dict[str, Any]) -> str:
 def _enum_value_descriptions(node: dict[str, Any]) -> dict[str, str]:
     """Map enum values to their docstring descriptions.
 
-    Pydantic puts the ``Attributes:`` docstring block of the Enum class into
-    the schema ``description``; member names are normalised to values by
-    lowercasing and swapping underscores for hyphens (``TOP_LEFT`` ->
-    ``top-left``).
+    Pydantic puts the `Attributes:` docstring block of the Enum class into
+    the schema `description`; member names are normalised to values by
+    lowercasing and swapping underscores for hyphens (`TOP_LEFT` ->
+    `top-left`).
 
     Args:
         node: An enum schema node.
@@ -466,9 +579,9 @@ def _render_model(name: str, node: dict[str, Any], *, heading: bool = True) -> s
     """Render one model section (description + field table).
 
     Args:
-        name: The model name (``$defs`` key or root).
+        name: The model name (`$defs` key or root).
         node: The model schema node.
-        heading: When True (default), prefix the section with an ``###``
+        heading: When True (default), prefix the section with an `###`
             heading; the root model renders without one.
 
     Returns:
@@ -496,11 +609,11 @@ def _render_enum(name: str, node: dict[str, Any]) -> str:
     """Render one enum section (description + value table).
 
     Args:
-        name: The enum name (``$defs`` key).
+        name: The enum name (`$defs` key).
         node: The enum schema node.
 
     Returns:
-        A markdown section starting with an ``###`` heading.
+        A markdown section starting with an `###` heading.
     """
     lines = [f"### `{name}`", ""]
     description = _model_description(node)
@@ -516,8 +629,8 @@ def _render_enum(name: str, node: dict[str, Any]) -> str:
 def _scrape_constants() -> dict[str, str]:
     """Collect the resolved fallback constants from pipeline source files.
 
-    Values are read from source (``resolution.py``, ``schema.py`` directly;
-    ``layout.py`` by regex to avoid importing its matplotlib-transitive
+    Values are read from source (`resolution.py`, `schema.py` directly;
+    `layout.py` by regex to avoid importing its matplotlib-transitive
     chain), so the rendered table can never show stale numbers.
 
     Returns:
@@ -537,10 +650,10 @@ def _scrape_constants() -> dict[str, str]:
     return constants
 
 
-#: Heading of the tool-options section -- the ONLY part of ``JOB_SPEC.md``
-#: rendered from ``job-config.json`` values. The docs drift test compares
+#: Heading of the tool-options section -- the ONLY part of `JOB_SPEC.md`
+#: rendered from `job-config.json` values. The docs drift test compares
 #: everything before this heading byte-exact and excludes the table, so
-#: retuning ``job-config.json`` can never break the pin (config-value
+#: retuning `job-config.json` can never break the pin (config-value
 #: immunity -- see tests/AGENTS.md).
 TOOL_OPTIONS_HEADING = "## Available Tool Options"
 
@@ -550,14 +663,14 @@ def split_tool_options(markdown: str) -> tuple[str, str]:
 
     The model part (everything before :data:`TOOL_OPTIONS_HEADING`) is derived
     from the Pydantic models, the enums and the code fallback constants; the
-    tool-options part is derived from ``job-config.json``. The drift test
+    tool-options part is derived from `job-config.json`. The drift test
     pins the first byte-exact and ignores the second.
 
     Args:
-        markdown: A ``JOB_SPEC.md`` render (the committed file or a fresh build).
+        markdown: A `JOB_SPEC.md` render (the committed file or a fresh build).
 
     Returns:
-        ``(model_part, options_part)``; ``options_part`` is ``""`` when the
+        `(model_part, options_part)`; `options_part` is `""` when the
         document carries no tool-options section.
     """
     index = markdown.find(TOOL_OPTIONS_HEADING)
@@ -642,7 +755,7 @@ def build_job_spec_markdown() -> str:
     """Render the complete generated markdown reference.
 
     Returns:
-        The full ``JOB_SPEC.md`` text (deterministic; trailing newline
+        The full `JOB_SPEC.md` text (deterministic; trailing newline
         included).
     """
     schema = JobSpec.model_json_schema()
