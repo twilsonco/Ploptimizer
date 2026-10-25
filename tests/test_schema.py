@@ -210,11 +210,12 @@ class TestTextAttributes:
 
     def test_text_line_does_not_have_label_attributes(self) -> None:
         """TextLine must NOT inherit label-container fields."""
-        line = TextLine(text="X")
-        assert "width" not in line.model_fields
-        assert "height" not in line.model_fields
-        assert "margin" not in line.model_fields
-        assert "holes" not in line.model_fields
+        # Class-level access: instance-level .model_fields is deprecated in
+        # Pydantic 2.11 (and removed in V3); the field set is a class property.
+        assert "width" not in TextLine.model_fields
+        assert "height" not in TextLine.model_fields
+        assert "margin" not in TextLine.model_fields
+        assert "holes" not in TextLine.model_fields
 
 
 class TestLabelAttributes:

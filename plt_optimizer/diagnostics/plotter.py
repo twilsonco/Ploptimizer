@@ -210,6 +210,27 @@ def _apply_inch_tick_layout(ax: Axes) -> None:
         axis.set_minor_locator(MultipleLocator(MINOR_TICK_INTERVAL_INCHES))
 
 
+def _show_figure(fig: Figure) -> None:
+    """Display ``fig`` interactively, but only when the backend can.
+
+    ``plt.show()`` on a non-interactive canvas (Agg, pdf, svg, ps -- every
+    backend whose ``required_interactive_framework`` is ``None``) cannot open a
+    window: matplotlib raises ``NonGuiException`` internally and converts it to
+    a ``UserWarning`` on every platform except headless Linux. Headless renders
+    (the watch/optimize plots, the generate pipeline previews, the whole test
+    suite) therefore ask for a display that cannot exist, so the show is
+    skipped. GUI backends (``macosx``, ``TkAgg``, ``QtAgg``, ...) report the
+    framework they need and show normally.
+
+    Args:
+        fig: The figure the caller asked to display.
+    """
+    # getattr default keeps this working on matplotlib versions predating the
+    # attribute; a missing attribute means "no interactive framework".
+    if getattr(fig.canvas, "required_interactive_framework", None) is not None:
+        plt.show()
+
+
 class PlotterError(Exception):
     """Exception raised when plotting operations fail.
 
@@ -249,7 +270,9 @@ def plot_plt_document(
         document: The parsed PLTDocument to visualize.
         output_path: Optional path to save the figure. Format inferred from extension.
         title: Title for the plot window/figure.
-        show_plot: If True, call plt.show() to display interactively.
+        show_plot: If True, display the figure interactively via ``plt.show()``.
+            On a non-interactive backend (Agg, pdf, svg, ps) nothing can be
+            displayed, so the show is skipped rather than warning.
         figure_size: Figure dimensions in inches as (width, height).
         rapid_travel_inches: Optional pre-calculated rapid travel distance in inches.
             If provided, uses this value in the summary text box instead of
@@ -257,7 +280,8 @@ def plot_plt_document(
             with any external calculation passed via title string.
         simple_mode: If True, render only tool-down segments in thick black lines,
             omitting all rapid travel (tool-up) visualization. Useful for clean
-            outlines of the actual cutting toolpath.
+            outlines of the actual cutting toolpath. No artist carries a legend
+            label in this mode, so no legend is drawn.
         is_structural: If True, the document carries a purely structural
             toolpath (borders + drill holes); simple-mode strokes render thick
             and semi-transparent (``linewidth=2.0``, ``alpha=0.3``). If False
@@ -270,11 +294,12 @@ def plot_plt_document(
             layout is kept (ticks and labels are unchanged) while both grid
             layers are suppressed, giving a clean background for exports.
         show_axes: If True (the default), draw the axis chrome: inch axis
-            labels, the fixed inch-based tick layout, the legend, and the
-            frame spines. If False, both axes are hidden (no ticks, tick
-            labels, or axis labels) and all four spines are removed, leaving
-            only the drawing (plus title/gridlines per their own flags) --
-            the clean-render mode the font showcases use.
+            labels, the fixed inch-based tick layout, the legend (when any
+            artist carries a label), and the frame spines. If False, both axes
+            are hidden (no ticks, tick labels, axis labels, or legend) and all
+            four spines are removed, leaving only the drawing (plus
+            title/gridlines per their own flags) -- the clean-render mode the
+            font showcases use.
         show_title: If True (the default), set ``title`` as the figure title.
             If False, no title is drawn (the chrome-free showcase mode wants
             nothing but the engraved geometry).
@@ -477,7 +502,11 @@ def plot_plt_document(
             ax.set_ylabel("Y (inches)")
             # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
             _apply_inch_tick_layout(ax)
-            ax.legend(loc="upper right")
+            # Only draw the legend when the axes carry labeled artists: simple
+            # mode suppresses every label, and legend() with no labeled artists
+            # warns and draws an empty frame.
+            if ax.get_legend_handles_labels()[1]:
+                ax.legend(loc="upper right")
         else:
             # Clean-render mode: no ticks, tick labels, axis labels, legend,
             # or frame -- just the drawing inside its padded limits.
@@ -524,7 +553,7 @@ def plot_plt_document(
             save_figure(fig, output_path)
 
         if show_plot:
-            plt.show()
+            _show_figure(fig)
 
         return fig
 
@@ -589,7 +618,9 @@ def plot_physical_strokes(
         output_path: Optional path to save the figure (format inferred
             from the extension, see :func:`save_figure`).
         title: Title for the plot window/figure.
-        show_plot: If True, call plt.show() to display interactively.
+        show_plot: If True, display the figure interactively via ``plt.show()``.
+            On a non-interactive backend (Agg, pdf, svg, ps) nothing can be
+            displayed, so the show is skipped rather than warning.
         figure_size: Figure dimensions in inches as (width, height).
         gridlines: If True (the default), draw the major (1 in) and minor
             (0.5 in) drafting gridlines.
@@ -730,7 +761,7 @@ def plot_physical_strokes(
             save_figure(fig, output_path)
 
         if show_plot:
-            plt.show()
+            _show_figure(fig)
 
         return fig
 

@@ -9,11 +9,13 @@ from __future__ import annotations
 import math
 import re
 import sys
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import matplotlib.pyplot as plt
 import pytest
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -36,6 +38,7 @@ from plt_optimizer.diagnostics.plotter import (
     PhysicalStrokeLayer,
     PlotterError,
     _safe_range,
+    _show_figure,
     create_path_diagram,
     plot_physical_strokes,
     plot_plt_document,
@@ -338,6 +341,33 @@ class TestPlotPltDocumentWithSegments:
 
         # Simple mode figure should have fewer or equal axes
         assert len(fig_simple.axes) <= len(fig_normal.axes)
+
+    def test_simple_mode_with_axes_emits_no_legend_warning(self) -> None:
+        """Simple mode has no labeled artists, so legend() is skipped (no warning)."""
+        seg = self._make_segment(0, 0, 10, 10, is_cutting=True)
+        path = self._make_path([seg])
+        doc = PLTDocument(stroke_paths=[path])
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fig = plot_plt_document(doc, simple_mode=True, show_axes=True)
+
+        assert not [w for w in caught if issubclass(w.category, UserWarning)]
+        # Intentional: no legend (and no empty legend frame) is drawn.
+        assert fig.axes[0].get_legend() is None
+
+    def test_color_mode_emits_no_legend_warning(self) -> None:
+        """Color mode labels Start/End, so its legend draws without warning."""
+        seg = self._make_segment(0, 0, 10, 10, is_cutting=True)
+        path = self._make_path([seg])
+        doc = PLTDocument(stroke_paths=[path])
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fig = plot_plt_document(doc, simple_mode=False, show_axes=True)
+
+        assert not [w for w in caught if issubclass(w.category, UserWarning)]
+        assert fig.axes[0].get_legend() is not None
 
     def test_simple_mode_structural_uses_thick_translucent_strokes(self) -> None:
         """Test is_structural=True renders simple strokes at 2.0 lw / 0.3 alpha."""
@@ -1075,6 +1105,142 @@ class TestShowPlotParameter:
         # Should complete without raising (interactive display may or may not appear)
         fig = plot_plt_document(doc, show_plot=True)
         assert isinstance(fig, plt.Figure)
+
+    def test_show_plot_true_on_non_interactive_backend_does_not_warn(self) -> None:
+        """The suite's Agg canvas cannot display, so the show is skipped silently."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1, 1),
+            is_cutting=True,
+        )
+        doc = PLTDocument(stroke_paths=[StrokePath(segments=(seg,))])
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            plot_plt_document(doc, show_plot=True)
+
+        assert not [w for w in caught if issubclass(w.category, UserWarning)]
+
+    def test_show_plot_true_calls_plt_show_on_interactive_backend(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A canvas that reports an interactive framework must reach plt.show()."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1, 1),
+            is_cutting=True,
+        )
+        doc = PLTDocument(stroke_paths=[StrokePath(segments=(seg,))])
+
+        show = MagicMock()
+        monkeypatch.setattr(plt, "show", show)
+        # Make the Agg canvas look like a GUI backend.
+        monkeypatch.setattr(FigureCanvasAgg, "required_interactive_framework", "gui")
+
+        plot_plt_document(doc, show_plot=True)
+        show.assert_called_once()
+
+    def test_show_plot_false_never_calls_plt_show(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """show_plot=False must not reach plt.show() even on a GUI backend."""
+        seg = StrokeSegment(
+            start=Coordinate(0, 0),
+            end=Coordinate(1, 1),
+            is_cutting=True,
+        )
+        doc = PLTDocument(stroke_paths=[StrokePath(segments=(seg,))])
+
+        show = MagicMock()
+        monkeypatch.setattr(plt, "show", show)
+        monkeypatch.setattr(FigureCanvasAgg, "required_interactive_framework", "gui")
+
+        plot_plt_document(doc, show_plot=False)
+        show.assert_not_called()
+
+
+class TestShowFigureHelper:
+    """Tests for the _show_figure interactivity guard."""
+
+    def test_skips_show_on_non_interactive_canvas(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Agg (required_interactive_framework is None) never calls plt.show()."""
+        fig, ax = plt.subplots()
+        ax.plot([0, 1], [0, 1])
+        assert fig.canvas.required_interactive_framework is None
+
+        show = MagicMock()
+        monkeypatch.setattr(plt, "show", show)
+        _show_figure(fig)
+        show.assert_not_called()
+
+    def test_calls_show_on_interactive_canvas(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A canvas reporting a GUI framework calls plt.show() once."""
+        fig, ax = plt.subplots()
+        ax.plot([0, 1], [0, 1])
+
+        show = MagicMock()
+        monkeypatch.setattr(plt, "show", show)
+        monkeypatch.setattr(FigureCanvasAgg, "required_interactive_framework", "gui")
+        _show_figure(fig)
+        show.assert_called_once()
+
+    def test_missing_attribute_is_treated_as_non_interactive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Older matplotlib canvases without the attribute must not show."""
+
+        class _LegacyCanvas:
+            """Canvas stand-in lacking required_interactive_framework."""
+
+        fig = MagicMock()
+        fig.canvas = _LegacyCanvas()
+
+        show = MagicMock()
+        monkeypatch.setattr(plt, "show", show)
+        _show_figure(fig)
+        show.assert_not_called()
+
+    def test_plot_physical_strokes_shows_on_interactive_backend(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """plot_physical_strokes routes show_plot through the same guard."""
+        layer = PhysicalStrokeLayer(
+            segments=[
+                StrokeSegment(
+                    start=Coordinate(0, 0),
+                    end=Coordinate(HPGL_UNITS_PER_INCH, 0),
+                    is_cutting=True,
+                )
+            ],
+            width_inches=0.1,
+        )
+
+        show = MagicMock()
+        monkeypatch.setattr(plt, "show", show)
+        monkeypatch.setattr(FigureCanvasAgg, "required_interactive_framework", "gui")
+
+        plot_physical_strokes([layer], show_plot=True)
+        show.assert_called_once()
+
+    def test_plot_physical_strokes_non_interactive_does_not_warn(
+        self,
+    ) -> None:
+        """show_plot=True on Agg skips the display silently (no UserWarning)."""
+        layer = PhysicalStrokeLayer(
+            segments=[
+                StrokeSegment(
+                    start=Coordinate(0, 0),
+                    end=Coordinate(HPGL_UNITS_PER_INCH, 0),
+                    is_cutting=True,
+                )
+            ],
+            width_inches=0.1,
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            fig = plot_physical_strokes([layer], show_plot=True)
+
+        assert isinstance(fig, plt.Figure)
+        assert not [w for w in caught if issubclass(w.category, UserWarning)]
 
 
 class TestSaveFigureOutput:

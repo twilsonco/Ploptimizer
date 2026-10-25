@@ -35,6 +35,17 @@ never raises on matplotlib-free machines. Therefore:
   `save_figure` infers format from the extension (.pdf, .svg/.svgz, .jpg/
   .jpeg flattened onto white, everything else PNG); `PlotterError` wraps bad
   input.
+- **Legend guard**: the axis legend is drawn only when the axes carry labeled
+  artists (`get_legend_handles_labels()`). `simple_mode` suppresses every
+  label, so it draws NO legend - calling `legend()` with nothing to show emits
+  a `UserWarning` and paints an empty frame; keep it guarded.
+- **`show_plot` / `_show_figure(fig)`**: `plt.show()` runs only when the active
+  canvas reports an interactive framework
+  (`fig.canvas.required_interactive_framework is not None`). Headless backends
+  (Agg/pdf/svg/ps - every CI run, the watch/optimize plots, the generate
+  previews) skip the show silently; a bare `plt.show()` there warns on
+  macOS/Windows. Both `plot_plt_document` and `plot_physical_strokes` route
+  `show_plot` through this helper.
 - **Inch display**: `PLT_UNITS_TO_INCHES = 1 / HPGL_UNITS_PER_INCH` - the
   device scale comes from `core/units.py` (root §4, 1016 units/inch), axes and
   ticks are laid out in inches (`TICK_INTERVAL_INCHES`).
