@@ -459,20 +459,20 @@ class TextAttributes(BaseModel):
         default=None,
         description=(
             "Extra spacing between text lines in inches, or "
-            "'auto' to calculate spacing automatically based on label height, "
+            "`auto` to calculate spacing automatically based on label height, "
             "margins, and text line count (default when unspecified). Fallback when "
-            "not specified at any level is 'auto'."
+            "not specified at any level is `auto`."
         ),
     )
     max_h_compress: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="Maximum horizontal compression fraction in [0.0, 1.0].",
+        description="Maximum horizontal compression fraction in `[0.0, 1.0]`.",
     )
     text_h_alignment: Optional[TextHAlignment] = Field(
         default=None,
-        description="Horizontal text alignment: left, center, or right.",
+        description="Horizontal text alignment: `left`, `center`, or `right`.",
     )
     min_hole_margin: Optional[float] = Field(
         default=None,
@@ -488,7 +488,7 @@ class TextAttributes(BaseModel):
         description=(
             "Minimum air gap in inches between engraved text and drill "
             "hole strokes, on top of the stroke floor "
-            "0.5 * (hole_cutter + text_cutter)."
+            "`0.5 * (hole_cutter + text_cutter)`."
         ),
     )
     space_width_fraction: Optional[float] = Field(
@@ -497,7 +497,7 @@ class TextAttributes(BaseModel):
         description=(
             "Space advance as a fraction of the rendered text height "
             "(PLT-extracted fonts): a space advances "
-            "space_width_fraction * text_height + character_spacing. "
+            "`space_width_fraction * text_height + character_spacing`. "
             "Cascades line -> label -> job (fallback 0.3); explicit 0.0 "
             "is honored."
         ),
@@ -507,7 +507,7 @@ class TextAttributes(BaseModel):
         ge=0.0,
         description=(
             "Global minimum glyph advance width as a fraction of the "
-            "rendered cap height (capline - baseline) for PLT-extracted "
+            "rendered cap height `(capline - baseline)` for PLT-extracted "
             "fonts: clamps the profile-envelope kerning so zero-width "
             "glyphs still reserve real air. Cascades line -> label -> job "
             "(fallback 0.0 = pure envelope kerning); explicit 0.0 is honored."
@@ -519,7 +519,7 @@ class TextAttributes(BaseModel):
         le=1.0,
         description=(
             "Kerning window for PLT-extracted fonts as a fraction of the "
-            "rendered text height in [0.0, 1.0]: each envelope sample "
+            "rendered text height in `[0.0, 1.0]`: each envelope sample "
             "compares against the opposite silhouette within +/- (half of "
             "this fraction) of the text height and the effective "
             "penetration is the worst windowed penetration, so staggered "
@@ -546,9 +546,9 @@ class TextAttributes(BaseModel):
             "Multiplier on a *recessed* (negative) profile-envelope "
             "penetration for PLT-extracted fonts: 1.0 keeps the geometric "
             "recession (the historical linear behavior, where lowering "
-            "kerning_penetration_scale also pulled gapped pairs closer), "
-            "0.0 makes a recessed pair advance by nothing beyond the "
-            "min_glyph_width_fraction floor. Cascades line -> label -> job "
+            "`kerning_penetration_scale` also pulled gapped pairs closer), "
+            "`0.0` makes a recessed pair advance by nothing beyond the "
+            "`min_glyph_width_fraction` floor. Cascades line -> label -> job "
             "(fallback 1.0); explicit 0.0 is honored."
         ),
     )
@@ -559,7 +559,7 @@ class TextAttributes(BaseModel):
             "Extra air added to every kerned character pair advance "
             "(PLT-extracted fonts) as a fraction of the rendered cap height "
             "(capline - baseline), on top of the cutter diameter and "
-            "character_spacing clearance. Cascades line -> label -> job "
+            "`character_spacing` clearance. Cascades line -> label -> job "
             "(fallback 0.0 = no extra gap); explicit 0.0 is honored."
         ),
     )
@@ -626,10 +626,10 @@ class TextAttributes(BaseModel):
             "Downscale applied to ASCII lowercase a-z by a small-caps font "
             "(a font name ending in ' SC', e.g. 'Dino SC'): the lowercase "
             "character renders as the base font's uppercase glyph uniformly "
-            "shrunk to sc_scale of the cap height, top-down (the glyph's "
+            "shrunk to `sc_scale` of the cap height, top-down (the glyph's "
             "own bottom stays in place and its top descends). Uppercase and "
             "caseless characters engrave at full size; the nominal "
-            "text_height is untouched (no cutter change). The same field "
+            "`text_height` is untouched (no cutter change). The same field "
             "drives the inline `<sc>` small-caps markup tag (the per-character "
             "selection); inert on a non-SC font carrying no `<sc>` run. "
             "Cascades line -> label -> job (fallback "
@@ -678,7 +678,7 @@ class TextAttributes(BaseModel):
             "Slant angle in degrees for italic markup (`<i>`): PLT-extracted "
             "glyphs (and TTF glyphs with no native italic face) are sheared "
             "about the baseline, $x' = x + y * tan(angle)$, so the baseline "
-            "stays fixed and the glyph leans right. Bound to [0, 45]; 0 "
+            "stays fixed and the glyph leans right. Bound to `[0, 45]`; 0 "
             "means upright (the shear is skipped). Cascades line -> label -> "
             "job (fallback 12); explicit 0.0/45.0 are honored."
         ),
@@ -708,7 +708,7 @@ class TextAttributes(BaseModel):
         description=(
             "Extra air at each underline (`<u>`) break as a fraction of the "
             "rendered cap height (capline - baseline): each cut is "
-            "padded horizontally by 0.5 * cutter + fraction * cap height (the half "
+            "padded horizontally by `0.5 * cutter + fraction * cap height` (the half "
             "cutter is the glyph stroke's own half-width), so the "
             "engraved air between a descending glyph's stroke and the "
             "underline's cut edge is exactly this value. 0.0 = the cut sits "
@@ -735,14 +735,14 @@ class TextAttributes(BaseModel):
         ge=0.0,
         description=(
             "Strikethrough (`<s>`) height ABOVE the baseline as a fraction of "
-            "the rendered cap height (capline - baseline): the stroke (cut "
-            "with the line's own text cutter) sits fraction * cap height "
-            "above the baseline, so 0.0 puts it on the baseline and 1.0 puts "
+            "the rendered cap height (`capline - baseline`): the stroke (cut "
+            "with the line's own text cutter) sits `fraction * cap height` "
+            "above the baseline, so `0.0` puts it on the baseline and `1.0` puts "
             "it on the capline. "
             "Unlike the underline the stroke is never broken -- a descender "
-            "punches through it. null (default) centres the stroke on the "
+            "punches through it. `null` (default) centres the stroke on the "
             "cap-band midline (half the rendered cap height). Must be >= 0. "
-            "Cascades line -> label -> job (fallback null = mid-cap); "
+            "Cascades line -> label -> job (fallback `null` = mid-cap); "
             "explicit 0.0 is honored."
         ),
     )
@@ -779,12 +779,12 @@ class TextAttributes(BaseModel):
         gt=0.0,
         description=(
             "Cutter diameter in inches to use for this text instead of the "
-            "tool auto-selected from text_height. Snapped to the shop "
-            "inventory (tools.json available_cutters: next size down, else "
+            "tool auto-selected from `text_height`. Snapped to the shop "
+            "inventory (`tools.json` `available_cutters`: next size down, else "
             "next size up); the rendered toolpath height becomes "
-            "text_height - cutter_size. Omit (null) to keep automatic "
-            "cutter selection from text_height. Must be > 0 and below the "
-            "line's text_height. No job-config.json counterpart. Cascades "
+            "`text_height - cutter_size`. Omit (`null`) to keep automatic "
+            "cutter selection from `text_height`. Must be > 0 and below the "
+            "line's `text_height`. No job-config.json counterpart. Cascades "
             "line -> label -> job."
         ),
     )
@@ -793,16 +793,16 @@ class TextAttributes(BaseModel):
         ge=0.05,
         le=0.30,
         description=(
-            "Target engraved stroke width as a fraction of text height for "
-            "multi-stroke (bold) PLT fonts - fonts whose glyphs carry N > 1 "
-            "parallel cutter passes (the stroke_count stored in the font's "
-            "catalog file). The automatic cutter is sized so the N passes "
+            "Target engraved stroke width as a fraction of `text_height` for "
+            "multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` "
+            "parallel cutter passes (the `stroke_count` stored in the font's "
+            "catalog file). The automatic cutter is sized so the `N` passes "
             "plus their overlaps engrave this total width, with "
             "multistroke_overlap_ratio guarding against unengraved stripes; "
             "the resulting cutter is snapped to the shop inventory. The "
             "implicit pass overlap is derived and logged. Inert on "
             "single-stroke fonts, TTF fonts, and lines with an explicit "
-            "cutter_size. Bound to [0.05, 0.30]. Cascades line -> label -> "
+            "`cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> "
             "job (fallback 0.14); accepted on plates for schema parity only."
         ),
     )
@@ -831,7 +831,7 @@ class TextAttributes(BaseModel):
         description=(
             "Boldness boost applied by inline `<b>` markup to a multi-stroke "
             "(bold) PLT font: the bold runs re-run the cutter ladder at "
-            "target_boldness_factor * this multiplier (clamped to 0.30 with "
+            "`target_boldness_factor` * this multiplier (clamped to 0.30 with "
             "a WARNING), so their parallel passes engrave heavier than the "
             "line's plain text. On single-stroke PLT and TTF fonts `<b>` "
             "instead steps to the next larger inventory cutter and this "
@@ -846,10 +846,10 @@ class TextAttributes(BaseModel):
             "Allow the automatically selected cutter to be reduced when the "
             "text line is horizontally compressed: a line squeezed past the "
             "midpoint toward the next smaller inventory tool swaps to it and "
-            "re-renders at text_height - smaller_cutter. One-way (a downsized "
+            "re-renders at `text_height - smaller_cutter`. One-way (a downsized "
             "cutter is never enlarged again within the same line) and fully "
             "overridden by an explicit cutter_size. Requires a tools.json "
-            "available_cutters inventory. Cascades line -> label -> job "
+            "`available_cutters` inventory. Cascades line -> label -> job "
             "(fallback true); explicit false is honored."
         ),
     )
@@ -870,10 +870,10 @@ class TextAttributes(BaseModel):
             "Share a compression-driven cutter downsize across the text lines "
             "of one label: when a line's compression triggers a swap to a "
             "smaller inventory tool, every other eligible line of the same "
-            "text_height in the same label receives the same swap (then each "
+            "`text_height` in the same label receives the same swap (then each "
             "continues its own one-way step loop). Lines with an explicit "
-            "cutter_size, cutter_downsize false, max_cutter_downsizes 0, or a "
-            "zero max_h_compress budget are never touched. Setting the option "
+            "`cutter_size`, `cutter_downsize` false, `max_cutter_downsizes` 0, or a "
+            "zero `max_h_compress` budget are never touched. Setting the option "
             "at the job level enables it for every label; sharing is always "
             "per-label. Cascades line -> label -> job (fallback true); "
             "explicit false is honored."
@@ -884,9 +884,9 @@ class TextAttributes(BaseModel):
         description=(
             "Widen the scope of the shared cutter downsize from the label to "
             "the whole job: when a line's compression triggers a swap, every "
-            "eligible line of the same text_height in ANY label of the job "
+            "eligible line of the same `text_height` in ANY label of the job "
             "receives the same swap (the job converges on one tool per text "
-            "size). Requires cutter_downsize_global true; a line with this "
+            "size). Requires `cutter_downsize_global` true; a line with this "
             "flag false keeps exactly the per-label behavior (it neither "
             "shares to nor receives from the job-wide group). The same "
             "eligibility opt-outs apply. Cascades line -> label -> job "
@@ -898,10 +898,10 @@ class TextAttributes(BaseModel):
         description=(
             "Share horizontal compression across the text lines of one label: "
             "when a line's width forces horizontal compression, every other "
-            "eligible line of the same text_height in the same label is "
+            "eligible line of the same `text_height` in the same label is "
             "compressed to the same scale (the most-compressed scale among "
-            "the triggering lines, clamped to each line's own max_h_compress "
-            "budget floor). Lines with a zero max_h_compress budget are never "
+            "the triggering lines, clamped to each line's own `max_h_compress` "
+            "budget floor). Lines with a zero `max_h_compress` budget are never "
             "touched. Setting the option at the job level enables it for every "
             "label; sharing is always per-label. Cascades line -> label -> job "
             "(fallback false); explicit true is honored."
@@ -912,9 +912,9 @@ class TextAttributes(BaseModel):
         description=(
             "The grouping scope of the shared horizontal compression: true "
             "(the default) shares the compression only between the lines of "
-            "the same text_height in the label (one text size, one glyph "
+            "the same `text_height` in the label (one text size, one glyph "
             "density); false shares it across EVERY eligible line of the "
-            "label, whatever their text_height, so one label engraves at one "
+            "label, whatever their `text_height`, so one label engraves at one "
             "glyph density throughout. Cascades line -> label -> job "
             "(fallback true); explicit false is honored."
         ),
@@ -926,7 +926,7 @@ class TextAttributes(BaseModel):
             "transforms (horizontal compression, the cap-line clamp, the "
             "descender relief and the italic shear): each arc's ellipse image "
             "is refit with a short chain of circular AA arcs (bounded "
-            "deviation, see plt_optimizer/generate/arc_fit.py) instead of "
+            "deviation, see `plt_optimizer/generate/arc_fit.py`) instead of "
             "polygonizing into line segments, so a compressed line engraves "
             "far faster. True (the default) preserves arcs; false restores the "
             "historical polygonized output. Cascades line -> label -> job "
@@ -952,7 +952,7 @@ class TextAttributes(BaseModel):
         default=None,
         ge=1,
         description=(
-            "Ceiling N on how many consecutive lines an optimize_line_content "
+            "Ceiling N on how many consecutive lines an `optimize_line_content` "
             "group may use. This option can only ever ADD lines to a label; it "
             "never removes, blanks or collapses one. Unset reflows across the "
             "group's existing lines and adds none. When set, the reflow starts "
@@ -962,7 +962,7 @@ class TextAttributes(BaseModel):
             "the group's word count. N <= G leaves the cap inert. Setting it "
             "on any one line of a group applies it to the whole group; two "
             "different values in one group are an error, and so is specifying "
-            "it while optimize_line_content is not enabled. Cascades "
+            "it while `optimize_line_content` is not enabled. Cascades "
             "line -> label -> job (unset by default = no growth)."
         ),
     )
@@ -989,7 +989,7 @@ class TextAttributes(BaseModel):
             "job level; never cascades). Full name or case-insensitive "
             "single-letter abbreviation (c, m, y, k, r, g, b, v, o, p, t); "
             "'none' is the implicit default and cannot be specified. The "
-            "inline <tc:color>...</tc> markup applies the same split to the "
+            "inline `<tc:color>...</tc>` markup applies the same split to the "
             "wrapped segment, overriding this field per character."
         ),
     )
@@ -1226,10 +1226,10 @@ class LabelAttributes(TextAttributes):
     type: Optional[LabelShape] = Field(
         default=None,
         description=(
-            "Label boundary shape: 'rect' (default, historical) or 'round' "
-            "(ellipse with semi-axes width/2 and height/2; a circle when "
+            "Label boundary shape: `rect` (default, historical) or `round` "
+            "(ellipse with semi-axes `width/2` and `height/2`; a circle when "
             "width == height). Cascades label -> job; unset (null) falls back "
-            "to 'rect'. Accepted on plates for schema parity only."
+            "to `rect`. Accepted on plates for schema parity only."
         ),
     )
     rounded_rectangle_fraction: Optional[float] = Field(
@@ -1260,7 +1260,7 @@ class LabelAttributes(TextAttributes):
             "`fraction*height/2`) or as one identical rounding distance on every "
             "side (false, the default: the shorter edge determines the "
             "rounding for all sides). Cascades job -> plate -> label; unset "
-            "(null) falls back to job-config.json then false. Accepted on "
+            "(`null`) falls back to job-config.json then `false`. Accepted on "
             "plates for schema parity only."
         ),
     )
@@ -1299,7 +1299,7 @@ class LabelAttributes(TextAttributes):
         default=None,
         description=(
             "Drill holes; a label value replaces the job-level list entirely "
-            "(an empty list suppresses holes). 'corners'/'sides' expand to members."
+            "(an empty list suppresses holes). `corners`/`sides` expand to members."
         ),
     )
     material: Optional[str] = Field(
@@ -1315,7 +1315,7 @@ class LabelAttributes(TextAttributes):
         default=None,
         description=(
             "Stack a label's text lines by baseline-to-baseline pitch "
-            "(text_height + line_spacing) so descenders hang into the gap and "
+            "(`text_height` + `line_spacing`) so descenders hang into the gap and "
             "every gap reads as one uniform visual spacing; false stacks by "
             "rendered ink box (historical). Cascades job -> plate -> label "
             "(never text lines); unset (null) falls back to job-config.json "
@@ -1325,16 +1325,16 @@ class LabelAttributes(TextAttributes):
     v_center_by_content: Optional[bool] = Field(
         default=None,
         description=(
-            "Center a label's text block by its rendered ink (true, historical "
+            "Center a label's text block by its rendered ink (`true`, historical "
             "-- the deepest descender is charged to the block, so lines with "
             "descenders ride high) or by its baseline-to-capline band (false, "
             "the default -- the visible text is optically centered and "
             "descenders hang into the bottom margin for the descending-"
             "character relief to handle). Band centering is active only when "
-            "auto_descending_character_adjustment is enabled; with the relief "
+            "`auto_descending_character_adjustment` is enabled; with the relief "
             "off, ink centering is kept and this field is inert. Cascades job "
-            "-> plate -> label (never text lines); unset (null) falls back to "
-            "job-config.json then false. Accepted on plates for schema parity "
+            "-> plate -> label (never text lines); unset (`null`) falls back to "
+            "`job-config.json` then `false`. Accepted on plates for schema parity "
             "only."
         ),
     )
@@ -1345,8 +1345,8 @@ class LabelAttributes(TextAttributes):
             "(close to) colliding with a glyph on the following line. "
             "Per-descending-character, triggered by a measured near-miss "
             "against the line below -- never a blanket adjustment. Cascades "
-            "job -> plate -> label (never text lines); unset (null) falls back "
-            "to job-config.json then true. Accepted on plates for schema "
+            "job -> plate -> label (never text lines); unset (`null`) falls back "
+            "to `job-config.json` then `true`. Accepted on plates for schema "
             "parity only."
         ),
     )
@@ -1358,8 +1358,8 @@ class LabelAttributes(TextAttributes):
             "Maximum vertical downscale allowed for a triggering descending "
             "glyph in [0.2, 1.0] (1.0 = no downscaling, 0.5 = 50% "
             "downscaling), about the glyph's own baseline. Cascades job -> "
-            "plate -> label (never text lines); unset (null) falls back to "
-            "job-config.json then 0.5. Accepted on plates for schema parity "
+            "plate -> label (never text lines); unset (`null`) falls back to "
+            "`job-config.json` then 0.5. Accepted on plates for schema parity "
             "only."
         ),
     )
@@ -1372,7 +1372,7 @@ class LabelAttributes(TextAttributes):
             "as a fraction of its own descender depth in [0.0, 1.0] (0.0 = no "
             "raising, 1.0 = lift until the glyph's lowest point sits exactly "
             "at the baseline). Cascades job -> plate -> label (never text "
-            "lines); unset (null) falls back to job-config.json then 0.7. "
+            "lines); unset (`null`) falls back to `job-config.json` then 0.7. "
             "Accepted on plates for schema parity only."
         ),
     )
@@ -1386,7 +1386,7 @@ class LabelAttributes(TextAttributes):
             "(1 + clearance)), so it scales with the cutter width and reads "
             "the same at every text size. Cascades job -> plate -> label (never "
             "text lines); explicit 0.0 is honored (only true touching triggers); "
-            "unset (null) falls back to job-config.json then 0.0. Accepted on "
+            "unset (`null`) falls back to `job-config.json` then 0.0. Accepted on "
             "plates for schema parity only."
         ),
     )
@@ -1401,22 +1401,22 @@ class LabelAttributes(TextAttributes):
             "top-down about their own lowest ink point, so their lowest point "
             "never moves; they share the relief with the descending glyph in "
             "proportion to the same ramp driving its downscale/raise. Cascades "
-            "job -> plate -> label (never text lines); unset (null) falls back "
-            "to job-config.json then 0.5. Accepted on plates for schema parity "
+            "job -> plate -> label (never text lines); unset (`null`) falls back "
+            "to `job-config.json` then 0.5. Accepted on plates for schema parity "
             "only."
         ),
     )
     adjust_h_center_for_single_side_hole: Optional[bool] = Field(
         default=None,
         description=(
-            "Permission to apply horizontal shift for asymmetric left/right "
+            "Permission to apply horizontal shift for asymmetric `left`/`right` "
             "drill holes. When enabled (true), text is horizontally shifted to "
-            "center between left and right holes: shift = (left_diameter - "
-            "right_diameter) / 2. Only applied to center-aligned text; left/right "
-            "alignment ignores the shift. Vertical shifts (for top/bottom holes) "
+            "center between `left` and `right` holes: shift = (left_diameter - "
+            "right_diameter) / 2. Only applied to center-aligned text; `left`/`right` "
+            "alignment ignores the shift. Vertical shifts (for `top`/`bottom` holes) "
             "are always applied and are not gated by this field. Cascades job -> "
-            "plate -> label (never text lines); unset (null) falls back to "
-            "job-config.json then false. Accepted on plates for schema parity "
+            "plate -> label (never text lines); unset (`null`) falls back to "
+            "`job-config.json` then `false`. Accepted on plates for schema parity "
             "only."
         ),
     )
@@ -1430,8 +1430,8 @@ class LabelAttributes(TextAttributes):
             "is untouched (placed from the specified diameter); a hole at or "
             "below the cutter diameter clamps to the smallest emittable "
             "circle with a WARNING. Cascades job -> plate -> label (never "
-            "text lines); unset (null) falls back to job-config.json then "
-            "true. Accepted on plates for schema parity only."
+            "text lines); unset (`null`) falls back to `job-config.json` then "
+            "`true`. Accepted on plates for schema parity only."
         ),
     )
 
@@ -1506,19 +1506,19 @@ class TextLine(TextAttributes):
             "text is replaced by the corresponding replacement-file item; its "
             "other attributes are preserved. Non-placeholder lines copy verbatim "
             "to every instance. Requires the parent label to declare "
-            "replacement_text_file."
+            "`replacement_text_file`."
         ),
     )
     new_line: bool = Field(
         default=False,
         description=(
-            "Force this line to begin on its own line. When True, the line "
-            "starts a new optimize_line_content reflow group: the lines that "
+            "Force this line to begin on its own line. When `True`, the line "
+            "starts a new `optimize_line_content` reflow group: the lines that "
             "follow it reflow with it rather than with the lines above it, so "
             "the group's words fill the lines from this one downward. The "
             "flag has no effect unless this line also enables "
-            "optimize_line_content. Line-level only: it is not inherited from "
-            "the label or the job, and job-config.json has no counterpart."
+            "`optimize_line_content`. Line-level only: it is not inherited from "
+            "the label or the job, and `job-config.json` has no counterpart."
         ),
     )
 
@@ -1760,15 +1760,15 @@ class LabelSpec(LabelAttributes):
         default=None,
         description=(
             "Content entries to render: plain text lines and nested "
-            "itemize/enumerate list blocks. Required unless "
-            "replacement_text_file is provided."
+            "`itemize`/`enumerate` list blocks. Required unless "
+            "`replacement_text_file` is provided."
         ),
     )
     replacement_text_file: Optional[str] = Field(
         default=None,
         description=(
-            "Path to an EngraveLab/Vision Pro-style replacement text file. "
-            "Each line produces one label instance. Mutually exclusive with count."
+            "Path to an EngraveLab/Vision Pro-style `replacement_text_file`. "
+            "Each line produces one label instance. Mutually exclusive with `count`."
         ),
     )
     replacement_text_delimiter: Optional[str] = Field(
@@ -1787,7 +1787,7 @@ class LabelSpec(LabelAttributes):
             "Unset inherits the plate/job cascade (fallback '# '; "
             "job-config.json supplies the shop default); an explicit '' "
             "disables comment handling (every non-blank line is raw data; "
-            "blank lines are still dropped). Requires replacement_text_file."
+            "blank lines are still dropped). Requires `replacement_text_file`."
         ),
     )
     plate_id: Optional[str] = Field(
@@ -2080,7 +2080,7 @@ class PlateSpec(BaseModel):
         ge=0.2,
         le=1.0,
         description=(
-            "Bare <sup>/<sub> markup run downscale (schema parity; not applied at plate level)."
+            "Bare `<sup>`/`<sub>` markup run downscale (schema parity; not applied at plate level)."
         ),
     )
     html_brackets: Optional[str] = Field(
@@ -2095,7 +2095,7 @@ class PlateSpec(BaseModel):
         ge=0.0,
         le=45.0,
         description=(
-            "Italic slant angle in degrees for <i> markup (schema parity; "
+            "Italic slant angle in degrees for `<i>` markup (schema parity; "
             "not applied at plate level)."
         ),
     )
@@ -2103,7 +2103,7 @@ class PlateSpec(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Underline (<u>) extra air below the baseline stroke as a "
+            "Underline (`<u>`) extra air below the baseline stroke as a "
             "fraction of the rendered cap height "
             "(schema parity; not applied at plate level)."
         ),
@@ -2112,7 +2112,7 @@ class PlateSpec(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Underline (<u>) extra air at each break as a fraction of the "
+            "Underline (`<u>`) extra air at each break as a fraction of the "
             "rendered cap height (schema "
             "parity; not applied at plate level)."
         ),
@@ -2120,14 +2120,14 @@ class PlateSpec(BaseModel):
     underline_break_spaces: Optional[bool] = Field(
         default=None,
         description=(
-            "Underline (<u>) break-at-spaces flag (schema parity; not applied at plate level)."
+            "Underline (`<u>`) break-at-spaces flag (schema parity; not applied at plate level)."
         ),
     )
     strikethrough_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Strikethrough (<s>) height above the baseline as a fraction of "
+            "Strikethrough (`<s>`) height above the baseline as a fraction of "
             "the rendered cap height "
             "(schema parity; not applied at plate level)."
         ),
@@ -2135,7 +2135,7 @@ class PlateSpec(BaseModel):
     strikethrough_break_spaces: Optional[bool] = Field(
         default=None,
         description=(
-            "Strikethrough (<s>) break-at-spaces flag (schema parity; not applied at plate level)."
+            "Strikethrough (`<s>`) break-at-spaces flag (schema parity; not applied at plate level)."
         ),
     )
     v_center_chars: Optional[str] = Field(
@@ -2175,7 +2175,7 @@ class PlateSpec(BaseModel):
         ge=1.0,
         le=4.0,
         description=(
-            "Bold markup (<b>) boldness multiplier for multi-stroke fonts "
+            "Bold markup (`<b>`) boldness multiplier for multi-stroke fonts "
             "(schema parity; not applied at plate level)."
         ),
     )
@@ -2363,7 +2363,7 @@ class PlateSpec(BaseModel):
             "'wb(uv)'); cascades job -> plate (an explicit plate value wins). "
             "A plate carries exactly one material: labels whose material "
             "matches pack onto it and no other material shares it. A plate "
-            "that omits material (null) is claimed by one material group. "
+            "that omits material (`null`) is claimed by one material group. "
             "Comparison trims whitespace and ignores case."
         ),
     )
@@ -2390,10 +2390,10 @@ class PlateSpec(BaseModel):
             "whitespace-stripped text starts with this string is dropped "
             "(it produces no label copy) and reported in a per-file WARNING. "
             "Unset inherits the job cascade (fallback '# '; "
-            "job-config.json supplies the shop default); an explicit '' "
+            "`job-config.json` supplies the shop default); an explicit '' "
             "disables comment handling (every non-blank line is raw data; "
             "blank lines are still dropped). Same file requirement as "
-            "replacement_text_delimiter; cascades plate -> pinned label."
+            "`replacement_text_delimiter`; cascades plate -> pinned label."
         ),
     )
 
@@ -2608,7 +2608,7 @@ class JobSpec(LabelAttributes):
         default=None,
         description=(
             "Plate (material sheet) definitions. Omit for unbounded mode: "
-            "auto-allocated default_plate_{i} sheets (24x16 unless job-config "
+            "auto-allocated `default_plate_{i}` sheets (24x16 unless job-config "
             "plate_width/plate_height override)."
         ),
     )
@@ -2618,7 +2618,7 @@ class JobSpec(LabelAttributes):
         default=None,
         description=(
             "Explicit label list. Mutually exclusive with root-level content "
-            "and a job-level replacement_text_file."
+            "and a job-level `replacement_text_file`."
         ),
     )
     count: Optional[int] = Field(
@@ -2640,7 +2640,7 @@ class JobSpec(LabelAttributes):
         description=(
             "Job-level EngraveLab/Vision Pro-style replacement text file. "
             "Each line produces one label built from the job-level label "
-            "attributes. Mutually exclusive with labels and count."
+            "attributes. Mutually exclusive with `labels` and `count`."
         ),
     )
     replacement_text_delimiter: Optional[str] = Field(
@@ -2658,7 +2658,7 @@ class JobSpec(LabelAttributes):
             "Comment marker for replacement file lines: a line whose "
             "whitespace-stripped text starts with this string is dropped "
             "(it produces no label copy) and reported in a per-file WARNING. "
-            "Unset falls back to '# ' (job-config.json supplies the shop "
+            "Unset falls back to '# ' (`job-config.json` supplies the shop "
             "default); an explicit '' disables comment handling (every "
             "non-blank line is raw data; blank lines are still dropped). "
             "Requires a replacement file at some tier (job, plate, or "
@@ -2721,13 +2721,13 @@ class JobSpec(LabelAttributes):
         default=None,
         description=(
             "Optional engraver tool options (header commands). Keys are underscored "
-            "header names (e.g., 'cutting_velocity', 'dwell_time', 'spindle_speed'). "
+            "header names (e.g., `cutting_velocity`, `dwell_time`, `spindle_speed`). "
             "Values override job-config.json defaults for those parameters. "
             "Supported options and their ranges are defined in job-config.json "
-            "'tool_options' metadata, which includes 'command', 'type', 'units', "
-            "'default' (with dual text/borders_holes values), and for numeric types "
-            "'min'/'max' bounds. Omitted options use job-config defaults or are "
-            "omitted from the PLT if the default is null. Out-of-bounds values are "
+            "`tool_options` metadata, which includes `command`, `type`, `units`, "
+            "`default` (with dual text/borders_holes values), and for numeric types "
+            "`min`/`max` bounds. Omitted options use job-config defaults or are "
+            "omitted from the PLT if the default is `null`. Out-of-bounds values are "
             "clamped to the configured range with a WARNING logged."
         ),
     )
