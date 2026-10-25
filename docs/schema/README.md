@@ -230,11 +230,12 @@ them. A spec-declared `margin` (job level, **or on any label**) suppresses
 the configured `h_margin`/`v_margin` injection: the cascade checks the
 axis-specific job-level keys *before* `margin`, so an injected axis value
 would silently outrank the spec's margin on that axis. Conversely, the
-configured `replacement_text_file_comment_string` is injected **only** when
+configured `replacement_text_delimiter` and
+`replacement_text_file_comment_string` are injected **only** when
 the spec declares a `replacement_text_file` at some tier (job, plate, or
 label) -- the schema rejects a job-level delimiter/comment marker in a job
 with no replacement file anywhere. See
-[`job_config.schema.json`](job_config.schema.json) for its
+[`job_config.schema.json`](job_config.schema.json) for their
 contract (unknown keys fail loudly; `hole_diameter` fills `diameter` on hole
 entries that omit it).
 

@@ -1063,6 +1063,171 @@ class TestPlateLevelReplacementExpansion:
         ]
 
 
+class TestJobLevelCascadeAcrossLabelFiles:
+    """Job-level delimiter/comment driving several label-level files.
+
+    The requested shape: no job-level ``replacement_text_file`` at all -- the
+    delimiter and comment marker are declared once on the job and every
+    ``labels`` entry carrying its own file inherits them (a label- or
+    plate-level value still overrides).
+    """
+
+    def test_job_delimiter_and_comment_drive_several_label_files(self, tmp_path: Path) -> None:
+        """Two label files both split on the job delimiter and drop the job marker."""
+        _write(tmp_path / "names.txt", "// batch header\nAda,1815\nGrace,1906\n")
+        _write(tmp_path / "serials.txt", "// serials\nX1,Y1\nX2,Y2\nX3,Y3\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Shared Cascade\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_delimiter: ','\n"
+            "  replacement_text_file_comment_string: '//'\n"
+            "  labels:\n"
+            "    - id: name\n"
+            "      replacement_text_file: names.txt\n"
+            "    - id: serial\n"
+            "      replacement_text_file: serials.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.id for lbl in job.labels] == [
+            "name_0000",
+            "name_0001",
+            "serial_0000",
+            "serial_0001",
+            "serial_0002",
+        ]
+        texts = {lbl.id: [line.text for line in lbl.content or []] for lbl in job.labels}
+        assert texts["name_0000"] == ["Ada", "1815"]
+        assert texts["serial_0002"] == ["X3", "Y3"]
+        # The job-level fields are consumed by expansion.
+        assert job.replacement_text_delimiter is None
+        assert job.replacement_text_file_comment_string is None
+
+    def test_label_delimiter_override_wins_at_expansion(self, tmp_path: Path) -> None:
+        """A label-declared delimiter overrides the job value; a sibling inherits."""
+        _write(tmp_path / "own.txt", "P|Q\n")
+        _write(tmp_path / "inherited.txt", "A,B\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Override\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_delimiter: ','\n"
+            "  labels:\n"
+            "    - id: own\n"
+            "      replacement_text_file: own.txt\n"
+            "      replacement_text_delimiter: '|'\n"
+            "    - id: inherited\n"
+            "      replacement_text_file: inherited.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        texts = {lbl.id: [line.text for line in lbl.content or []] for lbl in job.labels}
+        assert texts["own_0000"] == ["P", "Q"]
+        assert texts["inherited_0000"] == ["A", "B"]
+
+    def test_plate_delimiter_and_comment_win_for_pinned_label(self, tmp_path: Path) -> None:
+        """A plate-declared delimiter/comment outranks the job for a pinned label."""
+        _write(tmp_path / "pinned.txt", ";; plate note\nP|Q\nA,B\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Plate Wins\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_delimiter: ','\n"
+            "  replacement_text_file_comment_string: '//'\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_delimiter: '|'\n"
+            "      replacement_text_file_comment_string: ';;'\n"
+            "  labels:\n"
+            "    - id: pinned\n"
+            "      plate_id: p1\n"
+            "      replacement_text_file: pinned.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        # Plate delimiter splits on '|'; the ';;' marker drops the note line
+        # (the job's '//' marker never sees it). "A,B" has no '|' -> one item.
+        assert [lbl.id for lbl in job.labels] == ["pinned_0000", "pinned_0001"]
+        assert [line.text for line in job.labels[0].content or []] == ["P", "Q"]
+        assert [line.text for line in job.labels[1].content or []] == ["A,B"]
+
+    def test_placeholder_label_receives_job_cascade(self, tmp_path: Path) -> None:
+        """A placeholder-bearing label splits/drops lines using the job's fields."""
+        _write(tmp_path / "r.txt", "// comment\nAda,Lovelace\nGrace,Hopper\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Placeholder Cascade\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_delimiter: ','\n"
+            "  replacement_text_file_comment_string: '//'\n"
+            "  labels:\n"
+            "    - id: badge\n"
+            "      replacement_text_file: r.txt\n"
+            "      content:\n"
+            "        - text: CONSTANT\n"
+            "        - text: NAME\n"
+            "          placeholder: true\n"
+            "          text_height: 0.75\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        # The '// comment' line never becomes an instance (job marker), and
+        # each data line splits on the job delimiter: item 0 -> placeholder,
+        # the extra item is appended as a bare line.
+        assert [lbl.id for lbl in job.labels] == ["badge_0000", "badge_0001"]
+        first = job.labels[0].content or []
+        assert [line.text for line in first] == ["CONSTANT", "Ada", "Lovelace"]
+        # The placeholder line keeps its declared attribute, flag cleared.
+        assert first[1].text_height == 0.75
+        assert not first[1].placeholder
+
+    def test_static_labels_untouched_by_job_cascade(self, tmp_path: Path) -> None:
+        """File-less labels never receive the cascade or get expanded."""
+        _write(tmp_path / "r.txt", "A,B\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  job_name: Mixed\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.5\n"
+            "  replacement_text_delimiter: ','\n"
+            "  replacement_text_file_comment_string: '//'\n"
+            "  labels:\n"
+            "    - id: static\n"
+            "      content:\n"
+            "        - text: HELLO\n"
+            "    - id: tmpl\n"
+            "      replacement_text_file: r.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.id for lbl in job.labels] == ["static", "tmpl_0000"]
+        static = job.labels[0]
+        assert static.replacement_text_delimiter is None
+        assert static.replacement_text_file_comment_string is None
+
+
 class TestPlaceholderSubstitution:
     """Selective placeholder substitution: some content lines are constant."""
 
@@ -1103,7 +1268,9 @@ class TestPlaceholderSubstitution:
             id="t",
             replacement_text_file="r.txt",
             content=[
-                TextLine(text="PLACEHOLDER", placeholder=True, text_height=0.6, text_h_alignment="left"),
+                TextLine(
+                    text="PLACEHOLDER", placeholder=True, text_height=0.6, text_h_alignment="left"
+                ),
             ],
         )
         (inst,) = expand_label_with_replacements(label, tmp_path)
@@ -1171,9 +1338,7 @@ class TestPlaceholderSubstitution:
         assert inst.content[1].text_h_alignment is not None
         assert inst.content[1].text_h_alignment.value == "right"
 
-    def test_fewer_items_than_placeholders_raises_substitution_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_fewer_items_than_placeholders_raises_substitution_error(self, tmp_path: Path) -> None:
         """A file line with fewer items than placeholder lines must abort."""
         _write(tmp_path / "r.txt", "ONLY ONE ITEM\n")
         label = LabelSpec(
@@ -1274,7 +1439,10 @@ class TestComplexJobPlaceholderLabels:
         lbl = labels["placeholder_mixed_0001"]
         assert lbl.content is not None
         assert [line.text for line in lbl.content] == [
-            "HEADER LINE", "BETA", "FOOTER LINE", "GAMMA"
+            "HEADER LINE",
+            "BETA",
+            "FOOTER LINE",
+            "GAMMA",
         ]
         # Extra appended line has no per-line typography overrides.
         assert lbl.content[3].text_h_alignment is None

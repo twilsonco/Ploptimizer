@@ -17,9 +17,15 @@
 #     job -> plate -> label) produces no copy, and blank lines are
 #     dropped too. Set "" to disable comments: every non-blank line is
 #     then raw data. Dropped lines are reported in one WARNING per file.
+#   - The delimiter and the comment marker cascade job -> plate -> label,
+#     so declaring them once at the job level (as below) applies them to
+#     every label file in the job -- no job-level `replacement_text_file`
+#     is needed. A label (or plate) may declare its own value to override.
 #   - `content` is optional: when present, its `text` values are
 #     placeholders declaring per-line attributes; when omitted, every
-#     rendered line inherits the label-level attributes.
+#     rendered line inherits the label-level attributes. Mark a line
+#     `placeholder: true` to make ONLY that line receive a file item
+#     (constant lines copy verbatim to every copy).
 #   - Fewer items on a file line -> fewer rendered lines (block stays
 #     vertically centered). More items -> extra lines inherit label attrs.
 #
@@ -34,6 +40,12 @@ job:
   character_spacing: 0.04
   line_spacing: 0.25
   margin: 0.15
+
+  # Job-level replacement settings: declared once, cascaded to every label
+  # file below (the job itself has NO replacement_text_file). Both values
+  # equal the code defaults, so existing copies are unchanged.
+  replacement_text_delimiter: ";"
+  replacement_text_file_comment_string: "# "
 
   # -------------------------------------------------------------------
   # 1. Template WITH placeholder content: the two `content` lines
@@ -83,3 +95,25 @@ job:
       text_height: 0.5
       content:
         - text: "FIELD TAGS"
+
+    # -----------------------------------------------------------------
+    # 4. SELECTIVE placeholders driven by the JOB-level cascade: this
+    #    label declares only replacement_text_file -- no delimiter, no
+    #    comment marker. It inherits both from the job block above, so
+    #    examples/job_specs/replacement_text_crew.txt is split on ";" and
+    #    its "# " comment lines are dropped. The `placeholder: true` line
+    #    is the ONLY line that receives a file item (the constant line
+    #    copies verbatim to every copy); the second item lands on the
+    #    appended extra line, which inherits the label-level attributes.
+    #    The file has 3 data lines -> crew_0000 .. crew_0002.
+    # -----------------------------------------------------------------
+    - id: crew
+      width: 3.0
+      height: 1.5
+      text_height: 0.3
+      replacement_text_file: replacement_text_crew.txt
+      content:
+        - text: "CREW"
+        - text: "NAME"
+          placeholder: true
+          text_h_alignment: center

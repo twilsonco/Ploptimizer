@@ -1836,9 +1836,14 @@ whitespace character, never newline/alphanumeric).
   `resolve_job_spec`, so the resolver never sees these fields. Each tier's
   value needs a file to apply to: a label's own file; a plate's own file
   *or* a file on a label pinned to it (`plate_id`); the job needs a file at
-  any tier. `job-config.json` injects its comment marker **only** when the
-  raw spec declares a file somewhere (`_spec_declares_replacement_file`),
-  so the shipped `"# "` default cannot break a file-less job.
+  any tier — a job-level delimiter/comment therefore drives **several**
+  label-level files with no job-level `replacement_text_file` at all.
+  `job-config.json` ships both as shop defaults
+  (`replacement_text_delimiter` + `replacement_text_file_comment_string`,
+  both `JobDefaults` keys in `_JOB_LAYER_FIELDS`) and injects them **only**
+  when the raw spec declares a file somewhere
+  (`_spec_declares_replacement_file`), so the shipped `"# "` default cannot
+  break a file-less job.
 - **`content` optional:** when omitted, every rendered line inherits
   label-level attributes. When present, each `text` value is a
   placeholder declaring that line's attributes (text_height, alignment,
