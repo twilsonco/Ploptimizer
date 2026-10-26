@@ -39,7 +39,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = REPO_ROOT / "docs" / "schema"
-CATEGORY_DIR = DOCS_DIR / "skills" / "plt-optimizer-generate"
+CATEGORY_DIR = DOCS_DIR / "skills" / "engraving-jobs"
 
 # Hermes advisory soft cap on a SKILL.md body (skill_view loads the whole
 # file into context; oversized bodies warn at ~24k chars).
@@ -262,7 +262,7 @@ class TestSkillFrontmatter:
         description = data["description"]
         assert isinstance(description, str) and len(description) > 20
         assert "Use when:" in description and "Keywords:" in description
-        assert data["metadata"]["hermes"]["category"] == "plt-optimizer-generate"
+        assert data["metadata"]["hermes"]["category"] == "engraving-jobs"
 
     @pytest.mark.parametrize("skill_md", _ALL_SKILLS, ids=lambda p: str(p.parent.name))
     def test_body_within_hermes_limit(self, skill_md: Path) -> None:

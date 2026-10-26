@@ -18,8 +18,8 @@ engraver option names, not schema fields).
 | `job_spec.schema.json` | `JobSpec` model (`plt_optimizer/generate/schema.py`) | `uv run python docs/schema/generate_ai_docs.py` |
 | `job_config.schema.json` | `JobDefaults` model (`plt_optimizer/generate/job_config.py`) | same command |
 | `JOB_SPEC.md` | both models + fallback constants scraped from `resolution.py` / `layout.py` + tool_options from `job-config.json` | same command |
-| `skills/plt-optimizer-generate/**` (generated files) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` |
-| `skills/plt-optimizer-generate/*/references/semantics.md` | hand-written semantics | **manual — curated, never regenerated** |
+| `skills/engraving-jobs/**` (generated files) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` |
+| `skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual — curated, never regenerated** |
 | `README.md` (this file) | hand-written | manual |
 
 Drift is pinned by `tests/test_job_spec_docs.py` (models ↔ generated
@@ -33,7 +33,7 @@ immunity — retuning the shop config never breaks the tests).
 
 ## The skill tree (Hermes category)
 
-`skills/plt-optimizer-generate/` is a single Hermes **category** directory
+`skills/engraving-jobs/` is a single Hermes **category** directory
 of skill folders (two-level layout, agentskills.io format). Point a Hermes
 profile at it with:
 
@@ -41,7 +41,7 @@ profile at it with:
 # ~/.hermes/config.yaml
 skills:
   external_dirs:
-    - <repo>/docs/schema/skills/plt-optimizer-generate
+    - <repo>/docs/schema/skills/engraving-jobs
 ```
 
 - **`generate-engraving-job/`** — the main skill (hand-written): the

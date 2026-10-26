@@ -10,8 +10,8 @@ per-directory `AGENTS.md` files (root file has the component map).
 | `JOB_SPEC.md` | `schema.py` + `job_config.py` models + fallback constants scraped from `resolution.py`/`layout.py` + tool_options from `job-config.json` | `uv run python docs/schema/generate_ai_docs.py` |
 | `job_spec.schema.json` | `JobSpec` model | same command |
 | `job_config.schema.json` | `JobDefaults` model | same command |
-| `skills/plt-optimizer-generate/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
-| `skills/plt-optimizer-generate/*/references/semantics.md` | hand-written semantics | **manual - curated in place, the generator never overwrites** |
+| `skills/engraving-jobs/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
+| `skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual - curated in place, the generator never overwrites** |
 | `README.md` | hand-written pointer (artifact map, skill-tree layout, regen commands) | manual |
 
 - **Drift is pinned by `tests/test_job_spec_docs.py`** (models -> artifacts)

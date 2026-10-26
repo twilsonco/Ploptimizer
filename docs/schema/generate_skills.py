@@ -4,7 +4,7 @@
 This script renders the *technical* half of the skills that a production
 agent (Nous Hermes, agentskills.io format) loads to author job-spec YAML
 and run ``plt-optimizer generate`` autonomously. The tree lives under
-``docs/schema/skills/plt-optimizer-generate/`` as a single Hermes category
+``docs/schema/skills/engraving-jobs/`` as a single Hermes category
 directory of skill directories:
 
 - ``generate-engraving-job/``  the MAIN skill (hand-written prose; this
@@ -59,7 +59,7 @@ if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
 
 DOCS_DIR = Path(__file__).resolve().parent
-CATEGORY_DIR = DOCS_DIR / "skills" / "plt-optimizer-generate"
+CATEGORY_DIR = DOCS_DIR / "skills" / "engraving-jobs"
 MAIN_SKILL_DIR = CATEGORY_DIR / "generate-engraving-job"
 JOB_SPEC_SCHEMA_JSON = DOCS_DIR / "job_spec.schema.json"
 EXAMPLE_SPECS_DIR = REPO_ROOT / "examples" / "job_specs"
@@ -1333,7 +1333,7 @@ def _frontmatter(name: str, description: str) -> str:
         "version: 1.0.0\n"
         "metadata:\n"
         "  hermes:\n"
-        "    category: plt-optimizer-generate\n"
+        "    category: engraving-jobs\n"
         "    tags: [plt, engraving, toolpath, generate]\n"
         "---\n"
     )

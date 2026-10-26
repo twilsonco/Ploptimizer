@@ -1,0 +1,155 @@
+---
+name: generate-engraving-job
+description: 'Generate engraving PLT label jobs from YAML specs. Use when: authoring a job spec, producing label PLT files for the plotter, running plt-optimizer generate. Keywords: job spec, yaml, generate, plt, engraving, label, plate, cutter, toolpath.'
+version: 1.0.0
+metadata:
+  hermes:
+    category: engraving-jobs
+    tags: [plt, engraving, toolpath, generate]
+---
+
+# Generate Engraving Job
+
+Produce engraver-ready HPGL/PLT label files from a YAML job specification.
+This skill is the entry point: read it first, then load the sub-skills your
+job actually touches (the table of contents below), then each sub-skill names
+its own `references/` files for deeper reading.
+
+## What this tool does
+
+You author a **job spec YAML** (plus, for batches, a plain-text data file).
+`plt-optimizer generate` runs a deterministic pipeline: parse + validate →
+expand replacement files → resolve the attribute cascade (job → plate → label
+→ line) → render typography with inline markup → size cutters and split
+toolpaths per cutter → avoid text/hole collisions → bin-pack labels onto
+material plates → optimize rapid travel → write one **PLT per cutter size**
+plus PDF proof previews. The plotter unit scale (1016 units/inch) is handled
+internally — you work only in inches.
+
+## Workflow
+
+1. **Author the spec.** A job YAML is a single top-level `job:` mapping with
+   exactly ONE label source (see the job-forms skill). All dimensions are
+   **inches**.
+2. **Add data (optional).** For batches, a replacement text file beside the
+   YAML: one data line = one label copy (see the replacement-text skill).
+3. **Validate before running** (fast, authoritative, all cross-field rules):
+
+   ```bash
+   uv run python -c "from plt_optimizer.generate.schema import parse_yaml; \
+   parse_yaml('my_job.yaml'); print('OK')"
+   ```
+
+   Structural checks against the JSON Schema
+   (`../../../job_spec.schema.json` for the spec,
+   `../../../job_config.schema.json` for shop defaults) work in any validator,
+   but `parse_yaml` is the real gate.
+4. **Run:**
+
+   ```bash
+   plt-optimizer generate my_job.yaml
+   ```
+
+   | Flag | Meaning (default) |
+   |---|---|
+   | `-o`, `--output` | output directory (spec file's directory) |
+   | `--job-config` | shop defaults JSON (`job-config.json` in the CWD) |
+   | `--tools` | cutter inventory JSON (`tools.json` in the CWD) |
+   | `--fast-mode` | single travel strategy — faster, longer rapid travel |
+   | `--no-plots` | skip PDF previews |
+   | `--default-plots` | also write rapid-travel diagnostic PDFs |
+   | `-v`, `--verbose` | DEBUG logging |
+5. **Collect outputs** under the output directory:
+   - `plt/*.plt` — one file per (plate, material, cutter, layer); the stem
+     is `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.plt` with
+     `kind` = `txt` (text) or `bh` (borders + holes). Load each with one
+     tool on the engraver,
+   - `pdf/*.pdf` — a proof preview per PLT, plus one combined
+     `[<plate>_][<material>_]all_<job_id>.pdf` per plate (when plotting is
+     on; rapid-travel diagnostics add `*_all_*_default.pdf` with
+     `--default-plots`).
+6. **On failure** the run exits non-zero with a logged reason; the
+   running-and-troubleshooting skill maps every error class to its fix.
+
+## Non-negotiable invariants
+
+- **All units are inches.** The tool converts to plotter units; never
+  pre-scale anything.
+- **Unknown keys fail loudly** at every tier (`additionalProperties: false`):
+  a typo aborts `parse_yaml` with its exact path (e.g.
+  `labels.0.content.0.tex_height`). There are no silently ignored fields —
+  the one exception is the free-form `tool_options` mapping.
+- **`null`/omitted = inherit; an explicit value always wins** at its tier
+  (see the cascade-and-config skill).
+- **Exactly one label source per job** (labels list, root content, or a
+  job-level replacement file).
+- **Determinism is a product requirement:** identical input + `job-config.json`
+  + `tools.json` engraves identical output. Do not re-run unchanged inputs.
+- **`job-config.json` is the shop's live defaults** and `tools.json` the
+  physical cutter inventory: production runs must point at them, because
+  fallbacks with no config (or ideal cutters with no inventory) may not match
+  the real machine.
+
+## Minimal example
+
+```yaml
+job:
+  job_name: "First job"
+  text_height: 0.5
+  content:
+    - text: "HELLO"
+    - text: "WORLD"
+```
+
+## Skill map
+
+The production agent loads skills on demand (progressive disclosure): the
+TOC lists each sub-skill with the topics that trigger it. Start here +
+job-forms for any new spec; add the skills for the features the job uses
+(holes, plates, markup, batches, …); `recipes` gives complete validated
+specs to copy; `../../../JOB_SPEC.md` is the exhaustive field reference and
+`../../../job_spec.schema.json` the machine-readable contract.
+
+<!-- BEGIN AUTO-TOC -->
+<!-- generated by docs/schema/generate_skills.py - do not edit this block -->
+- [Job Forms](../job-forms/SKILL.md) — Choose the job structure: labels list, single label, or files.
+- [Replacement Text Files](../replacement-text/SKILL.md) — Batch-generate one label per line of a text file.
+- [Cascade Rules, job-config.json and tools.json](../cascade-and-config/SKILL.md) — How null inherits, shop defaults inject, and config gates bite.
+- [Label Size, Margins and Shape](../label-geometry/SKILL.md) — Label dimensions, auto-sizing, margins, rounded corners.
+- [Fonts, Small Caps and Cap-Line Enforcement](../fonts-and-capline/SKILL.md) — Pick fonts (PLT catalog, TTF, SC), text_height, cap-line clamp.
+- [Glyph Spacing and Kerning](../glyph-spacing-and-kerning/SKILL.md) — Per-character advance, space width, auto-kerning tuning.
+- [Line Spacing, Baseline Stacking and Reflow](../line-stacking-and-reflow/SKILL.md) — Stack lines evenly and reflow long text to fit the label width.
+- [Centering and Descending-Character Relief](../centering-and-descender-relief/SKILL.md) — Horizontal/vertical centering and per-glyph descender clearance.
+- [Inline Markup Tags](../inline-markup/SKILL.md) — Thirteen in-text tags: style, scale, font, cutter, color, center.
+- [Bullet and Enumerated Lists](../lists/SKILL.md) — itemize/enumerate content blocks with markers and hanging indent.
+- [Cutter Selection](../cutters/SKILL.md) — Auto cutter ladder, explicit cutter_size, per-cutter PLT files.
+- [Multi-Stroke (Bold) Fonts](../bold-multistroke/SKILL.md) — Stroke-count PLT fonts, target boldness, and <b> behavior.
+- [Compression and Cutter Downsizing](../compression-and-cutter-downsize/SKILL.md) — Squeeze long text horizontally; swap to a finer cutter when squeezed.
+- [Drill Holes and Collision Avoidance](../holes-and-collision/SKILL.md) — Mounting-hole placement, sizes, and text/hole clearance rules.
+- [Plates, Layout and Bin-Packing](../plates-layout-and-packing/SKILL.md) — Pack labels onto material plates: layout, rotation, clearances.
+- [Tool Options (HPGL Header Commands)](../tool-options/SKILL.md) — Engraver velocity, spindle, dwell and Z via tool_options.
+- [Running the CLI and Fixing Failures](../running-and-troubleshooting/SKILL.md) — Generate command, outputs, validation entry, error taxonomy.
+- [Recipes — Complete Example Job Specs](../recipes/SKILL.md) — copy-and-adapt runnable specs.
+<!-- END AUTO-TOC -->
+
+## Pitfalls
+
+- **Mixing label sources** (`labels` + root `content`, or `count` with a
+  replacement file) is the most common parse failure — one source per job.
+- **Assuming millimeters.** Everything in the spec is inches; a 0.5 means
+  half an inch.
+- **Hardcoding shop default values into the spec.** `job-config.json` is the
+  shop tier; omit the field and inherit, so retuning the shop defaults
+  reaches your job.
+- **Running production without the shop `job-config.json` / `tools.json`:**
+  silent fallbacks and ideal cutters will not match the machine.
+- **Re-running a job expecting variation:** the pipeline is deterministic;
+  identical input means identical engraving.
+
+## Verification
+
+A job succeeded when it exits 0 and the output directory contains the
+per-cutter `plt/*.plt` files (coordinates are plotter units, 1016 per inch)
+and the `pdf/*.pdf` proofs. Validate specs before running with `parse_yaml`;
+read the layout report in the run log for cutter assignments, compressions,
+and plate placements.
