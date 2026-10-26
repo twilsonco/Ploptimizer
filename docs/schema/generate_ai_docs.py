@@ -4,8 +4,11 @@
 The single source of truth is the Pydantic contract itself
 (:class:`plt_optimizer.generate.schema.JobSpec` and
 :class:`plt_optimizer.generate.job_config.JobDefaults`); this script renders
-that contract into three artifacts written next to this file so the
-documentation can never drift from the code:
+that contract into three artifacts written into the ``references/`` directory
+of the ``engraving-job-complete-reference`` skill (under
+``docs/skills/engraving-jobs/``) so the documentation can never drift from
+the code and a production agent gets the full reference by installing one
+skill:
 
 - `job_spec.schema.json`   JSON Schema for a job YAML's `job:` mapping
   (directly usable by `jsonschema.validate` or any JSON-Schema-aware AI).
@@ -15,7 +18,8 @@ documentation can never drift from the code:
   required-when-unconfigured set.
 
 Hand-written semantics (job forms, cascade rules, expansion behavior,
-examples) live in `README.md` beside the generated artifacts.
+examples) live in the sibling sub-skill `references/semantics.md` files of
+the Hermes category.
 
 Regenerate after any change to `schema.py` / `job_config.py`::
 
@@ -52,9 +56,16 @@ from plt_optimizer.generate.schema import (  # noqa: E402
 )
 
 OUTPUT_DIR = Path(__file__).resolve().parent
-JOB_SPEC_JSON = OUTPUT_DIR / "job_spec.schema.json"
-JOB_CONFIG_JSON = OUTPUT_DIR / "job_config.schema.json"
-JOB_SPEC_MD = OUTPUT_DIR / "JOB_SPEC.md"
+# Generated artifacts land inside the `engraving-job-complete-reference`
+# skill of the Hermes category, so a production agent installs the full
+# reference by installing one skill (Hermes copies files referenced by name
+# from a SKILL.md).
+REF_SKILL_REFERENCES = (
+    REPO_ROOT / "docs" / "skills" / "engraving-jobs" / "engraving-job-complete-reference" / "references"
+)
+JOB_SPEC_JSON = REF_SKILL_REFERENCES / "job_spec.schema.json"
+JOB_CONFIG_JSON = REF_SKILL_REFERENCES / "job_config.schema.json"
+JOB_SPEC_MD = REF_SKILL_REFERENCES / "JOB_SPEC.md"
 
 # Rendering order for the markdown model sections (root model first).
 _MODEL_ORDER = ("JobSpec", "PlateSpec", "LabelSpec", "ContentEntry", "TextLine", "HoleSpec")
@@ -775,7 +786,8 @@ def build_job_spec_markdown() -> str:
         "Regenerate:  uv run python docs/schema/generate_ai_docs.py",
         "Pinned by:   tests/test_job_spec_docs.py",
         "Semantics that a schema cannot express (job forms, cascade rules,",
-        "replacement-file expansion, examples) live in README.md beside this file.",
+        "replacement-file expansion, examples) live in the thematic sub-skills",
+        "of this category: ../../<theme>/references/semantics.md.",
         "-->",
         "",
         "A job YAML file is a single top-level `job:` mapping; its value validates",
@@ -854,7 +866,8 @@ def build_job_spec_markdown() -> str:
 
 
 def main() -> None:
-    """Write all generated artifacts next to this script."""
+    """Write all generated artifacts into the reference skill's references/."""
+    REF_SKILL_REFERENCES.mkdir(parents=True, exist_ok=True)
     artifacts = {
         JOB_SPEC_JSON: build_job_spec_schema(),
         JOB_CONFIG_JSON: build_job_config_schema(),

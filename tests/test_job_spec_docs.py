@@ -1,8 +1,9 @@
-"""Drift tests for the generated AI-friendly job-spec docs (docs/schema/).
+"""Drift tests for the generated AI-friendly job-spec docs artifacts.
 
 Guards the contract between the Pydantic models and the committed
-artifacts so an AI consumer of ``docs/schema/`` can never be handed a
-stale reference:
+artifacts so an AI consumer can never be handed a stale reference. The
+artifacts live in the ``engraving-job-complete-reference`` skill's
+``references/`` directory (``docs/skills/engraving-jobs/``):
 
 - ``job_spec.schema.json`` / ``job_config.schema.json`` / ``JOB_SPEC.md``
   must match a fresh render of the current models.
@@ -26,6 +27,17 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = REPO_ROOT / "docs" / "schema"
+# The generated artifacts live inside the engraving-job-complete-reference
+# skill of the Hermes category (docs/skills/engraving-jobs/...), so a
+# production agent installs the full reference with one skill.
+ARTIFACTS_DIR = (
+    REPO_ROOT
+    / "docs"
+    / "skills"
+    / "engraving-jobs"
+    / "engraving-job-complete-reference"
+    / "references"
+)
 
 
 def _load_generator() -> Any:
@@ -73,11 +85,11 @@ class TestGeneratedArtifacts:
 
     def test_job_spec_schema_json_is_up_to_date(self) -> None:
         """job_spec.schema.json matches JobSpec.model_json_schema()."""
-        _assert_current(DOCS_DIR / "job_spec.schema.json", generator.build_job_spec_schema())
+        _assert_current(ARTIFACTS_DIR / "job_spec.schema.json", generator.build_job_spec_schema())
 
     def test_job_config_schema_json_is_up_to_date(self) -> None:
         """job_config.schema.json matches JobDefaults.model_json_schema()."""
-        _assert_current(DOCS_DIR / "job_config.schema.json", generator.build_job_config_schema())
+        _assert_current(ARTIFACTS_DIR / "job_config.schema.json", generator.build_job_config_schema())
 
     def test_job_spec_markdown_is_up_to_date(self) -> None:
         """The model-derived part of JOB_SPEC.md matches a fresh render.
@@ -88,7 +100,7 @@ class TestGeneratedArtifacts:
         must never break this pin (config-value immunity -- tests/AGENTS.md).
         The section is still checked structurally (present in both).
         """
-        committed = (DOCS_DIR / "JOB_SPEC.md").read_text(encoding="utf-8")
+        committed = (ARTIFACTS_DIR / "JOB_SPEC.md").read_text(encoding="utf-8")
         rendered = generator.build_job_spec_markdown()
         committed_model, committed_options = generator.split_tool_options(committed)
         rendered_model, rendered_options = generator.split_tool_options(rendered)
@@ -183,7 +195,7 @@ class TestFontDocumentation:
 
     def test_committed_docs_point_at_the_flag(self) -> None:
         """JOB_SPEC.md keeps the ``--show-fonts`` pointer for ``font`` users."""
-        markdown = (DOCS_DIR / "JOB_SPEC.md").read_text(encoding="utf-8")
+        markdown = (ARTIFACTS_DIR / "JOB_SPEC.md").read_text(encoding="utf-8")
         assert "--show-fonts" in markdown
 
 
@@ -227,6 +239,6 @@ class TestExampleSpecsParse:
         import jsonschema
         import yaml
 
-        schema = json.loads((DOCS_DIR / "job_spec.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((ARTIFACTS_DIR / "job_spec.schema.json").read_text(encoding="utf-8"))
         raw = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
         jsonschema.validate(raw["job"], schema)

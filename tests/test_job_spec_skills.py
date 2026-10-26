@@ -1,4 +1,4 @@
-"""Drift + integrity tests for the generated Hermes skill tree (docs/schema/skills/).
+"""Drift + integrity tests for the generated Hermes skill tree (docs/skills/).
 
 Guards the contract between the Pydantic models / theme registry and the
 committed skill files so the production agent can never be handed a stale,
@@ -39,7 +39,6 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = REPO_ROOT / "docs" / "schema"
-CATEGORY_DIR = DOCS_DIR / "skills" / "engraving-jobs"
 
 # Hermes advisory soft cap on a SKILL.md body (skill_view loads the whole
 # file into context; oversized bodies warn at ~24k chars).
@@ -66,6 +65,11 @@ def _load_skills_generator() -> Any:
 
 gen = _load_skills_generator()
 
+# Single source of truth for the tree layout: the generator's own constants.
+CATEGORY_DIR = gen.CATEGORY_DIR
+REFERENCE_SKILL_DIR = gen.REFERENCE_SKILL_DIR
+REFERENCE_SKILL_REFERENCES = gen.REFERENCE_SKILL_REFERENCES
+
 
 def _schema() -> Dict[str, Any]:
     """Load the committed job-spec JSON Schema.
@@ -74,7 +78,7 @@ def _schema() -> Dict[str, Any]:
         The parsed schema document.
     """
     data: Dict[str, Any] = json.loads(
-        (DOCS_DIR / "job_spec.schema.json").read_text(encoding="utf-8")
+        (REFERENCE_SKILL_REFERENCES / "job_spec.schema.json").read_text(encoding="utf-8")
     )
     return data
 
@@ -111,7 +115,11 @@ def _allowed_tokens() -> Set[str]:
         Schema fields + job-config keys + tool-option names + allowlist.
     """
     allowed = set(gen.all_field_names(_schema()))
-    config = json.loads((DOCS_DIR / "job_config.schema.json").read_text(encoding="utf-8"))
+    config = json.loads(
+        (REFERENCE_SKILL_REFERENCES / "job_config.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
     allowed |= set(config.get("properties", {}))
     allowed |= set(gen._ai._load_tool_options())
     allowed |= _EXTRA_ALLOWED
@@ -163,12 +171,14 @@ class TestGeneratedArtifacts:
         """Every sub-skill has curated references/semantics.md.
 
         The main skill is exempt: its prose is the TOC-bearing SKILL.md.
+        The complete-reference skill is exempt: it is fully generated
+        (its references/ holds the generate_ai_docs artifacts).
         """
+        exempt = {"generate-engraving-job", REFERENCE_SKILL_DIR.name}
         missing = [
             str(d.relative_to(REPO_ROOT))
             for d in _skill_dirs()
-            if d.name != "generate-engraving-job"
-            and not (d / "references" / "semantics.md").exists()
+            if d.name not in exempt and not (d / "references" / "semantics.md").exists()
         ]
         assert not missing, f"skills without semantics.md: {missing}"
 

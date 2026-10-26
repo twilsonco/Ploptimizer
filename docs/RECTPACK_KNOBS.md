@@ -189,5 +189,7 @@ global packing concern (user-approved; it never enters `ResolvedLabel`):
    → `layout.generate_layout*` → `_pack_group` → `_pack_best`, where a
    pinned value replaces the `configs` list (single candidate) instead of
    the ensemble.
-4. Docs: regenerate `docs/schema/JOB_SPEC.md` + schema JSONs; document in
+4. Docs: regenerate `docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md`
+   + schema JSONs (`docs/schema/generate_ai_docs.py`), then the skill tree
+   (`docs/schema/generate_skills.py`); document in
    `plt_optimizer/generate/packing/AGENTS.md` next to `layout`.

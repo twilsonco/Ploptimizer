@@ -1198,7 +1198,8 @@ cutter</scale></oc>`).
 - **No schema field, no `job-config.json` key, no cascade** — the tag
   carries no value (the `<i>` / `<b>` precedent). No new `DEFAULT_*`
   constant ⇒ no `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row and
-  no `docs/schema/JOB_SPEC.md` change.
+  no `JOB_SPEC.md` change (the generated reference lives in
+  `docs/skills/engraving-jobs/engraving-job-complete-reference/references/`).
 - **Reporting**: `layout_report.py` prints a per-line finding
   `Line N: '<text>' original cutter 0.060in (3 chars pinned)` — the pinned
   tool and how many characters it covers (invisible in the YAML, so the

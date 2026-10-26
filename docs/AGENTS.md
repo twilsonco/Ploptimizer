@@ -3,31 +3,41 @@
 Parent contract: [`../AGENTS.md`](../AGENTS.md). Component contracts live in the
 per-directory `AGENTS.md` files (root file has the component map).
 
-## `docs/schema/` - generated artifacts + production-agent skill tree
+## `docs/schema/` (generators) + `docs/skills/` (the production-agent skill tree)
+
+`docs/schema/` holds the generators + dev utilities; the generated artifacts
+and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 
 | Artifact | Source of truth | Regenerate |
 |---|---|---|
-| `JOB_SPEC.md` | `schema.py` + `job_config.py` models + fallback constants scraped from `resolution.py`/`layout.py` + tool_options from `job-config.json` | `uv run python docs/schema/generate_ai_docs.py` |
-| `job_spec.schema.json` | `JobSpec` model | same command |
-| `job_config.schema.json` | `JobDefaults` model | same command |
-| `skills/engraving-jobs/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
-| `skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual - curated in place, the generator never overwrites** |
-| `README.md` | hand-written pointer (artifact map, skill-tree layout, regen commands) | manual |
+| `../docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md` | `schema.py` + `job_config.py` models + fallback constants scraped from `resolution.py`/`layout.py` + tool_options from `job-config.json` | `uv run python docs/schema/generate_ai_docs.py` |
+| `.../references/job_spec.schema.json` | `JobSpec` model | same command |
+| `.../references/job_config.schema.json` | `JobDefaults` model | same command |
+| `../docs/skills/engraving-jobs/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, `engraving-job-complete-reference/SKILL.md`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
+| `../docs/skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual - curated in place, the generator never overwrites** |
+| `README.md` (docs/schema) | hand-written pointer (artifact map, skill-tree layout, regen commands) | manual |
 
 - **Drift is pinned by `tests/test_job_spec_docs.py`** (models -> artifacts)
   and **`tests/test_job_spec_skills.py`** (registry -> skill tree: `--check`
   byte-match, TOC <-> skill dirs, exact field-partition coverage, prose
   token audit, link integrity / install-referencability, YAML validity).
-  Regenerate after ANY schema/job-config field change.
-- The skill tree is a Hermes **category** directory (`skills/plt-optimizer-
-  generate/`) of skill folders: hand-written main skill
+  Regenerate after ANY schema/job-config field change - `generate_ai_docs.py`
+  FIRST (the reference skill's files), then `generate_skills.py` (it reads
+  the committed `job_spec.schema.json` for its coverage check).
+- The skill tree is a Hermes **category** directory
+  (`docs/skills/engraving-jobs/`) of skill folders: hand-written main skill
   `generate-engraving-job/` (workflow + AUTO-TOC markers), 17 generated
   thematic sub-skills (an EXACT partition of every `job_spec.schema.json`
-  field - `generate_skills.py` hard-fails on a gap/duplicate), and generated
+  field - `generate_skills.py` hard-fails on a gap/duplicate), generated
   `recipes/` (complete runnable specs from `examples/job_specs/`,
-  `parse_yaml`-validated). New schema field -> assign it to a theme in the
-  registry (coverage check enforces this); new topic -> add a `Theme` entry
-  (+ a curated `semantics.md`; the generator seeds a stub).
+  `parse_yaml`-validated), and `engraving-job-complete-reference/` - the
+  exhaustive-reference skill whose `references/` directory holds
+  `JOB_SPEC.md` + the two JSON Schemas (written by `generate_ai_docs.py`);
+  every other skill links the reference through
+  `../engraving-job-complete-reference/references/...`. New schema field ->
+  assign it to a theme in the registry (coverage check enforces this); new
+  topic -> add a `Theme` entry (+ a curated `semantics.md`; the generator
+  seeds a stub).
 - Hermes progressive disclosure is explicit: `references/` files load only
   when NAMED in their `SKILL.md` ("Read next"), and installs copy only
   referenced files - never unlink a generated file from its skill.

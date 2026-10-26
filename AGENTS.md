@@ -75,7 +75,7 @@ one of them inherits the standards above):
 | `plt_optimizer/utils/` | Config loading, distance geometry, dual text/CSV logging, Windows startup shortcuts | [`plt_optimizer/utils/AGENTS.md`](plt_optimizer/utils/AGENTS.md) |
 | `fonts/` | PLT font extraction from engraved sample sheets, derived Unicode glyphs, the v2 catalog the renderer loads | [`fonts/AGENTS.md`](fonts/AGENTS.md) |
 | `tests/` + `tests_deps/` | pytest suite + frozen fixtures (config-value-adaptive tests, conftest mocks) | [`tests/AGENTS.md`](tests/AGENTS.md) |
-| `docs/` + `docs/schema/` | Developer docs + generated `JOB_SPEC.md`/JSON schemas (regenerate via `generate_ai_docs.py`, drift-pinned) + the production-agent Hermes skill tree under `docs/schema/skills/` (regenerate via `generate_skills.py`, drift-pinned) | [`docs/AGENTS.md`](docs/AGENTS.md) |
+| `docs/` + `docs/schema/` + `docs/skills/` | Developer docs + the production-agent Hermes skill tree under `docs/skills/engraving-jobs/` (generated `JOB_SPEC.md`/JSON schemas live in its `engraving-job-complete-reference/references/`; regenerate via `generate_ai_docs.py` then `generate_skills.py`, drift-pinned) | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | `scripts/` | Dev/ops scripts: `run_integration_test.py` (end-to-end generate run + layout report), `kerning_report.py` | (see module docstrings) |
 | `examples/` | User-facing sample PLTs + `examples/job_specs/` sample YAML (safe to tweak; never read by unit tests) | - |
 | `job-config.json`, `tools.json` | Shop-level defaults + cutter inventory (hand-tuned; **tests must derive from these, never pin their values** — see `tests/AGENTS.md`) | [`docs/AGENTS.md`](docs/AGENTS.md) |

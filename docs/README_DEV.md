@@ -68,12 +68,20 @@ PLT-Optimizer/
 │   ├── README_DEV.md
 │   ├── INTEGRATION_TESTING.md
 │   ├── PROFILING.md         # Generate-pipeline profiling harness + -O findings
-│   └── schema/             # AI-friendly job-spec reference (generated + curated)
-│       ├── generate_ai_docs.py   # Regenerates the artifacts below
-│       ├── job_spec.schema.json  # JSON Schema for a job YAML's `job:` mapping
-│       ├── job_config.schema.json# JSON Schema for job-config.json defaults
-│       ├── JOB_SPEC.md     # Generated field/enum/fallback tables
-│       └── README.md       # Curated semantics (job forms, cascades, examples)
+│   ├── schema/             # Doc generators + dev utilities
+│   │   ├── generate_ai_docs.py   # Regenerates the reference artifacts below
+│   │   ├── generate_skills.py    # Regenerates the Hermes skill tree (--check = CI)
+│   │   └── README.md       # Artifact map + regeneration commands
+│   └── skills/             # Production-agent Hermes skill tree (category dir)
+│       └── engraving-jobs/
+│           ├── generate-engraving-job/        # main skill (workflow + TOC)
+│           ├── <17 thematic sub-skills>/      # generated SKILL.md + references/
+│           ├── recipes/                       # complete runnable example specs
+│           └── engraving-job-complete-reference/
+│               └── references/                # generated exhaustive artifacts
+│                   ├── job_spec.schema.json   # JSON Schema for a job's `job:` mapping
+│                   ├── job_config.schema.json # JSON Schema for job-config.json defaults
+│                   └── JOB_SPEC.md            # Generated field/enum/fallback tables
 ├── logs/                   # Generated log files
 ├── pyproject.toml          # Project configuration (uv)
 └── README.md
