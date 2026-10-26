@@ -1,0 +1,119 @@
+# Replacement text file demo job for the PLT-Optimizer generate pipeline.
+#
+# Demonstrates EngraveLab / Vision Pro "badge" (a.k.a. "multiples") style
+# data-driven label generation: a label template combined with a
+# replacement text file, where each file line produces one label copy.
+#
+# Rules:
+#   - `replacement_text_file` is resolved relative to this YAML file
+#     (absolute paths also accepted).
+#   - The file's data-line count determines the label count; `count` must
+#     NOT be combined with `replacement_text_file`.
+#   - `replacement_text_delimiter` is a single special/whitespace
+#     character (default ";").
+#   - Replacement data files may carry comments: a line whose
+#     whitespace-stripped text starts with
+#     `replacement_text_file_comment_string` (default "# ", cascades
+#     job -> plate -> label) produces no copy, and blank lines are
+#     dropped too. Set "" to disable comments: every non-blank line is
+#     then raw data. Dropped lines are reported in one WARNING per file.
+#   - The delimiter and the comment marker cascade job -> plate -> label,
+#     so declaring them once at the job level (as below) applies them to
+#     every label file in the job -- no job-level `replacement_text_file`
+#     is needed. A label (or plate) may declare its own value to override.
+#   - `content` is optional: when present, its `text` values are
+#     placeholders declaring per-line attributes; when omitted, every
+#     rendered line inherits the label-level attributes. Mark a line
+#     `placeholder: true` to make ONLY that line receive a file item
+#     (constant lines copy verbatim to every copy).
+#   - Fewer items on a file line -> fewer rendered lines (block stays
+#     vertically centered). More items -> extra lines inherit label attrs.
+#
+# Run with:
+#   uv run plt-optimizer generate examples/job_specs/replacement_job.yaml -o out.plt
+# or:
+#   uv run python scripts/run_integration_test.py examples/job_specs/replacement_job.yaml
+job:
+  job_name: "Replacement Text Demo - Field Tags"
+
+  text_height: 0.3
+  character_spacing: 0.04
+  line_spacing: 0.25
+  margin: 0.15
+
+  # Job-level replacement settings: declared once, cascaded to every label
+  # file below (the job itself has NO replacement_text_file). Both values
+  # equal the code defaults, so existing copies are unchanged.
+  replacement_text_delimiter: ";"
+  replacement_text_file_comment_string: "# "
+
+  # -------------------------------------------------------------------
+  # 1. Template WITH placeholder content: the two `content` lines
+  #    declare per-line attributes (sizes, alignment). Each line of
+  #    examples/job_specs/replacement_text_sample.txt replaces them in order.
+  #    The file has 5 lines -> 5 label copies (badge_0000 .. badge_0004).
+  #    Every file line carries 3 items, so each copy renders 3 lines:
+  #    the first two use the placeholder attributes, the third is an
+  #    "extra" line inheriting the label-level attributes.
+  # -------------------------------------------------------------------
+  labels:
+    - id: badge
+      width: 3.5
+      height: 2.0
+      text_height: 0.35
+      replacement_text_file: replacement_text_sample.txt
+      content:
+        - text: "PLACEHOLDER LINE 1"
+          text_height: 0.45
+        - text: "PLACEHOLDER LINE 2"
+          text_h_alignment: center
+
+    # -----------------------------------------------------------------
+    # 2. Template WITHOUT content: every rendered line inherits the
+    #    label-level attributes. examples/job_specs/replacement_text_assets.txt
+    #    has 4 lines; the first three carry two items (two rendered
+    #    lines), the last carries one item (one rendered line, still
+    #    vertically centered).
+    # -----------------------------------------------------------------
+    - id: asset
+      width: 3.0
+      height: 1.5
+      text_height: 0.3
+      replacement_text_file: replacement_text_assets.txt
+      holes:
+        - location: top-left
+        - location: top-right
+
+    # -----------------------------------------------------------------
+    # 3. A fully static label, mixed with the templates in the same
+    #    job: replacement-driven and traditional labels coexist freely.
+    # -----------------------------------------------------------------
+    - id: static_header
+      count: 2
+      width: 6.0
+      height: 1.0
+      text_height: 0.5
+      content:
+        - text: "FIELD TAGS"
+
+    # -----------------------------------------------------------------
+    # 4. SELECTIVE placeholders driven by the JOB-level cascade: this
+    #    label declares only replacement_text_file -- no delimiter, no
+    #    comment marker. It inherits both from the job block above, so
+    #    examples/job_specs/replacement_text_crew.txt is split on ";" and
+    #    its "# " comment lines are dropped. The `placeholder: true` line
+    #    is the ONLY line that receives a file item (the constant line
+    #    copies verbatim to every copy); the second item lands on the
+    #    appended extra line, which inherits the label-level attributes.
+    #    The file has 3 data lines -> crew_0000 .. crew_0002.
+    # -----------------------------------------------------------------
+    - id: crew
+      width: 3.0
+      height: 1.5
+      text_height: 0.3
+      replacement_text_file: replacement_text_crew.txt
+      content:
+        - text: "CREW"
+        - text: "NAME"
+          placeholder: true
+          text_h_alignment: center

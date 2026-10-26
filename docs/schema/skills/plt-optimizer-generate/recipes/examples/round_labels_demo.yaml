@@ -1,0 +1,76 @@
+# Circular / elliptical labels (`type: round`).
+#
+# A round label's boundary is the ellipse with semi-axes width/2 and height/2
+# -- a circle when the two are equal. Declaring only ONE of width/height gives
+# a circle of that diameter. `rect` (the default) is the historical rectangle.
+#
+# Round labels pack through the adjacent ellipse-packing pipeline (shapely),
+# which nests them closer than their bounding boxes allow; every rectangular
+# label in the same job keeps packing through rectpack untouched. The text
+# margin applies radially (content stays inside the inset ellipse), drill
+# holes land on the ellipse, and all existing label features -- holes, borders,
+# collision avoidance, HTML markup -- work on round labels.
+job:
+  job_name: Round Labels Demo
+
+  text_height: 0.5
+  margin: 0.15
+  font: dino
+
+  plates:
+    - id: sheet
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # A 3in circle. The radial margin leaves a ~1.9in inscribed content box
+    # (a 3in circle inset 0.15in, inscribed square), so the text height is
+    # sized to fit it at natural width.
+    - id: asset_tag
+      type: round
+      width: 3.0
+      height: 3.0
+      text_height: 0.22
+      holes:
+        - location: top
+      content:
+        - text: "ASSET 4471"
+
+    # An ellipse: width != height.
+    - id: oval_plate
+      type: round
+      width: 5.0
+      height: 2.0
+      text_height: 0.25
+      line_spacing: 0.1
+      holes:
+        - location: sides
+      content:
+        - text: "COMPRESSOR"
+        - text: "UNIT 12"
+
+    # A circle declared by diameter alone (height fills to match width).
+    - id: serial_disc
+      type: round
+      width: 2.25
+      text_height: 0.18
+      content:
+        - text: "SN 00912"
+
+    # Repeated circles: the ellipse packer nests them in one column.
+    - id: port_tag
+      type: round
+      width: 1.75
+      height: 1.75
+      count: 6
+      text_height: 0.15
+      content:
+        - text: "PORT A"
+
+    # A rectangular label in the same job: the rectpack path, unchanged.
+    - id: rect_note
+      width: 5.0
+      height: 2.0
+      text_height: 0.25
+      content:
+        - text: "RECTANGULAR CONTROL"

@@ -1,0 +1,92 @@
+# Rounded-rectangle label borders (`rounded_rectangle_fraction`).
+#
+# The rectangular border's corners become superellipse-quadrant patches with
+# exponent n = 2 / fraction, so the curvature varies CONTINUOUSLY along the
+# whole boundary -- no circular-fillet curvature jump where the rounding
+# begins and ends. fraction 0.0 (the default) is the sharp rectangle.
+#
+# The rounding spans `fraction` of the SHORTER edge: a 4x8 label at 0.5
+# rounds 2in (50%) of the 4in sides, starting 1in from each corner. With
+# `rounded_rectangle_proportional: true` the fraction applies to width and
+# height separately (50% of the 8in side rounds too).
+#
+# The endpoints are exact: fraction 1.0 with proportional true (or on a
+# square) engraves the exact ellipse/circle of `type: round`; fraction 1.0
+# with proportional false on a non-square fully rounds the short edges and
+# keeps straight sections on the long edges (a smoothed stadium).
+#
+# Corner drill holes ride the rounded border (inset along the curve normal),
+# the text margin applies to the engraved rounded boundary, and the labels
+# keep packing through rectpack in their exact nominal box.
+job:
+  job_name: Rounded Rect Demo
+
+  text_height: 0.5
+  margin: 0.15
+  font: dino
+
+  plates:
+    - id: sheet
+      width: 24.0
+      height: 16.0
+
+  labels:
+    # Equal-distance rounding: 1in of rounding on every side (50% of the
+    # short 2in half-edges), n = 4 squircle corners.
+    - id: machine_tag
+      width: 6.0
+      height: 2.0
+      rounded_rectangle_fraction: 0.5
+      content:
+        - text: "COMPRESSOR 12"
+
+    # The same label fully rounded, non-proportional: the short edges round
+    # off completely and the long edges keep straight sections.
+    - id: long_stripe
+      width: 8.0
+      height: 2.0
+      rounded_rectangle_fraction: 1.0
+      content:
+        - text: "WARNING"
+
+    # Proportional rounding: the fraction applies to each dimension, so a
+    # full 1.0 engraves the exact ellipse of the label box.
+    - id: oval_tag
+      width: 5.0
+      height: 2.5
+      rounded_rectangle_fraction: 1.0
+      rounded_rectangle_proportional: true
+      content:
+        - text: "OVAL"
+
+    # A full-round square: the exact circle, corner holes riding the curve.
+    - id: round_tag
+      width: 3.0
+      height: 3.0
+      rounded_rectangle_fraction: 1.0
+      text_height: 0.22
+      hole_margin: 0.15
+      holes:
+        - location: corners
+      content:
+        - text: "ASSET 88"
+
+    # A gentle rounding with corner holes: the holes follow the corner
+    # patches, never the cut-away sharp corners.
+    - id: corner_drills
+      width: 4.0
+      height: 4.0
+      rounded_rectangle_fraction: 0.35
+      hole_margin: 0.15
+      holes:
+        - location: corners
+      content:
+        - text: "DRILL"
+
+    # The sharp control: fraction 0.0 (the default) stays the historical
+    # rectangle.
+    - id: sharp_control
+      width: 6.0
+      height: 2.0
+      content:
+        - text: "SHARP EDGE"
