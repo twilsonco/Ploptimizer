@@ -3,21 +3,41 @@
 Parent contract: [`../AGENTS.md`](../AGENTS.md). Component contracts live in the
 per-directory `AGENTS.md` files (root file has the component map).
 
-## `docs/schema/` - generated artifacts
+## `docs/schema/` - generated artifacts + production-agent skill tree
 
 | Artifact | Source of truth | Regenerate |
 |---|---|---|
 | `JOB_SPEC.md` | `schema.py` + `job_config.py` models + fallback constants scraped from `resolution.py`/`layout.py` + tool_options from `job-config.json` | `uv run python docs/schema/generate_ai_docs.py` |
 | `job_spec.schema.json` | `JobSpec` model | same command |
 | `job_config.schema.json` | `JobDefaults` model | same command |
-| `README.md` | hand-written semantics | manual |
+| `skills/plt-optimizer-generate/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
+| `skills/plt-optimizer-generate/*/references/semantics.md` | hand-written semantics | **manual - curated in place, the generator never overwrites** |
+| `README.md` | hand-written pointer (artifact map, skill-tree layout, regen commands) | manual |
 
-- **Drift is pinned by `tests/test_job_spec_docs.py`:** if `schema.py` /
-  `job_config.py` change without regenerating the artifacts, the suite fails.
+- **Drift is pinned by `tests/test_job_spec_docs.py`** (models -> artifacts)
+  and **`tests/test_job_spec_skills.py`** (registry -> skill tree: `--check`
+  byte-match, TOC <-> skill dirs, exact field-partition coverage, prose
+  token audit, link integrity / install-referencability, YAML validity).
   Regenerate after ANY schema/job-config field change.
+- The skill tree is a Hermes **category** directory (`skills/plt-optimizer-
+  generate/`) of skill folders: hand-written main skill
+  `generate-engraving-job/` (workflow + AUTO-TOC markers), 17 generated
+  thematic sub-skills (an EXACT partition of every `job_spec.schema.json`
+  field - `generate_skills.py` hard-fails on a gap/duplicate), and generated
+  `recipes/` (complete runnable specs from `examples/job_specs/`,
+  `parse_yaml`-validated). New schema field -> assign it to a theme in the
+  registry (coverage check enforces this); new topic -> add a `Theme` entry
+  (+ a curated `semantics.md`; the generator seeds a stub).
+- Hermes progressive disclosure is explicit: `references/` files load only
+  when NAMED in their `SKILL.md` ("Read next"), and installs copy only
+  referenced files - never unlink a generated file from its skill.
+- **Config-value immunity:** the live `job-config.json` tool-options tables
+  (`JOB_SPEC.md` section; the tool-options skill's marked region) are
+  excluded from the byte-pins - retuning the shop config never breaks tests.
 - New `str`-Enums must be added to `_ENUM_ORDER` in `generate_ai_docs.py`.
 - `generate_schema_docs.py` - tool-options / font-list documentation generator
-  (`--show-fonts` lists every valid font name).
+  (`--show-fonts` lists every valid font name; the skills cite it for the
+  live font list).
 - All units are **inches**.
 
 ## `docs/` prose

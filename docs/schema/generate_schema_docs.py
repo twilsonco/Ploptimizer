@@ -17,8 +17,10 @@ Usage:
 
     # Typical workflow:
     # 1. Run with --show to see the current docs
-    # 2. Copy the output into your documentation system
-    # 3. For pre-commit integration, see docs/schema/SCHEMA_DOCS_INTEGRATION.md
+    # 2. The committed tool-options table is auto-generated: JOB_SPEC.md and
+    #    the tool-options skill render it live from job-config.json via
+    #    docs/schema/generate_ai_docs.py / generate_skills.py (drift-pinned
+    #    by tests/test_job_spec_docs.py and tests/test_job_spec_skills.py).
 """
 
 from __future__ import annotations
