@@ -17,10 +17,12 @@ from plt_optimizer.generate.arc_fit import (
     ARC_FIT_DEV_TOL_INCHES,
     ARC_FIT_MAX_ARCS,
     EllipseArc,
+    SuperellipseArc,
     ellipse_deviation,
     ellipse_from_arc,
     fit_arc,
     fit_ellipse_arc,
+    fit_superellipse_arc,
 )
 
 
@@ -641,3 +643,386 @@ class TestDegenerateHelpers:
         assert _normalize_deg(-270.0) == pytest.approx(90.0)
         assert _normalize_deg(180.0) == pytest.approx(180.0)
         assert _normalize_deg(-180.0) == pytest.approx(180.0)
+
+
+class TestSuperellipseArcProtocol:
+    """``SuperellipseArc`` satisfies the fitter's curve protocol exactly."""
+
+    def _patch(self, **kw) -> SuperellipseArc:
+        args = {
+            "c": 0j,
+            "rx": 1.0,
+            "ry": 1.0,
+            "exponent": 4.0,
+            "sx": 1.0,
+            "sy": 1.0,
+            "t0_deg": 0.0,
+            "sweep_deg": 90.0,
+        }
+        args.update(kw)
+        return SuperellipseArc(**args)
+
+    def test_points_match_the_renderer_sampling(self) -> None:
+        """``point(t)`` equals the ``cos^p``/``sin^p`` form the polygon sampler uses."""
+        arc = self._patch(rx=2.0, ry=1.0, exponent=4.0, sx=-1.0, sy=1.0)
+        p = 2.0 / 4.0
+        for t_deg in (0.0, 17.0, 45.0, 73.0, 90.0):
+            t = math.radians(t_deg)
+            z = arc.point(t)
+            expect = complex(-2.0 * abs(math.cos(t)) ** p, 1.0 * abs(math.sin(t)) ** p)
+            assert z == pytest.approx(expect, abs=1e-15)
+
+    def test_axis_vertices_are_exact(self) -> None:
+        """The quadrant endpoints hit the semi-axis vertices (to float noise).
+
+        ``math.cos(pi/2)`` is 6.1e-17, not 0, so the far vertex carries the
+        same ~1e-6 sub-plotter-unit artifact the existing ``cos^p`` polygon
+        sampler has; the near vertex is exact.
+        """
+        arc = self._patch(rx=3.0, ry=2.0, exponent=5.0)
+        assert arc.start == pytest.approx(3.0 + 0.0j, abs=1e-15)
+        assert arc.end.real == pytest.approx(0.0, abs=1e-5)
+        assert arc.end.imag == pytest.approx(2.0, abs=1e-15)
+
+    def test_tangent_limits_at_the_vertices(self) -> None:
+        """The vertex tangents are the exact axis-aligned limits (the G2 junction).
+
+        At ``t = 0`` the point is the X-axis vertex ``(sx*rx, 0)`` and the curve
+        rises along ``y``; at ``t = pi/2`` it is the Y-axis vertex and the curve
+        runs along ``x``.
+        """
+        arc = self._patch(exponent=4.0)
+        assert arc.tangent(0.0) == pytest.approx(0.0 + 1.0j, abs=1e-15)
+        assert arc.tangent(math.pi / 2.0) == pytest.approx(-1.0 + 0.0j, abs=1e-15)
+        # Openings toward -x / -y flip the limit directions.
+        flipped = self._patch(exponent=4.0, sx=-1.0, sy=-1.0)
+        assert flipped.tangent(0.0) == pytest.approx(0.0 - 1.0j, abs=1e-15)
+        assert flipped.tangent(math.pi / 2.0) == pytest.approx(1.0 + 0.0j, abs=1e-15)
+
+    def test_curvature_radius_is_infinite_at_vertices_for_n_gt_2(self) -> None:
+        """The zero-curvature (G2) vertex property: R -> inf for n > 2."""
+        arc = self._patch(exponent=4.0)
+        assert arc.curvature_radius(0.0) == math.inf
+        assert arc.curvature_radius(math.pi / 2.0) == math.inf
+        assert math.isfinite(arc.curvature_radius(math.pi / 4.0))
+
+    def test_curvature_radius_at_n_eq_2_matches_the_ellipse(self) -> None:
+        """n == 2 is an ellipse quadrant: the numeric curvature agrees with EllipseArc."""
+        sup = self._patch(rx=2.0, ry=1.0, exponent=2.0)
+        ell = EllipseArc(c=0j, u=2.0 + 0j, v=0.0 + 1.0j, t0_deg=0.0, sweep_deg=90.0)
+        for t_deg in (10.0, 30.0, 45.0, 60.0, 80.0):
+            t = math.radians(t_deg)
+            assert sup.curvature_radius(t) == pytest.approx(ell.curvature_radius(t), rel=1e-6)
+            assert sup.point(t) == pytest.approx(ell.point(t), abs=1e-12)
+
+    def test_max_curvature_radius_ignores_the_vertex_infinities(self) -> None:
+        """The interior-only sampling keeps the estimate finite for n > 2."""
+        arc = self._patch(rx=1.0, ry=1.0, exponent=20.0)
+        assert math.isfinite(arc.max_curvature_radius)
+        assert arc.max_curvature_radius > 0.0
+
+    def test_zero_sweep_max_curvature_is_infinite(self) -> None:
+        arc = self._patch(sweep_deg=0.0)
+        assert arc.max_curvature_radius == math.inf
+
+    def test_u_v_are_the_signed_semi_axis_vectors(self) -> None:
+        arc = self._patch(rx=2.0, ry=0.5, sx=-1.0, sy=1.0)
+        assert arc.u == pytest.approx(-2.0 + 0.0j)
+        assert arc.v == pytest.approx(0.0 + 0.5j)
+
+
+class TestFitSuperellipseArc:
+    """The trim-to-line corner fit: caps + tangent-continuous chain, tol-guaranteed."""
+
+    def _patch(self, rx, ry, n, **kw) -> SuperellipseArc:
+        args = {
+            "c": 0j,
+            "rx": rx,
+            "ry": ry,
+            "exponent": n,
+            "sx": 1.0,
+            "sy": 1.0,
+            "t0_deg": 0.0,
+            "sweep_deg": 90.0,
+        }
+        args.update(kw)
+        return SuperellipseArc(**args)
+
+    def test_n_eq_2_is_bit_identical_to_the_ellipse_fit(self) -> None:
+        """The ellipse quadrant skips the trim and matches ``fit_ellipse_arc`` exactly."""
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        sup = self._patch(2.0, 1.0, 2.0)
+        ell = EllipseArc(c=0j, u=2.0 + 0j, v=0.0 + 1.0j, t0_deg=0.0, sweep_deg=90.0)
+        chain_sup = fit_superellipse_arc(sup, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        chain_ell = fit_ellipse_arc(ell, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain_sup is not None and chain_ell is not None
+        assert len(chain_sup) == len(chain_ell)
+        for a, b in zip(chain_sup, chain_ell):
+            assert a.start == pytest.approx(b.start, abs=1e-15)
+            assert a.end == pytest.approx(b.end, abs=1e-15)
+            assert a.is_arc == b.is_arc
+            if a.is_arc:
+                assert a.center == pytest.approx(b.center, abs=1e-15)
+                assert a.sweep_deg == pytest.approx(b.sweep_deg, abs=1e-15)
+
+    def test_chain_is_tip_to_tail_with_exact_endpoints(self) -> None:
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        arc = self._patch(0.5, 0.5, 4.0)
+        chain = fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain is not None
+        assert chain[0].start == pytest.approx(arc.start, abs=1e-12)
+        assert chain[-1].end == pytest.approx(arc.end, abs=1e-12)
+        for a, b in zip(chain[:-1], chain[1:]):
+            assert a.end == pytest.approx(b.start, abs=1e-12)
+
+    def test_dense_deviation_within_tolerance(self) -> None:
+        """The whole contour (caps + chain) stays within tol of the true curve."""
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        for rx, ry, n in (
+            (0.1, 0.1, 20.0),
+            (0.2, 0.2, 10.0),
+            (0.5, 0.5, 4.0),
+            (0.7, 0.7, 2.857142857),
+            (0.9, 0.9, 2.222222222),
+            (1.0, 0.5, 4.0),
+            (2.0, 2.0, 4.0),
+            (0.075, 0.075, 4.0),
+        ):
+            arc = self._patch(rx, ry, n)
+            chain = fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+            assert chain is not None, (rx, ry, n)
+            dev = _true_deviation(arc, list(chain))
+            assert dev <= ARC_FIT_DEV_TOL_INCHES + 1e-9, (rx, ry, n, dev)
+
+    def test_caps_are_short_chords_from_the_exact_vertices(self) -> None:
+        """The trim caps are line chords starting/ending at the exact vertices.
+
+        Each cap spans the vertex parameter span whose curve stays within tol
+        of its chord, so it is short (sub-degree) and its outer endpoint is
+        the patch's axis vertex -- the contour therefore starts and ends
+        exactly on the box's straight edge.
+        """
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        arc = self._patch(0.5, 0.5, 4.0)
+        chain = fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain is not None
+        lines = [s for s in chain if not s.is_arc]
+        assert lines, "a squircle quadrant needs trim caps"
+        # The first cap starts at the X-vertex; the last ends at the Y-vertex.
+        assert lines[0].start == pytest.approx(arc.start, abs=1e-15)
+        assert lines[-1].end == pytest.approx(arc.end, abs=1e-15)
+        # Every cap is a short chord of the flat end (the trim removes only
+        # the near-vertex span; here ~3.3 degrees of parameter).
+        for cap in lines:
+            assert abs(cap.end - cap.start) < 0.5 * min(arc.rx, arc.ry)
+
+    def test_negative_sweep_supported(self) -> None:
+        """A reversed traversal fits with the same geometry (mirrored chain)."""
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        fwd = self._patch(0.5, 0.5, 4.0, t0_deg=90.0, sweep_deg=-90.0)
+        chain = fit_superellipse_arc(fwd, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain is not None
+        assert chain[0].start == pytest.approx(fwd.start, abs=1e-12)
+        assert chain[-1].end == pytest.approx(fwd.end, abs=1e-12)
+        assert _true_deviation(fwd, list(chain)) <= ARC_FIT_DEV_TOL_INCHES + 1e-9
+        arcs = [s for s in chain if s.is_arc]
+        assert arcs and all(s.sweep_deg < 0.0 for s in arcs)
+
+    def test_near_straight_patch_collapses_to_one_line(self) -> None:
+        """A patch whose whole span lies within tol of its chord emits one line.
+
+        A 0.0004in semi-axis corner is sub-plotter-unit at every parameter, so
+        the trim test accepts the full span and the corner is a single chord.
+        """
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        arc = self._patch(0.0004, 0.0004, 4.0)
+        chain = fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain is not None
+        assert len(chain) == 1
+        assert not chain[0].is_arc
+
+    def test_zero_sweep_declines(self) -> None:
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        arc = self._patch(0.5, 0.5, 4.0, sweep_deg=0.0)
+        assert fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS) is None
+
+    def test_degenerate_geometry_declines(self) -> None:
+        """A patch the chain cap cannot resolve declines (caller polygonizes)."""
+        from plt_optimizer.generate.arc_fit import SuperellipseArc
+
+        # Extreme aspect: the ellipse branch needs > 12 arcs at the default cap.
+        arc = SuperellipseArc(
+            c=0j, rx=10.0, ry=0.25, exponent=2.0, sx=1.0, sy=1.0, t0_deg=0.0, sweep_deg=90.0
+        )
+        assert fit_superellipse_arc(arc, max_arcs=12) is None
+        assert arc.exponent == 2.0  # ellipse branch, cap-bound
+
+    def test_dense_verification_rejects_the_under_read_chain(self) -> None:
+        """The 400-sample contour pass gates fits the 32-sample verifier misses.
+
+        The stadium corner (rx=ry=2, n=4) is the measured worst case: its
+        24-arc inner chain passes the 32-sample verifier (0.000141in, under the
+        0.00016in gate) yet deviates 0.000233in densely, so the first-attempt
+        fit is rejected and only the half-tolerance retry is emitted.
+        """
+        from plt_optimizer.generate.arc_fit import (
+            _VERIFY_MARGIN,
+            BORDER_ARC_FIT_MAX_ARCS,
+            _contour_deviation,
+            _fit_chain,
+            _trim_to_line_span,
+        )
+
+        arc = self._patch(2.0, 2.0, 4.0)
+        chain = fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain is not None
+        assert _true_deviation(arc, list(chain)) <= ARC_FIT_DEV_TOL_INCHES + 1e-9
+
+        # Show the dense guard is load-bearing on this patch: the 24-arc chain
+        # of the trimmed inner span clears the 32-sample gate but misses tol
+        # densely, so it is exactly what the contour check rejects.
+        t_lo, t_hi = _trim_to_line_span(arc, ARC_FIT_DEV_TOL_INCHES)
+        inner = SuperellipseArc(
+            c=0j,
+            rx=2.0,
+            ry=2.0,
+            exponent=4.0,
+            sx=1.0,
+            sy=1.0,
+            t0_deg=math.degrees(t_lo),
+            sweep_deg=math.degrees(t_hi - t_lo),
+        )
+        loose = _fit_chain(inner, 24)
+        assert loose is not None
+        assert ellipse_deviation(inner, loose) <= ARC_FIT_DEV_TOL_INCHES * _VERIFY_MARGIN
+        assert _contour_deviation(inner, tuple(loose)) > ARC_FIT_DEV_TOL_INCHES
+
+
+class TestSuperellipseHelpers:
+    """Direct coverage of the trim/assemble helpers' degenerate branches."""
+
+    def _patch(self, **kw) -> SuperellipseArc:
+        args = {
+            "c": 0j,
+            "rx": 0.5,
+            "ry": 0.5,
+            "exponent": 4.0,
+            "sx": 1.0,
+            "sy": 1.0,
+            "t0_deg": 0.0,
+            "sweep_deg": 90.0,
+        }
+        args.update(kw)
+        return SuperellipseArc(**args)
+
+    def test_chord_deviation_of_a_point_span_is_zero(self) -> None:
+        """A degenerate chord (t_a == t_b) carries no deviation."""
+        from plt_optimizer.generate.arc_fit import _chord_deviation
+
+        arc = self._patch()
+        assert _chord_deviation(arc, 0.5, 0.5) == 0.0
+
+    def test_assemble_caps_skips_zero_length_caps(self) -> None:
+        """A chain starting/ending exactly on the vertices gets no caps."""
+        from plt_optimizer.generate.arc_fit import FittedSegment, _assemble_caps
+
+        arc = self._patch()
+        chain = (
+            FittedSegment(start=arc.start, end=0.35 + 0.35j),
+            FittedSegment(start=0.35 + 0.35j, end=arc.end),
+        )
+        assert _assemble_caps(arc, chain) == chain
+
+    def test_assemble_caps_keeps_sub_unit_caps(self) -> None:
+        """A cap shorter than a plotter unit is kept (the exact-vertex contract)."""
+        from plt_optimizer.generate.arc_fit import (
+            _MIN_CHORD_INCHES,
+            FittedSegment,
+            _assemble_caps,
+        )
+
+        arc = self._patch()
+        tiny = arc.start + complex(0.0, _MIN_CHORD_INCHES / 2.0)
+        chain = (FittedSegment(start=tiny, end=arc.end),)
+        out = _assemble_caps(arc, chain)
+        assert len(out) == 2
+        assert out[0].start == pytest.approx(arc.start)
+        assert out[0].end == pytest.approx(tiny)
+
+    def test_retry_decline_returns_none(self) -> None:
+        """A patch whose half-tolerance retry still misses declines.
+
+        The rx=6/ry=3 n=4 patch is the measured case: both the first fit and
+        the half-tolerance retry saturate the 32-arc cap at a dense deviation
+        of ~0.00068in, so the caller polygonizes.
+        """
+        from plt_optimizer.generate.arc_fit import BORDER_ARC_FIT_MAX_ARCS
+
+        arc = self._patch(rx=6.0, ry=3.0)
+        assert fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS) is None
+
+    def test_retry_exhausting_the_cap_returns_none(self) -> None:
+        """The retry fitting ``None`` (cap below its needs) declines too.
+
+        The stadium patch's first fit lands on 24 arcs (passes the 32-sample
+        gate, misses densely); the half-tolerance retry needs 27, so a cap of
+        26 leaves the retry with no admissible chain -- the ``None`` return
+        exits through the retry guard, not the first-fit one.
+        """
+        arc = self._patch(rx=2.0, ry=2.0)
+        assert fit_superellipse_arc(arc, max_arcs=26) is None
+
+    def test_retry_path_emits_the_tighter_chain(self) -> None:
+        """The stadium corner takes the half-tolerance retry and passes densely."""
+        from plt_optimizer.generate.arc_fit import (
+            BORDER_ARC_FIT_MAX_ARCS,
+            _assemble_caps,
+            _contour_deviation,
+            _fit_chain,
+            _trim_to_line_span,
+        )
+
+        arc = self._patch(rx=2.0, ry=2.0)
+        chain = fit_superellipse_arc(arc, max_arcs=BORDER_ARC_FIT_MAX_ARCS)
+        assert chain is not None
+        assert _contour_deviation(arc, chain) <= ARC_FIT_DEV_TOL_INCHES
+        # The first-attempt 24-arc chain misses densely (the gate fires); the
+        # emitted chain is the retry's (27 arcs of the inner span + 2 caps).
+        t_lo, t_hi = _trim_to_line_span(arc, ARC_FIT_DEV_TOL_INCHES)
+        inner = SuperellipseArc(
+            c=0j,
+            rx=2.0,
+            ry=2.0,
+            exponent=4.0,
+            sx=1.0,
+            sy=1.0,
+            t0_deg=math.degrees(t_lo),
+            sweep_deg=math.degrees(t_hi - t_lo),
+        )
+        first = _fit_chain(inner, 24)
+        assert first is not None
+        assert _contour_deviation(arc, _assemble_caps(arc, tuple(first))) > ARC_FIT_DEV_TOL_INCHES
+        arcs = sum(1 for s in chain if s.is_arc)
+        assert arcs > 24
+
+    def test_zero_semi_axis_curvature_is_infinite(self) -> None:
+        """A collapsed axis (rx = 0) has a vanishing cross product: R = inf."""
+        arc = self._patch(rx=0.0, ry=1.0)
+        assert arc.curvature_radius(math.pi / 4.0) == math.inf
+
+    def test_first_fit_cap_exhaustion_declines(self) -> None:
+        """A patch whose inner span needs more arcs than the cap declines.
+
+        The stadium-scale patch (rx=ry=2, n=4) needs ~24 inner arcs; with a
+        cap of 4 every probe misses the 32-sample gate, so the FIRST fit
+        returns ``None`` and the retry never runs.
+        """
+        arc = self._patch(rx=2.0, ry=2.0)
+        assert fit_superellipse_arc(arc, max_arcs=4) is None
