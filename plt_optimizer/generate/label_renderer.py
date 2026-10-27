@@ -35,6 +35,15 @@ import numpy as np
 import vpype as vp
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units, units_to_inches
+from plt_optimizer.generate.arc_fit import (
+    ARC_FIT_DEV_TOL_INCHES,
+    BORDER_ARC_FIT_MAX_ARCS,
+    EllipseArc,
+    FittedSegment,
+    SuperellipseArc,
+    fit_ellipse_arc,
+    fit_superellipse_arc,
+)
 from plt_optimizer.generate.collision.detection import (
     LabelRenderError,
     collision_line_desc,
@@ -110,9 +119,11 @@ from plt_optimizer.generate.resolution import (
 )
 from plt_optimizer.generate.text_geometry import (
     ARC_FLATTEN_CHORD_TOL_INCHES,
+    ArcSeg,
     LineSeg,
     Stroke,
     TextBlock,
+    TextSegment,
     block_from_linecollection,
 )
 from plt_optimizer.generate.underline import runs_from_flags, underline_segments
@@ -873,9 +884,18 @@ def _collect_hpgl_geometry(
                         sweep_angle=sweep,
                     )
                 )
-                # An arc ends on the circle; without an exact end coordinate
-                # we conservatively keep the pen position (the following PU
-                # re-establishes it in generated content).
+                # Advance the pen to the arc's end point. Chained arcs (the
+                # border ellipse/rounded-rect chains, and EngraveLab's
+                # ``PD;AA`` glyph runs) each start where the previous ended;
+                # leaving the pen on the arc START would measure the next
+                # arc's radius from the wrong point, over-measuring a
+                # contiguous chain's swept extent (a 40-arc ellipse border
+                # overshoots its box by ~0.4in). The end is derived with the
+                # core parser's ``AA`` geometry and rounded to integer units
+                # (the emission floor), matching how PU/PD positions are read.
+                end_angle = math.radians(start_angle) + math.radians(sweep)
+                current_x = int(round(cx + radius * math.cos(end_angle)))
+                current_y = int(round(cy + radius * math.sin(end_angle)))
             continue
 
         try:
@@ -6291,20 +6311,139 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
     return lc
 
 
+def _append_fitted_chain(segments: List[TextSegment], chain: Sequence[FittedSegment]) -> None:
+    """Append one fitted chain to a running segment list (tip-to-tail)."""
+    for piece in chain:
+        if piece.center is None:
+            segments.append(LineSeg(piece.start, piece.end))
+        else:
+            segments.append(ArcSeg(piece.start, piece.center, piece.sweep_deg))
+
+
+def _ellipse_boundary_strokes(width: float, height: float) -> Optional[Tuple[Stroke, ...]]:
+    """Build the ellipse border as four closed arc-native quadrant strokes.
+
+    The contour is the four quadrant spans (``t0`` = 0/90/180/270, sweep 90)
+    of the parametric ellipse ``P(t) = c + (a cos t, b sin t)``, each refit
+    with the tangent-continuous circular chain of
+    :func:`plt_optimizer.generate.arc_fit.fit_ellipse_arc` at the shared
+    :data:`~plt_optimizer.generate.arc_fit.ARC_FIT_DEV_TOL_INCHES` (the
+    border cap is :data:`~plt_optimizer.generate.arc_fit.BORDER_ARC_FIT_MAX_ARCS`).
+    Each quadrant is its own PU-led stroke, so every axis vertex is an
+    explicit integer plotter coordinate (a PU), not only a derived arc end:
+    the closed contour reaches the enclosing box's extrema exactly and
+    :func:`extract_bounds_from_plt` measures the nominal box -- the packer
+    and the plate transforms depend on that.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+
+    Returns:
+        The four quadrant strokes, or ``None`` when a fit declines (an
+        extreme aspect ratio) -- the caller falls back to the polygon.
+    """
+    semi_a = width / 2.0
+    semi_b = height / 2.0
+    center = complex(semi_a, semi_b)
+    strokes: List[Stroke] = []
+    for t0_deg in (0.0, 90.0, 180.0, 270.0):
+        arc = EllipseArc(
+            c=center,
+            u=semi_a + 0.0j,
+            v=0.0 + semi_b * 1.0j,
+            t0_deg=t0_deg,
+            sweep_deg=90.0,
+        )
+        chain = fit_ellipse_arc(
+            arc, tol_inches=ARC_FIT_DEV_TOL_INCHES, max_arcs=BORDER_ARC_FIT_MAX_ARCS
+        )
+        if chain is None:
+            return None
+        segments: List[TextSegment] = []
+        _append_fitted_chain(segments, chain)
+        strokes.append(Stroke(pen_up=segments[0].start, segments=tuple(segments)))
+    return tuple(strokes)
+
+
+def _rounded_rect_boundary_stroke(
+    width: float,
+    height: float,
+    corner: RoundedRectCorner,
+) -> Optional[Stroke]:
+    """Build the rounded-rectangle border as one closed arc-native stroke.
+
+    The same CCW contour as :func:`_rounded_rect_boundary_polygon` (from the
+    bottom edge's left junction): four straight edges joined by four
+    superellipse corner patches, each patch refit with the trim-to-line
+    circular chain of
+    :func:`plt_optimizer.generate.arc_fit.fit_superellipse_arc` (the flat
+    vertex caps merge into the straight edges as one ``PD`` run). Patch
+    endpoints are the exact axis vertices, so the contour reaches the box's
+    extrema and closes tip-to-tail.
+
+    Args:
+        width: Label width in inches (> 0).
+        height: Label height in inches (> 0).
+        corner: The corner parameters.
+
+    Returns:
+        The closed stroke, or ``None`` when a patch's fit declines -- the
+        caller falls back to the polygon.
+    """
+    rx, ry, exponent = corner.rx, corner.ry, corner.exponent
+    w, h = width, height
+    # (straight edge start -> end) paired with (patch centre, sx, sy, t0, sweep)
+    # in CCW traversal order from (rx, 0).
+    legs = (
+        ((complex(rx, 0.0), complex(w - rx, 0.0)), (complex(w - rx, ry), 1.0, -1.0, 90.0, -90.0)),
+        ((complex(w, ry), complex(w, h - ry)), (complex(w - rx, h - ry), 1.0, 1.0, 0.0, 90.0)),
+        ((complex(w - rx, h), complex(rx, h)), (complex(rx, h - ry), -1.0, 1.0, 90.0, -90.0)),
+        ((complex(0.0, h - ry), complex(0.0, ry)), (complex(rx, ry), -1.0, -1.0, 0.0, 90.0)),
+    )
+    segments: List[TextSegment] = []
+    for (edge_start, edge_end), (patch_c, sx, sy, t0_deg, sweep_deg) in legs:
+        if abs(edge_end - edge_start) > 0.0:
+            segments.append(LineSeg(edge_start, edge_end))
+        patch = SuperellipseArc(
+            c=patch_c,
+            rx=rx,
+            ry=ry,
+            exponent=exponent,
+            sx=sx,
+            sy=sy,
+            t0_deg=t0_deg,
+            sweep_deg=sweep_deg,
+        )
+        chain = fit_superellipse_arc(
+            patch, tol_inches=ARC_FIT_DEV_TOL_INCHES, max_arcs=BORDER_ARC_FIT_MAX_ARCS
+        )
+        if chain is None:
+            return None
+        _append_fitted_chain(segments, chain)
+    return Stroke(pen_up=segments[0].start, segments=tuple(segments))
+
+
 def _render_boundary_hpgl(label: ResolvedLabel) -> str:
-    """Render label boundary as native HPGL polyline command.
+    """Render label boundary as native HPGL (arc-native curves, polyline rect).
 
-    The boundary (rectangle or ellipse) is emitted as a single continuous
-    polyline: ``PU{x1},{y1};PD{x2},{y2};PD{x3},{y3};...;PD{x1},{y1}``
+    The rectangle emits the historical single continuous polyline
+    (``PU{x1},{y1};PD{x2},{y2};...;PD{x1},{y1}``): four corners, bit-identical.
 
-    By emitting the entire boundary as one continuous sequence of PD commands,
-    the parser creates a SINGLE StrokePath with many segments, preserving the
-    closed loop structure for efficient optimization. This avoids the problem
-    where vpype's LineCollection fragmentizes polylines into individual
-    segments (one per edge pair).
+    The ellipse (``type: round`` / the fully-rounded limit) and the
+    rounded-rectangle contour emit as native ``AA`` arc chains -- the same
+    refit the non-uniform glyph transforms use
+    (:mod:`plt_optimizer.generate.arc_fit`) -- so the engraved border keeps
+    circular-arc commands instead of ~300-500 chord vertices (a 4x2in ellipse:
+    40 ``AA`` arcs at the shared 0.0002in deviation tolerance, a circle: 4
+    exact quarter arcs). Each contour is one closed pen-up-led stroke
+    (``PU``/``PD``/``AA`` via :meth:`TextBlock`-style emission), which the
+    parser creates as a SINGLE StrokePath preserving the closed loop, exactly
+    like the polyline path avoids vpype's fragmentation.
 
-    This function generates the polygon directly WITHOUT going through vpype's
-    LineCollection to avoid that fragmentation.
+    When a fit declines (an extreme aspect ratio the arc chain cap cannot
+    resolve), the border falls back to the polygonized contour and the
+    fallback is logged -- never silent.
 
     Args:
         label: The resolved label whose boundary should be emitted.
@@ -6317,13 +6456,37 @@ def _render_boundary_hpgl(label: ResolvedLabel) -> str:
     if label.width <= 0.0 or label.height <= 0.0:
         return ""
 
-    # Generate the boundary polygon coordinates in inches
+    # Arc-native curves: the ellipse quadrants and the rounded-rect corner
+    # patches refit with tangent-continuous circular arcs.
     if uses_ellipse_boundary(label):
+        strokes = _ellipse_boundary_strokes(label.width, label.height)
+        if strokes is not None:
+            return ";".join(stroke.to_hpgl() for stroke in strokes)
+        logger.warning(
+            "Ellipse border %gx%gin declined the arc refit (max %d arcs/quadrant at "
+            "%gin deviation); engraving the polygonized contour.",
+            label.width,
+            label.height,
+            BORDER_ARC_FIT_MAX_ARCS,
+            ARC_FIT_DEV_TOL_INCHES,
+        )
         # For ellipses: generate the polygon directly, bypassing vpype LineCollection
         polygon_points = _ellipse_boundary_polygon(
             label.width / 2.0, label.height / 2.0, label.width, label.height
         )
     elif (rounded_corner := rounded_rect_corner(label)) is not None:
+        stroke = _rounded_rect_boundary_stroke(label.width, label.height, rounded_corner)
+        if stroke is not None:
+            return stroke.to_hpgl()
+        logger.warning(
+            "Rounded-rect border %gx%gin (fraction %g) declined the arc refit "
+            "(max %d arcs/patch at %gin deviation); engraving the polygonized contour.",
+            label.width,
+            label.height,
+            label.rounded_rectangle_fraction,
+            BORDER_ARC_FIT_MAX_ARCS,
+            ARC_FIT_DEV_TOL_INCHES,
+        )
         # Rounded rectangle: the G2 superellipse-corner contour, same
         # continuous-polyline emission as the ellipse.
         polygon_points = _rounded_rect_boundary_polygon(label.width, label.height, rounded_corner)

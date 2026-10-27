@@ -42,8 +42,10 @@ from plt_optimizer.generate.collision.shapes import (
 from plt_optimizer.generate.label_renderer import (
     _border_box,
     _lower_rounded_rect_border,
+    _render_boundary_hpgl,
     _render_boundary_local,
     _rounded_rect_boundary_polygon,
+    extract_bounds_from_plt,
 )
 from plt_optimizer.generate.resolution import (
     STADIUM_G2_EXPONENT,
@@ -378,9 +380,7 @@ class TestRoundedRectCornerHole:
 
     def test_hole_circles_local_uses_the_patch(self) -> None:
         """``hole_circles_local`` places corner holes off the sharp corner."""
-        label = _label(
-            width=4.0, height=2.0, fraction=0.5, holes=[_hole("bottom-right")]
-        )
+        label = _label(width=4.0, height=2.0, fraction=0.5, holes=[_hole("bottom-right")])
         (cx, cy, _r) = hole_circles_local(label)[0]
         # The sharp-rect inset would sit at (4 - offset, offset); the patch
         # pulls the centre toward the label's centre.
@@ -494,7 +494,124 @@ class TestRenderBoundaryLocal:
         rounded = _render_boundary_local(
             _label(width=4.0, height=2.0, fraction=1.0, proportional=True)
         )
-        round_label = _render_boundary_local(
-            _label(width=4.0, height=2.0, shape_type="round")
-        )
+        round_label = _render_boundary_local(_label(width=4.0, height=2.0, shape_type="round"))
         np.testing.assert_allclose(rounded.lines[0], round_label.lines[0])
+
+
+def _parse_border_arcs(content: str):
+    """Parse emitted border HPGL into core ArcSegments (device units)."""
+    from plt_optimizer.core.models import ArcSegment
+    from plt_optimizer.core.parser import PLTParser
+
+    doc = PLTParser().parse_string(f"IN;PA;SP2;{content};SP;")
+    return [
+        segment
+        for path in doc.stroke_paths
+        for segment in path.segments
+        if isinstance(segment, ArcSegment)
+    ]
+
+
+class TestRoundedRectBorderArcNative:
+    """``_render_boundary_hpgl`` engraves the rounded-rect border with ``AA`` chains."""
+
+    def test_sharp_rect_is_the_untouched_polyline(self) -> None:
+        """fraction 0 keeps the four-corner rectangle bit-identically (no AA)."""
+        content = _render_boundary_hpgl(_label(width=4.0, height=2.0))
+        assert content == "PU0,0;PD4064,0,4064,2032,0,2032,0,0"
+
+    def test_squircle_emits_arc_chain(self) -> None:
+        """A 0.5 rounding refits its corner patches into circular arcs."""
+        content = _render_boundary_hpgl(_label(width=4.0, height=2.0, fraction=0.5))
+        assert content.count("AA") == 52
+        assert content.startswith("PU")
+
+    def test_corner_arcs_stay_on_the_superellipse(self) -> None:
+        """Every fitted arc's swept points stay within the emission floor of the patch.
+
+        The BL patch is centred at ``(rx, ry)`` opening toward ``(-1, -1)``;
+        the implicit ``|X/rx|^n + |Y/ry|^n = 1`` measures the deviation. The
+        guarantee is 0.0002in against the true curve; the emitted integer-unit
+        arcs quantize to ~2 plotter units, so the check runs at 3e-3in.
+        """
+        content = _render_boundary_hpgl(_label(width=4.0, height=2.0, fraction=0.5))
+        arcs = _parse_border_arcs(content)
+        assert arcs
+        corner = rounded_rect_corner_params(4.0, 2.0, 0.5, False)
+        rx, ry, n = corner.rx, corner.ry, corner.exponent
+        # The BL patch centre (device units): (rx, ry).
+        cx, cy = rx * 1016.0, ry * 1016.0
+        rx_u, ry_u = rx * 1016.0, ry * 1016.0
+        tol = 3e-3 * 1016.0
+        worst = 0.0
+        considered = 0
+        for arc in arcs:
+            # Only the BL patch arcs: their START sits inside the patch's box
+            # [0, rx] x [0, ry]. (The FITTED arc centres are osculating
+            # circles scattered far from the patch centre, so the centre is
+            # not a usable region filter.)
+            if arc.start.x > rx_u + 2.0 or arc.start.y > ry_u + 2.0:
+                continue
+            considered += 1
+            r = arc.radius
+            a0 = math.atan2(arc.start.y - arc.center.y, arc.start.x - arc.center.x)
+            sweep = math.radians(arc.sweep_angle)
+            for i in range(33):
+                a = a0 + sweep * i / 32.0
+                x = arc.center.x + r * math.cos(a)
+                y = arc.center.y + r * math.sin(a)
+                # BL patch: the curve is rx*|cos|^p + ..., measured from the
+                # patch centre; X = cx - (cx - x) toward the corner.
+                ex = (x - cx) / rx_u
+                ey = (y - cy) / ry_u
+                value = abs(ex) ** n + abs(ey) ** n
+                grad = math.hypot(n * abs(ex) ** (n - 1) / rx_u, n * abs(ey) ** (n - 1) / ry_u)
+                dist = abs(value - 1.0) / grad if grad > 0.0 else math.inf
+                worst = max(worst, dist)
+        assert considered > 0
+        assert worst <= tol
+
+    def test_bounds_reach_the_nominal_box(self) -> None:
+        """The straight-edge vertices keep the contour's bounds on the box."""
+        content = _render_boundary_hpgl(_label(width=4.0, height=2.0, fraction=0.5))
+        x_min, y_min, x_max, y_max = extract_bounds_from_plt(content)
+        assert x_min == pytest.approx(0.0, abs=3e-3)
+        assert y_min == pytest.approx(0.0, abs=3e-3)
+        assert x_max == pytest.approx(4.0, abs=3e-3)
+        assert y_max == pytest.approx(2.0, abs=3e-3)
+
+    def test_emission_is_deterministic(self) -> None:
+        """Identical labels emit byte-identical borders."""
+        label = _label(width=4.0, height=2.0, fraction=0.5)
+        assert _render_boundary_hpgl(label) == _render_boundary_hpgl(label)
+
+    def test_full_round_matches_the_ellipse_path(self) -> None:
+        """The n=2 patch (fraction 1, proportional) fits as the ellipse quadrant.
+
+        The fully-rounded limit routes through ``uses_ellipse_boundary`` (the
+        ellipse emitter), so a proportional-1 label and a ``type: round`` twin
+        emit the identical arc-native border.
+        """
+        rounded = _render_boundary_hpgl(
+            _label(width=4.0, height=2.0, fraction=1.0, proportional=True)
+        )
+        twin = _render_boundary_hpgl(_label(width=4.0, height=2.0, shape_type="round"))
+        assert rounded == twin
+        assert rounded.count("AA") == 40
+
+    def test_extreme_aspect_falls_back_to_the_polygon(self, caplog) -> None:
+        """A patch the chain cap cannot resolve polygonizes and logs a warning."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.label_renderer"):
+            content = _render_boundary_hpgl(
+                _label(width=20.0, height=0.5, fraction=0.5, proportional=True)
+            )
+        assert "AA" not in content
+        assert content.startswith("PU")
+        assert "declined the arc refit" in caplog.text
+
+    def test_degenerate_label_emits_nothing(self) -> None:
+        """The degenerate-size guard precedes the arc path."""
+        assert _render_boundary_hpgl(_label(width=0.0, height=2.0, fraction=0.5)) == ""
+        assert _render_boundary_hpgl(_label(width=4.0, height=0.0, fraction=0.5)) == ""

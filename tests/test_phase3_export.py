@@ -5350,8 +5350,12 @@ class TestRoundedRectDemoExample:
         """Rounding never changes the packed size: bounds == nominal box.
 
         Each corner patch is tangent to the box at its axis vertices, so the
-        engraved contour reaches the enclosing rectangle's extrema exactly --
-        the packer and the plate transforms depend on that.
+        engraved contour reaches the enclosing rectangle's extrema --
+        the packer and the plate transforms depend on that. An emitted ``AA``
+        carries no radius (the plotter derives it from the integer pen/centre
+        pair), so a fitted chain's vertices land within ~2 plotter units of the
+        true curve: the 3e-3in (~3 unit) tolerance pins that emission floor
+        (1 unit = 0.00098in, ~5x finer than the smallest cutter).
         """
         result = self._export(tmp_path)
         expected = {
@@ -5367,8 +5371,8 @@ class TestRoundedRectDemoExample:
         }
         for label_id, (width, height) in expected.items():
             rendered = result.rendered_labels[label_id]
-            assert rendered.width == pytest.approx(width, abs=1e-3), label_id
-            assert rendered.height == pytest.approx(height, abs=1e-3), label_id
+            assert rendered.width == pytest.approx(width, abs=3e-3), label_id
+            assert rendered.height == pytest.approx(height, abs=3e-3), label_id
 
     def test_full_round_is_bit_identical_to_type_round(self) -> None:
         """fraction 1 + proportional emits the exact ``type: round`` border."""
@@ -5389,14 +5393,19 @@ class TestRoundedRectDemoExample:
         # (4in x 2in at 1016 units/inch).
         assert content == "PU0,0;PD4064,0,4064,2032,0,2032,0,0"
 
-    def test_rounded_border_is_a_fine_polyline(self) -> None:
-        """A rounded border samples into many vertices (not four corners)."""
+    def test_rounded_border_is_arc_native(self) -> None:
+        """A rounded border emits ``AA`` arc chains, not hundreds of vertices.
+
+        The polygon era emitted ~260 chord vertices for this contour; the
+        arc-native border refits the four corner patches into 52 circular
+        arcs (the trim caps merged into the straight-edge runs), pinned
+        deterministically.
+        """
         from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
 
         labels = self._labels()
         content = _render_boundary_hpgl(labels["equal_round"])
-        points = content.count(",") // 2
-        assert points > 40
+        assert content.count("AA") == 52
         assert content.startswith("PU")
 
     def test_stadium_keeps_straight_long_edges(self) -> None:
@@ -5408,9 +5417,12 @@ class TestRoundedRectDemoExample:
 
         labels = self._labels()
         content = _render_boundary_hpgl(labels["stadium"])
-        coords = content.replace("PU", "").replace("PD", "").replace(";", ",")
-        pairs = [float(v) for v in coords.split(",") if v]
-        ys = [units_to_inches(pairs[i + 1]) for i in range(0, len(pairs), 2)]
+        # Polyline vertices only: an AA command carries centre/angle numbers,
+        # not box-edge coordinates. The near-flat trim caps quantize onto the
+        # edge line, so the straight runs stay.
+        chunks = re.findall(r"(?:PU|PD)([\d,\.\-]+)", content)
+        values = [int(v) for chunk in chunks for v in chunk.split(",") if v]
+        ys = [units_to_inches(y) for y in values[1::2]]
         # The bottom edge (y == 0) carries a straight run of the 8 - 4 = 4in
         # long edge: several consecutive vertices share y == 0.
         flat_runs = max((len(list(g)) for k, g in groupby(ys) if k == 0.0), default=0)
@@ -5434,12 +5446,15 @@ class TestRoundedRectDemoExample:
             assert inset_y > offset + 1e-9
 
     def test_structural_layer_carries_every_border_and_hole(self, tmp_path: Path) -> None:
-        """The borders/holes layer holds all nine contours + four drill arcs."""
+        """The borders/holes layer holds all nine arc-native contours + holes."""
         result = self._export(tmp_path)
         bh = next(p for p in result.plt_paths if "_bh_" in p.name)
         content = bh.read_text()
-        # Four corner holes, each four quarter-arcs.
-        assert content.count("AA") == 16
+        # Four corner holes (each four quarter-arcs = 16) plus the arc-native
+        # borders: equal_round/rounded_corners/squircle_text 52 x 3,
+        # prop_round 68, full_ellipse + ellipse_twin 40 x 2, stadium 108,
+        # full_circle 4, sharp_control 0 -> 416 border + 16 hole arcs.
+        assert content.count("AA") == 432
         # Nine boundaries (PU-led) plus one plunge per drill hole.
         assert content.count("PU") >= 9 + 4
 
@@ -5502,9 +5517,13 @@ class TestEllipseDemoExample:
     def test_round_labels_render_their_enclosing_box(self, tmp_path: Path) -> None:
         """Every round label's rendered bounds equal its nominal box.
 
-        The sampled ellipse is closed at the axis vertices, so the engraved
-        boundary reaches the enclosing rectangle's extrema exactly -- the
-        packer and the plate transforms depend on that.
+        The arc-native ellipse is closed at its axis vertices (each quadrant
+        is a PU-led stroke starting on a vertex), so the engraved boundary
+        reaches the enclosing rectangle's extrema -- the packer and the plate
+        transforms depend on that. An emitted ``AA`` carries no radius (the
+        plotter derives it from the integer pen/centre pair), so a fitted
+        chain's swept extent lands within ~2 plotter units of the true curve:
+        the 3e-3in (~3 unit) tolerance pins that emission floor.
         """
         result = self._export(tmp_path)
         expected = {
@@ -5518,16 +5537,19 @@ class TestEllipseDemoExample:
         }
         for label_id, (width, height) in expected.items():
             rendered = result.rendered_labels[label_id]
-            assert rendered.width == pytest.approx(width, abs=1e-3), label_id
-            assert rendered.height == pytest.approx(height, abs=1e-3), label_id
+            assert rendered.width == pytest.approx(width, abs=3e-3), label_id
+            assert rendered.height == pytest.approx(height, abs=3e-3), label_id
 
     def test_structural_layer_carries_ellipses_and_rectangles(self, tmp_path: Path) -> None:
         """The borders/holes layer holds every label's boundary + drill arcs."""
         result = self._export(tmp_path)
         bh = next(p for p in result.plt_paths if "_bh_" in p.name)
         content = bh.read_text()
-        # Six drill holes (2 sides + 4 corners), each four quarter-arcs.
-        assert content.count("AA") == 24
+        # Six drill holes (2 sides + 4 corners), each four quarter-arcs = 24,
+        # plus the arc-native ellipse borders: ellipse/round_holes 40 x 2,
+        # circle/circle_diameter/round_corners 4 x 3, circle_trio 4 x 3
+        # instances = 104 border arcs; the rect control contributes 0.
+        assert content.count("AA") == 128
         # Nine label boundaries (7 unique labels, circle_trio packs 3) plus
         # one pen-up per drill hole: every contour is PU-led.
         assert content.count("PU") >= 9 + 6
@@ -5932,12 +5954,18 @@ class TestHoleAdjustForCutterDemoExample:
 
         Each hole emits four quarter-arcs sharing one centre, so the arcs are
         deduplicated by their (rounded) centre before measuring the radius.
+        Only the holes layer (``SP3``) is parsed: an arc-native border (the
+        ellipse/rounded-rect ``AA`` chains) rides ``SP2`` and its per-arc
+        centres are not holes.
         """
         from plt_optimizer.core.models import ArcSegment
         from plt_optimizer.core.parser import PLTParser
 
         content = rendered_labels[label_id].plt_content
-        doc = PLTParser().parse_string(content)
+        # Isolate the SP3 section (SP3;...; up to the next SP token).
+        match = re.search(r"SP3;(.*?)(?:SP\d+;|SP;|$)", content, re.DOTALL)
+        section = match.group(1) if match else ""
+        doc = PLTParser().parse_string(section)
         by_centre: dict[tuple[int, int], float] = {}
         for path in doc.stroke_paths:
             for segment in path.segments:

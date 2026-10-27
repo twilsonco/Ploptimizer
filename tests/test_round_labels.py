@@ -280,9 +280,7 @@ class TestUserMarginsTrustedOnRoundLabels:
         # A wide line: both labels compress, and the round label must
         # measure the SAME box as the rect twin -- no inscribed-rect inset.
         content = [_make_line("WIDE TEXT THAT IS LONG", height=0.6)]
-        base = _label(
-            "rect", width=4.0, height=2.0, margin=0.1, content=content
-        )
+        base = _label("rect", width=4.0, height=2.0, margin=0.1, content=content)
         base = replace(
             base,
             content=[replace(base.content[0], max_h_compress=0.9)],
@@ -303,9 +301,7 @@ class TestUserMarginsTrustedOnRoundLabels:
         from plt_optimizer.generate.label_renderer import _render_positioned_lines
 
         content = [_make_line("WIDE TEXT THAT IS LONG", height=0.6)]
-        base = _label(
-            "rect", width=4.0, height=2.0, margin=0.1, content=content
-        )
+        base = _label("rect", width=4.0, height=2.0, margin=0.1, content=content)
         base = replace(
             base,
             content=[replace(base.content[0], max_h_compress=0.9)],
@@ -403,14 +399,10 @@ class TestCutterCompensatedHoles:
     def test_rounded_rect_corner_hole_centre_is_untouched(self) -> None:
         """The superellipse-patch placement is centre-invariant too."""
         on = hole_circles_local(
-            self._label_with_holes(
-                adjust=True, locations=("bottom-right",), fraction=0.5
-            )
+            self._label_with_holes(adjust=True, locations=("bottom-right",), fraction=0.5)
         )[0]
         off = hole_circles_local(
-            self._label_with_holes(
-                adjust=False, locations=("bottom-right",), fraction=0.5
-            )
+            self._label_with_holes(adjust=False, locations=("bottom-right",), fraction=0.5)
         )[0]
         assert on[:2] == pytest.approx(off[:2])
         assert on[2] == pytest.approx(off[2] - self._CUTTER / 2.0)
@@ -448,3 +440,181 @@ class TestCutterCompensatedHoles:
         loose = self._label_with_holes(adjust=False, diameter=0.125, locations=("left",))
         assert detect_text_hole_collisions(tight, entries) == []
         assert len(detect_text_hole_collisions(loose, entries)) == 1
+
+
+def _parse_arcs(content: str):
+    """Parse emitted HPGL into core ArcSegments (device units)."""
+    from plt_optimizer.core.models import ArcSegment
+    from plt_optimizer.core.parser import PLTParser
+
+    doc = PLTParser().parse_string(f"IN;PA;SP2;{content};SP;")
+    return [
+        segment
+        for path in doc.stroke_paths
+        for segment in path.segments
+        if isinstance(segment, ArcSegment)
+    ]
+
+
+class TestEllipseBorderArcNative:
+    """``_render_boundary_hpgl`` engraves the ellipse with ``AA`` arc chains."""
+
+    def test_ellipse_emits_arc_chain(self) -> None:
+        """A 4x2 ellipse border: 40 arcs (10 per quadrant), PU-led per quadrant."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        content = _render_boundary_hpgl(_label("round", width=4.0, height=2.0))
+        assert content.count("AA") == 40
+        # One PU-led stroke per quadrant, each starting on an axis vertex.
+        assert content.count("PU") == 4
+
+    def test_circle_emits_four_exact_quarter_arcs(self) -> None:
+        """A circle needs no refit: four 90-degree arcs sharing one centre."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        content = _render_boundary_hpgl(_label("round", width=3.0, height=3.0))
+        assert content.count("AA") == 4
+        arcs = _parse_arcs(content)
+        assert len(arcs) == 4
+        centres = {(round(a.center.x), round(a.center.y)) for a in arcs}
+        assert len(centres) == 1  # one circle centre
+        for arc in arcs:
+            assert abs(abs(arc.sweep_angle)) == pytest.approx(90.0, abs=1e-6)
+            assert arc.radius == pytest.approx(1.5 * 1016.0, abs=2.0)
+
+    def test_arc_chain_stays_on_the_ellipse(self) -> None:
+        """Every fitted arc's swept points stay within the emission floor of the curve.
+
+        The deviation guarantee is 0.0002in against the TRUE ellipse; the
+        emitted (integer-unit) arcs quantize to ~2 plotter units, so the
+        check runs at 3e-3in -- the same floor the rendered-box pins use.
+        """
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        content = _render_boundary_hpgl(_label("round", width=4.0, height=2.0))
+        arcs = _parse_arcs(content)
+        assert arcs
+        cx, cy, semi_a, semi_b = 2.0 * 1016.0, 1.0 * 1016.0, 2.0 * 1016.0, 1.0 * 1016.0
+        tol = 3e-3 * 1016.0
+        worst = 0.0
+        for arc in arcs:
+            r = arc.radius
+            a0 = math.atan2(arc.start.y - arc.center.y, arc.start.x - arc.center.x)
+            sweep = math.radians(arc.sweep_angle)
+            for i in range(33):
+                a = a0 + sweep * i / 32.0
+                x = arc.center.x + r * math.cos(a)
+                y = arc.center.y + r * math.sin(a)
+                # Distance from the ellipse, approximated by the implicit
+                # function scaled by the local gradient (enough at this scale).
+                ex, ey = (x - cx) / semi_a, (y - cy) / semi_b
+                value = ex * ex + ey * ey
+                grad = math.hypot(2 * ex / semi_a, 2 * ey / semi_b)
+                dist = abs(value - 1.0) / grad if grad > 0.0 else math.inf
+                worst = max(worst, dist)
+        assert worst <= tol
+
+    def test_border_is_one_closed_contour_per_quadrant(self) -> None:
+        """Each quadrant chains tip-to-tail and the quadrants meet on the axes."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        content = _render_boundary_hpgl(_label("round", width=4.0, height=2.0))
+        arcs = _parse_arcs(content)
+        # Consecutive arcs chain (end == next start) within the quantization.
+        for a, b in zip(arcs[:-1], arcs[1:]):
+            if abs(b.start.x - a.end.x) > 2.0 and abs(b.start.y - a.end.y) > 2.0:
+                # Quadrant boundary: the next PU restarts on an axis vertex.
+                assert round(b.start.x) in (0, 2032, 4064)
+                assert round(b.start.y) in (0, 1016, 2032)
+
+    def test_bounds_reach_the_nominal_box(self) -> None:
+        """The PU-led axis vertices keep the contour's bounds on the box."""
+        from plt_optimizer.generate.label_renderer import (
+            _render_boundary_hpgl,
+            extract_bounds_from_plt,
+        )
+
+        content = _render_boundary_hpgl(_label("round", width=4.0, height=2.0))
+        x_min, y_min, x_max, y_max = extract_bounds_from_plt(content)
+        # The arc radius quantization floor: ~2 units (3e-3in) around nominal.
+        assert x_min == pytest.approx(0.0, abs=3e-3)
+        assert y_min == pytest.approx(0.0, abs=3e-3)
+        assert x_max == pytest.approx(4.0, abs=3e-3)
+        assert y_max == pytest.approx(2.0, abs=3e-3)
+
+    def test_emission_is_deterministic(self) -> None:
+        """Identical labels emit byte-identical borders (the product invariant)."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        label = _label("round", width=4.0, height=2.0)
+        assert _render_boundary_hpgl(label) == _render_boundary_hpgl(label)
+
+    def test_extreme_aspect_falls_back_to_the_polygon(self, caplog) -> None:
+        """A border the chain cap cannot resolve polygonizes and logs a warning."""
+        import logging
+
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.label_renderer"):
+            content = _render_boundary_hpgl(_label("round", width=20.0, height=1.0))
+        # The polygon fallback: a PU/PD contour with no AA commands.
+        assert "AA" not in content
+        assert content.startswith("PU")
+        assert "declined the arc refit" in caplog.text
+
+    def test_degenerate_label_emits_nothing(self) -> None:
+        """The degenerate-size guard precedes the arc path (parity with polygon)."""
+        from plt_optimizer.generate.label_renderer import _render_boundary_hpgl
+
+        assert _render_boundary_hpgl(_label("round", width=0.0, height=2.0)) == ""
+        assert _render_boundary_hpgl(_label("round", width=4.0, height=0.0)) == ""
+
+
+class TestRoundLabelToolpathArcNative:
+    """End-to-end: a round label's ENGRAVING toolpath uses arcs everywhere.
+
+    The TODO contract: polygonized boundaries are fine for margins/relief
+    (the analytic sampled paths), but the emitted toolpath -- border, text,
+    drill holes -- must be arc-native. A PLT-font (Dino) round label with
+    drill holes verifies all three layers of one ``render_label_to_plt``.
+    """
+
+    def _round_label(self, text: str, holes: Optional[list] = None):
+        """A round Dino label (PLT-extracted font: its glyphs are AA-native)."""
+        from plt_optimizer.generate.resolution import ResolvedTextLine
+
+        line = ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - 0.06,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            font="Dino",
+        )
+        return _label("round", width=4.0, height=2.0, holes=holes, content=[line])
+
+    def test_every_layer_carries_arcs(self) -> None:
+        """Border (SP2) + holes (SP3) + PLT-font text (SP1) all emit AA."""
+        import re
+
+        from plt_optimizer.generate.label_renderer import render_label_to_plt
+
+        label = self._round_label("OOCC88", [_hole("left"), _hole("right")])
+        content = render_label_to_plt(label).plt_content
+        parts = re.split(r"(SP\d+;)", content)
+        sections = {parts[i]: parts[i + 1] for i in range(1, len(parts) - 1, 2)}
+        # SP1: the Dino glyphs are natively PU/PD/AA (no transform needed).
+        assert sections.get("SP1;", "").count("AA") > 0
+        # SP2: the ellipse border is the 40-arc quadrant chain.
+        assert sections.get("SP2;", "").count("AA") == 40
+        # SP3: two drill holes, four quarter arcs each.
+        assert sections.get("SP3;", "").count("AA") == 8
+
+    def test_round_label_bounds_stay_on_the_nominal_box(self) -> None:
+        """The arc-native border keeps the rendered box on the label box."""
+        from plt_optimizer.generate.label_renderer import render_label_to_plt
+
+        rendered = render_label_to_plt(self._round_label("ELLIPSE"))
+        assert rendered.width == pytest.approx(4.0, abs=3e-3)
+        assert rendered.height == pytest.approx(2.0, abs=3e-3)
