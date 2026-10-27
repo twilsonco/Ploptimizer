@@ -12,6 +12,7 @@ from typing import Optional
 import pytest
 
 from plt_optimizer.generate.preview_colors import (
+    DEFAULT_MATERIAL_COLORS,
     DEFAULT_PREVIEW_BACKGROUND_COLOR,
     PREVIEW_COLOR_ABBREVIATIONS,
     PREVIEW_COLOR_NAMES,
@@ -206,6 +207,22 @@ class TestResolveTextColor:
     def test_pen_color_case_and_whitespace_tolerant(self) -> None:
         """Pen tags are trimmed and lower-cased before lookup."""
         assert resolve_text_color(" Red ", MaterialColors()) == "red"
+
+
+class TestDefaultMaterialColors:
+    """The wb proof default for material-agnostic jobs."""
+
+    def test_default_is_wb_stock(self) -> None:
+        """Unset material proofs as wb: white background, black core."""
+        assert DEFAULT_MATERIAL_COLORS == MaterialColors(background="white", text="black")
+
+    def test_default_background_gets_black_outline(self) -> None:
+        """The default white background takes the black contrast outline."""
+        assert outline_color_for(DEFAULT_MATERIAL_COLORS.background) == "black"
+
+    def test_default_resolves_black_text(self) -> None:
+        """No pen color on the default -> black core ink."""
+        assert resolve_text_color("none", DEFAULT_MATERIAL_COLORS) == "black"
 
 
 class TestPreviewBackgroundHelpers:

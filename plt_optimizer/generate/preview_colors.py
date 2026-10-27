@@ -14,7 +14,7 @@ free-form job-spec fields into that palette:
 - The per-pen stroke-color tag (the ``text_color`` field and inline
   ``<tc:color>`` markup, both of which the pen map already splits into
   separate layers) overrides the material-derived text color.
-- The structural layers (label borders, drill holes) take a simple
+- The structural layers (label borders, drill holes) share one simple
   automated contrast outline via :func:`outline_color_for`: black over a
   white background, white over everything else.
 
@@ -50,8 +50,11 @@ of which are valid matplotlib color names.
 Known limitation: the character form is a prefix match, so an unrelated
 material word made of color letters reads as layers (``gold`` -> green over
 orange). The delimiter/full-name forms and an explicit ``text_color`` are
-the escape hatch; an unset material always keeps the historical black ink on
-white.
+the escape hatch.
+
+An unset (or fully unrecognized) material proofs as ``wb`` stock -- the
+shop's default look, captured by :data:`DEFAULT_MATERIAL_COLORS` (white
+label background, black text, black outlines).
 
 This module is pure string handling (import-light, Python 3.8-safe, no
 matplotlib) so it can sit on the headless export path.
@@ -146,6 +149,11 @@ class MaterialColors:
     text: Optional[str] = None
 
 
+# The proof default for material-agnostic jobs: "wb" stock (white top layer
+# over a black core) -- white label backgrounds, black text, black outlines.
+DEFAULT_MATERIAL_COLORS = MaterialColors(background="white", text="black")
+
+
 def parse_material_colors(material: Optional[str]) -> MaterialColors:
     """Derive the preview background/text colors from a material name.
 
@@ -159,7 +167,8 @@ def parse_material_colors(material: Optional[str]) -> MaterialColors:
 
     Returns:
         The parsed colors; ``(None, None)`` when nothing is recognized, so
-        callers keep the historical black-on-white proof.
+        callers fall back to :data:`DEFAULT_MATERIAL_COLORS` (the wb proof:
+        white background, black text/outlines).
     """
     if not material:
         return MaterialColors()

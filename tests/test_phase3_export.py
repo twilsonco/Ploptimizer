@@ -7088,12 +7088,13 @@ class TestPreviewColors:
             # Per-file plots keep the default white page.
             assert plot["background_color"] is None
 
-    def test_material_less_job_keeps_black_ink(self, tmp_path: Path) -> None:
-        """Regression: unset material keeps black ink + black border outlines."""
+    def test_material_less_job_defaults_to_wb_proof(self, tmp_path: Path) -> None:
+        """Unset material proofs as wb stock: white bg, black ink, black outlines."""
         captured = self._capture(tmp_path, "tests_deps/test123_spec.yaml", "ml")
         all_plots = {n: v for n, v in captured.items() if n.startswith("all_")}
         assert all_plots
         for plot in all_plots.values():
-            assert plot["fills"] == []
-            # Unknown material background -> black border outline; text black.
+            # White label background (the wb top layer).
+            assert plot["fills"] == [("white", 1.0)]
+            # wb core text + black contrast outlines (borders and holes).
             assert {f for _w, _a, f in plot["layers"]} == {"black"}

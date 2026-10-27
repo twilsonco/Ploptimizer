@@ -1195,11 +1195,13 @@ def _write_simple_plots(
     ``text_color`` / ``<tc:>`` tag first, then the plate material's core
     color, then black -- white over dark material backgrounds), and the
     label boundary rectangles (SP2) fill with the material's background
-    color under the ink. The border outline contrasts with the material
-    background (black on white stock, white otherwise) and the drill holes
-    (SP3) punch the preview background color ("see-through") under an
-    opaque contrasting outline. Per-cutter ``_txt_``/``_bh_`` files are
-    never colored.
+    color under the ink. Plates whose material is unset (or carries no
+    recognized color) proof as ``wb`` stock: white label background, black
+    text. Borders (SP2) and drill holes (SP3) share the opaque contrast
+    outline (black over a white material background, white over every other
+    background); the holes punch the preview background color
+    ("see-through" discs). Per-cutter ``_txt_``/``_bh_`` files are never
+    colored.
 
     Fallbacks keep the historical thin-line
     :func:`~plt_optimizer.diagnostics.plotter.plot_plt_document`
@@ -1230,8 +1232,8 @@ def _write_simple_plots(
             proof previews (``job-config.json``
             ``preview_background_color``, default
             :data:`~plt_optimizer.generate.preview_colors.DEFAULT_PREVIEW_BACKGROUND_COLOR`).
-            Drill holes punch this same color and their outlines contrast
-            with it.
+            Drill holes punch this same color ("see-through" discs); their
+            outlines share the label border's contrast color.
 
     Returns:
         List of written PDF paths.
@@ -1246,6 +1248,7 @@ def _write_simple_plots(
     )
     from plt_optimizer.diagnostics.stroke_geometry import closed_path_polygons
     from plt_optimizer.generate.preview_colors import (
+        DEFAULT_MATERIAL_COLORS,
         outline_color_for,
         parse_material_colors,
         resolve_text_color,
@@ -1324,7 +1327,12 @@ def _write_simple_plots(
             if job_name
             else "PLT Toolpath Visualization"
         )
-        material_colors = parse_material_colors(result.material_by_plate.get(plate_no))
+        parsed_material = parse_material_colors(result.material_by_plate.get(plate_no))
+        # Material-agnostic (or unrecognized-name) plates proof as "wb"
+        # stock: white label background, black text, black outlines.
+        material_colors = (
+            parsed_material if parsed_material.background is not None else DEFAULT_MATERIAL_COLORS
+        )
         layers: list[PhysicalStrokeLayer] = []
         fills: list[PhysicalFillLayer] = []
         if pen_widths:
@@ -1336,11 +1344,10 @@ def _write_simple_plots(
                     continue
                 pen_document = parser.parse_string(pen_content)
                 pen_segments = _segments_of(pen_document)
-                # Borders (SP2): the translucent black underlay. Drill holes
-                # (SP3): an OPAQUE black outline over a white "see-through"
-                # disc (added to `fills` below) -- translucent ink vanishes
-                # over a dark material background, and the outline must also
-                # stay visible on white stock.
+                # Structural pens (borders SP2, drill holes SP3) render as
+                # OPAQUE contrast outlines sharing the label border's color;
+                # the holes additionally punch the preview background color
+                # (the "see-through" disc added to `fills` below).
                 is_boundary = pen_id == LAYER_BOUNDARY
                 is_hole = pen_id == LAYER_HOLES
                 structural = is_boundary or is_hole
@@ -1351,16 +1358,11 @@ def _write_simple_plots(
                         alpha=1.0,
                         label=f"pen {pen_id}",
                         facecolor=(
-                            (
-                                # Contrast outline for the label border: black
-                                # on white stock, white over every other
-                                # material background.
-                                outline_color_for(material_colors.background)
-                                if is_boundary
-                                # Hole outlines contrast with the punched
-                                # disc (the preview background color).
-                                else outline_color_for(preview_background)
-                            )
+                            # Contrast outline for the structural pens: the
+                            # label border AND its drill holes share it --
+                            # black on white stock, white over every other
+                            # material background.
+                            outline_color_for(material_colors.background)
                             if structural
                             else resolve_text_color(
                                 pen_colors.get(pen_id) if pen_colors else None,
@@ -1371,7 +1373,8 @@ def _write_simple_plots(
                 )
                 if is_boundary and material_colors.background is not None:
                     # The label boundary rectangles enclose the material
-                    # background: fill them under the ink for the proof look.
+                    # background (always set: the wb default fills in for
+                    # material-agnostic plates): fill them under the ink.
                     polygons = closed_path_polygons(pen_segments)
                     if polygons:
                         fills.append(

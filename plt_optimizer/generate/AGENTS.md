@@ -2013,8 +2013,9 @@ black ink on white.
   white/red/black) where only the background is certain. Material letters
   follow the shop convention **b = black** (not TextColor's b = blue);
   `k` is black too and `w` is white (blue is only reachable via the
-  full-name/delimiter forms). Unset/unrecognized -> `(None, None)` (the
-  historical black-on-white proof).
+  full-name/delimiter forms). Unset/unrecognized -> `(None, None)`, which
+  the export maps to `DEFAULT_MATERIAL_COLORS` (the wb proof: white label
+  background, black text, black outlines -- the shop default).
 - **Text color precedence** (`resolve_text_color`): the pen's stroke-color
   tag (the `text_color` field or an inline `<tc:color>` run -- the pen map
   already splits per `(cutter, color)`, so `export_per_cutter_plts` builds a
@@ -2023,10 +2024,11 @@ black ink on white.
   unresolved color over a DARK background (black/blue/red/green/magenta/
   violet) renders white so the proof stays legible.
 - **Contrast outlines** (`outline_color_for` / `is_white_color`): the label
-  border (SP2) and drill-hole (SP3) inks render OPAQUE in the contrasting
-  color -- black over a white background, white over everything else (the
-  simple automated rule; `#D3D3D3` grey is not white). Borders contrast
-  with the material background, holes with the page background.
+  border (SP2) and drill-hole (SP3) inks render OPAQUE in ONE shared
+  contrasting color -- black over a white material background, white over
+  every other background (the simple automated rule; `#D3D3D3` grey is not
+  white). Holes always match their label's border color (the disc they
+  punch is the page color, so the outline reads against the material).
 - **Background fills**: the label boundary rectangles (SP2) enclose the
   material; `_write_simple_plots` turns the parsed SP2 closed runs into
   enclosed-area polygons (`diagnostics.stroke_geometry.closed_path_polygons`
@@ -2042,7 +2044,7 @@ black ink on white.
   the hex/contrast helpers), `tests_deps/preview_color_job.yaml` +
   `TestPreviewColors` (`tests/test_phase3_export.py`: bw combined
   fill/ink/outline colors, configurable page background, wb black-border
-  contrast, per-file black-only, material-less black-on-white regression),
+  contrast, per-file black-only, material-less wb-default proof),
   `TestClosedPathPolygons` (`tests/test_stroke_geometry.py`),
   `TestPlotPhysicalStrokesColors` + `TestPlotPhysicalStrokesBackground`
   (`tests/test_plotter.py`), and the config-field tests
