@@ -37,6 +37,12 @@ Semantics:
   config file is absent simply has no configured default (the required
   rule above then applies; fields outside the required set keep their
   in-code fallbacks).
+- :func:`load_job_config` is the config's **full** gate: the
+  :class:`JobDefaults` model rejects unknown keys and out-of-range values,
+  canonicalizes ``font`` against the font registry, and validates every
+  ``tool_options`` metadata entry (see
+  :func:`validate_tool_options_metadata`) so a malformed shop config fails
+  at load with all problems listed, instead of crashing mid-export.
 
 Example:
     >>> from pathlib import Path
@@ -51,12 +57,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from plt_optimizer.generate.font_registry import normalize_font_name
 from plt_optimizer.generate.preview_colors import normalize_preview_background_color
 from plt_optimizer.generate.schema import (
     CounterStyle,
@@ -90,6 +98,159 @@ class JobConfigError(ValueError):
     Subclasses :class:`ValueError` so callers that already guard the
     pipeline with ``except ValueError`` keep working unchanged.
     """
+
+
+#: Valid ``tool_options`` entry ``type`` values (mirrors the dispatch in
+#: :func:`plt_optimizer.generate.tool_options.generate_tool_option_headers`).
+TOOL_OPTION_TYPES: tuple[str, ...] = ("bool", "int", "float")
+
+#: The two dual-default layer names a numeric/bool option may split between.
+TOOL_OPTION_DEFAULT_LAYERS: tuple[str, ...] = ("text", "borders_holes")
+
+#: Option keys are the job-spec ``tool_options`` lookup names, so they follow
+#: the same snake_case convention the spec uses for every other field.
+_TOOL_OPTION_KEY_RE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
+
+
+def _is_number(value: Any) -> bool:
+    """Return True for a real numeric value (``bool`` is excluded).
+
+    ``isinstance(True, int)`` is True in Python, which would let a boolean
+    masquerade as a numeric default/header value, so bools are rejected here.
+
+    Args:
+        value: The candidate value.
+
+    Returns:
+        True when ``value`` is an ``int`` or ``float`` and not a ``bool``.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_tool_option_entry(key: str, meta: Any) -> list[str]:
+    """Collect every problem with one ``tool_options`` metadata entry.
+
+    Args:
+        key: The option key being validated.
+        meta: The entry value from the config.
+
+    Returns:
+        Human-readable problems (empty when the entry is sound).
+    """
+    prefix = f"tool_options.{key}"
+    if not isinstance(meta, dict):
+        return [f"{prefix}: must be an object, got {type(meta).__name__}"]
+
+    problems: list[str] = []
+
+    command = meta.get("command")
+    if not isinstance(command, str) or not command.strip():
+        problems.append(
+            f"{prefix}.command: required non-empty string (the HPGL prefix); "
+            f"without it the emitted header has no command and the PLT is corrupt"
+        )
+    elif ";" in command:
+        problems.append(f"{prefix}.command: must not contain ';' (it ends the HPGL statement)")
+
+    param_type = meta.get("type")
+    if param_type not in TOOL_OPTION_TYPES:
+        problems.append(
+            f"{prefix}.type: must be one of {', '.join(TOOL_OPTION_TYPES)}, got "
+            f"{param_type!r}; an unknown type silently drops the option from the header"
+        )
+        return problems
+
+    default = meta.get("default")
+    if default is None:
+        problems.append(f"{prefix}.default: required (the value used when a spec omits the option)")
+    elif isinstance(default, dict):
+        # Dual default: one value per PLT type.
+        unexpected = sorted(set(default) - set(TOOL_OPTION_DEFAULT_LAYERS))
+        missing = sorted(set(TOOL_OPTION_DEFAULT_LAYERS) - set(default))
+        if unexpected:
+            problems.append(
+                f"{prefix}.default: unknown layer(s) {', '.join(unexpected)}; "
+                f"expected only {', '.join(TOOL_OPTION_DEFAULT_LAYERS)}"
+            )
+        if missing:
+            problems.append(
+                f"{prefix}.default: missing layer(s) {', '.join(missing)}; a dual "
+                f"default must cover {', '.join(TOOL_OPTION_DEFAULT_LAYERS)}"
+            )
+        for layer in TOOL_OPTION_DEFAULT_LAYERS:
+            value = default.get(layer)
+            if value is None:
+                continue
+            if param_type == "bool" and not isinstance(value, bool):
+                problems.append(f"{prefix}.default.{layer}: must be a boolean for type 'bool'")
+            elif param_type != "bool" and not _is_number(value):
+                problems.append(
+                    f"{prefix}.default.{layer}: must be a number for type '{param_type}'"
+                )
+    elif param_type == "bool":
+        if not isinstance(default, bool):
+            problems.append(f"{prefix}.default: must be a boolean for type 'bool'")
+    elif not _is_number(default):
+        problems.append(f"{prefix}.default: must be a number for type '{param_type}'")
+
+    if param_type == "bool":
+        # The header formatters ignore min/max for booleans; no bounds check.
+        return problems
+
+    bounds: dict[str, Any] = {}
+    for bound in ("min", "max"):
+        value = meta.get(bound)
+        bounds[bound] = value
+        if value is None:
+            problems.append(f"{prefix}.{bound}: required for type '{param_type}' (the clamp range)")
+        elif not _is_number(value):
+            problems.append(f"{prefix}.{bound}: must be a number for type '{param_type}'")
+
+    low, high = bounds["min"], bounds["max"]
+    if _is_number(low) and _is_number(high) and low > high:
+        problems.append(
+            f"{prefix}.min: {low} is greater than max {high}; every value would clamp to {low}"
+        )
+    return problems
+
+
+def validate_tool_options_metadata(value: Any) -> None:
+    """Validate a config ``tool_options`` metadata mapping.
+
+    :class:`JobDefaults.tool_options` is intentionally typed
+    ``dict[str, Any]`` (its keys are engraver option names, not schema
+    fields), which leaves the *values* unchecked. This is the semantic gate:
+    it rejects the shapes that crash export, emit a header with no command,
+    or silently drop a cutter option.
+
+    Args:
+        value: The configured mapping (any shape), or ``None`` (unset).
+
+    Raises:
+        ValueError: If the mapping is not an object, an option key is not
+            snake_case, or any entry fails
+            :func:`_validate_tool_option_entry`. Every problem found is
+            reported in one message.
+    """
+    if value is None:
+        return
+    if not isinstance(value, Mapping):
+        raise ValueError(f"Job config tool_options must be an object, got {type(value).__name__}")
+
+    problems: list[str] = []
+    for key in sorted(value, key=str):
+        label = key if isinstance(key, str) else repr(key)
+        if not isinstance(key, str) or not _TOOL_OPTION_KEY_RE.match(key):
+            problems.append(
+                f"tool_options.{label}: key must be a snake_case name "
+                f"(it is the job-spec tool_options lookup key)"
+            )
+            continue
+        problems.extend(_validate_tool_option_entry(key, value[key]))
+
+    if problems:
+        detail = "\n".join(f"  - {problem}" for problem in problems)
+        raise ValueError(f"Invalid job config tool_options ({len(problems)} problem(s)):\n{detail}")
 
 
 class JobDefaults(BaseModel):
@@ -245,8 +406,8 @@ class JobDefaults(BaseModel):
         description=(
             "Default font name (job layer): a PLT-extracted font key or a "
             "fonts/ TTF basename, case-insensitive. Canonicalized and "
-            "validated when the job spec is built; unset falls back to the "
-            "schema default font."
+            "validated at config load (an unknown name fails here, not in "
+            "the job spec); unset falls back to the schema default font."
         ),
     )
     character_spacing: Optional[float] = Field(
@@ -934,6 +1095,8 @@ class JobDefaults(BaseModel):
             "Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), "
             "'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual "
             "text/borders_holes dict), and for numeric types 'min'/'max' bounds. "
+            "Validated at config load: every problem in the file is reported in "
+            "one JobConfigError. "
             "Populated by the extract_headers.py script from PLT reference files."
         ),
     )
@@ -945,6 +1108,48 @@ class JobDefaults(BaseModel):
             "this same color). Unset falls back to '#D3D3D3' (light grey)."
         ),
     )
+
+    @field_validator("font")
+    @classmethod
+    def _canonicalize_font_name(cls, value: Optional[str]) -> Optional[str]:
+        """Canonicalize the default font against the font registry.
+
+        Applies the same rule the job-spec ``font`` fields use, so a typo in
+        the shop config fails at config load (attributed to the config file)
+        instead of surfacing later as a ``JobSpec`` validation error that
+        points at the job spec.
+
+        Args:
+            value: The configured font name, or ``None`` (unset).
+
+        Returns:
+            The canonical font name, or ``None`` when unset.
+
+        Raises:
+            ValueError: If the name matches no known PLT or TrueType font
+                (the message lists every valid name).
+        """
+        if value is None:
+            return None
+        return normalize_font_name(value)
+
+    @field_validator("tool_options", mode="before")
+    @classmethod
+    def _validate_tool_options(cls, value: Any) -> Any:
+        """Validate the engraver tool-options metadata.
+
+        Args:
+            value: The configured mapping (pre-coercion), or ``None`` (unset).
+
+        Returns:
+            The value unchanged, once validated.
+
+        Raises:
+            ValueError: If the metadata is malformed (see
+                :func:`validate_tool_options_metadata`).
+        """
+        validate_tool_options_metadata(value)
+        return value
 
     @field_validator("preview_background_color")
     @classmethod

@@ -119,7 +119,7 @@
         }
       ],
       "default": null,
-      "description": "Default font name (job layer): a PLT-extracted font key or a fonts/ TTF basename, case-insensitive. Canonicalized and validated when the job spec is built; unset falls back to the schema default font.",
+      "description": "Default font name (job layer): a PLT-extracted font key or a fonts/ TTF basename, case-insensitive. Canonicalized and validated at config load (an unknown name fails here, not in the job spec); unset falls back to the schema default font.",
       "title": "Font"
     },
     "character_spacing": {
@@ -1136,7 +1136,7 @@
         }
       ],
       "default": null,
-      "description": "Optional engraver tool options (header commands) metadata. Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), 'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual text/borders_holes dict), and for numeric types 'min'/'max' bounds. Populated by the extract_headers.py script from PLT reference files.",
+      "description": "Optional engraver tool options (header commands) metadata. Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), 'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual text/borders_holes dict), and for numeric types 'min'/'max' bounds. Validated at config load: every problem in the file is reported in one JobConfigError. Populated by the extract_headers.py script from PLT reference files.",
       "title": "Tool Options"
     },
     "preview_background_color": {

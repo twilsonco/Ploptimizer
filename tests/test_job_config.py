@@ -295,9 +295,14 @@ class TestJobDefaultsModel:
         assert defaults.layout.value == "rows"
 
     def test_font_field_optional(self) -> None:
-        """font defaults to None and accepts a free-form name."""
+        """font defaults to None; a known name is canonicalized against the registry."""
         assert JobDefaults().font is None
-        assert JobDefaults(font="dino").font == "dino"
+        assert JobDefaults(font="dino").font == "Dino"
+
+    def test_font_unknown_name_rejected_at_load(self) -> None:
+        """An unknown config font fails at config load, not at spec parse."""
+        with pytest.raises(ValidationError, match="Unknown font 'NotARealFont'"):
+            JobDefaults(font="NotARealFont")
 
     def test_font_not_required_when_unconfigured(self) -> None:
         """font has a schema-level fallback, so it is never required."""
@@ -943,12 +948,12 @@ class TestApplyJobConfigDefaults:
         assert filled["holes"] == []
 
     def test_config_font_injected_at_job_layer(self, tmp_path: Path) -> None:
-        """A configured font lands as a job-level value."""
+        """A configured font lands as a job-level value (canonicalized at load)."""
         config_data = dict(_FULL_CONFIG)
         config_data["font"] = "dino"
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(), config)
-        assert filled["font"] == "dino"
+        assert filled["font"] == "Dino"
 
     def test_yaml_font_wins_over_config(self, tmp_path: Path) -> None:
         """A spec-declared font is never overridden by the config."""
@@ -964,7 +969,7 @@ class TestApplyJobConfigDefaults:
         config_data["font"] = "dino"
         config = load_job_config(_write_config(tmp_path, config_data))
         filled = apply_job_config_defaults(_minimal_job(font=None), config)
-        assert filled["font"] == "dino"
+        assert filled["font"] == "Dino"
 
     def test_config_font_canonicalizes_through_parse(self, tmp_path: Path) -> None:
         """A config font passes through JobSpec validation (canonical form)."""
@@ -990,29 +995,18 @@ class TestApplyJobConfigDefaults:
         job = parse_yaml(spec_path, job_config_path=config_path)
         assert job.font == "Dino"
 
-    def test_config_unknown_font_fails_parse(self, tmp_path: Path) -> None:
-        """An unknown config font fails at JobSpec validation (strict)."""
+    def test_config_unknown_font_fails_config_load(self, tmp_path: Path) -> None:
+        """An unknown config font fails at config load (attributed to the config).
+
+        The gate moved earlier: the shop config is rejected by
+        ``load_job_config`` before any spec is parsed, so the error names the
+        config file instead of surfacing as a ``JobSpec`` field error.
+        """
         config_data = dict(_FULL_CONFIG)
         config_data["font"] = "NotARealFont"
         config_path = _write_config(tmp_path, config_data)
-        spec_path = tmp_path / "spec.yaml"
-        spec_path.write_text(
-            "job:\n"
-            "  job_name: Bad Config Font\n"
-            "  plates:\n"
-            "    - id: p1\n"
-            "      width: 24.0\n"
-            "      height: 12.0\n"
-            "  labels:\n"
-            "    - id: l1\n"
-            "      width: 2.0\n"
-            "      height: 1.0\n"
-            "      content:\n"
-            "        - text: Hi\n",
-            encoding="utf-8",
-        )
-        with pytest.raises(ValidationError):
-            parse_yaml(spec_path, job_config_path=config_path)
+        with pytest.raises(JobConfigError, match="Unknown font 'NotARealFont'"):
+            load_job_config(config_path)
 
 
 class TestAssertRequiredFields:
@@ -1539,3 +1533,300 @@ class TestListDefaults:
         filled = apply_job_config_defaults(job_data, config)
         with pytest.raises(ValidationError, match="newline"):
             JobSpec(**filled)
+
+
+#: A single sound numeric option, used as the baseline for the mutation tests.
+_GOOD_FLOAT_OPTION: dict[str, Any] = {
+    "command": "VS",
+    "type": "float",
+    "units": "in/sec",
+    "default": {"text": 1.5, "borders_holes": 0.8},
+    "min": 0.05,
+    "max": 3.0,
+}
+
+
+def _tool_options_config(entry: Any, key: str = "cutting_velocity") -> dict[str, Any]:
+    """Build a config carrying one ``tool_options`` entry.
+
+    Args:
+        entry: The metadata value under test.
+        key: The option key.
+
+    Returns:
+        A config mapping with only ``tool_options`` set.
+    """
+    return {"tool_options": {key: entry}}
+
+
+class TestToolOptionsMetadataValidation:
+    """The config ``tool_options`` gate (dict[str, Any] needs semantic checks).
+
+    Every case below is a shape that used to load cleanly and then fail deep
+    in export, emit a corrupt HPGL header, or silently drop a cutter option.
+    """
+
+    def test_unset_allows(self) -> None:
+        """``None`` (missing/null) keeps the historical no-options contract."""
+        assert JobDefaults().tool_options is None
+        assert JobDefaults(tool_options=None).tool_options is None
+
+    def test_shop_config_loads_clean(self) -> None:
+        """The real hand-tuned shop config passes the gate (not too strict)."""
+        config = load_job_config(Path(__file__).resolve().parents[1] / "job-config.json")
+        assert config is not None
+        metadata = config.defaults.tool_options
+        assert metadata, "shop config is expected to define tool options"
+        assert "cutting_velocity" in metadata
+
+    def test_sound_entry_loads_unchanged(self, tmp_path: Path) -> None:
+        """A valid entry round-trips byte-for-byte (no coercion)."""
+        config = load_job_config(_write_config(tmp_path, _tool_options_config(_GOOD_FLOAT_OPTION)))
+        assert config is not None
+        assert config.defaults.tool_options == {"cutting_velocity": _GOOD_FLOAT_OPTION}
+
+    def test_empty_mapping_allowed(self, tmp_path: Path) -> None:
+        """``tool_options: {}`` is a legitimate "no options" config."""
+        config = load_job_config(_write_config(tmp_path, {"tool_options": {}}))
+        assert config is not None
+        assert config.defaults.tool_options == {}
+
+    def test_non_object_mapping_rejected(self, tmp_path: Path) -> None:
+        """The mapping itself must be an object."""
+        path = _write_config(tmp_path, {"tool_options": [1, 2]})
+        with pytest.raises(JobConfigError, match="must be an object"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("entry", [42, "VS1.5;", None, True, [1], 3.5])
+    def test_entry_must_be_object(self, tmp_path: Path, entry: Any) -> None:
+        """A non-object entry is the crash-deep-in-export shape (AttributeError)."""
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match="must be an object, got"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("command", [None, "", "   ", 5, ["VS"]])
+    def test_command_required_string(self, tmp_path: Path, command: Any) -> None:
+        """A missing command emits a header with no command (corrupt PLT)."""
+        entry = dict(_GOOD_FLOAT_OPTION)
+        if command is None:
+            entry.pop("command")
+        else:
+            entry["command"] = command
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match=r"\.command: required non-empty string"):
+            load_job_config(path)
+
+    def test_command_must_not_contain_semicolon(self, tmp_path: Path) -> None:
+        """A ';' in the command would terminate the HPGL statement early."""
+        entry = dict(_GOOD_FLOAT_OPTION, command="VS;ZO123,")
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match="must not contain ';'"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("param_type", [None, "string", "String", "double", "", 7])
+    def test_type_must_be_known(self, tmp_path: Path, param_type: Any) -> None:
+        """An unknown type silently drops the option from the header."""
+        entry = dict(_GOOD_FLOAT_OPTION)
+        if param_type is None:
+            entry.pop("type")
+        else:
+            entry["type"] = param_type
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match=r"\.type: must be one of bool, int, float"):
+            load_job_config(path)
+
+    def test_default_required(self, tmp_path: Path) -> None:
+        """Without a default the option is inert for every job."""
+        entry = dict(_GOOD_FLOAT_OPTION)
+        entry.pop("default")
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match=r"\.default: required"):
+            load_job_config(path)
+
+    def test_dual_default_must_cover_both_layers(self, tmp_path: Path) -> None:
+        """A dual default missing a layer leaves that PLT type with no header."""
+        entry = dict(_GOOD_FLOAT_OPTION, default={"text": 1.5})
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match="missing layer\\(s\\) borders_holes"):
+            load_job_config(path)
+
+    def test_dual_default_rejects_unknown_layer(self, tmp_path: Path) -> None:
+        """A typo'd layer name is an unusable default (silently None)."""
+        entry = dict(_GOOD_FLOAT_OPTION, default={"text": 1.5, "border_hole": 0.8})
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match="unknown layer\\(s\\) border_hole"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("value", ["fast", True, [1.5], None])
+    def test_numeric_dual_default_type(self, tmp_path: Path, value: Any) -> None:
+        """A numeric option's per-layer default must be numeric."""
+        entry = dict(_GOOD_FLOAT_OPTION, default={"text": value, "borders_holes": 0.8})
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        if value is None:
+            # An explicit null layer means "omit this header" (documented).
+            config = load_job_config(path)
+            assert config is not None
+            return
+        with pytest.raises(JobConfigError, match=r"\.default\.text: must be a number"):
+            load_job_config(path)
+
+    def test_legacy_scalar_default_allowed(self, tmp_path: Path) -> None:
+        """A scalar default stays legal (backwards-compatible single default)."""
+        entry = dict(_GOOD_FLOAT_OPTION, default=1.5)
+        config = load_job_config(_write_config(tmp_path, _tool_options_config(entry)))
+        assert config is not None
+        assert config.defaults.tool_options == {"cutting_velocity": entry}
+
+    def test_legacy_scalar_default_must_be_numeric(self, tmp_path: Path) -> None:
+        """A scalar default for a numeric option must be a number."""
+        entry = dict(_GOOD_FLOAT_OPTION, default="fast")
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match=r"\.default: must be a number"):
+            load_job_config(path)
+
+    def test_legacy_scalar_bool_default(self, tmp_path: Path) -> None:
+        """A scalar boolean default is legal for a bool option; a number is not."""
+        good = {"command": "ZO123,", "type": "bool", "default": True}
+        assert load_job_config(_write_config(tmp_path, _tool_options_config(good, "spindle")))
+        bad = {"command": "ZO123,", "type": "bool", "default": 1}
+        path = _write_config(tmp_path, _tool_options_config(bad, "spindle"))
+        with pytest.raises(JobConfigError, match=r"\.default: must be a boolean"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("value", ["on", 1, [True]])
+    def test_bool_default_must_be_boolean(self, tmp_path: Path, value: Any) -> None:
+        """A bool option's default must be a real boolean (1 is not True here)."""
+        entry = {
+            "command": "ZO123,",
+            "type": "bool",
+            "default": {"text": value, "borders_holes": True},
+        }
+        path = _write_config(tmp_path, _tool_options_config(entry, key="spindle"))
+        with pytest.raises(JobConfigError, match=r"\.default\.text: must be a boolean"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("bound", ["min", "max"])
+    def test_numeric_bounds_required(self, tmp_path: Path, bound: str) -> None:
+        """A numeric option without its clamp range has undefined bounds."""
+        entry = dict(_GOOD_FLOAT_OPTION)
+        entry.pop(bound)
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match=rf"\.{bound}: required for type 'float'"):
+            load_job_config(path)
+
+    @pytest.mark.parametrize("bound", ["min", "max"])
+    def test_numeric_bounds_must_be_numbers(self, tmp_path: Path, bound: str) -> None:
+        """Non-numeric bounds would raise inside the clamp comparison."""
+        entry = dict(_GOOD_FLOAT_OPTION, **{bound: "0.05"})
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match=rf"\.{bound}: must be a number"):
+            load_job_config(path)
+
+    def test_min_must_not_exceed_max(self, tmp_path: Path) -> None:
+        """An inverted range clamps every value to min (nonsense output)."""
+        entry = dict(_GOOD_FLOAT_OPTION, min=5.0, max=1.0)
+        path = _write_config(tmp_path, _tool_options_config(entry))
+        with pytest.raises(JobConfigError, match="is greater than max"):
+            load_job_config(path)
+
+    def test_min_equal_max_allowed(self, tmp_path: Path) -> None:
+        """A degenerate range is a legitimate "fixed value" option."""
+        entry = dict(_GOOD_FLOAT_OPTION, min=2.0, max=2.0)
+        config = load_job_config(_write_config(tmp_path, _tool_options_config(entry)))
+        assert config is not None
+
+    def test_bool_options_need_no_bounds(self, tmp_path: Path) -> None:
+        """The formatters ignore min/max for bools, so they stay optional."""
+        entry = {
+            "command": "ZO104,",
+            "type": "bool",
+            "default": {"text": True, "borders_holes": True},
+        }
+        config = load_job_config(_write_config(tmp_path, _tool_options_config(entry)))
+        assert config is not None
+
+    @pytest.mark.parametrize(
+        "key",
+        ["Cutting Velocity", "cuttingVelocity", "cutting-velocity", "_x", "1x", "x_", "VS"],
+    )
+    def test_option_key_must_be_snake_case(self, tmp_path: Path, key: str) -> None:
+        """Keys are the job-spec tool_options lookup names, so they must match."""
+        path = _write_config(tmp_path, _tool_options_config(_GOOD_FLOAT_OPTION, key=key))
+        with pytest.raises(JobConfigError, match="key must be a snake_case name"):
+            load_job_config(path)
+
+    def test_single_snake_word_key_allowed(self, tmp_path: Path) -> None:
+        """A one-word snake_case key is valid (the regex is not underscore-forced)."""
+        entry = {"command": "ZO104,", "type": "bool", "default": True}
+        config = load_job_config(_write_config(tmp_path, _tool_options_config(entry, key="vacuum")))
+        assert config is not None
+
+    def test_all_problems_reported_at_once(self, tmp_path: Path) -> None:
+        """The gate aggregates: one load reports every problem in the config."""
+        bad_min = dict(_GOOD_FLOAT_OPTION, min=9.0, max=1.0)
+        bad_min.pop("command")
+        config_data = {
+            "tool_options": {
+                "cutting_velocity": bad_min,
+                "dwell_time": {"type": "string", "default": "50"},
+                "not_an_object": 42,
+                "BadKey": dict(_GOOD_FLOAT_OPTION),
+            }
+        }
+        path = _write_config(tmp_path, config_data)
+        with pytest.raises(JobConfigError) as excinfo:
+            load_job_config(path)
+        message = str(excinfo.value)
+        # BadKey: key; cutting_velocity: missing command + inverted range;
+        # dwell_time: missing command + bad type (short-circuits defaults);
+        # not_an_object: not an object.
+        assert "6 problem(s)" in message
+        for fragment in (
+            "tool_options.BadKey: key must be a snake_case name",
+            "tool_options.cutting_velocity.command: required non-empty string",
+            "tool_options.cutting_velocity.min: 9.0 is greater than max 1.0",
+            "tool_options.dwell_time.type: must be one of bool, int, float",
+            "tool_options.not_an_object: must be an object, got int",
+        ):
+            assert fragment in message, fragment
+
+    def test_problems_sorted_by_key(self, tmp_path: Path) -> None:
+        """Report order is deterministic (stable for scripts and tests)."""
+        config_data = {
+            "tool_options": {
+                "z_option": 1,
+                "a_option": 2,
+                "m_option": 3,
+            }
+        }
+        path = _write_config(tmp_path, config_data)
+        with pytest.raises(JobConfigError) as excinfo:
+            load_job_config(path)
+        message = str(excinfo.value)
+        assert message.index("a_option") < message.index("m_option") < message.index("z_option")
+
+    def test_validator_rejects_direct_construction(self) -> None:
+        """The gate lives on the model, so direct construction is covered too."""
+        with pytest.raises(ValidationError, match="must be an object, got int"):
+            JobDefaults(tool_options={"cutting_velocity": 42})
+
+
+class TestToolOptionsGateRuntimeEffect:
+    """The validated metadata is what makes the header generator total."""
+
+    def test_validated_entry_generates_header(self, tmp_path: Path) -> None:
+        """A config that passes the gate produces the expected HPGL header."""
+        from types import SimpleNamespace
+
+        from plt_optimizer.generate.tool_options import generate_tool_option_headers
+
+        config = load_job_config(_write_config(tmp_path, _tool_options_config(_GOOD_FLOAT_OPTION)))
+        assert config is not None
+        headers = generate_tool_option_headers(SimpleNamespace(tool_options=None), config, "text")
+        assert headers == ["VS1.50;"]
+
+    def test_malformed_entry_never_reaches_generator(self, tmp_path: Path) -> None:
+        """The crash shape is unreachable: config load rejects it first."""
+        path = _write_config(tmp_path, _tool_options_config(42))
+        with pytest.raises(JobConfigError):
+            load_job_config(path)
