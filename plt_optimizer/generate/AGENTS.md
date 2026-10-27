@@ -617,6 +617,42 @@ contract).
   is deliberately NOT asserted — EngraveLab re-tessellates the whole outline, so
   the files compare **as curves**.
 
+- **Arc-native label borders** (`label_renderer._render_boundary_hpgl`, always
+  on): the ellipse (`type: round` / the fully-rounded limit) and the
+  rounded-rectangle contour emit as `AA` chains built from the same fitter —
+  the ellipse as four PU-led quadrant strokes (`_ellipse_boundary_strokes`),
+  the rounded rect as one closed stroke of four straight edges + four
+  `fit_superellipse_arc` patches. The superellipse needs the **trim-to-line**
+  treatment (`fit_superellipse_arc`): for `n > 2` the patch's axis vertices
+  have zero curvature (the G2 property), so a full-quadrant fit's `k` estimate
+  diverges and the normal construction degenerates; the near-flat parameter
+  spans at each vertex (bisected so each cap's chord deviation stays within
+  tol) emit as short line segments, and only the inner span refits with the
+  circular chain. The whole contour (caps + chain) is verified at 400 samples
+  (`_contour_deviation`) — the 32-sample verifier under-reads the
+  vertex-weighted superellipse by up to ~15% — with one half-tolerance retry
+  before declining. Border chains use `BORDER_ARC_FIT_MAX_ARCS` = 32 per
+  quadrant/patch (the glyph cap 12 is too small: a border quadrant sweeps 90
+  degrees of a label-size ellipse). Measured at 0.0002in: ellipse 4x2 = 40
+  arcs (was ~316 polygon vertices), circle = 4 exact quarter arcs, squircle
+  4x2 f=0.5 = 52 arcs (was ~520 vertices), stadium 8x4 = 108. A declined fit
+  (extreme aspect) falls back to the polygonized contour with a logged
+  WARNING (never silent). The sharp rectangle stays the four-corner polyline
+  bit-identically; `_render_boundary_local` and every margin/relief/inset
+  path (`_border_box`, `_lower_ellipse_arc`, `_lower_rounded_rect_border`,
+  `rounded_rect_content_inset`) stay polygonized by contract — polygonized
+  boundaries are fine for margins, the ENGRAVING toolpath is arc-native.
+  Bounds: each quadrant/patch starts on an axis vertex, so the PU coordinates
+  keep the contour on the nominal box; an emitted `AA` carries no radius (the
+  plotter derives it from the integer pen/centre pair), so the measured swept
+  box lands within ~2 plotter units (0.002in) of nominal — the emission floor
+  documented in `arc_fit.py`, pinned at `abs=3e-3` by the demo-fixture bounds
+  tests. Emission requires the `_collect_hpgl_geometry` **pen-advance** fix
+  (an `AA` advances the tracked pen to its derived end, matching the core
+  parser): without it, a chained `PD;AA` run measures every later arc's radius
+  from the chain start and over-measures a 40-arc ellipse border by ~0.4in,
+  breaking the nominal-box contract.
+
 - **Out of scope**: TTF arc fitting (TTF blocks are all `LineSeg`, unaffected);
   the font library itself (glyphs stay as extracted);
   `Affine._require_similarity` in `fonts/glyph_transforms.py` (an

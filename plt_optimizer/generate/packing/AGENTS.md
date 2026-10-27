@@ -371,10 +371,22 @@ boundary, and the rectangular path imports nothing new.
   sheets). The inter-label kerf is the group's widest boundary/hole cutter
   (`_round_clearance`) — two engraved borders never touch.
 - **`label_renderer.py`**: `label_is_round` is the single shape predicate.
-  `_render_boundary_local` emits the ellipse (closed polygon, sampled at
-  `ARC_FLATTEN_CHORD_TOL_INCHES` with an EVEN vertex count so the four axis
-  vertices are hit exactly and the rendered bounds equal the nominal box —
-  the packer and plate transforms depend on that) instead of `vp.rect`.
+  The engraved border is **arc-native**: `_render_boundary_hpgl` emits the
+  ellipse as four PU-led quadrant strokes, each refit with the tangent-
+  continuous circular `AA` chain of
+  [`arc_fit.fit_ellipse_arc`](../arc_fit.py) at `ARC_FIT_DEV_TOL_INCHES`
+  (a 4x2in label: 40 arcs; a circle: 4 exact quarter arcs; the border cap is
+  `BORDER_ARC_FIT_MAX_ARCS` = 32/quadrant, larger than the glyph cap because
+  a border quadrant sweeps 90 degrees of a label-size ellipse). Every
+  quadrant starts on an axis vertex, so the PU coordinates keep the contour's
+  swept bounds on the nominal box (the packer and plate transforms depend on
+  that; the emitted `AA` radius is integer-unit quantized, so the measured
+  box lands within ~2 plotter units — the emission floor documented in
+  `arc_fit.py`). An extreme aspect ratio the cap cannot resolve falls back to
+  the polygonized contour with a logged WARNING (never silent).
+  `_render_boundary_local` stays the flattened polygon view (closed polygon
+  sampled at `ARC_FLATTEN_CHORD_TOL_INCHES` with an EVEN vertex count so the
+  four axis vertices are hit exactly) for vpype-era consumers/tests.
   `hole_circles_local` places `sides`/`top`/`bottom` holes on the axis
   vertices (the inset is exact on an axis) and the four corner holes on the
   45° diagonal inset along the outward normal (`round_corner_hole`) — the
@@ -440,7 +452,8 @@ proportional `true` = the fraction applies to each dimension
 This is a **border change, never a packing change**: rounded labels keep
 `shape_type: rect` and pack through rectpack in their nominal box — each patch
 is tangent to the box at its axis vertices, so the rendered bounds equal the
-nominal box exactly (the packer and plate transforms are untouched, and
+nominal box (within the ~2-plotter-unit `AA` radius-quantization floor; the
+packer and plate transforms are untouched, and
 `packing/ellipse_packer.py` / `packing/layout.py` see nothing new).
 
 - **The behavior matrix** (`resolution.rounded_rect_corner_params`,
@@ -465,8 +478,17 @@ nominal box exactly (the packer and plate transforms are untouched, and
   does not apply), endpoints exact. `_rounded_rect_boundary_polygon`
   concatenates the four patches CCW (consecutive patches share exactly one
   junction point, so the straight edges are the implied chords) and closes
-  the loop; `_render_boundary_hpgl` / `_render_boundary_local` branch on it
-  like the ellipse (one continuous PU-led polyline, no vpype fragmentation).
+  the loop. The engraved border is **arc-native**: `_render_boundary_hpgl`
+  emits the same CCW contour as one closed PU-led stroke — four straight
+  edges (merged `PD` runs) joined by four `arc_fit.fit_superellipse_arc`
+  chains (trim-to-line: the near-flat parameter spans at each axis vertex
+  emit as short chords that merge into the straights; the inner span refits
+  with tangent-continuous circular `AA` arcs at `ARC_FIT_DEV_TOL_INCHES`,
+  cap `BORDER_ARC_FIT_MAX_ARCS`/patch; a 4x2 squircle: 52 arcs) — while
+  `_render_boundary_local` keeps the flattened polygon view. Patch endpoints
+  are the exact axis vertices, so the contour's bounds stay on the nominal
+  box (within the ~2-unit `AA` radius-quantization floor); a patch the cap
+  cannot resolve falls back to the polygon with a logged WARNING.
   `_lower_rounded_rect_border` is the descender relief's bottom border (the
   `_lower_ellipse_arc` counterpart: bottom edge + the two lower patches, so a
   descender near a corner measures the rising curve). Corner drill holes ride
@@ -499,7 +521,8 @@ nominal box exactly (the packer and plate transforms are untouched, and
   patches, and a squircle carrying text. Unit tests: `tests/test_rounded_rect.py`
   (corner params, contour bounds/closure, **numeric curvature continuity**
   across junctions, the exact ellipse/circle limits, inset monotonicity, hole
-  placement, the relief border, the routing predicates),
+  placement, the relief border, the routing predicates, and the arc-native
+  border emission `TestRoundedRectBorderArcNative`),
   `TestRoundedRectangleField` (`tests/test_schema.py`),
   `TestRoundedRectangleResolution` (`tests/test_resolution.py`), and the
   `rounded_rectangle_*` job-config key tests (`tests/test_job_config.py`).
