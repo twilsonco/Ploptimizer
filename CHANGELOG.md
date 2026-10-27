@@ -4,6 +4,46 @@
 
 ### Features
 
+* **watch/optimize/generate:** output filenames are now **character-sanitized**, not
+  only length-capped. `core/filenames.py` gains `sanitize_filename_component(text,
+  fallback)`: Unicode NFKD transliteration drops international characters
+  (`Café` -> `Cafe`, `Ñoño` -> `Nono`; scripts with no ASCII form fall back to the
+  marker), every run of punctuation collapses to a single underscore (underscores
+  excepted), leading/trailing separators are stripped, and Windows reserved device
+  names are de-reserved (`con` -> `con_`). Every generated name component now goes
+  through it:
+  - **watch** (the main gap): output names were the raw input stem, so
+    `Café (2x4) sign.plt` produced `Café (2x4) sign_optimized.plt` (spaces, parens,
+    accents) for the plotter folder; it is now `Cafe_2x4_sign_optimized.plt`, the
+    `_unprocessed.plt` fallback matches, and the debug-artifact job id uses the same
+    rule (previously an ad-hoc `:`/`-` replace). The sanitization is logged at INFO
+    when it changes a name. The `--processed-dir` archive keeps the original name.
+  - **optimize**: the default output name is sanitized **and** the 39-character
+    controller cap is finally applied on this path (it was missing; an explicit
+    `-o/--output` stays verbatim).
+  - **generate**: `_sanitize_job_id` delegates to the shared sanitizer, so dots and
+    dashes become underscores (`2026-10-06 seer wb-uv` -> `2026_10_06_seer_wb_uv`)
+    and accented job names survive (`Café` was truncated to `Caf`); the material tag
+    follows (`wb(uv)` -> `wb_uv`, `3-layer black` -> `3_layer_black`).
+  - `ensure_plot_filename_length` hardened: a stem truncated exactly onto a Windows
+    device name is de-reserved in place (no extra characters), and an extension that
+    fills the budget is reported instead of producing an empty stem.
+  - **Naming changes** (intended): existing output names with dots/dashes are
+    re-spelled with underscores. `_parse_plt_stem` re-anchors so underscore-bearing
+    material tags round-trip.
+  - **Pins**: `tests/test_filenames.py` (transliteration, punctuation runs,
+    underscore merging/trimming, fallbacks, reserved names, the truncation guards),
+    `test_sanitize_job_id`, `test_generate_sanitizes_and_caps_output_names`,
+    `TestAtomicOutputWrites::test_process_file_sanitizes_output_name` /
+    `..._unprocessed_fallback_name`,
+    `test_debug_save_files_sanitizes_job_id_in_names`,
+    `test_default_output_name_is_sanitized` / `..._is_capped`, and
+    `test_material_tag_sanitizes`; naming contracts updated in
+    `core`/`cli`/`generate`/`packing` AGENTS.md, README, INTEGRATION_TESTING,
+    README_DEV.
+
+### Features
+
 * **generate:** label borders are now **arc-native** - the ellipse (`type: round` and the fully-rounded `rounded_rectangle_fraction: 1.0` limit) and the rounded-rectangle contour engrave as circular `AA` arc chains instead of ~300-520-vertex chord polygons, completing the arc-preservation story for the whole emitted toolpath (text and drill holes were already `AA`-native)
   - **The fitter** (`arc_fit.py`): the border reuses the glyph refit machinery - `fit_ellipse_arc` now consumes a curve `Protocol` (`FittableArc`), and a new `SuperellipseArc` (the exact `|X/rx|^n + |Y/ry|^n = 1` corner patch, with the axis-vertex tangent limits and the interior-only curvature sampling the `n > 2` zero-curvature G2 junctions require) fits through it. A full-quadrant superellipse fit is degenerate (the `k` estimate divides by the vertex curvature radius, which is infinite; the normal construction collapses where the normal is the box edge), so `fit_superellipse_arc` **trims to lines**: the near-flat parameter spans at each axis vertex - bisected so each cap's chord deviation stays within tolerance - emit as short chords that merge into the border's straight edges, and only the inner span refits with the tangent-continuous chain. The whole contour (caps + chain) is verified at 400 samples (the 32-sample verifier under-reads the vertex-weighted superellipse by up to ~15%) with one half-tolerance retry before declining
   - **Emission** (`label_renderer._render_boundary_hpgl`, always on - no cascade flag): the ellipse emits as four PU-led quadrant strokes (every axis vertex is an explicit integer coordinate, so the contour's swept bounds stay on the nominal box the packer and plate transforms depend on); the rounded rect emits as one closed stroke - four straight edges (merged `PD` runs) joined by four trimmed corner chains. A declined fit (an extreme aspect ratio past the cap) falls back to the polygonized contour with a logged WARNING (never silent, the glyph-refit contract). The sharp rectangle stays the four-corner polyline **bit-identically**; `_render_boundary_local` and every margin/relief/inset path (`_border_box`, `_lower_ellipse_arc`, `_lower_rounded_rect_border`, the content insets) stay polygonized by contract - polygonized boundaries are fine for margins, the ENGRAVING toolpath is arcs

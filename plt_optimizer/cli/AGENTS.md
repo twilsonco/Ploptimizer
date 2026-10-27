@@ -14,8 +14,9 @@ subcommands (`plt_optimizer/cli/optimize.py`, `generate.py`, `watch.py`).
 
 ### `optimize <input.plt>`
 Single-file parse → profile (text vs. structural) → chunk → optimize →
-reassemble → write. Flags: `-o/--output` (default `<stem>_optimized.plt`
-beside the input), `--fast-mode` (NearestNeighbor2Opt only; default is
+reassemble → write. Flags: `-o/--output` (default `<sanitized-stem>_optimized.plt`
+beside the input, capped at 39 characters; an explicit `-o` is used verbatim),
+`--fast-mode` (NearestNeighbor2Opt only; default is
 ParallelEnsemble with per-strategy benchmark logging), `-v/--verbose`,
 `--log-dir` (default `./logs_optimize/`; writes `optimizer.log` +
 `job_metrics.csv`). Prints one summary line to stdout unless `-v`.
@@ -43,7 +44,11 @@ plus combined `[<2-digit plate>_][<material>_]all_<job_id>.pdf`. The plate
 number appears only when a material spans more than one plate (its presence
 signals that *this material* needs multiple sheets; material-less plates form
 one group, so multi-sheet material-less jobs always keep their numbers); the
-material tag appears only for material-declared output.
+material tag appears only for material-declared output. Every component (job id,
+plate number, material tag) is sanitized by `core/filenames.sanitize_filename_component`
+— ASCII letters/digits/underscores only, international characters transliterated,
+punctuation collapsed to a single underscore — and PLT names are capped at 39
+characters (the mirrored PDF previews inherit the shortened stem).
 Simple-outline PDFs style strokes by toolpath kind:
 purely structural (`bh`) plots use `linewidth=2.0`/`alpha=0.3`; text and mixed
 combined (`all`) plots use `linewidth=1.0`/`alpha=1.0` (via
@@ -123,7 +128,13 @@ Behavioural invariants:
   the OS file lock is released (`_is_file_locked` probe).
 - Outputs are staged in `<output-dir>/.incomplete/` and moved into place with
   `os.replace` (fallback `shutil.move`) — consumers never see partial files.
-- On failure, the input is copied to the output dir as `<stem>_unprocessed.plt`
+- Output names come from the **sanitized** input stem
+  (`core/filenames.sanitize_filename_component`: ASCII letters/digits/underscores
+  only — international characters transliterate, punctuation collapses to one
+  underscore) plus the 39-character controller cap; the sanitization is logged at
+  INFO when it changes the name. The `--processed-dir` archive keeps the original
+  file's own name (it is the user's input, not output we prepare).
+- On failure, the input is copied to the output dir as `<sanitized-stem>_unprocessed.plt`
   and removed from the watch dir; the job is logged with `status=failed`.
 - `setup_parser()` is the single source of truth for watch flags (shared by the
   `main.py` router and `python -m plt_optimizer.cli.watch`); the tray app calls

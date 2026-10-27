@@ -23,9 +23,14 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
   the emission/read-back path goes through here; never hardcode 1000 (root
   AGENTS.md §4; pinned by `tests/test_units.py` +
   `tests/test_phase3_export.py::TestDeviceScaleRegression`).
-- `filenames.py` - THE plotter-controller filename cap:
+- `filenames.py` - THE output-filename contract (cap **and** character rules):
   `MAX_PLOT_FILENAME_CHARS = 39` + `ensure_plot_filename_length(path, logger)`
-  (stem shortened from the right, extension preserved). Shared by
+  (stem shortened from the right, extension preserved; a stem truncated onto a
+  Windows device name is de-reserved in place) and
+  `sanitize_filename_component(text, fallback)` (NFKD transliteration so
+  international characters become ASCII, every punctuation run collapsed to a
+  single underscore, Windows reserved names guarded). Every filename component
+  the pipelines generate goes through the sanitizer; the cap is applied by
   `writer.PLTWriter._ensure_filename_length` (optimize/watch) and the
   `generate/vectorize` PLT write sites - the controller errors on longer
   names; pinned by `tests/test_filenames.py`.

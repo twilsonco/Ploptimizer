@@ -1980,7 +1980,12 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   of an inch, unpadded (`0.040` -> `40`), and every PLT name is capped at 39
   characters including the extension (the plotter controller rejects longer
   names -- `core/filenames.ensure_plot_filename_length`, shared with the
-  optimize/watch pipeline).
+  optimize/watch pipeline). Every name component (job id, material tag,
+  unknown-color fallback) is reduced by
+  `core/filenames.sanitize_filename_component`: NFKD transliteration drops
+  international characters (`Café` -> `Cafe`) and each punctuation run becomes
+  a single underscore (`wb(uv)` -> `wb_uv`), so output names carry only ASCII
+  letters, digits and underscores.
 
 
 ### Colored Combined PDF Previews (`preview_colors`)

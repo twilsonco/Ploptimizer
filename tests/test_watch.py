@@ -1394,6 +1394,44 @@ class TestDebugSaveFiles:
         # Should log warning about failure, not crash
         handler._text_logger.warning.assert_called()
 
+    def test_debug_save_files_sanitizes_job_id_in_names(self, tmp_path: Path) -> None:
+        """Debug artifact names carry only letters, digits and underscores."""
+        from plt_optimizer.cli.watch import PLTFileHandler
+
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True)
+
+        handler = PLTFileHandler(
+            watch_dir=tmp_path,
+            output_dir=Path("/output"),
+            text_logger=MagicMock(),
+            metrics_logger=MagicMock(),
+            debug_save_files=True,
+            log_dir=log_dir,
+        )
+
+        mock_doc = MagicMock()
+        written: list[Path] = []
+
+        with patch.object(handler, "_writer") as mock_writer:
+            mock_writer._ensure_filename_length.side_effect = lambda p: p
+            mock_writer.write_file.side_effect = lambda _doc, path: written.append(path)
+            with patch("plt_optimizer.diagnostics.plotter.plot_plt_document"):
+                handler._save_debug_files(
+                    job_id="watch_2026-10-27 13:26:09_ab/cd",
+                    original_doc=mock_doc,
+                    optimized_doc=mock_doc,
+                    original_distance=1000.0,
+                    optimized_distance=800.0,
+                )
+
+        assert len(written) == 2
+        for path in written:
+            assert set(path.stem) <= set(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+            )
+        assert written[0].name == "watch_2026_10_27_13_26_09_ab_cd_original.plt"
+
     def test_debug_save_files_creates_directory(self, tmp_path: Path) -> None:
         """Test that debug directory is created when debug mode enabled."""
         from plt_optimizer.cli.watch import PLTFileHandler
@@ -4713,6 +4751,60 @@ class TestAtomicOutputWrites:
         written_path = write_call[0][1]
         assert written_path.parent == handler._temp_dir
         assert written_path.name == "test_optimized.plt"
+
+    def test_process_file_sanitizes_output_name(self, tmp_path: Path) -> None:
+        """A dirty input stem produces a sanitized output name (and temp name)."""
+        handler = self._make_handler(tmp_path)
+        self._writer_patch(handler)
+
+        test_file = handler._watch_dir / "Café (2x4) sign.plt"
+        test_file.write_text("IN;PD100,100;SP;\n")
+
+        mock_doc = MagicMock()
+        mock_doc.stroke_paths = [MagicMock()]
+
+        with patch.object(handler, "_parser") as mock_parser:
+            mock_parser.parse_file.return_value = mock_doc
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
+                MockProfiler.return_value.profile.return_value = MagicMock(
+                    is_structural=False, baseline_extent=10.0
+                )
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetrics:
+                    MockMetrics.return_value.calculate_original_travel_distance.return_value = (
+                        1000.0
+                    )
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
+                        MockChunker.return_value.chunk.return_value = [MagicMock()]
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
+                            MockOpt.return_value.optimize.return_value = MagicMock(
+                                total_travel_distance=800.0
+                            )
+                            with patch(
+                                "plt_optimizer.cli.watch.Reassembler"
+                            ) as MockReasm:
+                                MockReasm.return_value.reassemble.return_value = mock_doc
+
+                                assert handler._process_file(test_file) is True
+
+        final_path = handler._output_dir / "Cafe_2x4_sign_optimized.plt"
+        assert final_path.exists()
+        assert not (handler._temp_dir / "Cafe_2x4_sign_optimized.plt").exists()
+        # The sanitization is reported so the shop can explain the new name.
+        handler._text_logger.info.assert_called()
+
+    def test_process_file_sanitizes_unprocessed_fallback_name(self, tmp_path: Path) -> None:
+        """The failure fallback copy uses the sanitized stem too."""
+        handler = self._make_handler(tmp_path)
+
+        test_file = handler._watch_dir / "Café (2x4) sign.plt"
+        test_file.write_text("IN;PD100,100;SP;\n")
+
+        with patch.object(handler, "_parser") as mock_parser:
+            mock_parser.parse_file.side_effect = RuntimeError("Parse failed")
+
+            assert handler._process_file(test_file) is False
+
+        assert (handler._output_dir / "Cafe_2x4_sign_unprocessed.plt").exists()
 
     def test_process_file_moves_to_final_after_write(self, tmp_path: Path) -> None:
         """Test that after _process_file the final file exists and the temp file is gone."""

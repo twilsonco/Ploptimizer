@@ -1046,10 +1046,12 @@ class TestPlateFilenameFormatting:
         """Free-form material names become filesystem-safe tags."""
         assert _format_material_tag(None) == ""
         assert _format_material_tag("wb") == "wb"
-        assert _format_material_tag("wb(uv)") == "wbuv"
-        assert _format_material_tag("3-layer black") == "3layerblack"
+        assert _format_material_tag("wb(uv)") == "wb_uv"
+        assert _format_material_tag("3-layer black") == "3_layer_black"
+        assert _format_material_tag("Café") == "Cafe"
         # Fully sanitized-empty values never produce a dangling separator.
         assert _format_material_tag("---") == "x"
+        assert _format_material_tag("日本語") == "x"
 
     def test_single_plate_material_omits_plate_number(self) -> None:
         """One plate for a material -> no plate prefix (material tag suffices)."""
@@ -1061,7 +1063,7 @@ class TestPlateFilenameFormatting:
     def test_multi_plate_material_includes_plate_number(self) -> None:
         """A material spanning several plates keeps the padded plate number."""
         assert _format_plate_prefix(2, 3) == "02_"
-        assert _format_plate_prefix(2, 3, "wb(uv)") == "02_wbuv_"
+        assert _format_plate_prefix(2, 3, "wb(uv)") == "02_wb_uv_"
 
     def test_material_plate_counts_groups_by_material(self) -> None:
         """Plate numbers are scoped to a material group, not the whole job.
@@ -1073,7 +1075,7 @@ class TestPlateFilenameFormatting:
         counts = _material_plate_counts({1: "wb", 2: "wb(uv)", 3: "WB"})
         assert counts == {1: 2, 2: 1, 3: 2}
         assert _format_plate_prefix(1, counts[1], "wb") == "01_wb_"
-        assert _format_plate_prefix(2, counts[2], "wb(uv)") == "wbuv_"
+        assert _format_plate_prefix(2, counts[2], "wb(uv)") == "wb_uv_"
         assert _format_plate_prefix(3, counts[3], "WB") == "03_WB_"
 
     def test_material_plate_counts_treats_null_as_one_group(self) -> None:
@@ -1157,9 +1159,9 @@ class TestMaterialDemoExample:
         assert sorted(p.name for p in result.plt_paths) == [
             "wb_15_bh_demo.plt",
             "wb_45_txt_demo.plt",
-            "wbuv_15_bh_demo.plt",
-            "wbuv_45_m_txt_demo.plt",
-            "wbuv_45_txt_demo.plt",
+            "wb_uv_15_bh_demo.plt",
+            "wb_uv_45_m_txt_demo.plt",
+            "wb_uv_45_txt_demo.plt",
         ]
         assert result.material_by_plate == {1: "wb", 2: "wb(uv)"}
         for path in result.plt_paths:
@@ -1167,7 +1169,7 @@ class TestMaterialDemoExample:
             # One plate per material -> the material tag is unambiguous, so
             # the plate number is omitted entirely.
             assert parts.plate is None
-            assert parts.material in {"wb", "wbuv"}
+            assert parts.material in {"wb", "wb_uv"}
 
     def test_fixture_materials_never_share_a_file(self, tmp_path: Path) -> None:
         """Each material's sheets get their own text layers, never merged."""
@@ -1175,7 +1177,7 @@ class TestMaterialDemoExample:
         # The wb sheet has a single colorless text layer; the uv sheet has
         # two (colorless placards + magenta deep-engraved placards).
         wb_txt = [p for p in result.plt_paths if p.name == "wb_45_txt_demo.plt"]
-        uv_txt = [p for p in result.plt_paths if p.name.startswith("wbuv_45")]
+        uv_txt = [p for p in result.plt_paths if p.name.startswith("wb_uv_45")]
         assert len(wb_txt) == 1
         assert len(uv_txt) == 2  # plain + magenta deep layer
 
@@ -2080,7 +2082,7 @@ class TestPlateNumberScoping:
             layout=LayoutMode.ROWS,
             allow_rotation=False,
         )
-        uv = [p for p in result.plt_paths if p.name.startswith("wbuv_")]
+        uv = [p for p in result.plt_paths if p.name.startswith("wb_uv_")]
         wb = [p for p in result.plt_paths if p.name[:2].isdigit()]
         assert wb, "wb labels must overflow onto both wb sheets"
         assert {p.name.split("_")[0] for p in wb} >= {"01", "02"}
@@ -2109,7 +2111,7 @@ class TestPlateNumberScoping:
             allow_rotation=False,
         )
         combined = sorted(p.name for p in result.pdf_paths if "all_" in p.name)
-        assert any(name.startswith("wbuv_all_") for name in combined), combined
+        assert any(name.startswith("wb_uv_all_") for name in combined), combined
         assert any(name[:2].isdigit() and "_wb_all_" in name for name in combined), combined
 
 
@@ -7061,7 +7063,7 @@ class TestPreviewColors:
         """wb stock: black border outline (contrast), grey-punched holes."""
         captured = self._capture(tmp_path, "tests_deps/material_demo_job.yaml", "wb")
         all_plots = {n: v for n, v in captured.items() if n.endswith("all_wb.pdf")}
-        assert sorted(all_plots) == ["wb_all_wb.pdf", "wbuv_all_wb.pdf"]
+        assert sorted(all_plots) == ["wb_all_wb.pdf", "wb_uv_all_wb.pdf"]
         for plot in all_plots.values():
             # Every wb plate's top layer is white -> white background fill.
             assert plot["fills"] == [("white", 1.0)]
@@ -7072,7 +7074,7 @@ class TestPreviewColors:
         # text_color pen wins over the core color.
         plain = {f for _w, a, f in captured["wb_all_wb.pdf"]["layers"] if a == 1.0}
         assert plain == {"black"}
-        uv = {f for _w, a, f in captured["wbuv_all_wb.pdf"]["layers"] if a == 1.0}
+        uv = {f for _w, a, f in captured["wb_uv_all_wb.pdf"]["layers"] if a == 1.0}
         assert uv == {"black", "magenta"}
 
     def test_per_cutter_previews_stay_black(self, tmp_path: Path) -> None:

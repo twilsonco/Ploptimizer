@@ -35,7 +35,10 @@ if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
     from plt_optimizer.generate.schema import JobSpec
 
-from plt_optimizer.core.filenames import ensure_plot_filename_length
+from plt_optimizer.core.filenames import (
+    ensure_plot_filename_length,
+    sanitize_filename_component,
+)
 from plt_optimizer.core.models import PLTDocument, Segment
 from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.core.units import inches_to_units
@@ -479,9 +482,10 @@ def _format_text_layer(cutter_diameter: float, text_color: str) -> str:
         abbreviation = TextColor(text_color).abbreviation
     except ValueError:
         # Unknown colors (manually constructed labels) fall back to the
-        # full sanitized value so file names stay filesystem-safe and can
-        # never collide with a real color's 1-letter abbreviation.
-        abbreviation = re.sub(r"[^0-9a-zA-Z]", "", text_color) or "x"
+        # sanitized value so file names stay filesystem-safe and can never
+        # collide with a real color's 1-letter abbreviation. Underscores are
+        # removed so the tag stays a single token (see _parse_plt_stem).
+        abbreviation = sanitize_filename_component(text_color, fallback="x").replace("_", "")
     return f"{cutter_str}_{abbreviation}"
 
 
@@ -501,10 +505,13 @@ def _format_plate_number(plate_number: int) -> str:
 def _format_material_tag(material: Optional[str]) -> str:
     """Format a stock material name for inclusion in file names.
 
-    Material names are free-form (``"wb"``, ``"wb(uv)"``), so every
-    non-alphanumeric character is stripped to keep names filesystem-safe
-    (``"wb(uv)"`` -> ``"wbuv"``). A name that sanitizes to nothing (e.g.
-    ``"---"``) falls back to ``"x"`` so the tag is never empty.
+    Material names are free-form (``"wb"``, ``"wb(uv)"``), so the name is
+    reduced to a single safe filename component (see
+    :func:`plt_optimizer.core.filenames.sanitize_filename_component`):
+    international characters transliterate and every run of punctuation
+    collapses to one underscore (``"wb(uv)"`` -> ``"wb_uv"``,
+    ``"3-layer black"`` -> ``"3_layer_black"``). A name that sanitizes to
+    nothing (e.g. ``"---"``) falls back to ``"x"`` so the tag is never empty.
 
     Args:
         material: The plate's resolved material name, or ``None``
@@ -515,7 +522,7 @@ def _format_material_tag(material: Optional[str]) -> str:
     """
     if material is None:
         return ""
-    return re.sub(r"[^0-9a-zA-Z]", "", material) or "x"
+    return sanitize_filename_component(material, fallback="x")
 
 
 def _material_plate_counts(materials: Mapping[int, Optional[str]]) -> dict[int, int]:
@@ -562,7 +569,7 @@ def _format_plate_prefix(
 
     Returns:
         Prefix ending in an underscore, e.g. ``""``, ``"02_"``,
-        ``"wbuv_"`` or ``"02_wbuv_"``.
+        ``"wb_uv_"`` or ``"02_wb_uv_"``.
     """
     parts: list[str] = []
     if material_plate_count > 1:
@@ -587,7 +594,7 @@ class _StemParts:
     Attributes:
         plate: Plate-number token (``"02"``), or ``None`` when the plate's
             material spans a single sheet.
-        material: Material tag token (``"wbuv"``), or ``None``.
+        material: Material tag token (``"wb_uv"``), or ``None``.
         cutter: Cutter-diameter token in integer mils (``"40"``), or
             ``None``.
         kind: Layer kind (``"txt"`` / ``"bh"``), or ``None`` when the stem
@@ -619,15 +626,18 @@ def _parse_plt_stem(stem: str) -> _StemParts:
     - otherwise the stem carries no parsable cutter (kind only).
 
     Then, relative to the cutter index: index 0 -> no plate, no material;
-    index 1 -> the leading token is the plate when it is all digits, else
-    the material; index >= 2 -> index 0 is the plate and the tokens between
-    are the material.
+    index >= 1 -> the leading token is the plate when it is all digits, and
+    every token between (it and) the cutter is the material (a sanitized
+    material tag may itself contain underscores, e.g. ``wb(uv)`` ->
+    ``wb_uv``).
 
-    Known limitations (both degrade gracefully to the thin-line plot /
+    Known limitations (all degrade gracefully to the thin-line plot /
     fallback title): a stem shortened by the 39-character filename cap can
-    lose trailing cutter digits (``187`` -> ``18``), and an unknown numeric
-    color tag (``40_123_txt_job``) reads as the cutter. ``job_id`` may
-    itself contain underscores; the kind token is the anchor that avoids it.
+    lose trailing cutter digits (``187`` -> ``18``), an unknown numeric
+    color tag (``40_123_txt_job``) reads as the cutter, and a material whose
+    sanitized tag is all digits (material ``"02"``) reads as a plate number.
+    ``job_id`` may itself contain underscores; the kind token is the anchor
+    that avoids it.
 
     Args:
         stem: File-name stem (``Path(...).stem``).
@@ -652,13 +662,11 @@ def _parse_plt_stem(stem: str) -> _StemParts:
         color = tokens[kind_index - 1]
     if cutter_index is None:
         return _StemParts(kind=kind)
-    if cutter_index >= 2:
+    if cutter_index >= 1 and tokens[0].isdigit():
         plate: Optional[str] = tokens[0]
-        material: Optional[str] = "_".join(tokens[1:cutter_index])
-    elif cutter_index == 1 and tokens[0].isdigit():
-        plate, material = tokens[0], None
-    elif cutter_index == 1:
-        plate, material = None, tokens[0]
+        material: Optional[str] = "_".join(tokens[1:cutter_index]) or None
+    elif cutter_index >= 1:
+        plate, material = None, "_".join(tokens[:cutter_index])
     else:
         plate, material = None, None
     return _StemParts(
@@ -714,7 +722,7 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     Returns:
         A descriptive title string, e.g. ``"My Job 0.5 text (0.040 cutter)"``
         or ``"My Job borders and holes (0.015 cutter)"``. The material tag,
-        when present, is included as ``" [wbuv]"``. The cutter is rendered in
+        when present, is included as ``" [wb_uv]"``. The cutter is rendered in
         inches for readability even though the file name carries integer mils.
     """
     parts = _parse_plt_stem(plt_path.stem)
@@ -769,7 +777,7 @@ def export_per_cutter_plts(
     - **text** gets one file per distinct cutter/color layer, named
       ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt`` (the
       ``<color>`` tag appears when the layer carries a ``text_color``,
-      e.g. ``wbuv_40_m_txt_job.plt`` for magenta). A text cutter equal
+      e.g. ``wb_uv_40_m_txt_job.plt`` for magenta). A text cutter equal
       to the boundary/hole cutter still gets its own file (separate run).
       Lines sharing a cutter but differing in ``text_color`` split into
       separate files so the cutter depth can change between runs (3-layer
@@ -780,7 +788,7 @@ def export_per_cutter_plts(
       (zero-padded to two digits) is **omitted whenever the plate's
       material group spans a single sheet**, so its presence signals that
       *this material* needs more than one plate; the sanitized material tag
-      (e.g. ``wb(uv)`` -> ``wbuv``) is omitted for material-agnostic
+      (e.g. ``wb(uv)`` -> ``wb_uv``) is omitted for material-agnostic
       plates. Material-agnostic plates form one group, so multi-sheet
       material-less jobs always keep their plate numbers. The cutter
       precedes the kind token so the tool size is visible before the

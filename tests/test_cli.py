@@ -186,17 +186,24 @@ class TestGenerateSubcommand:
         assert parser.parse_args(["spec.yaml", "--default-plots"]).default_plots is True
 
     def test_sanitize_job_id(self) -> None:
-        """Job names collapse whitespace and strip unsafe characters."""
+        """Job names transliterate and reduce to letters, digits, underscores."""
         from plt_optimizer.cli.generate import _sanitize_job_id
 
         assert _sanitize_job_id("Complex Plant Signage - Batch 42") == (
-            "Complex_Plant_Signage_-_Batch_42"
+            "Complex_Plant_Signage_Batch_42"
         )
         assert _sanitize_job_id("  Hello   World!  ") == "Hello_World"
-        assert _sanitize_job_id("a/b\\c:d*e") == "abcde"
-        assert _sanitize_job_id("keep.dots-and_9") == "keep.dots-and_9"
+        assert _sanitize_job_id("a/b\\c:d*e") == "a_b_c_d_e"
+        assert _sanitize_job_id("keep.dots-and_9") == "keep_dots_and_9"
+        # International characters transliterate to ASCII.
+        assert _sanitize_job_id("Café Sign #3 (2x4)") == "Cafe_Sign_3_2x4"
+        assert _sanitize_job_id("Ñoño 日本語") == "Nono"
+        # Scripts with no ASCII form fall back to the default id.
+        assert _sanitize_job_id("日本語") == "job"
         assert _sanitize_job_id("!!!") == "job"
         assert _sanitize_job_id("") == "job"
+        # Windows device names stay openable on the plotter PC.
+        assert _sanitize_job_id("con") == "con_"
 
     def test_generate_writes_per_cutter_dir_output(self, tmp_path: Path) -> None:
         """run() writes per-cutter PLTs under <output>/plt with job-id names."""
@@ -243,6 +250,58 @@ class TestGenerateSubcommand:
         assert any("_bh_" in name for name in plt_files)
         # --no-plots: no PDF previews.
         assert not (out_dir / "pdf").exists() or not list((out_dir / "pdf").iterdir())
+
+    def test_generate_sanitizes_and_caps_output_names(self, tmp_path: Path) -> None:
+        """Dirty job names produce safe, controller-length-capped PLT names."""
+        from plt_optimizer.cli.generate import run
+        from plt_optimizer.core.filenames import MAX_PLOT_FILENAME_CHARS
+
+        spec_file = tmp_path / "cli_spec.yaml"
+        spec_file.write_text(
+            "job:\n"
+            "  job_name: \"Café Sign #3 (2x4) — " + "long" * 12 + "\"\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      left_clearance: 0.25\n"
+            "      top_clearance: 0.25\n"
+            "      material: wb(uv)\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      material: wb(uv)\n"
+            "      content:\n"
+            "        - text: Hello\n"
+            "          text_height: 0.5\n"
+        )
+
+        out_dir = tmp_path / "out"
+
+        class MockArgs:
+            spec = spec_file
+            output = out_dir
+            verbose = False
+            no_plots = True
+            default_plots = False
+            tools = Path("tools.json")
+            job_config = None
+            fast_mode = False
+
+        assert run(MockArgs()) == 0
+
+        plt_files = sorted(p.name for p in (out_dir / "plt").iterdir())
+        assert plt_files, "no per-cutter PLT files written"
+        for name in plt_files:
+            # Letters, digits, underscores and the single extension dot only.
+            assert set(name) <= set(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
+            ), name
+            assert len(name) <= MAX_PLOT_FILENAME_CHARS, name
+        # The material tag is sanitized too (wb(uv) -> wb_uv).
+        assert all("wb_uv" in name for name in plt_files)
 
 
 class TestWatchSubcommand:
@@ -649,6 +708,44 @@ class TestOptimizeRun:
         assert rows[0]["status"] == "success"
         assert rows[0]["method"] == "NearestNeighbor + 2-Opt (Fast Mode)"
         assert float(rows[0]["percent_improvement"].rstrip("%")) == pytest.approx(87.6, abs=0.5)
+
+    def test_default_output_name_is_sanitized(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A dirty input stem yields a safe output name (suffix kept)."""
+        from plt_optimizer.cli.optimize import run
+
+        plt_file = _write_text_plt(tmp_path, name="Café (2x4) sign.plt")
+        args = self._args(plt_file, output=None, log_dir=tmp_path / "logs")
+
+        assert run(args) == 0
+
+        name = "Cafe_2x4_sign_optimized.plt"
+        assert (tmp_path / name).is_file()
+        captured = capsys.readouterr()
+        assert f"-> {name}" in captured.out
+
+    def test_default_output_name_is_capped(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """An over-length input stem is capped at the controller limit."""
+        from plt_optimizer.cli.optimize import run
+        from plt_optimizer.core.filenames import MAX_PLOT_FILENAME_CHARS
+
+        plt_file = _write_text_plt(tmp_path, name="Café (2x4) " + "z" * 40 + ".plt")
+        args = self._args(plt_file, output=None, log_dir=tmp_path / "logs")
+
+        assert run(args) == 0
+
+        produced = [p.name for p in tmp_path.glob("*.plt") if p != plt_file]
+        assert len(produced) == 1
+        name = produced[0]
+        assert len(name) == MAX_PLOT_FILENAME_CHARS
+        assert set(name) <= set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.")
+        assert name.startswith("Cafe_2x4_")
+        # The user-facing summary reports the name that was actually written.
+        captured = capsys.readouterr()
+        assert f"-> {name}" in captured.out
 
     def test_explicit_output_verbose_structural_pipeline(
         self, tmp_path: Path, capsys: pytest.CaptureFixture

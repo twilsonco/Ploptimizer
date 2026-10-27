@@ -84,8 +84,11 @@ File names read `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`:
 the cutter is the diameter in integer thousandths of an inch (`0.030` -> `30`),
 the 2-digit plate number appears only when a material spans more than one
 plate (its presence signals that material needs multiple sheets), and the
-sanitized material tag (e.g. `wbuv`) appears only when the job declares a
-`material`. PLT names are capped at 39 characters including the extension -
+sanitized material tag (e.g. `wb(uv)` -> `wb_uv`) appears only when the job
+declares a `material`. Every name carries only ASCII letters, digits and
+underscores: international characters are transliterated (`Café` -> `Cafe`) and
+punctuation collapses to a single underscore (underscores excepted). PLT names
+are capped at 39 characters including the extension -
 the plotter controller rejects longer names, so a long job name is shortened
 from the right.
 

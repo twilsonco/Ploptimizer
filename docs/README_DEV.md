@@ -483,7 +483,7 @@ uv run plt-optimizer generate tests_deps/test123_spec.yaml
 - `--default-plots`: Also write color-coded `*_default.pdf` diagnostic plots (off by default; slow)
 - `--tools` (default: `tools.json`): Cutter inventory JSON; ideal cutters are used if the file is missing
 
-Outputs are named `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.plt` (`kind` = `txt` or `bh` for borders+holes; `cutter` in integer thousandths of an inch, unpadded; names capped at 39 characters for the plotter controller). Text–hole collisions abort the job with a non-zero exit code — see [`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md).
+Outputs are named `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.plt` (`kind` = `txt` or `bh` for borders+holes; `cutter` in integer thousandths of an inch, unpadded; names capped at 39 characters for the plotter controller, and every component sanitized to ASCII letters/digits/underscores — international characters transliterate, punctuation collapses to a single underscore; see `plt_optimizer/core/filenames.py`). Text–hole collisions abort the job with a non-zero exit code — see [`INTEGRATION_TESTING.md`](INTEGRATION_TESTING.md).
 
 **Job spec schema:** see [`plt_optimizer/generate/AGENTS.md`](../plt_optimizer/generate/AGENTS.md) and the example specs in `examples/job_specs/` (`sample_spec`-style jobs, `replacement_job.yaml`) plus the frozen unit-test fixtures in `tests_deps/` (`test123_spec.yaml`, `complex_test_job.yaml`, `sample_spec.yaml`, `rotation_demo_job.yaml`).
 

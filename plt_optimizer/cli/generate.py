@@ -9,8 +9,8 @@ rendering/assembly.
 Output layout (under ``-o``, defaulting to the spec's parent directory)::
 
     <out>/plt/30_txt_<job_id>.plt        # one file per text cutter (single sheet)
-    <out>/plt/wbuv_30_m_txt_<job_id>.plt  # ... per material/color tag
-    <out>/plt/01_wbuv_30_txt_<job_id>.plt  # ... plate number only when a
+    <out>/plt/wb_uv_30_m_txt_<job_id>.plt  # ... per material/color tag
+    <out>/plt/01_wb_uv_30_txt_<job_id>.plt  # ... plate number only when a
     #                                        material spans several sheets
     <out>/plt/15_bh_<job_id>.plt         # borders + holes together
     <out>/pdf/30_txt_<job_id>.pdf        # simple-outline previews
@@ -44,11 +44,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from plt_optimizer.core.filenames import sanitize_filename_component
 
 # Light generation imports (pure Python) are safe at module scope. The heavy
 # ones (layout / label_renderer / vectorize transitively pull in
@@ -152,9 +153,12 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
 def _sanitize_job_id(job_name: str) -> str:
     """Derive a filesystem-safe job identifier from a job name.
 
-    Whitespace runs collapse to single underscores and every character
-    outside ``[A-Za-z0-9._-]`` is stripped. The empty result falls back
-    to ``"job"``.
+    Delegates to :func:`plt_optimizer.core.filenames.sanitize_filename_component`:
+    international characters are transliterated to ASCII (``"Caf\\u00e9"`` ->
+    ``"Cafe"``) and every run of punctuation or whitespace collapses to a
+    single underscore (``"2026-10-06 wb-uv"`` -> ``"2026_10_06_wb_uv"``), so an
+    id carries only ASCII letters, digits and underscores. The empty result
+    falls back to ``"job"``.
 
     Args:
         job_name: The raw ``job_name`` from the YAML specification.
@@ -162,9 +166,7 @@ def _sanitize_job_id(job_name: str) -> str:
     Returns:
         A safe identifier for use in output file names.
     """
-    sanitized = re.sub(r"\s+", "_", job_name.strip())
-    sanitized = re.sub(r"[^A-Za-z0-9._-]", "", sanitized)
-    return sanitized or "job"
+    return sanitize_filename_component(job_name, fallback="job")
 
 
 def _load_cutter_inventory(

@@ -220,8 +220,10 @@ File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job
 where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
 diameter in integer thousandths of an inch, unpadded (`0.060` -> `60`). The
 plate number appears only when a material
-spans more than one plate; the material tag (sanitized, e.g. `wbuv`) appears
-only for material-declared output. PLT names are capped at 39 characters
+spans more than one plate; the material tag (sanitized, e.g. `wb_uv`) appears
+only for material-declared output. Every name carries only ASCII letters,
+digits and underscores (international characters transliterate, punctuation
+collapses to a single underscore). PLT names are capped at 39 characters
 including the extension (the plotter controller rejects longer names; the
 stem is shortened from the right). With a spec override, the same tree appears
 under `test_output/integration_test/<spec-stem>/`.

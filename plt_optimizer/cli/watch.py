@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 
 # Local imports
 from plt_optimizer.core.chunker import Chunker
+from plt_optimizer.core.filenames import sanitize_filename_component
 from plt_optimizer.core.models import PLTDocument
 from plt_optimizer.core.optimizer import (
     NearestNeighbor2OptStrategy,
@@ -366,8 +367,8 @@ class PLTFileHandler(FileSystemEventHandler):
             debug_dir = self._log_dir / "debug"
             debug_dir.mkdir(parents=True, exist_ok=True)
 
-            # Sanitize job_id for use in filenames
-            safe_job_id = job_id.replace(":", "-").replace("/", "_")
+            # Sanitize job_id for use in filenames (ASCII alnum + underscore only).
+            safe_job_id = sanitize_filename_component(job_id, fallback="job")
 
             # Save original PLT file
             orig_plt_path = debug_dir / f"{safe_job_id}_original.plt"
@@ -420,6 +421,16 @@ class PLTFileHandler(FileSystemEventHandler):
         """
         job_id = f"watch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         self._text_logger.info(f"[{job_id}] Processing: {input_path}")
+
+        # Output names are built from the sanitized input stem (ASCII letters,
+        # digits and underscores only -- no punctuation beyond underscore, no
+        # international characters; see core.filenames). The input file itself
+        # keeps its own name when archived to the processed dir.
+        safe_stem = sanitize_filename_component(input_path.stem, fallback="file")
+        if safe_stem != input_path.stem:
+            self._text_logger.info(
+                f"[{job_id}] Output name sanitized: '{input_path.stem}' -> '{safe_stem}'"
+            )
 
         # Ensure temp directory exists (lazy; created on first use so that
         # constructing a handler against a not-yet-existent output dir is OK).
@@ -506,8 +517,8 @@ class PLTFileHandler(FileSystemEventHandler):
             # Generate output paths. Write to temp first so consumers never
             # observe a partially-written file; then atomically move to the
             # final location via os.replace (with shutil.move fallback).
-            output_path = self._output_dir / f"{input_path.stem}_optimized.plt"
-            temp_output_path = self._temp_dir / f"{input_path.stem}_optimized.plt"
+            output_path = self._output_dir / f"{safe_stem}_optimized.plt"
+            temp_output_path = self._temp_dir / f"{safe_stem}_optimized.plt"
 
             output_path = self._writer._ensure_filename_length(output_path)
             temp_output_path = self._writer._ensure_filename_length(temp_output_path)
@@ -617,8 +628,8 @@ class PLTFileHandler(FileSystemEventHandler):
             # Use the same atomic-write pattern (temp + os.replace) so consumers
             # never observe a partially-written file.
             try:
-                fallback_output_path = self._output_dir / f"{input_path.stem}_unprocessed.plt"
-                fallback_temp_path = self._temp_dir / f"{input_path.stem}_unprocessed.plt"
+                fallback_output_path = self._output_dir / f"{safe_stem}_unprocessed.plt"
+                fallback_temp_path = self._temp_dir / f"{safe_stem}_unprocessed.plt"
                 shutil.copy2(str(input_path), str(fallback_temp_path))
                 try:
                     os.replace(str(fallback_temp_path), str(fallback_output_path))

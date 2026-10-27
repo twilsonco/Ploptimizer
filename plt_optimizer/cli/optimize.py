@@ -16,9 +16,11 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 # Local imports
 from plt_optimizer.core.chunker import Chunker
+from plt_optimizer.core.filenames import ensure_plot_filename_length, sanitize_filename_component
 from plt_optimizer.core.optimizer import (
     NearestNeighbor2OptStrategy,
     OptimizationStrategy,
@@ -100,11 +102,18 @@ def run(args: argparse.Namespace) -> int:
         print(f"Error: Input path is not a file: {input_path}", file=sys.stderr)
         return 1
 
-    # Determine output path
+    # Determine output path. The default name is built from the sanitized input
+    # stem (ASCII letters, digits and underscores only -- no punctuation beyond
+    # underscore, no international characters) and capped at the
+    # plotter-controller limit, mirroring the watch pipeline. An explicit
+    # -o/--output is used verbatim: the caller chose that name and it may target
+    # a PC rather than the controller.
+    default_stem: Optional[str] = None
     if args.output is not None:
         output_path = args.output
     else:
-        output_path = input_path.parent / f"{input_path.stem}_optimized.plt"
+        default_stem = sanitize_filename_component(input_path.stem, fallback="file")
+        output_path = input_path.parent / f"{default_stem}_optimized.plt"
 
     # Set up logging
     log_dir = args.log_dir if args.log_dir is not None else Path("./logs_optimize")
@@ -125,6 +134,11 @@ def run(args: argparse.Namespace) -> int:
     # Set logging level based on verbosity
     if args.verbose:
         text_logger_obj.logger.setLevel(logging.DEBUG)
+
+    if default_stem is not None:
+        output_path = ensure_plot_filename_length(output_path, text_logger_obj)
+        if default_stem != input_path.stem:
+            text_logger_obj.info(f"Output name sanitized: '{input_path.stem}' -> '{default_stem}'")
 
     job_id = f"opt_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     text_logger_obj.info(f"[{job_id}] Starting optimization: {input_path}")
