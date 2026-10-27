@@ -37,6 +37,10 @@ validation, font names, hole expansion). The JSON Schemas
 use them in IDEs/validators for fast structural feedback, `parse_yaml`
 before a production run.
 
+For the CLI form of the same check (plus data-file existence and the
+cutter-inventory shape), use the validating-jobs skill's
+`scripts/validate_job_spec.py` / `scripts/validate_job_config.py` helpers.
+
 ## Error taxonomy → agent action
 
 All spec errors raise `ValueError` subclasses with the failing path in the

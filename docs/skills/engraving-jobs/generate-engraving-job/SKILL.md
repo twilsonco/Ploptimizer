@@ -33,17 +33,22 @@ internally — you work only in inches.
    **inches**.
 2. **Add data (optional).** For batches, a replacement text file beside the
    YAML: one data line = one label copy (see the replacement-text skill).
-3. **Validate before running** (fast, authoritative, all cross-field rules):
+3. **Validate before running** (fast, authoritative, all cross-field rules,
+   no rendering and no output files):
 
    ```bash
-   uv run python -c "from plt_optimizer.generate.schema import parse_yaml; \
-   parse_yaml('my_job.yaml'); print('OK')"
+   uv run python scripts/validate_job_spec.py my_job.yaml
    ```
+
+   Validate the shop config first when it changed
+   (`uv run python scripts/validate_job_config.py`) — a config defect is
+   reported per-spec and blames the spec. The validating-jobs skill documents
+   both helpers, their advisory warnings, and the exit-code contract.
 
    Structural checks against the JSON Schema
    (`../engraving-job-complete-reference/references/job_spec.schema.json` for the spec,
    `../engraving-job-complete-reference/references/job_config.schema.json` for shop defaults) work in any validator,
-   but `parse_yaml` is the real gate.
+   but `parse_yaml` (which the helper calls) is the real gate.
 4. **Run:**
 
    ```bash
@@ -129,6 +134,7 @@ specs to copy; `../engraving-job-complete-reference/references/JOB_SPEC.md` is t
 - [Plates, Layout and Bin-Packing](../plates-layout-and-packing/SKILL.md) — Pack labels onto material plates: layout, rotation, clearances.
 - [Tool Options (HPGL Header Commands)](../tool-options/SKILL.md) — Engraver velocity, spindle, dwell and Z via tool_options.
 - [Running the CLI and Fixing Failures](../running-and-troubleshooting/SKILL.md) — Generate command, outputs, validation entry, error taxonomy.
+- [Validating Jobs, Configs and Cutter Inventories](../validating-jobs/SKILL.md) — pre-flight checks via scripts/validate_*.py.
 - [Recipes — Complete Example Job Specs](../recipes/SKILL.md) — copy-and-adapt runnable specs.
 - [Engraving Job — Complete Reference](../engraving-job-complete-reference/SKILL.md) — exhaustive field/enum/default/schema reference.
 <!-- END AUTO-TOC -->

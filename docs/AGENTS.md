@@ -28,7 +28,11 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   (`docs/skills/engraving-jobs/`) of skill folders: hand-written main skill
   `generate-engraving-job/` (workflow + AUTO-TOC markers), 17 generated
   thematic sub-skills (an EXACT partition of every `job_spec.schema.json`
-  field - `generate_skills.py` hard-fails on a gap/duplicate), generated
+  field - `generate_skills.py` hard-fails on a gap/duplicate), the
+  hand-written `validating-jobs/` helper skill (documents
+  `scripts/validate_job_config.py` / `scripts/validate_job_spec.py`; tooling,
+  not schema fields, so it is NOT a theme and is exempt from the partition),
+  generated
   `recipes/` (complete runnable specs from `examples/job_specs/`,
   `parse_yaml`-validated), and `engraving-job-complete-reference/` - the
   exhaustive-reference skill whose `references/` directory holds
@@ -37,7 +41,10 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   `../engraving-job-complete-reference/references/...`. New schema field ->
   assign it to a theme in the registry (coverage check enforces this); new
   topic -> add a `Theme` entry (+ a curated `semantics.md`; the generator
-  seeds a stub).
+  seeds a stub). A hand-written non-theme skill (like `validating-jobs/`)
+  needs: its folder + curated `references/semantics.md`, one bullet in
+  `render_toc_lines()`, and re-running the generator (the TOC must list every
+  skill dir on disk).
 - Hermes progressive disclosure is explicit: `references/` files load only
   when NAMED in their `SKILL.md` ("Read next"), and installs copy only
   referenced files - never unlink a generated file from its skill.

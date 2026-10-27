@@ -33,9 +33,23 @@ loudly at `parse_yaml()` with its exact dotted path
 a field the user typed is a field the user expects to engrave, so silent
 ignoring is never acceptable. The free-form `tool_options: dict[str, Any]`
 *field value* is unaffected (its keys are engraver option names, not schema
-fields). Pinned by `tests/test_schema.py::TestStrictUnknownFields`; the
-generated JSON schemas carry the contract as `additionalProperties: false`
-(drift-pinned by `tests/test_job_spec_docs.py`).
+fields), but its **metadata entries are semantically gated** on `JobDefaults`
+(`validate_tool_options_metadata` in `job_config.py`): each entry must be an
+object with a non-empty `command` (no `;`), a `type` of `bool`/`int`/`float`,
+a `default` (scalar, dual `text`/`borders_holes`, or an explicit `null` layer
+to omit that PLT type), numeric `min`/`max` with `min <= max` for int/float,
+and a snake_case option key. Every problem in the file is reported in one
+`JobConfigError` at `load_job_config()` — the shapes this rejects used to
+crash mid-export, emit a header with no command prefix, or silently drop a
+cutter option. `JobDefaults.font` is canonicalized with the same
+`normalize_font_name` registry rule the spec tiers use, so a bad config font
+blames the config, not the spec. Pinned by
+`tests/test_job_config.py::TestToolOptionsMetadataValidation`. The
+generated JSON schemas carry the structural contract as
+`additionalProperties: false` (drift-pinned by `tests/test_job_spec_docs.py`);
+unknown spec keys are pinned by `tests/test_schema.py::TestStrictUnknownFields`.
+Pre-flight CLIs for both gates: `scripts/validate_job_config.py` and
+`scripts/validate_job_spec.py` (see the `validating-jobs` skill).
 
 **Attributes in schema model docstrings not typically necessary:** Because schema.py is Pydantic models (classes), and each attribute already has a `description` field, it is redundant to repeat the same information in the docstring. The docstring should focus on the overall purpose and usage of the model rather than individual attribute details.
 

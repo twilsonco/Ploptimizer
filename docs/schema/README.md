@@ -47,6 +47,11 @@ skills:
 - **`generate-engraving-job/`** — the main skill (hand-written): the
   production workflow, invariants, and the auto-generated table of contents
   (between `AUTO-TOC` markers) listing every sub-skill.
+- **`validating-jobs/`** — hand-written: the pre-flight validation helpers
+  (`scripts/validate_job_config.py`, `scripts/validate_job_spec.py`), their
+  advisory warnings and the exit-code contract. Not a theme: it documents
+  tooling, not schema fields, so it is exempt from the field-partition
+  requirement (its `references/semantics.md` is curated like a theme's).
 - **17 thematic sub-skills** — generated: `job-forms`,
   `replacement-text`, `cascade-and-config`, `label-geometry`,
   `fonts-and-capline`, `glyph-spacing-and-kerning`,
@@ -95,9 +100,29 @@ Validation entry point for tooling:
 
 ## Validating YAML against these artifacts
 
-Any JSON-Schema validator works after `yaml.safe_load` (note: the schema
-covers structure/types/enums/constraints, **not** the cross-field rules —
-use `parse_yaml` for those):
+**Recommended (no dependencies, all cross-field rules):** the CLI helpers,
+documented by the `validating-jobs` skill:
+
+```bash
+uv run python scripts/validate_job_config.py           # shop defaults (job-config.json)
+uv run python scripts/validate_job_spec.py my_job.yaml # spec + data files + tools.json
+```
+
+Or in-process:
+
+```python
+from pathlib import Path
+
+from plt_optimizer.generate.job_config import load_job_config
+from plt_optimizer.generate.schema import parse_yaml
+
+load_job_config(Path("job-config.json"))  # config gate (raises JobConfigError)
+parse_yaml("my_job.yaml")                 # spec gate (+ all cross-field validators)
+```
+
+A raw JSON-Schema validator works after `yaml.safe_load` for structure only
+(the schema covers types/enums/constraints, **not** the cross-field rules —
+use `parse_yaml` for those; `jsonschema` is a dev extra, absent on Win7):
 
 ```python
 import json, yaml, jsonschema
@@ -111,9 +136,6 @@ schema = json.loads(
 )
 job = yaml.safe_load(Path("my_job.yaml").read_text())["job"]
 jsonschema.validate(job, schema)          # structural check
-# authoritative check:
-from plt_optimizer.generate.schema import parse_yaml
-# parse_yaml("my_job.yaml")               # + all cross-field validators
 ```
 
 ## Regenerating

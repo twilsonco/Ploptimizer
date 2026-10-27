@@ -129,6 +129,9 @@ def _allowed_tokens() -> Set[str]:
 #: Runtime identifiers prose may name that are not schema fields.
 _EXTRA_ALLOWED = {
     "parse_yaml",  # validation entry point
+    "load_job_config",  # job-config validation entry point
+    "normalize_font_name",  # font registry canonicalizer
+    "plt_optimizer",  # package name (prose module paths)
     "expand_job_spec",
     "resolve_job_spec",
     "available_cutters",  # tools.json keys
