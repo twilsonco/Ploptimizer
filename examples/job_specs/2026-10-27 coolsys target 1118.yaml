@@ -1,0 +1,25 @@
+job:
+  job_name: Coolsys Target 1118
+  material: bw
+  width: 3
+  height: 2
+  holes:
+    - location: sides
+  text_height: 0.375
+  font: dino
+
+  labels:
+    - id: "D01"
+      content:
+        - text: "D01"
+        - text: "Dairy W/I"
+    - id: "D04"
+      content:
+        - text: "D04"
+        - text: "Dry"
+        - text: "Labeling Room"
+    - id: "D03"
+      width: 3
+      height: 1
+      content:
+        - text: "D03 E1"
