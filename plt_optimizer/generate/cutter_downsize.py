@@ -12,7 +12,8 @@ bleeding and needs less squeeze.
 This module closes that loop as an **export pre-pass**: render each label
 once, read the effective per-line horizontal scale, and where a line was
 compressed past the midpoint toward the next smaller inventory tool, swap in
-that tool and re-render at ``nominal_text_height - smaller_cutter``. The
+that tool and re-render at ``nominal_text_height - (smaller_cutter +
+cutter_buffer)``. The
 result is a ``ResolvedLabel`` clone carrying the reduced cutter, produced
 *before* :func:`plt_optimizer.generate.resolution.build_cutter_pen_map` runs,
 so the pen map, the per-cutter layers and the PLT file names all see the tool
@@ -30,6 +31,13 @@ This pre-pass runs **after** the per-label shared horizontal compression (see
 the SHARED scale -- the scale the label is actually engraved at. The same
 nominal height therefore receives the same horizontal compression AND the
 same cutter.
+
+The ladder walks **physical** tools only (the shop's real inventory, the
+midpoint trigger's ratios, and the ``cutter_downsize_by_line`` report all use
+the nominal diameters), while each step's re-measured toolpath height
+compensates for the width the candidate tool *engraves*
+(``nominal - (cutter + cutter_buffer)``, the ``cutter_buffer_text`` kerf
+buffer). A line's buffer is carried unchanged by every clone.
 
 Per-label sharing (``cutter_downsize_global``, on by default): when a line's
 compression triggers a swap, every other *eligible* line of the same nominal
@@ -218,7 +226,11 @@ def _reduce_line(
             if not should_downsize_cutter(scale, current_cutter, next_candidate):
                 break  # Closer to 100% width than to the smaller tool.
             candidate = next_candidate
-        toolpath_height = working.content[line_index].nominal_text_height - candidate
+        # The ladder walks PHYSICAL tools (the shop's real inventory), but the
+        # re-measured height compensates for the width the tool engraves
+        # (tool + the line's kerf buffer), exactly like resolution does.
+        line_now = working.content[line_index]
+        toolpath_height = line_now.nominal_text_height - (candidate + line_now.cutter_buffer)
         if toolpath_height <= 0.0:
             break  # The smaller tool leaves nothing to engrave at this height.
 
@@ -558,7 +570,9 @@ def _with_cutter(
             cutter_diameter=cutter_diameter,
             toolpath_text_height=toolpath_text_height,
             bold_cutter_diameter=bold_next,
-            bold_toolpath_text_height=line.nominal_text_height - bold_next,
+            # The bold rung is a physical tool too; its toolpath compensates
+            # for the width it engraves (rung + the line's kerf buffer).
+            bold_toolpath_text_height=line.nominal_text_height - (bold_next + line.cutter_buffer),
         )
     else:
         content[line_index] = dataclasses.replace(

@@ -1847,7 +1847,10 @@ def _render_line_core_once(
     plt_kwargs: dict[str, Any] = {
         "target_height_inches": line.toolpath_text_height,
         "font_name": ref.name,
-        "cutter_diameter": line.cutter_diameter,
+        # The ENGRAVED width (tool + kerf buffer): the renderer's glyph
+        # advance adds a full cutter width between adjacent silhouettes, so
+        # it must measure the ink the tool removes, not the nominal tool.
+        "cutter_diameter": line.effective_cutter_diameter,
         "character_spacing": line.character_spacing,
         "space_width_fraction": line.space_width_fraction,
         "min_glyph_width_fraction": line.min_glyph_width_fraction,
@@ -2131,14 +2134,18 @@ def _font_segment_line(
         run_ladder=True,
         line_cutter=line.cutter_diameter,
     )
+    # The ladder rungs are physical tools; the clone inherits the line's kerf
+    # buffer, so its toolpath compensates for the width each rung engraves
+    # (the clone's effective_cutter_diameter is `rung + line.cutter_buffer`).
+    buffer = line.cutter_buffer
     return replace(
         clone,
         font=font,
         cutter_diameter=run_plain,
-        toolpath_text_height=line.nominal_text_height - run_plain,
+        toolpath_text_height=line.nominal_text_height - (run_plain + buffer),
         bold_cutter_diameter=run_bold if run_bold != run_plain else None,
         bold_toolpath_text_height=(
-            line.nominal_text_height - run_bold if run_bold != run_plain else None
+            line.nominal_text_height - (run_bold + buffer) if run_bold != run_plain else None
         ),
     )
 
@@ -2196,7 +2203,9 @@ def _render_line_block_composed(
         :func:`_render_line_block`.
     """
     space_advance = line.space_width_fraction * line.toolpath_text_height + line.character_spacing
-    cutters = line.per_char_cutters
+    # The ENGRAVED widths (tools + the line's kerf buffer): the cross-font
+    # clearance below is `0.5 * (previous + first)`, a pure ink-to-ink gap.
+    cutters = line.effective_per_char_cutters
     strokes: List[Stroke] = []
     word_groups: List[Tuple[str, List[int]]] = []
     glyph_groups: List[Tuple[int, ...]] = []
@@ -2204,7 +2213,7 @@ def _render_line_block_composed(
     # Right edge of the ink placed so far (absolute); None = kerning broken
     # (start of the line, or a space in between).
     previous_right: Optional[float] = None
-    previous_cutter = line.cutter_diameter
+    previous_cutter = line.effective_cutter_diameter
     for font, start, end in _font_segments(line):
         segment_text = line.plain_text[start:end]
         if segment_text.strip() == "":
@@ -2212,7 +2221,7 @@ def _render_line_block_composed(
                 previous_right if previous_right is not None else cursor
             ) + space_advance * len(segment_text)
             previous_right = None
-            previous_cutter = line.cutter_diameter
+            previous_cutter = line.effective_cutter_diameter
             continue
         clone = _font_segment_line(line, font, start, end)
         block, words, glyphs = _render_line_core(
@@ -2224,7 +2233,7 @@ def _render_line_block_composed(
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - non-blank segments carry ink
             continue
-        first_cutter = _segment_cutter(cutters, start, line.cutter_diameter)
+        first_cutter = _segment_cutter(cutters, start, line.effective_cutter_diameter)
         if previous_right is not None:
             cursor = (
                 previous_right
@@ -2236,11 +2245,14 @@ def _render_line_block_composed(
         # The clone's baseline_shifts carry its own engraved-baseline raise
         # ((run cutter - run cutter)/2 = 0 for plain characters); the parent's
         # frame raises every character by (run cutter - LINE cutter)/2, so the
-        # composer adds the constant difference for the segment.
-        y_offset = (clone.cutter_diameter - line.cutter_diameter) / 2.0
+        # composer adds the constant difference for the segment. The clone
+        # inherits the line's kerf buffer, so the effective and physical
+        # differences are identical; the effective pair states the intent (the
+        # engraved baselines align).
+        y_offset = (clone.effective_cutter_diameter - line.effective_cutter_diameter) / 2.0
         strokes.extend(block.translate(cursor, y_offset).strokes)
         previous_right = cursor + bounds[2]
-        previous_cutter = _segment_cutter(cutters, end - 1, line.cutter_diameter)
+        previous_cutter = _segment_cutter(cutters, end - 1, line.effective_cutter_diameter)
         if words is not None:
             word_groups.extend((word, [i + offset for i in indices]) for word, indices in words)
         glyph_groups.extend(tuple(i + offset for i in indices) for indices in glyphs)
@@ -2431,17 +2443,36 @@ def _split_runs_at_layer(
 
 
 def _run_cutter(line: ResolvedTextLine, first: int) -> float:
-    """Return the cutter the underlined run starting at ``first`` engraves with.
+    """Return the **physical** tool the decorated run starting at ``first`` uses.
 
     Runs are split at layer boundaries (see :func:`_split_runs_at_layer`), so
     the first character's cutter decides the whole run's tool: the line's own
     cutter, its ``<b>`` bold rung, or the run's ``<scale:N>`` effective-height
     cutter.
+
+    This is the TOOL, so it is what keys the ``(cutter, color)`` pen layer
+    returned by :func:`_underline_run_layers` /
+    :func:`_strikethrough_run_layers` (and therefore the per-cutter PLT file
+    the decoration lands on). The width the run engraves -- used to place the
+    underline and pad its gap cuts -- is :func:`_run_effective_cutter`.
     """
     cutters = line.per_char_cutters
     if cutters and first < len(cutters):
         return cutters[first]
     return line.cutter_diameter
+
+
+def _run_effective_cutter(line: ResolvedTextLine, first: int) -> float:
+    """Return the width the decorated run starting at ``first`` engraves.
+
+    :func:`_run_cutter` widened by the line's kerf buffer (see
+    :func:`plt_optimizer.generate.resolution.effective_cutter_diameter`). The
+    underline centerline sits one engraved width below the baseline -- so the
+    ink gap under the text stays exactly ``underline_offset_inches`` whatever
+    the buffer -- and its break cuts pad by half that width, because both
+    measure ink. The pen layer keeps the physical tool.
+    """
+    return _run_cutter(line, first) + line.cutter_buffer
 
 
 def _run_color(line: ResolvedTextLine, first: int) -> str:
@@ -2544,10 +2575,11 @@ def _underline_strokes(
 
     Each maximal underlined run draws one centerline underline spanning its
     first glyph's bounding-box left edge to its last glyph's right edge, at
-    ``cutter_diameter + underline_offset_inches`` below the baseline (so the
-    engraved underline's top edge floats exactly
-    ``underline_offset_fraction * cap height`` below
-    the engraved baseline stroke). The break test is **strictly horizontal**
+    ``effective cutter width + underline_offset_inches`` below the baseline
+    (the run's tool plus the line's ``cutter_buffer`` kerf buffer, see
+    :func:`_run_effective_cutter`, so the engraved underline's top edge
+    floats exactly ``underline_offset_fraction * cap height`` below the
+    engraved baseline stroke at any buffer). The break test is **strictly horizontal**
     and keyed to the underline's **centerline**: a glyph cuts a gap only where
     its ink crosses the centerline (inside a thin band of ``0.2 *
     underline_break_clearance_inches`` around it), so a descender's stem punches
@@ -2612,11 +2644,14 @@ def _underline_strokes(
         if not glyph_positions:
             continue
         span = _run_span(boxes, glyph_positions)
-        # Per-run cutter: the underline is cut with the run's own tool, so a
-        # bold run's centerline sits one bold cutter below the baseline and a
-        # scaled run's one effective-height cutter below it (the runs are split
-        # at cutter boundaries by the gate).
-        cutter = _run_cutter(line, first)
+        # Per-run engraved width: the underline is cut with the run's own tool,
+        # so a bold run's centerline sits one bold cutter below the baseline and
+        # a scaled run's one effective-height cutter below it (the runs are split
+        # at cutter boundaries by the gate). The width includes the line's kerf
+        # buffer, which keeps the ink gap under the text exactly
+        # ``underline_offset_inches`` (the glyph's engraved baseline also sits
+        # half an effective cutter below its centerline).
+        cutter = _run_effective_cutter(line, first)
         line_y = -(cutter + line.underline_offset_inches)
         min_y_seen = line_y if min_y_seen is None else min(min_y_seen, line_y)
         segments = underline_segments(
@@ -3020,12 +3055,16 @@ def _stroke_layer_map(
                         break
             if mapping[index] is not None:
                 continue
-        # An underline stroke: its centerline Y is -(cutter + offset). The
-        # round trip is not float-exact (0.06 + 0.05 back to 0.06 can land one
-        # ulp off), which would key a spurious pen layer, so snap to the
-        # closest cutter the line actually engraves with. The color comes
-        # from the run whose span contains the (gap-cut) segment.
-        recovered = -y - line.underline_offset_inches
+        # An underline stroke: its centerline Y is -(engraved width + offset).
+        # The round trip is not float-exact (0.06 + 0.05 back to 0.06 can land
+        # one ulp off), which would key a spurious pen layer, so it snaps to the
+        # closest cutter the line actually engraves with. The drawn width
+        # includes the line's kerf buffer (see :func:`_underline_strokes`), so
+        # the buffer comes back off before the snap: the pen layer is the
+        # PHYSICAL tool. Without the subtraction a large buffer could snap to a
+        # neighbouring rung the run never uses. The color comes from the run
+        # whose span contains the (gap-cut) segment.
+        recovered = -y - line.underline_offset_inches - line.cutter_buffer
         cutter = min(known, key=lambda known_cutter: abs(known_cutter - recovered))
         color = line_color
         for x_min, x_max, _run_cutter_value, run_color in underline_spans:
@@ -3789,15 +3828,19 @@ def _line_cutter(label: ResolvedLabel, line_index: int) -> float:
     wide-tool-carrying line asks for a touch more air than its own stroke
     strictly needs, which can never engrave a collision.
 
+    The width is the **engraved** one (each tool plus the line's
+    ``cutter_buffer_text`` kerf buffer), because every consumer of this value
+    computes a stroke-to-stroke clearance floor.
+
     Args:
         label: The label being rendered.
         line_index: Index into ``label.content``.
 
     Returns:
-        The line's largest cutter diameter in inches.
+        The line's largest engraved cutter width in inches.
     """
     if 0 <= line_index < len(label.content):
-        return max(label.content[line_index].used_cutters)
+        return label.content[line_index].effective_max_cutter_diameter
     return 0.0  # pragma: no cover - renderable indices always address content
 
 
@@ -4151,7 +4194,7 @@ def _border_required(label: ResolvedLabel, line_index: int) -> float:
     """
     return required_gap(
         _line_cutter(label, line_index),
-        label.hole_cutter_diameter,
+        label.effective_hole_cutter_diameter,
         label.descending_character_clearance,
     )
 
@@ -5522,9 +5565,10 @@ def _render_positioned_lines(
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
         # For alignment: use the user-specified h_margin (visual margin).
-        # For compression: include half the line's cutter diameter so all text
-        # has consistent visual margin from the border.
-        cutter_margin_h = h_margin + (line.cutter_diameter / 2.0)
+        # For compression: include half the width the line's cutter engraves
+        # (tool + kerf buffer) so all text has consistent visual margin from
+        # the border.
+        cutter_margin_h = h_margin + (line.effective_cutter_diameter / 2.0)
         compression_available_width = inner_width - (2 * cutter_margin_h)
         offset = 0.0 if line.marker_text else rendered.indent_left
         compression_available_width -= offset

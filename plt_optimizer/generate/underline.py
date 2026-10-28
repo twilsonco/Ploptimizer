@@ -7,14 +7,17 @@ every line decoration -- the underline and the ``<s>`` strikethrough (which
 needs the runs alone: it engraves them unbroken, so none of the gap-cutting
 geometry below applies to it).
 An underline is a **centerline stroke cut with the line's own text cutter**:
-its centerline sits ``cutter_diameter + underline_offset_inches`` below the
-baseline (``underline_offset_inches`` is the cascaded
-``underline_offset_fraction`` times the line's cap height, resolved by the
-caller; so the engraved underline's top edge floats exactly
-``underline_offset_inches`` below the engraved baseline stroke -- the two
-strokes
-touch at ``0.0``), and it spans each maximal underlined run's ink width
-(the first glyph's bounding-box left edge to the last glyph's right edge).
+its centerline sits ``cutter + underline_offset_inches`` below the baseline,
+where ``cutter`` is the width that cutter **engraves** (the physical tool plus
+the line's ``cutter_buffer_text`` kerf buffer -- the caller passes
+:attr:`ResolvedTextLine.effective_cutter_diameter`, and ``underline_offset_inches``
+is the cascaded ``underline_offset_fraction`` times the line's cap height).
+Because the buffer widens the underline's position and its own stroke by the
+same amount, the engraved underline's top edge floats exactly
+``underline_offset_inches`` below the engraved baseline stroke **at any buffer**
+-- the two strokes touch at ``0.0``. It spans each maximal underlined run's ink
+width (the first glyph's bounding-box left edge to the last glyph's right
+edge).
 
 The TODO contract is *minimal breaking*: a **descending** glyph cuts a gap
 into the underline where it crosses *through* it. The test is **strictly
@@ -236,7 +239,8 @@ def underline_segments(
         span: ``(x_min, x_max)`` of the underline (the run's first glyph's
             bbox left to its last glyph's bbox right).
         line_y: The underline centerline's Y (the band is centered on it).
-        cutter: The cutter diameter cutting both the underline and the glyphs.
+        cutter: The ENGRAVED width of the cutter cutting both the underline
+            and the glyphs (tool + kerf buffer).
             The cut is padded by ``0.5 * cutter + clearance``: the half cutter
             is the glyph stroke's own half-width (the ink is a centerline).
         clearance: Horizontal air left at each cut edge (and the source of the

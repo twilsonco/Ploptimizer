@@ -566,3 +566,80 @@ class TestHoleAwareShiftInCollisionDetection:
 
         shifted = replace(base, hole_aware_vertical_shift_inches=-0.2)
         assert detect_text_hole_collisions(shifted, entries) == []
+
+
+class TestKerfBufferThreshold:
+    """The collision stroke floor measures ENGRAVED widths, not nominal tools."""
+
+    def test_text_buffer_widens_the_floor(self) -> None:
+        """A line's cutter_buffer_text raises its own threshold."""
+        label = _label(hole_text_collision_distance=0.15, hole_cutter_diameter=0.015)
+        plain = replace(label, content=[replace(_make_line("A"), cutter_buffer=0.0)])
+        buffered = replace(label, content=[replace(_make_line("A"), cutter_buffer=0.01)])
+        # 0.5 * (0.015 + 0.03) + 0.15 vs 0.5 * (0.015 + 0.04) + 0.15
+        assert collision_threshold(plain, 0) == pytest.approx(0.5 * (0.015 + 0.03) + 0.15)
+        assert collision_threshold(buffered, 0) == pytest.approx(0.5 * (0.015 + 0.04) + 0.15)
+
+    def test_routing_buffer_widens_the_floor(self) -> None:
+        """The boundary/hole buffer feeds the same floor as the text buffer."""
+        label = _label(hole_text_collision_distance=0.15, hole_cutter_diameter=0.015)
+        buffered = replace(label, hole_cutter_buffer=0.045)
+        assert collision_threshold(buffered, 0) == pytest.approx(0.5 * (0.06 + 0.03) + 0.15)
+
+    def test_zero_buffers_reproduce_the_legacy_floor(self) -> None:
+        """0.0 on both tiers is the identity (the historical geometry)."""
+        label = _label(
+            hole_text_collision_distance=0.15,
+            hole_cutter_diameter=0.015,
+        )
+        legacy = replace(label, hole_cutter_buffer=0.0)
+        legacy = replace(
+            legacy, content=[replace(line, cutter_buffer=0.0) for line in legacy.content]
+        )
+        assert collision_threshold(label, 0) == pytest.approx(collision_threshold(legacy, 0))
+
+    def test_widest_engraved_rung_sets_the_floor(self) -> None:
+        """A <b> line's floor uses its widest ENGRAVED width, not the plain tool."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        label = _label(hole_text_collision_distance=0.0, hole_cutter_diameter=0.0)
+        line = replace(
+            _make_line("aB"),
+            cutter_diameter=0.03,
+            bold_cutter_diameter=0.045,
+            cutter_buffer=0.01,
+            plain_text="aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(bold=True))),
+        )
+        assert line.used_cutters == pytest.approx((0.03, 0.045))
+        assert line.effective_max_cutter_diameter == pytest.approx(0.055)
+        buffered = replace(label, content=[line])
+        # 0.5 * (hole 0.0 + widest engraved width 0.055)
+        assert collision_threshold(buffered, 0) == pytest.approx(0.5 * 0.055)
+
+    def test_buffer_creates_a_collision_the_legacy_floor_misses(self) -> None:
+        """A gap that clears the nominal floor can bleed under the engraved one."""
+        # 0.25in holes at a margin leaving a gap between the legacy floor
+        # (0.5 * (0.015 + 0.03) = 0.0225) and the buffered floor
+        # (0.5 * (0.06 + 0.04) = 0.05).
+        kwargs = {
+            "text": "HELLO",
+            "holes": BOTTOM_HOLE,
+            "height": 1.25,
+            "hole_margin": 0.10,
+            "hole_text_collision_distance": 0.0,
+            "hole_cutter_diameter": 0.015,
+        }
+        legacy = replace(
+            _label(**kwargs), content=[replace(_make_line("HELLO"), cutter_buffer=0.0)]
+        )
+        _lc, legacy_entries = _render_text_local_with_bounds(legacy)
+        assert detect_text_hole_collisions(legacy, legacy_entries) == []
+
+        buffered = replace(
+            _label(**kwargs),
+            hole_cutter_buffer=0.045,
+            content=[replace(_make_line("HELLO"), cutter_buffer=0.01)],
+        )
+        _lc, buffered_entries = _render_text_local_with_bounds(buffered)
+        assert len(detect_text_hole_collisions(buffered, buffered_entries)) >= 1

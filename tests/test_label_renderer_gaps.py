@@ -25,6 +25,7 @@ vpype/numpy objects directly -- production source is never modified.
 from __future__ import annotations
 
 import dataclasses
+import math
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Callable, Optional
@@ -1487,3 +1488,128 @@ class TestTextColorLayerHelpers:
             )
         )
         assert _underline_run_layers(line, block, ((0,), (1,))) == ()
+
+
+class TestKerfBufferedDecorations:
+    """The underline draws at the ENGRAVED width and lands on the PHYSICAL pen.
+
+    ``_run_cutter`` keys the ``(cutter, color)`` pen layer (so it must stay the
+    nominal tool -- a 0.030in cutter belongs on the 30 file), while
+    ``_run_effective_cutter`` places the drawn centerline one engraved width
+    below the baseline. ``_stroke_layer_map`` inverts the centerline Y back into
+    a tool, so the inversion must subtract the buffer: without it a large buffer
+    snaps the underline to a neighbouring rung the run never engraves with,
+    silently routing its strokes to the wrong pen/PLT file.
+    """
+
+    def _buffered(self, text: str, buffer: float, **kwargs: object) -> ResolvedTextLine:
+        """Build a markup line carrying a kerf buffer."""
+        import dataclasses
+
+        from plt_optimizer.generate.markup import parse_markup
+
+        styled = parse_markup(text, "<", ">")
+        line = ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - (0.06 + buffer),
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            cutter_buffer=buffer,
+            **kwargs,  # type: ignore[arg-type]
+        )
+        return dataclasses.replace(line, plain_text=styled.plain_text, styled_runs=styled.runs)
+
+    def test_run_cutter_is_physical_run_effective_is_widened(self) -> None:
+        """The two accessors split tool from width."""
+        from plt_optimizer.generate.label_renderer import (
+            _run_cutter,
+            _run_effective_cutter,
+        )
+
+        line = self._buffered("a<u>b<c:0.03>c</c></u>", 0.02, scale_cutter_inventory=(0.03, 0.06))
+        # Run 0 starts at the plain 'b' (0.06); run 1 at the overridden 'c'.
+        assert _run_cutter(line, 1) == pytest.approx(0.06)
+        assert _run_effective_cutter(line, 1) == pytest.approx(0.08)
+        assert _run_cutter(line, 2) == pytest.approx(0.03)
+        assert _run_effective_cutter(line, 2) == pytest.approx(0.05)
+
+    def test_underline_pen_snaps_to_the_physical_tool(self) -> None:
+        """The Y-inversion recovers the TOOL, not the engraved width.
+
+        The <c:0.03> run's underline draws at 0.03 + 0.02 = 0.05 below the
+        baseline. 0.05 is closer to the line's own 0.06 rung than to 0.03, so a
+        recovery that forgot to subtract the buffer would key the (0.06, color)
+        pen and put the stroke in the wrong PLT file.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_layer_map,
+        )
+
+        line = self._buffered("a<u>b<c:0.03>c</c></u>", 0.02, scale_cutter_inventory=(0.03, 0.06))
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        layers = _stroke_layer_map(line, block, glyphs)
+        assert len(layers) == len(block.strokes)
+        cutters = {cutter for cutter, _color in layers}
+        # Only the two PHYSICAL tools may appear -- never 0.05 / 0.08.
+        assert cutters == {0.03, 0.06}
+
+        # The <c:0.03> run's underline draws at 0.03 + 0.02 = 0.05 below the
+        # baseline, which is CLOSER to the line's own 0.06 rung than to 0.03.
+        # Recovering the tool from the Y without subtracting the buffer would
+        # snap it to 0.06 and route the stroke to the wrong pen/PLT file, so
+        # the stroke at that depth must key on its own 0.03 tool.
+        target_y = -(0.03 + line.cutter_buffer + line.underline_offset_inches)
+        indices = [
+            index
+            for index, stroke in enumerate(block.strokes)
+            if stroke.segments
+            and math.isclose(stroke.segments[0].start.imag, target_y, abs_tol=1e-9)
+        ]
+        assert indices, "expected the <c:0.03> run's underline stroke"
+        for index in indices:
+            assert layers[index][0] == pytest.approx(0.03)
+
+    def test_underline_centerline_sits_one_engraved_width_below(self) -> None:
+        """The drawn stroke floats ``underline_offset_inches`` under the ink."""
+        from plt_optimizer.generate.label_renderer import TextChunkMode, _render_line_block
+
+        line = self._buffered("<u>AB</u>", 0.02)
+        block, _words, _glyphs = _render_line_block(line, TextChunkMode.LINE)
+        # The centerline baseline sits at y = 0 in the line's own frame; the
+        # underline is the only geometry below it.
+        below = [
+            stroke.segments[0].start.imag
+            for stroke in block.strokes
+            if stroke.segments and stroke.segments[0].start.imag < 0.0
+        ]
+        assert below
+        deepest = min(below)
+        assert deepest == pytest.approx(
+            -(line.effective_cutter_diameter + line.underline_offset_inches)
+        )
+        # The legacy placement (nominal tool only) is one buffer higher.
+        legacy = -(line.cutter_diameter + line.underline_offset_inches)
+        assert deepest == pytest.approx(legacy - line.cutter_buffer)
+
+    def test_zero_buffer_reproduces_the_legacy_geometry(self) -> None:
+        """A 0.0 buffer keeps the historical centerline and pen split."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _run_effective_cutter,
+            _stroke_layer_map,
+        )
+
+        legacy = _markup_line("a<u>b<c:0.03>c</c></u>", scale_cutter_inventory=(0.03, 0.06))
+        zeroed = self._buffered("a<u>b<c:0.03>c</c></u>", 0.0, scale_cutter_inventory=(0.03, 0.06))
+        assert _run_effective_cutter(zeroed, 1) == pytest.approx(_run_effective_cutter(legacy, 1))
+        lb, _lw, lg = _render_line_block(legacy, TextChunkMode.LINE)
+        zb, _zw, zg = _render_line_block(zeroed, TextChunkMode.LINE)
+        assert _stroke_layer_map(zeroed, zb, zg) == _stroke_layer_map(legacy, lb, lg)
+        assert [(s.pen_up, tuple((g.start, g.end) for g in s.segments)) for s in zb.strokes] == [
+            (s.pen_up, tuple((g.start, g.end) for g in s.segments)) for s in lb.strokes
+        ]

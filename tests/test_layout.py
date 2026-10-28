@@ -2053,3 +2053,63 @@ class TestRoundLabelPacking:
         )
         kerf = first.source_label.hole_cutter_diameter
         assert centre_distance >= 2.0 + kerf - 1e-9
+
+
+class TestKerfBufferedRoundPacking:
+    """The inter-label round kerf is the ENGRAVED border width.
+
+    Adjacent ellipse borders are cut by the boundary/hole tool, so two labels
+    keep the widest engraved border stroke of the group edge-to-edge -- the
+    tool plus its ``cutter_buffer_routing`` kerf buffer, not the nominal
+    diameter. A 0.0 buffer is the identity, which is why every round-packing
+    test above is unchanged.
+    """
+
+    @staticmethod
+    def _rounds(cutter: float, buffer: float, **kwargs: object) -> list[ResolvedLabel]:
+        """Build three 3in round labels sharing a hole tool and kerf buffer."""
+        return [
+            _make_round_label(
+                "c0",
+                3.0,
+                3.0,
+                count=3,
+                hole_cutter_diameter=cutter,
+                hole_cutter_buffer=buffer,
+            )
+        ]
+
+    def test_buffer_widens_the_kerf(self) -> None:
+        """A 0.015 tool engraving 0.06 keeps 0.06 of border kerf."""
+        labels = self._rounds(0.015, 0.045)
+        plates = generate_layout(
+            labels, [PlateSpec(id="p0", width=24.0, height=16.0)], layout=LayoutMode.COLUMNS
+        )
+        # One column of 3in circles: used width = one circle + half the kerf.
+        used = max(packed.x + packed.width for packed in plates[0].labels)
+        assert used == pytest.approx(3.0 + 0.06 / 2.0)
+
+    def test_zero_buffer_keeps_the_nominal_kerf(self) -> None:
+        """The legacy spacing: the kerf is exactly the physical tool."""
+        labels = self._rounds(0.015, 0.0)
+        plates = generate_layout(
+            labels, [PlateSpec(id="p0", width=24.0, height=16.0)], layout=LayoutMode.COLUMNS
+        )
+        used = max(packed.x + packed.width for packed in plates[0].labels)
+        assert used == pytest.approx(3.0 + 0.015 / 2.0)
+
+    def test_group_kerf_is_the_widest_engraved_border(self) -> None:
+        """``_round_clearance`` takes the max ENGRAVED width of the pass."""
+        from plt_optimizer.generate.packing.layout import _round_clearance
+
+        legacy = _make_round_label(
+            "a", 3.0, 3.0, hole_cutter_diameter=0.015, hole_cutter_buffer=0.0
+        )
+        buffered = _make_round_label(
+            "b", 3.0, 3.0, hole_cutter_diameter=0.015, hole_cutter_buffer=0.045
+        )
+        # The entry payload is (rectpack id, label); only the label is read.
+        entries = [(3.0, 3.0, (0, legacy)), (3.0, 3.0, (1, buffered))]
+        assert _round_clearance(entries[:1]) == pytest.approx(0.015)
+        assert _round_clearance(entries) == pytest.approx(0.06)
+        assert _round_clearance([]) == pytest.approx(DEFAULT_ROUND_CLEARANCE_IN)

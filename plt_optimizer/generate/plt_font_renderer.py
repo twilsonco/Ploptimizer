@@ -786,8 +786,11 @@ def _walk_line(
         target_height_inches: Desired reference-character (cap) height in
             inches; the whole line scales uniformly from it.
         font_name: PLT-extracted font name (case-insensitive).
-        cutter_diameter: Resolved text cutter diameter in inches; part of
-            the kerning clearance so engraved strokes never bleed together.
+        cutter_diameter: Resolved text cutter **engraved width** in inches
+            (the physical tool plus the line's ``cutter_buffer_text`` kerf
+            buffer, see :attr:`ResolvedTextLine.effective_cutter_diameter`
+            in ``resolution.py``); part of the kerning clearance so engraved
+            strokes never bleed together.
         character_spacing: Extra user spacing between characters in inches.
         space_width_fraction: Space advance as a fraction of
             ``target_height_inches`` (``None`` falls back to
@@ -848,9 +851,10 @@ def _walk_line(
         italic_flags: Per-character italic selection aligned with ``text``
             (one flag per character, spaces included); only consulted when
             :attr:`italic_tan` is set. ``None`` shears every character.
-        cutter_diameters: Per-character resolved cutter diameters in inches
-            (``<b>`` bold markup: bold characters carry the line's thicker
-            bold cutter, every other character the plain one), aligned with
+        cutter_diameters: Per-character resolved cutter ENGRAVED widths in
+            inches (the physical tool plus the line's ``cutter_buffer_text``
+            kerf buffer; ``<b>`` bold markup: bold characters carry the line's
+            thicker bold cutter, every other character the plain one), aligned with
             ``text`` (spaces included -- a space carries no ink, so its
             entry only feeds the pair clearances). Each kerned pair's
             clearance becomes ``0.5 * (diameter_left + diameter_right) +
@@ -1233,8 +1237,11 @@ def render_text_line_plt_font_with_words(
         target_height_inches: Desired reference-character (cap) height in
             inches; the whole line scales uniformly from it.
         font_name: PLT-extracted font name (case-insensitive).
-        cutter_diameter: Resolved text cutter diameter in inches; part of
-            the kerning clearance so engraved strokes never bleed together.
+        cutter_diameter: Resolved text cutter **engraved width** in inches
+            (the physical tool plus the line's ``cutter_buffer_text`` kerf
+            buffer, see :attr:`ResolvedTextLine.effective_cutter_diameter`
+            in ``resolution.py``); part of the kerning clearance so engraved
+            strokes never bleed together.
         character_spacing: Extra user spacing between characters in inches.
         space_width_fraction: Space advance as a fraction of
             ``target_height_inches`` (``None`` falls back to
@@ -1369,7 +1376,8 @@ def render_text_line_plt_font_with_glyphs(
         target_height_inches: Desired reference-character (cap) height in
             inches; the whole line scales uniformly from it.
         font_name: PLT-extracted font name (case-insensitive).
-        cutter_diameter: Resolved text cutter diameter in inches.
+        cutter_diameter: Resolved text cutter engraved width in inches (the
+            physical tool plus the line's kerf buffer).
         character_spacing: Extra user spacing between characters in inches.
         space_width_fraction: Space advance fraction (``None`` = default).
         min_glyph_width_fraction: Minimum glyph advance width as a fraction
@@ -1482,7 +1490,8 @@ def render_text_line_plt_font(
         target_height_inches: Desired reference-character (cap) height in
             inches.
         font_name: PLT-extracted font name (case-insensitive).
-        cutter_diameter: Resolved text cutter diameter in inches.
+        cutter_diameter: Resolved text cutter engraved width in inches (the
+            physical tool plus the line's kerf buffer).
         character_spacing: Extra user spacing between characters in inches.
         space_width_fraction: Space advance as a fraction of
             ``target_height_inches`` (``None`` falls back to

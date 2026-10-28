@@ -68,6 +68,12 @@ def collision_threshold(label: ResolvedLabel, line_index: int) -> float:
     ``threshold = 0.5 * (hole_cutter + text_cutter[line]) +
     hole_text_collision_distance``
 
+    Both cutters are the **engraved** widths (the physical tool plus its
+    cascaded kerf buffer -- see :func:`resolution.effective_cutter_diameter`),
+    not the nominal diameters: a roughly 45-degree-flank V-bit removes more
+    material than its name suggests, and the collision floor is exactly a
+    width-of-material-removed question.
+
     A gap at or above the threshold is safe (strokes are separated by at
     least ``hole_text_collision_distance``); below it the engraved strokes
     bleed into each other.
@@ -82,13 +88,13 @@ def collision_threshold(label: ResolvedLabel, line_index: int) -> float:
     """
     if 0 <= line_index < len(label.content):
         line = label.content[line_index]
-        # The widest tool the line uses: a ``<b>`` line's bold run engraves
-        # thicker, a large ``<scale:N>`` run engraves with a larger tool, and
-        # the whole-line AABB is measured against it.
-        text_cutter = max(line.used_cutters)
+        # The widest stroke the line engraves: a ``<b>`` line's bold run
+        # engraves thicker, a large ``<scale:N>`` run engraves with a larger
+        # tool, and the whole-line AABB is measured against it.
+        text_cutter = line.effective_max_cutter_diameter
     else:  # Defensive: unknown line (should not happen) assumes no stroke.
         text_cutter = 0.0
-    stroke_floor = 0.5 * (label.hole_cutter_diameter + text_cutter)
+    stroke_floor = 0.5 * (label.effective_hole_cutter_diameter + text_cutter)
     return stroke_floor + label.hole_text_collision_distance
 
 

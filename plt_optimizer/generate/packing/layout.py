@@ -1491,9 +1491,10 @@ def _round_clearance(entries: Sequence[_RectEntry]) -> float:
     """Return the inter-label kerf for one round packing pass, inches.
 
     Ellipse borders are cut by the boundary/hole tool, so two adjacent
-    round labels keep at least the widest boundary cutter of the group
-    edge-to-edge (the engraved border strokes never touch). Falls back to
-    the ellipse packer's 1/16in default when the labels carry no cutter
+    round labels keep at least the widest engraved border stroke of the
+    group edge-to-edge (the border ink never touches; the cutter width
+    includes the `cutter_buffer_routing` kerf buffer). Falls back to the
+    ellipse packer's 1/16in default when the labels carry no cutter
     information.
 
     Args:
@@ -1502,7 +1503,7 @@ def _round_clearance(entries: Sequence[_RectEntry]) -> float:
     Returns:
         The kerf/spacing clearance, inches.
     """
-    cutters = [entry[2][1].hole_cutter_diameter for entry in entries]
+    cutters = [entry[2][1].effective_hole_cutter_diameter for entry in entries]
     return max(cutters, default=DEFAULT_ROUND_CLEARANCE_IN)
 
 

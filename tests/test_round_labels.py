@@ -618,3 +618,84 @@ class TestRoundLabelToolpathArcNative:
         rendered = render_label_to_plt(self._round_label("ELLIPSE"))
         assert rendered.width == pytest.approx(4.0, abs=3e-3)
         assert rendered.height == pytest.approx(2.0, abs=3e-3)
+
+
+class TestKerfBufferedHoles:
+    """``cutter_buffer_routing`` widens the hole tool into its engraved width.
+
+    The compensation and the edge offset are width-of-material-removed
+    questions, so both consume
+    :attr:`ResolvedLabel.effective_hole_cutter_diameter` (the physical tool
+    plus the buffer). A 0.0 buffer is the identity, which is why every
+    existing hole test above is unchanged.
+    """
+
+    _CUTTER = 0.015
+    _BUFFER = 0.045
+
+    @classmethod
+    def _label(cls, *, buffer: float, adjust: bool = True, diameter: float = 0.25):
+        """Build a rect label with one left hole and the given routing buffer."""
+        from dataclasses import replace
+
+        label = _label(
+            "rect",
+            width=4.0,
+            height=2.0,
+            holes=[_hole("left", diameter)],
+        )
+        return replace(
+            label,
+            hole_adjust_for_cutter=adjust,
+            hole_cutter_diameter=cls._CUTTER,
+            hole_cutter_buffer=buffer,
+        )
+
+    def test_effective_property_adds_the_buffer(self) -> None:
+        label = self._label(buffer=self._BUFFER)
+        assert label.hole_cutter_diameter == pytest.approx(self._CUTTER)
+        assert label.effective_hole_cutter_diameter == pytest.approx(self._CUTTER + self._BUFFER)
+
+    def test_zero_buffer_is_the_identity(self) -> None:
+        label = self._label(buffer=0.0)
+        assert label.effective_hole_cutter_diameter == pytest.approx(label.hole_cutter_diameter)
+
+    def test_emitted_radius_shrinks_by_the_engraved_width(self) -> None:
+        """The engraved hole keeps the specified diameter under a wider kerf."""
+        (_cx, _cy, radius) = hole_circles_local(self._label(buffer=self._BUFFER))[0]
+        # Specified 0.25 cut by a 0.015 tool engraving 0.06: the path circle
+        # loses the full engraved width (half on each side).
+        assert radius == pytest.approx((0.25 - (self._CUTTER + self._BUFFER)) / 2.0)
+
+    def test_centre_offset_grows_by_half_the_buffer(self) -> None:
+        """hole_margin + engraved/2 + specified/2 keeps the stroke edge at margin."""
+        (_x0, y0, _r0) = hole_circles_local(self._label(buffer=0.0))[0]
+        (_x1, y1, _r1) = hole_circles_local(self._label(buffer=self._BUFFER))[0]
+        # A left hole centres vertically: the offset carries the engraved/2 term.
+        assert y0 == pytest.approx(1.0)
+        assert y1 == pytest.approx(1.0)
+        # The X offset is where the cutter term lives.
+        assert _x1 - _x0 == pytest.approx(self._BUFFER / 2.0)
+
+    def test_centres_stay_specified_radius_driven(self) -> None:
+        """The centre never uses the engraved width for the hole's own radius."""
+        label = self._label(buffer=self._BUFFER)
+        (cx, _cy, _r) = hole_circles_local(label)[0]
+        expected = label.hole_margin + (label.effective_hole_cutter_diameter / 2.0) + 0.125
+        assert cx == pytest.approx(expected)
+
+    def test_compensation_off_emits_the_specified_radius(self) -> None:
+        """hole_adjust_for_cutter: false ignores the buffer for the radius."""
+        (_cx, _cy, radius) = hole_circles_local(self._label(buffer=self._BUFFER, adjust=False))[0]
+        assert radius == pytest.approx(0.125)
+
+    def test_tiny_hole_clamps_and_warns_naming_the_buffer(self, caplog) -> None:
+        """A hole below the ENGRAVED width clamps, and the warning says why."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.collision.holes"):
+            (_cx, _cy, radius) = hole_circles_local(
+                self._label(buffer=self._BUFFER, diameter=0.05)
+            )[0]
+        assert radius == pytest.approx(1.0 / 1016.0)
+        assert "kerf buffer" in caplog.text

@@ -231,15 +231,20 @@ class DescenderFix:
 def required_gap(upper_cutter: float, lower_cutter: float, clearance: float) -> float:
     """Return the clearance a glyph pair must keep to count as safe.
 
-    The stroke floor is half each line's cutter diameter: two engraved
-    strokes whose centre-lines come closer than that overlap. The configured
+    The stroke floor is half each line's cutter width: two engraved strokes
+    whose centre-lines come closer than that overlap. The configured
     ``descending_character_clearance`` is a **unitless factor of that floor**
     (``required = floor * (1 + clearance)``), so the demanded air scales with
     the cutter width and reads the same at every text size.
 
+    The function is pure; callers pass the **engraved** widths (the physical
+    tool plus its ``cutter_buffer_text`` / ``cutter_buffer_routing`` kerf
+    buffer) because a clearance floor is a width-of-material-removed question.
+
     Args:
-        upper_cutter: Cutter diameter of the descending glyph's line, inches.
-        lower_cutter: Cutter diameter of the following line, inches.
+        upper_cutter: Engraved cutter width of the descending glyph's line,
+            inches.
+        lower_cutter: Engraved cutter width of the following line, inches.
         clearance: Extra air as a fraction of the stroke floor
             (``descending_character_clearance``); ``0.0`` = touching only.
 

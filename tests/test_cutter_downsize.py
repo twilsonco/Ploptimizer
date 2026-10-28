@@ -1183,3 +1183,87 @@ class TestOriginalCutterFollowsDownsize:
         assert math.isclose(line.cutter_diameter, 0.06)
         assert math.isclose(line.per_char_cutters[5], 0.06)
         assert line.used_cutters == (0.06,)
+
+
+class TestKerfBufferedDownsize:
+    """The ladder walks PHYSICAL tools; the re-measured height uses engraved widths.
+
+    The buffer is a per-line constant, so the midpoint trigger's
+    ``next/current`` ratio is identical either way -- the ladder deliberately
+    stays on the shop's real tool list (the report and the PLT file names key
+    on it), while every toolpath height compensates for the kerf.
+    """
+
+    def test_downsize_keeps_physical_rungs_and_buffers_the_height(self) -> None:
+        """0.09 -> 0.06 (a real inventory rung), height = nominal - (0.06 + buf)."""
+        line = dataclasses.replace(_line("WIDE", cutter=0.09), cutter_buffer=0.01)
+        out = apply_compression_cutter_downsize(
+            [_label("l1", line)], _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        result = out[0].content[0]
+        assert math.isclose(result.cutter_diameter, 0.06)
+        assert result.cutter_buffer == pytest.approx(0.01)
+        assert result.effective_cutter_diameter == pytest.approx(0.07)
+        assert math.isclose(result.toolpath_text_height, 0.5 - 0.07)
+
+    def test_reported_pair_stays_physical(self) -> None:
+        """``cutter_downsize_by_line`` names the tools, not the engraved widths."""
+        line = dataclasses.replace(_line("WIDE", cutter=0.09), cutter_buffer=0.01)
+        out = apply_compression_cutter_downsize(
+            [_label("l1", line)], _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        assert out[0].cutter_downsize_by_line == {0: (0.09, 0.06)}
+
+    def test_zero_buffer_reproduces_the_legacy_height(self) -> None:
+        """A 0.0 buffer is the identity: height = nominal - candidate."""
+        out = apply_compression_cutter_downsize(
+            [_label("l1", _line("WIDE", cutter=0.09))],
+            _INVENTORY,
+            probe=_probe({0.09: 0.80}),
+        )
+        result = out[0].content[0]
+        assert math.isclose(result.toolpath_text_height, 0.5 - 0.06)
+
+    def test_buffer_survives_every_clone(self) -> None:
+        """A multi-step walk keeps the line's buffer on each step."""
+        line = dataclasses.replace(
+            _line("WIDE", cutter=0.125, max_cutter_downsizes=2), cutter_buffer=0.005
+        )
+        out = apply_compression_cutter_downsize(
+            [_label("l1", line)], _INVENTORY, probe=_probe({0.125: 0.80, 0.09: 0.80})
+        )
+        result = out[0].content[0]
+        assert math.isclose(result.cutter_diameter, 0.06)
+        assert result.cutter_buffer == pytest.approx(0.005)
+        assert math.isclose(result.toolpath_text_height, 0.5 - 0.065)
+
+    def test_bold_lockstep_height_uses_the_effective_rung(self) -> None:
+        """The bold rung steps down physically; its height compensates."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        line = dataclasses.replace(
+            _line("aB", cutter=0.09),
+            cutter_buffer=0.01,
+            bold_cutter_diameter=0.125,
+            bold_toolpath_text_height=0.5 - 0.125,
+            plain_text="aB",
+            styled_runs=(Run("a", PLAIN), Run("B", Style(bold=True))),
+        )
+        out = apply_compression_cutter_downsize(
+            [_label("l1", line)], _INVENTORY, probe=_probe({0.09: 0.80})
+        )
+        result = out[0].content[0]
+        assert math.isclose(result.cutter_diameter, 0.06)
+        assert math.isclose(result.bold_cutter_diameter, 0.09)
+        assert math.isclose(result.bold_toolpath_text_height, 0.5 - 0.10)
+
+    def test_step_refused_when_the_engraved_width_leaves_no_material(self) -> None:
+        """The floor guard measures ink: nominal - (candidate + buffer) > 0."""
+        # nominal 0.07, candidate 0.06, buffer 0.02 -> 0.07 - 0.08 <= 0: no step,
+        # even though the physical tool alone (0.07 - 0.06) would have fitted.
+        line = dataclasses.replace(_line("WIDE", nominal=0.07, cutter=0.09), cutter_buffer=0.02)
+        out = apply_compression_cutter_downsize(
+            [_label("l1", line)], [0.06, 0.09], probe=_probe({0.09: 0.50})
+        )
+        assert out[0].content[0].cutter_diameter == pytest.approx(0.09)
+        assert out[0].cutter_downsize_by_line == {}

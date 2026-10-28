@@ -36,20 +36,26 @@ def hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]]
     """Compute drill-hole circles in the label's local coordinate space.
 
     Each circle center is inset from the relevant edge(s) by ``hole_margin +
-    half the hole cutter diameter + radius``, so the closest point of the
-    circle's stroke sits exactly ``label.hole_margin`` inches from the label
-    boundary. This ensures consistent spacing regardless of hole cutter size.
-    The centre is always placed from the **specified** (nominal) hole
+    half the engraved hole-cutter width + radius``, so the closest point of
+    the circle's stroke sits exactly ``label.hole_margin`` inches from the
+    label boundary. This ensures consistent spacing regardless of hole cutter
+    size. The centre is always placed from the **specified** (nominal) hole
     diameter, so hole positions are independent of
     ``label.hole_adjust_for_cutter``.
 
+    The cutter width is ``label.effective_hole_cutter_diameter`` -- the
+    physical tool widened by the cascaded ``cutter_buffer_routing`` kerf
+    buffer -- so the compensation matches the material the machine actually
+    removes. A 0.0 buffer (the code default) reproduces the historical
+    nominal-diameter behaviour exactly.
+
     The returned **radius** is the emitted (engraved) one: with
-    ``label.hole_adjust_for_cutter`` enabled it shrinks by half the hole
-    cutter diameter, so the cutter's own stroke -- half a cutter width on
-    each side of the path -- brings the finished hole up to the specified
-    diameter (see :func:`hole_engraved_radius`). Both the emitted ``AA``
-    arcs and the text-hole collision checks consume these circles, so a
-    collision check always measures the circle that is actually engraved.
+    ``label.hole_adjust_for_cutter`` enabled it shrinks by half the engraved
+    cutter width, so the cutter's own stroke -- half a cutter width on each
+    side of the path -- brings the finished hole up to the specified diameter
+    (see :func:`hole_engraved_radius`). Both the emitted ``AA`` arcs and the
+    text-hole collision checks consume these circles, so a collision check
+    always measures the circle that is actually engraved.
 
     Args:
         label: The resolved label whose ``holes`` should be measured.
@@ -64,18 +70,18 @@ def hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]]
 
     for hole in label.holes:
         # The centre rides the SPECIFIED diameter (positions never move);
-        # the emitted radius is the cutter-compensated one.
+        # the emitted radius is the cutter-compensated one, compensated for
+        # the width the tool ENGRAVES (nominal cutter + kerf buffer).
         center_radius = hole.diameter / 2.0
-        radius = hole_engraved_radius(
-            hole.diameter, label.hole_cutter_diameter, label.hole_adjust_for_cutter
-        )
+        engraved_cutter = label.effective_hole_cutter_diameter
+        radius = hole_engraved_radius(hole.diameter, engraved_cutter, label.hole_adjust_for_cutter)
         if (
             label.hole_adjust_for_cutter
-            and hole.diameter - label.hole_cutter_diameter < 2.0 * MIN_HOLE_EMITTED_RADIUS_INCHES
+            and hole.diameter - engraved_cutter < 2.0 * MIN_HOLE_EMITTED_RADIUS_INCHES
         ):
             logger.warning(
                 "Label %s: %s drill hole of %.4fin cannot be cutter-compensated "
-                "with a %.4fin cutter (the tool alone is at least the target "
+                "with a %.4fin cutter%s (the tool alone is at least the target "
                 "hole); emitting the smallest possible circle (%.4fin diameter) "
                 "at the specified centre. Increase the hole diameter above the "
                 "cutter size, or set hole_adjust_for_cutter: false.",
@@ -83,13 +89,18 @@ def hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]]
                 hole.location,
                 hole.diameter,
                 label.hole_cutter_diameter,
+                (
+                    f" engraving {engraved_cutter:.4f}in with the kerf buffer"
+                    if not math.isclose(engraved_cutter, label.hole_cutter_diameter, abs_tol=1e-12)
+                    else ""
+                ),
                 2.0 * MIN_HOLE_EMITTED_RADIUS_INCHES,
             )
         # Distance from the edge to the hole center: the requested hole
-        # margin plus half the hole cutter diameter (for visual consistency)
-        # plus the specified radius, so the circle's stroke edge sits exactly
-        # hole_margin inches away from the edge.
-        offset = label.hole_margin + (label.hole_cutter_diameter / 2.0) + center_radius
+        # margin plus half the engraved hole-cutter width (for visual
+        # consistency) plus the specified radius, so the circle's stroke edge
+        # sits exactly hole_margin inches away from the edge.
+        offset = label.hole_margin + (engraved_cutter / 2.0) + center_radius
         location = str(hole.location)
 
         if is_round and location in corner_locations:
