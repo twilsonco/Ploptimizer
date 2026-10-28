@@ -550,11 +550,7 @@ def _arc_key(center: Coordinate, sweep_angle: float) -> ArcKey:
     engraved width, so the key is collision-safe.
     """
     center_units = (int(round(center.x)), int(round(center.y)))
-    magnitude = abs(sweep_angle)
-    # Match _format_segment's emission precision (int text, else 3 decimals)
-    # so the parsed float(parts[2]) lands on exactly this value.
-    magnitude = float(int(magnitude)) if magnitude == int(magnitude) else float(f"{magnitude:.3f}")
-    return (center_units, magnitude)
+    return arc_width_key(center_units, sweep_angle)
 
 
 def line_width_key(start: Tuple[int, int], end: Tuple[int, int]) -> StrokeKey:
@@ -566,6 +562,19 @@ def line_width_key(start: Tuple[int, int], end: Tuple[int, int]) -> StrokeKey:
     to one plotter unit off the map keys).
     """
     return _normalized_key(start, end)
+
+
+def arc_width_key(center_units: Tuple[int, int], sweep_angle: float) -> ArcKey:
+    """Return the width-map key of an arc from integer center units + sweep.
+
+    Public for the preview lookup's ±1-unit center probe: the same assembly
+    centering that drifts a line's endpoints shifts every ``AA`` center Y by
+    its own rounding of the shared adjustment, so an arc's parsed center lands
+    up to one plotter unit off the map key (its |sweep| is carried verbatim).
+    """
+    magnitude = abs(sweep_angle)
+    magnitude = float(int(magnitude)) if magnitude == int(magnitude) else float(f"{magnitude:.3f}")
+    return (center_units, magnitude)
 
 
 def segment_width_key(segment: Segment) -> WidthKey:

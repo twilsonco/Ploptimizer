@@ -7530,3 +7530,64 @@ class TestPerStrokePreviewWidths:
                 file_stroke_widths={plt_path: ambiguous},
             )
         assert captured["60_txt_probe.pdf"] == [0.06]
+
+    def test_preview_probe_tolerates_arc_center_drift(self, tmp_path: Path) -> None:
+        """An ``AA`` arc's center drifts a unit in the assembly -> the probe hits.
+
+        The combined proof's centering shifts every ``AA`` center Y by its own
+        rounding of the shared adjustment, so a glyph arc lands one plotter
+        unit off its ``(center, |sweep|)`` map key. Without the arc probe the
+        whole arc falls back to the PEN width -- on a pen whose widest stroke
+        carries a ``<cb:D>`` buffer that inflates every curve (the straight
+        segments still hit their keys), which reads as a blotchy fountain pen.
+        """
+        from unittest.mock import patch
+
+        from plt_optimizer.generate.plate_optimizer import arc_width_key
+        from plt_optimizer.generate.vectorize import _write_simple_plots
+
+        plt_dir = tmp_path / "plt"
+        plt_dir.mkdir()
+        plt_path = plt_dir / "60_txt_arcp.plt"
+        plt_path.write_text("IN;PA;PU0,0;PD100,0;AA50,50,90;SP;\n", encoding="utf-8")
+        result = PerCutterExport(plt_paths=[plt_path], combined_by_plate={}, pdf_paths=[])
+
+        captured: dict[str, list[float]] = {}
+
+        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+            captured[Path(output_path).name] = [layer.width_inches for layer in layers]
+
+        # The parsed arc centers at (50,50); the map key drifted to (50,51).
+        drifted = {arc_width_key((50, 51), 90.0): 0.19}
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
+            _write_simple_plots(
+                tmp_path,
+                "arcp",
+                result,
+                pen_widths={1: 0.06},
+                file_widths={plt_path: 0.06},
+                file_stroke_widths={plt_path: drifted},
+            )
+        # The line segment keeps the pen width; the drifted arc draws 0.19.
+        assert captured["60_txt_arcp.pdf"] == [0.06, 0.19]
+
+        # Ambiguous drift level for the arc -> the conservative pen width.
+        ambiguous = {
+            arc_width_key((50, 51), 90.0): 0.19,
+            arc_width_key((51, 50), 90.0): 0.075,
+        }
+        captured.clear()
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
+            _write_simple_plots(
+                tmp_path,
+                "arcp",
+                result,
+                pen_widths={1: 0.06},
+                file_widths={plt_path: 0.06},
+                file_stroke_widths={plt_path: ambiguous},
+            )
+        assert captured["60_txt_arcp.pdf"] == [0.06]

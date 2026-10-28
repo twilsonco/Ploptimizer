@@ -840,18 +840,23 @@ plate transform and the emission share their rounding); the combined proof
 parses the un-optimized assembly, whose vertical centering applies its float
 adjustment to the integer device Y at a different rounding point than the
 plate transform, so a line's endpoints land up to one plotter unit off (the Y
-drift propagates through the parser's AA chain into X). The lookup therefore
-probes +/-1 unit in increasing total drift, accepting only a UNIQUE hit at the
-first drift level that hits (an ambiguous level falls back to the pen width --
-glyph geometry is dense, so a union over all levels is ambiguous almost
-everywhere). Arcs need no probe: `(center, |sweep|)` is emission-exact in both
-streams. The map is NOT gated on the tag: every rendered line contributes its
+drift propagates through the parser's AA chain into X, and every `AA` center Y
+takes its own rounding of the shift). The lookup therefore probes +/-1 unit in
+increasing total drift, accepting only a UNIQUE hit at the first drift level
+that hits (an ambiguous level falls back to the pen width -- glyph geometry is
+dense, so a union over all levels is ambiguous almost everywhere). Lines probe
+their normalized endpoint pairs; arcs probe their `(center, |sweep|)` key on
+the CENTER (`arc_width_key`) -- |sweep| is carried verbatim through the
+assembly, and an arc's endpoints re-chain from the drifted centers, so the
+center is the stable identity (an arc endpoint probe would miss: a reversed
+traversal re-chains endpoints a unit off on top of the center drift). The map
+is NOT gated on the tag: every rendered line contributes its
 own per-stroke widths, so a line that merely shares a tool with a buffered
 span keeps its own (narrower) width in the proof. A job whose buffers are all
 zero maps every stroke to its physical cutter, which equals the pen width --
 the previews stay visually identical. Pinned by
 `tests/test_phase3_export.py::TestPerStrokePreviewWidths` (both the optimized
-and un-optimized paths, the drift probe), `tests/test_plate_optimizer.py::TestBuildStrokeWidthMap`
+and un-optimized paths, the line and arc drift probes), `tests/test_plate_optimizer.py::TestBuildStrokeWidthMap`
 (map keys survive emission + parsing, arcs, rotation, reversal) and
 `tests/test_label_renderer_gaps.py::TestStrokeWidthMap`.
 

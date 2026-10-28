@@ -53,6 +53,7 @@ from plt_optimizer.generate.plate_optimizer import (
     PlateOptimization,
     StrategyFactory,
     WidthKey,
+    arc_width_key,
     build_stroke_width_map,
     line_width_key,
     optimize_structural_layer,
@@ -1370,28 +1371,47 @@ def _write_simple_plots(
         The optimized per-file stream keys exactly (the plate transform and
         the emission share their rounding). The combined proof parses the
         un-optimized assembly, whose vertical centering applies its float
-        adjustment to the integer device Y, while the plate transform rounds
-        it into the local -> device chain -- the two land up to one plotter
-        unit apart (the Y drift propagates through the parser's AA chain into
-        X too). A +/-1-unit probe recovers those: probes are tried in
-        increasing total drift, and the FIRST drift level that hits accepts
-        only a UNIQUE width (an ambiguous level falls back to the pen width,
-        the conservative per-pen behavior -- glyph geometry is dense, so
-        neighbouring strokes' keys sit within one unit and a union over all
-        levels would be ambiguous almost everywhere). Arcs key on (center,
-        |sweep|), which the centering shift carries exactly in both streams,
-        so they need no probe.
+        adjustment to the integer device Y (points AND ``AA`` centers), while
+        the plate transform rounds it into the local -> device chain -- the
+        two land up to one plotter unit apart (the Y drift propagates through
+        the parser's AA chain into X too). A +/-1-unit probe recovers those:
+        probes are tried in increasing total drift, and the FIRST drift level
+        that hits accepts only a UNIQUE width (an ambiguous level falls back
+        to the pen width, the conservative per-pen behavior -- glyph geometry
+        is dense, so neighbouring strokes' keys sit within one unit and a
+        union over all levels would be ambiguous almost everywhere). Lines
+        probe their normalized endpoints; arcs probe their (center, |sweep|)
+        key on the center -- |sweep| is carried verbatim through the
+        assembly, and an arc's endpoints re-chain from the drifted centers,
+        so the center is the stable identity.
         """
         width = stroke_widths.get(segment_width_key(segment))
         if width is not None:
             return width
+        offsets = (-1, 0, 1)
+        candidates: set[float] = set()
+        probed: WidthKey
         if isinstance(segment, ArcSegment):
+            center = (int(round(segment.center.x)), int(round(segment.center.y)))
+            for drift in range(3):
+                candidates = set()
+                for dx in offsets:
+                    for dy in offsets:
+                        if abs(dx) + abs(dy) != drift:
+                            continue
+                        probed = arc_width_key(
+                            (center[0] + dx, center[1] + dy), segment.sweep_angle
+                        )
+                        found = stroke_widths.get(probed)
+                        if found is not None:
+                            candidates.add(found)
+                if candidates:
+                    return candidates.pop() if len(candidates) == 1 else default_width
             return default_width
         start = (int(round(segment.start.x)), int(round(segment.start.y)))
         end = (int(round(segment.end.x)), int(round(segment.end.y)))
-        offsets = (-1, 0, 1)
         for drift in range(5):
-            candidates: set[float] = set()
+            candidates = set()
             for dx_start in offsets:
                 for dy_start in offsets:
                     for dx_end in offsets:
