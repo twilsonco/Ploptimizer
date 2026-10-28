@@ -405,7 +405,9 @@ precedent). No tag args ship: the parser's reserved `name:args` form keeps
   its ink with the thicker tool (and a large `<scale:N>` run with a larger
   tool), so `collision_threshold` (the whole-line AABB floor) and
   `_line_cutter` (the descender relief's pair/border floors) use
-  `max(used_cutters)`. Deliberately conservative: a plain descender on a
+  `effective_max_cutter_diameter` (the widest **engraved** width, i.e.
+  `max(effective_used_cutters)` = the physical rung + `cutter_buffer_text`).
+  Deliberately conservative: a plain descender on a
   wide-tool-carrying line asks for a touch more air than its own stroke
   strictly needs, which can never engrave a collision.
 - **Underline runs split at cutter boundaries** (`_split_runs_at_cutter`): the
@@ -654,7 +656,7 @@ current baseline, `1` = the capline, `-1` = one cap height below) and applies
   now reflects the shifted kerning).
 - **Everything downstream is free**: the pen split (`_stroke_cutter_map` reads
   `per_char_cutters`), the underline run-split, `_line_cutter` /
-  `collision_threshold` (`max(used_cutters)`), the descender relief, the
+  `collision_threshold` (`effective_max_cutter_diameter`), the descender relief, the
   band centering, `measure_line_vertical_extents` and the plate-space chunk
   records all read the resolved/rendered geometry. A bare tag lifts the
   ascender to `(1 + d/2) * cap` (the glyph's centre rides the capline), so
@@ -1086,7 +1088,7 @@ lighter one on the rest, without splitting the line into two YAML entries.
   underline / strikethrough runs split at the override boundary (one
   underline cannot span two tools — `_split_runs_at_cutter`). The descender
   relief's and the collision detection's stroke floors use
-  `max(used_cutters)` (conservative, never a collision).
+  `effective_max_cutter_diameter` (conservative, never a collision).
 - **The compression-driven downsize moves the PLAIN characters only.** An
   explicit tool is a human decision, never overridden automatically (the
   line-level `cutter_size` contract), so the downsize steps the line's
@@ -1102,9 +1104,36 @@ lighter one on the rest, without splitting the line into two YAML entries.
   geometry factor still applies (the run's silhouette is `nominal - D` tall).
   The PLT path carries the weight in the geometry itself, so the two families
   differ here by construction (the same caveat as the `<b>` tag).
+- **The kerf buffer applies to it.** `<c:D>` names a **physical tool**, exactly
+  like `cutter_size`, and the cascaded `cutter_buffer_text` kerf buffer widens
+  it into the engraved width `D + buffer` (see
+  [`../AGENTS.md`](../AGENTS.md) "Physical vs. effective cutter diameter"). The
+  centerline formula above therefore reads
+  `g = (nominal - (D + buffer)) / (nominal - (line_cutter + buffer))` — the
+  run's engraved silhouette is `nominal - (D + buffer)` tall, and the
+  `CutterSizeError` material check in `_validate_cutter_markup` runs on the
+  **effective** width (it takes the line's resolved buffer as an argument).
+  The pen layer stays keyed on the physical snapped `D`, so the run's strokes
+  land on `D`'s per-cutter file.
 - **No schema field, no `job-config.json` key, no cascade** — the value rides
   the tag (the `<scale:N>` precedent). No new `DEFAULT_*` constant ⇒ no
   `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row.
+- **Planned follow-up (not implemented): inline cutter buffer.** The intended
+  shape is a `<cb:D>` tag mirroring this one: a `Style.cutter_buffer` field, a
+  `register_tag("cb", ...)` entry registered LAST (so every existing
+  serialization order stays bit-identical), a per-character
+  `cutter_buffer_overrides` derivation, and resolution that widens
+  `per_char_cutters` per run. The seam already exists:
+  `ResolvedTextLine.cutter_buffer` is a **per-line scalar** and every effective
+  width is a **derived property** (`effective_per_char_cutters`,
+  `effective_used_cutters`, `effective_max_cutter_diameter`,
+  `effective_bold_cutter_diameter`), so turning the scalar into a
+  per-character array requires no change at any consumer — only inside the
+  properties. The per-line value currently feeds `label_renderer._run_effective
+  _cutter` (the underline/strikethrough geometry) and
+  `vectorize.cutter_widths` (the PDF preview widths, which aggregate per
+  physical tool with `max()` — a per-character buffer would need that map to
+  become pen-keyed.
 - **Reporting**: `layout_report.py` prints a per-line finding
   `Line N: '<text>' cutter 0.030in (engraved cutter 0.030in, line cutter
   0.060in)` — the requested diameter and the tool that actually runs (they

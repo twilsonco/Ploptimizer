@@ -4,6 +4,85 @@
 
 ### Features
 
+* **generate:** cutters now carry a **kerf buffer**, so the toolpath geometry and the
+  `all_*.pdf` proofs model the stroke the engraver actually leaves. A V-bit with roughly
+  45-degree flanks cuts a groove **wider** than its nominal diameter (the deeper the cut,
+  the wider the stroke), which is why every proof drew narrower strokes than the finished
+  engraving. Two new cascading fields add that missing width in inches:
+  `cutter_buffer_text` (per text line) and `cutter_buffer_routing` (the boundary/drill-hole
+  tool), each cascading job -> plate (schema parity) -> label -> line, with
+  `job-config.json` shop defaults of **0.005** / **0.045** and a code fallback of **0.0**
+  (`DEFAULT_CUTTER_BUFFER_TEXT` / `DEFAULT_CUTTER_BUFFER_ROUTING`).
+  - **The model** is one pure helper, `resolution.effective_cutter_diameter(physical,
+    buffer) = physical + buffer`, exposed only through **derived properties** so no consumer
+    can desynchronise the two numbers:
+    `ResolvedTextLine.cutter_buffer` (per line, the seam the planned inline markup plugs
+    into) with `effective_cutter_diameter` / `effective_bold_cutter_diameter` /
+    `effective_per_char_cutters` / `effective_used_cutters` / `effective_max_cutter_diameter`,
+    and `ResolvedLabel.hole_cutter_buffer` with `effective_hole_cutter_diameter`.
+  - **Physical vs. effective is the contract.** The **physical** diameter stays the *tool
+    identity*: inventory snapping (`get_cutter_diameter`, `snap_boundary_hole_cutter`,
+    `next_smaller_cutter`), `build_cutter_pen_map`, `used_cutters` / `used_layers` /
+    `per_char_cutters`, the per-cutter PLT file names (a 0.030in cutter still writes
+    `30_txt_*.plt`), the `<b>` bold rung, the `<scale:N>` / `<f:...>` ladder rungs and the
+    compression-driven downsize walk (its midpoint ratios stay tool-to-tool). The
+    **effective** width is every *width of material removed*: glyph kerning clearance and
+    the cross-font advance, the `character_spacing` fallback (`effective * 1.5`), the
+    underline/strikethrough placement and gap padding, the compression margin,
+    `collision_threshold`, the cutter-compensated hole radius, the hole-margin edge offset,
+    the descender relief floors, the round-label packing kerf and the PDF proof strokes.
+    The full invariant table lives in `generate/AGENTS.md`.
+  - **Text height is compensated**: `toolpath_text_height = nominal_text_height -
+    effective`, so a 0.25in label still engraves exactly 0.25in tall (the design contract)
+    while the centerlines shrink by the buffer. The `CutterSizeError` material guards -
+    `cutter_size`, the multi-stroke ladder and inline `<c:D>` - measure the engraved width
+    too, and their messages name the buffer (`_buffer_suffix` / `_buffer_tail`), staying
+    byte-identical at 0.0. The buffer is **universal**: `cutter_size` and `<c:D>` name a
+    tool, so they receive it exactly like an automatic cutter.
+  - **PDF previews.** The per-cutter file names carry the physical token, so the mirrored
+    proofs cannot derive the engraved width from the stem. `export_per_cutter_plts` builds
+    `cutter_widths` (physical -> engraved, the widest buffer among the lines sharing a tool)
+    for the pen-keyed `pen_widths`, plus a path-keyed `file_widths` for the per-file plots
+    (a text pen and the `bh` pen can share a nominal size while carrying different buffers,
+    which is why the maps are separate); `_write_simple_plots` prefers it over
+    `_stem_cutter_inches`.
+  - **The decoration trap.** `label_renderer._run_cutter` feeds both the underline geometry
+    and the `(cutter, color)` pen layer, which `_stroke_layer_map` also *recovers* from the
+    stroke's Y (`-y - underline_offset_inches`). `_run_cutter` therefore stays physical and
+    the new `_run_effective_cutter` supplies the drawn width; the recovery site subtracts
+    `line.cutter_buffer` before snapping to `known`. Skipping that subtraction lets a large
+    buffer snap an underline to a neighbouring rung the run never engraves with, silently
+    routing its strokes to the wrong pen/PLT file.
+  - **Reporting**: each generation-report line entry gains `cutter_buffer` +
+    `effective_cutter_diameter`, each label entry `hole_cutter_diameter` /
+    `hole_cutter_buffer` / `effective_hole_cutter_diameter`, and `job.tools` records the two
+    configured defaults. The layout report's hole finding now quotes the engraved width.
+  - Docs: `generate/AGENTS.md` gains the field contracts + the "Physical vs. effective
+    cutter diameter" section; `collision/AGENTS.md` states that every cutter there is an
+    engraved width; `markup/AGENTS.md` covers `<c:D>` under the buffer and specifies the
+    planned `<cb:D>` inline follow-up (out of scope here) against the per-line seam.
+    Regenerated `JOB_SPEC.md` + both JSON schemas + the `cutters` skill.
+  - **Output changes** for any job using the shipped `job-config.json` (intended); a job
+    with both buffers at `0.0` is byte-identical to the pre-buffer pipeline.
+  - **Pins**: `tests_deps/cutter_buffer_job.yaml` + `TestCutterBufferDemoExample`
+    (`test_phase3_export.py` - the four-tier cascade, the plate parity never applying,
+    explicit-`0.0` opt-out per line, the routing buffer shrinking the emitted hole while its
+    outer edge stays fixed, the physical `60_txt_` / `15_bh_` file names, and the proof
+    widths 0.080 text / 0.060 structural) and `TestZeroBufferRegression` (byte-identical
+    PLTs + nominal proof widths), `TestCutterBufferFields` (`test_schema.py`),
+    `TestCutterBufferResolution` + `TestCutterBufferRoutingCascade` (`test_resolution.py` -
+    the ladder, the compensated heights, the spacing fallback, the pen-map invariance, the
+    effective-width `CutterSizeError`s, the render plan),
+    `TestKerfBufferedDownsize` (`test_cutter_downsize.py` - physical rungs, buffered
+    heights, the floor guard), `TestKerfBufferedDecorations` (`test_label_renderer_gaps.py`
+    - the Y-inversion pen snap), `TestKerfBufferedHoles` (`test_round_labels.py`),
+    `TestKerfBufferThreshold` (`test_collision_resolution.py` - including a gap the legacy
+    floor misses), `TestKerfBufferedRoundPacking` (`test_layout.py`), the
+    `cutter_buffer_*` job-config key tests (`test_job_config.py`, adaptive to the shop
+    config) and the report key tests (`test_generation_report.py`).
+
+### Features
+
 * **watch/optimize/generate:** output filenames are now **character-sanitized**, not
   only length-capped. `core/filenames.py` gains `sanitize_filename_component(text,
   fallback)`: Unicode NFKD transliteration drops international characters

@@ -304,15 +304,28 @@ After a run:
       `_0000`-style ids' content
 
 ### Cutter Compensation
-- [ ] `toolpath_text_height = nominal − cutter` for every printed line
+- [ ] `toolpath_text_height = nominal − effective_cutter` for every printed
+      line, where `effective_cutter` is the matched tool **plus** the line's
+      `cutter_buffer_text` kerf buffer (a roughly 45°-flank V-bit engraves
+      wider than nominal; the buffer is 0.005" in the shipped
+      `job-config.json`, and the code fallback when configured nowhere is
+      0.0 = the nominal diameter)
 - [ ] Unavailable ideal cutters snap per the 3x tolerance rule (narrower
-      preferred when `narrower_gap ≤ 3 × wider_gap`)
+      preferred when `narrower_gap ≤ 3 × wider_gap`), on the **nominal**
+      diameter — the buffer never changes which tool is selected
+- [ ] The per-cutter PLT file names quote the **physical** tool (a 0.030"
+      cutter writes `30_txt_*.plt`) even with a non-zero buffer, while the
+      `all_*.pdf` / per-cutter PDF previews draw the wider engraved stroke
 
 ### Job-Config Defaults
 - [ ] Labels that omit `hole_margin` / `max_h_compress` / `min_hole_margin` /
       `hole_text_collision_distance` resolve to the `job-config.json` values
       (0.0625 / 0.5 / 0.05 / 0.1 in the shipped config), not the in-code
       fallbacks
+- [ ] Labels/lines that omit `cutter_buffer_text` / `cutter_buffer_routing`
+      inherit them down the job → plate (parity) → label → line cascade, and
+      an explicit `0.0` at any tier opts that line/label out (engraved =
+      nominal)
 - [ ] Spec-declared values still win over the config (e.g. `test123_spec.yaml`
       keeps its `margin: 0.1`)
 - [ ] Removing a required default from the config (and not declaring it in the
@@ -331,7 +344,10 @@ is disabled.
 ### Issue: `LabelRenderError` (collision abort)
 **Cause:** Rendered text comes closer to a drill hole than the stroke-aware
 threshold `0.5 × (hole_cutter + text_cutter) + hole_text_collision_distance`
-(0.1" with the shipped `job-config.json`; the in-code fallback is 0.15").
+(0.1" with the shipped `job-config.json`; the in-code fallback is 0.15"). Both
+cutters are the **engraved** widths — the nominal tool plus its
+`cutter_buffer_routing` / `cutter_buffer_text` kerf buffer — so a job that
+previously cleared can start aborting when the buffers are raised.
 Per-label ERRORs name the label id, offending text line, hole, and measured gap.
 **Solution:** Revise the jobspec — e.g. increase `hole_margin` /
 `min_hole_margin`, reduce `hole_text_collision_distance`, move holes, or enable

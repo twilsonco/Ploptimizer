@@ -65,6 +65,14 @@ centerline strokes whose linewidth in points is display-only. This is the
 (`generate/vectorize.py::_write_simple_plots`); `simple_mode` stays for the
 font showcases (`fonts/font_showcase.py`) and thin-line fallbacks.
 
+The module is width-agnostic: it draws exactly the `width_inches` it is handed.
+The generate pipeline supplies the **engraved** width (the physical cutter plus
+its `cutter_buffer_text` / `cutter_buffer_routing` kerf buffer - a roughly
+45-degree-flank V-bit cuts wider than its nominal diameter), not the nominal
+tool, so a proof matches the material the machine removes even though the
+per-cutter PLT file name in the same view quotes the nominal tool. See
+`generate/AGENTS.md` "Physical vs. effective cutter diameter".
+
 - `PhysicalStrokeLayer(segments, width_inches, alpha=1.0, label="", facecolor="black")` -
   one width-tagged layer (plotter-unit segments, cutter diameter in inches).
   Text ink: `alpha=1.0`; per-file border/hole underlays:

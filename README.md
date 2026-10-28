@@ -92,7 +92,21 @@ are capped at 39 characters including the extension -
 the plotter controller rejects longer names, so a long job name is shortened
 from the right.
 
-Cutter sizes come from `tools.json` (`--tools` to point elsewhere) and job-spec defaults from `job-config.json` (`--job-config` to point elsewhere). Keep one `tools.json` + `job-config.json` pair per engraver/toolset and swap them with the two flags. The config supplies the top-most (job/plate) layer defaults — e.g. `max_h_compress`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`, `plate_width`/`plate_height`, `left_clearance`/`top_clearance` — and any of these configured nowhere becomes a required job-spec field. The `plates:` section is optional: a spec that omits it packs onto default sheets sized by the config's `plate_width`/`plate_height`, overflowing onto as many sheets as needed. Text–hole collisions are treated as unacceptable output: the job aborts with a non-zero exit code so the spec can be revised. See [`docs/INTEGRATION_TESTING.md`](docs/INTEGRATION_TESTING.md) for the full pipeline walkthrough and [`plt_optimizer/generate/AGENTS.md`](plt_optimizer/generate/AGENTS.md) for the YAML job-spec schema. Example specs live in [`examples/`](examples/).
+A cutter engraves **wider** than its nominal diameter: a V-bit with roughly
+45-degree flanks cuts a groove whose width grows with the cut depth. The
+`cutter_buffer_text` and `cutter_buffer_routing` fields (job-spec cascade
+job → plate → label → line, with `job-config.json` shop defaults) add that
+kerf in inches to the text cutters and to the boundary/drill-hole cutter, and
+the pipeline uses the resulting *effective* width everywhere material removal
+matters — kerning clearance, text/hole collision gaps, drill-hole cutter
+compensation, packing kerf and the PDF preview stroke widths — while the
+toolpath height compensates so engraved text stays exactly `text_height` tall.
+The **tool** stays physical: pen splits and the `<cutter>_txt_` / `<cutter>_bh_`
+file names keep naming the nominal diameter, so `30_txt_*.plt` is still the
+0.030in cutter. Set both buffers to `0.0` to engrave and proof at the nominal
+diameters.
+
+Cutter sizes come from `tools.json` (`--tools` to point elsewhere) and job-spec defaults from `job-config.json` (`--job-config` to point elsewhere). Keep one `tools.json` + `job-config.json` pair per engraver/toolset and swap them with the two flags. The config supplies the top-most (job/plate) layer defaults — e.g. `max_h_compress`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`, `cutter_buffer_text`, `cutter_buffer_routing`, `plate_width`/`plate_height`, `left_clearance`/`top_clearance` — and any of these configured nowhere becomes a required job-spec field. The `plates:` section is optional: a spec that omits it packs onto default sheets sized by the config's `plate_width`/`plate_height`, overflowing onto as many sheets as needed. Text–hole collisions are treated as unacceptable output: the job aborts with a non-zero exit code so the spec can be revised. See [`docs/INTEGRATION_TESTING.md`](docs/INTEGRATION_TESTING.md) for the full pipeline walkthrough and [`plt_optimizer/generate/AGENTS.md`](plt_optimizer/generate/AGENTS.md) for the YAML job-spec schema. Example specs live in [`examples/`](examples/).
 
 ### `watch` — hot-folder daemon
 

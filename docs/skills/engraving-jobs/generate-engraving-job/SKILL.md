@@ -127,7 +127,7 @@ specs to copy; `../engraving-job-complete-reference/references/JOB_SPEC.md` is t
 - [Centering and Descending-Character Relief](../centering-and-descender-relief/SKILL.md) — Horizontal/vertical centering and per-glyph descender clearance.
 - [Inline Markup Tags](../inline-markup/SKILL.md) — Thirteen in-text tags: style, scale, font, cutter, color, center.
 - [Bullet and Enumerated Lists](../lists/SKILL.md) — itemize/enumerate content blocks with markers and hanging indent.
-- [Cutter Selection](../cutters/SKILL.md) — Auto cutter ladder, explicit cutter_size, per-cutter PLT files.
+- [Cutter Selection](../cutters/SKILL.md) — Auto cutter ladder, explicit cutter_size, kerf buffers, per-cutter PLT files.
 - [Multi-Stroke (Bold) Fonts](../bold-multistroke/SKILL.md) — Stroke-count PLT fonts, target boldness, and <b> behavior.
 - [Compression and Cutter Downsizing](../compression-and-cutter-downsize/SKILL.md) — Squeeze long text horizontally; swap to a finer cutter when squeezed.
 - [Drill Holes and Collision Avoidance](../holes-and-collision/SKILL.md) — Mounting-hole placement, sizes, and text/hole clearance rules.

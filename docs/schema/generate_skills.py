@@ -774,11 +774,13 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="cutters",
         title="Cutter Selection",
-        core="Auto cutter ladder, explicit cutter_size, per-cutter PLT files.",
+        core="Auto cutter ladder, explicit cutter_size, kerf buffers, per-cutter PLT files.",
         use_when=(
             "choosing or overriding the engraving cutter",
             "output splits into multiple PLT files",
             "a cutter >= text height aborts the job",
+            "engraved strokes are wider than the PDF preview",
+            "tuning the kerf buffer for cut depth",
         ),
         keywords=(
             "cutter_size",
@@ -788,24 +790,45 @@ THEMES: Tuple[Theme, ...] = (
             "pen",
             "per-cutter",
             "ladder",
+            "cutter_buffer_text",
+            "cutter_buffer_routing",
+            "kerf",
+            "buffer",
+            "effective",
+            "stroke width",
         ),
-        fields=("cutter_size",),
+        fields=("cutter_size", "cutter_buffer_text", "cutter_buffer_routing"),
         pitfalls=(
             "Default `cutter_size: null` auto-selects from `text_height` via the ladder + "
             "`tools.json` inventory; each distinct cutter becomes its own per-cutter PLT "
             "file (one tool load per file on the engraver).",
             "An explicit `cutter_size` snaps to the inventory (next size down, else up, "
             "WARNING when it moves) and the toolpath height becomes `text_height - "
-            "cutter_size`, preserving the engraved cap height.",
-            "A cutter at or above the line's `text_height` aborts the job "
-            "(`CutterSizeError`) — reduce `cutter_size` or raise `text_height`.",
+            "(cutter_size + cutter_buffer_text)`, preserving the engraved cap height.",
+            "A cutter whose engraved width is at or above the line's `text_height` aborts "
+            "the job (`CutterSizeError`) — reduce `cutter_size` or raise `text_height`.",
             "`cutter_size` is NOT a `job-config.json` key; set it in the spec (line, "
-            "label, or job level).",
+            "label, or job level). The two `cutter_buffer_*` fields ARE job-config keys.",
+            "`cutter_buffer_text` / `cutter_buffer_routing` are kerf buffers in inches "
+            "ADDED to a cutter diameter to get the width it engraves (a roughly "
+            "45-degree-flank V-bit cuts wider than nominal, the deeper the cut the wider "
+            "the stroke). They cascade line -> label -> job; code fallback 0.0 = engraved "
+            "= nominal, and `job-config.json` ships the shop values (0.005 / 0.045).",
+            "The buffer produces the EFFECTIVE width, used for every ink measurement "
+            "(kerning clearance, text/hole collision floor, hole cutter compensation, "
+            "compression margin, packing kerf) and for the `all_*.pdf` proof stroke "
+            "widths. The TOOL stays physical: pen map, per-cutter PLT file names, "
+            "inventory snapping, the `<b>` bold rung and the compression-driven downsize "
+            "ladder all use the nominal diameter, so a 0.030in cutter still writes "
+            "`30_txt_*.plt`.",
+            "Set a buffer to `0.0` to reproduce the pre-buffer output byte-for-byte "
+            "(useful when bisecting an unexpected geometry change).",
         ),
         see_also=(
             "bold-multistroke",
             "compression-and-cutter-downsize",
             "fonts-and-capline",
+            "holes-and-collision",
             "tool-options",
         ),
         fragments=(
@@ -819,6 +842,18 @@ THEMES: Tuple[Theme, ...] = (
                     '    - text: "Fine detail"\n'
                     "      cutter_size: 0.040\n"
                     '    - text: "Auto cutter"\n'
+                ),
+            ),
+            Fragment(
+                slug="kerf-buffer",
+                comment="Widen the engraved stroke estimate for deep cuts.",
+                yaml_text=(
+                    "job:\n"
+                    '  job_name: "Kerf buffer demo"\n'
+                    "  cutter_buffer_text: 0.008\n"
+                    "  cutter_buffer_routing: 0.045\n"
+                    "  content:\n"
+                    '    - text: "Deep cut, wider kerf"\n'
                 ),
             ),
         ),

@@ -263,10 +263,13 @@ JobSpec (job-level defaults)
   the requested diameter is snapped to `tools.json` `available_cutters`
   (`snap_boundary_hole_cutter`: next size down, else next size up; a WARNING
   names the label id + line index when it moves) and the rendered toolpath
-  height is recomputed as `text_height - cutter_size`. The nominal
-  `text_height` is kept as the user's intent, so vertical fit math
+  height is recomputed as `text_height - (cutter_size + cutter_buffer_text)`.
+  The nominal `text_height` is kept as the user's intent, so vertical fit math
   (`_resolve_auto_line_spacing`, `_fit_content_to_margins`) is unaffected.
-  A cutter at or above the line's `text_height` (toolpath height ≤ 0) raises
+  The buffer applies to an explicit tool exactly like an automatic one
+  (`cutter_size` names the TOOL, never the engraved width). A cutter whose
+  engraved width is at or above the line's `text_height` (toolpath height ≤ 0)
+  raises
   `CutterSizeError` (a `ValueError` subclass) → CLI non-zero exit. Cascades
   line → label → job (accepted on plates for schema parity only); there is
   deliberately **no** `job-config.json` counterpart (adding it to
@@ -276,6 +279,31 @@ JobSpec (job-level defaults)
   `label_renderer._render_text_lines_by_pen` and `export_per_cutter_plts` need
   no change). See also the sibling `cutter_downsize` (render-time downsize
   driven by horizontal compression — implemented, see below).
+- `cutter_buffer_text`: Kerf buffer in inches **added to a text line's cutter
+  diameter** to get the width it actually engraves (`ge=0.0`, default `None` →
+  **0.0** = the legacy engraved = nominal, or the `job-config.json` value when a
+  config is in play — currently **0.005**). The physical model: a V-bit with
+  roughly 45° flanks cuts a groove wider than its nominal diameter (the deeper
+  the cut, the wider the stroke), so the nominal tool under-reports the engraved
+  stroke — which is why the `all_*.pdf` proofs drew narrower strokes than the
+  machine leaves. `resolution.effective_cutter_diameter(physical, buffer)` is
+  the single implementation (`physical + buffer`); the resolved per-line value
+  lives on `ResolvedTextLine.cutter_buffer` with derived `effective_*`
+  properties (see Physical vs. effective cutter diameter below). Cascades
+  line → label → job → `job-config.json` (accepted on plates for schema parity
+  only); an explicit `0.0` is honored.
+- `cutter_buffer_routing`: Kerf buffer in inches **added to the
+  boundary/drill-hole cutter** (`tools.json` `boundary_hole_cutter_size`) to get
+  the width it engraves (`ge=0.0`, default `None` → **0.0**, or the
+  `job-config.json` value — currently **0.045**). The structural sibling of
+  `cutter_buffer_text`, same 45°-flank rationale, stored on
+  `ResolvedLabel.hole_cutter_buffer` with the derived
+  `effective_hole_cutter_diameter` property. It drives the cutter-compensated
+  emitted hole radius, the hole-margin edge offset, the collision stroke floor,
+  the round-label packing kerf, the descender relief against the border and the
+  `*_bh_*` / `all_*.pdf` proof stroke widths. Cascades label → job →
+  `job-config.json` (accepted on text lines and plates for schema parity only —
+  hole geometry is a per-label property); an explicit `0.0` is honored.
 - `target_boldness_factor`: Target engraved stroke width for a **multi-stroke
   (bold) PLT font** as a fraction of `text_height` (`ge=0.05`, `le=0.30`,
   default `None` → **0.14**). A PLT font whose glyphs carry `stroke_count > 1`
@@ -730,6 +758,90 @@ off the character, not the font family).
   (`tests/test_label_renderer_gaps.py`), `TestEnforceCapLineCascade`
   (`tests/test_resolution.py`) and `TestEnforceCapLineField`
   (`tests/test_schema.py`).
+
+### Physical vs. effective cutter diameter (`cutter_buffer_text`, `cutter_buffer_routing`)
+
+A cutter is two different numbers, and mixing them up is the one mistake this
+contract exists to prevent.
+
+- **Physical** = the tool in the spindle (`ResolvedTextLine.cutter_diameter`,
+  `ResolvedLabel.hole_cutter_diameter`). It is an *inventory identity*: a
+  0.030in cutter must always produce `30_txt_*.plt`.
+- **Effective** = `physical + buffer`
+  (`resolution.effective_cutter_diameter()`), the **width of material
+  removed**. Exposed only as derived properties —
+  `ResolvedTextLine.effective_cutter_diameter` /
+  `effective_bold_cutter_diameter` / `effective_per_char_cutters` /
+  `effective_used_cutters` / `effective_max_cutter_diameter` and
+  `ResolvedLabel.effective_hole_cutter_diameter` — never stored, so a
+  pre-pass that clones a line and the reflow that rewrites its text can
+  never desynchronise the two.
+
+| Mechanism | Uses | Why |
+|---|---|---|
+| `get_cutter_diameter` / `snap_boundary_hole_cutter` / `next_smaller_cutter` / `next_larger_cutter` | physical | They select a TOOL the shop owns. |
+| `build_cutter_pen_map`, `used_cutters`, `used_layers`, `per_char_cutters`, the pen map, the per-cutter PLT file names | physical | Pen/file identity is the tool. |
+| `cutter_downsize` ladder walk, `should_downsize_cutter` midpoint ratios, `cutter_downsize_by_line` | physical | The ladder is the shop's real tool list. |
+| `toolpath_text_height`, `bold_toolpath_text_height`, the `CutterSizeError` material guards, the `character_spacing` fallback (`effective * 1.5`), `glyph_render_plan`, the renderer `cutter_diameter(s)` kwargs, cross-font kerning clearance, the underline/strikethrough geometry, `cutter_margin_h`, `collision_threshold`, `hole_circles_local`, `hole_engraved_radius`, `_round_clearance`, `_line_cutter`, `_border_required`, the PDF `pen_widths` | **effective** | Every one measures INK. |
+
+**Text-height compensation.** `toolpath_text_height = nominal_text_height -
+effective_cutter_diameter`, so the engraved silhouette stays exactly
+`nominal_text_height` (the design contract: a 0.25in label engraves 0.25in
+tall) while the centerline geometry shrinks by the buffer. The buffer is
+universal: it applies to an explicit `cutter_size` and inline `<c:D>` exactly
+like an automatic cutter (both name a TOOL).
+
+**The decoration trap.** `_run_cutter` feeds *two* consumers with *different*
+requirements: the underline geometry (ink) and the `(cutter, color)` pen layer
+returned by `_underline_run_layers` / `_strikethrough_run_layers`, which
+`_stroke_layer_map` also *recovers* from the stroke's Y
+(`-y - underline_offset_inches`). `_run_cutter` therefore stays **physical**
+(pen identity + a consistent Y-inversion) and
+`label_renderer._run_effective_cutter` supplies the **effective** width for the
+drawn geometry; the recovery site subtracts `line.cutter_buffer` before snapping
+to `known`. Skipping the subtraction lets a large buffer snap an underline to a
+neighbouring rung the run never engraves with, landing its strokes on the wrong
+pen/PLT file.
+
+**PDF previews.** The per-cutter file names carry the physical token, so the
+mirrored previews cannot derive the engraved width from the stem:
+`export_per_cutter_plts` builds `cutter_widths` (physical → engraved, the
+widest buffer among the lines sharing a tool) for the pen-keyed `pen_widths`
+and a path-keyed `file_widths` for the per-file plots (a text pen and the `bh`
+pen can share a nominal size while carrying different buffers, which is why the
+two maps are separate). `_write_simple_plots(file_widths=...)` prefers it over
+`_stem_cutter_inches`.
+
+**Known approximation: the multi-stroke boldness ladder.**
+`multi_stroke_cutter_diameter` sizes the per-pass **tool** so the `N` passes
+total `text_height * target_boldness_factor` (`W = target - (N-1) * d`), and
+the result is snapped to the inventory and becomes the pen/file identity. With
+a non-zero buffer each pass engraves `W + buffer`, so the engraved boldness
+lands `buffer` heavier than the requested factor. Deliberate, and verified:
+compensating (`W = target - (N-1) * d - buffer`) is a **no-op at the shop
+default** `target_boldness_factor: 0.14`, where the design point sits exactly
+ON the gap-free floor `d / (1 - multistroke_overlap_ratio)` — the subtraction
+drops `W` below the floor and the floor clamps it straight back (measured
+headroom at 0.14 is `0.00000` for N=3/5/7; the floor only leaves room for
+factors above 0.14). So the compensation buys nothing where the shop engraves
+and only thins strokes at heavier settings, while the buffer's own purpose
+(modelling the extra ink) is served by the effective widths the passes are
+measured with. `multistroke_overlap_ratio` keeps guarding the floor on the
+physical diameters.
+
+**Zero buffer = byte-identical legacy output.** `0.0` makes
+`effective_cutter_diameter` the identity, and every site above degrades to its
+historical expression. The code defaults are `0.0` (so the no-config path is
+unchanged); the shipped `job-config.json` carries the shop's measured values.
+Pinned by `tests/test_phase3_export.py::TestZeroBufferRegression`.
+
+**Planned follow-up (not implemented):** inline markup for a per-run buffer
+(e.g. `<cb:0.01>`), mirroring `<c:D>`: a `Style.cutter_buffer` field, a
+`register_tag` entry, a per-character `cutter_buffer_overrides` derivation, and
+`per_char_cutters`-style resolution. The buffer is deliberately stored
+**per line** (`ResolvedTextLine.cutter_buffer`) and every effective width is a
+**property**, which is exactly the seam that follow-up plugs into — no consumer
+needs to change when the per-line scalar becomes a per-character array.
 
 ### Multi-Stroke (Bold) PLT Fonts (`target_boldness_factor`, `multistroke_overlap_ratio`)
 
@@ -2056,9 +2168,15 @@ black ink on white.
   Drill holes (SP3) punch the preview background color: their closed circles
   become a second fill set (appended after the background fill, so the disc
   sits on top of the material color) -- the "see-through" look.
+- **Stroke widths are the ENGRAVED widths**: `export_per_cutter_plts` passes
+  `pen_widths` (pen -> tool + kerf buffer) and `file_widths` (written PLT path
+  -> engraved width, because the mirrored per-file previews read their width
+  from the file-name token, which stays the *physical* tool). See "Physical
+  vs. effective cutter diameter".
 - **Fallbacks unchanged**: no `pen_widths` (synthetic export) keeps the thin
   centerline preview; a stem whose cutter token cannot be parsed keeps the
-  per-file thin render.
+  per-file thin render; no `file_widths` (direct callers) plots the nominal
+  token width.
 - Pinned by `tests/test_preview_colors.py` (every convention + precedence +
   the hex/contrast helpers), `tests_deps/preview_color_job.yaml` +
   `TestPreviewColors` (`tests/test_phase3_export.py`: bw combined
@@ -2087,6 +2205,7 @@ top-most layer:
 
 - Cascading attributes (`text_height`, `font`, `character_spacing`, `line_spacing`,
   `margin`, `h_margin`, `v_margin`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`,
+  `cutter_buffer_text`, `cutter_buffer_routing`,
   `max_h_compress`, `text_h_alignment`, `space_width_fraction`,
   `min_glyph_width_fraction`, `kerning_window_fraction`, `kerning_penetration_scale`,
   `kerning_recession_scale`,

@@ -83,6 +83,17 @@ cutter emits a 0.085in circle. Cascades label → job → `job-config.json`
 (plate parity, like every render-affecting field — labels render before
 packing); the code fallback is `DEFAULT_HOLE_ADJUST_FOR_CUTTER = True`.
 
+- **Every "cutter" here is the ENGRAVED width**, not the nominal tool: the
+  callers pass `ResolvedLabel.effective_hole_cutter_diameter` (the physical
+  boundary/hole tool plus the cascaded `cutter_buffer_routing` kerf buffer) and
+  `ResolvedTextLine.effective_max_cutter_diameter` (the widest tool the line
+  engraves with, plus `cutter_buffer_text`). A roughly 45-degree-flank V-bit
+  removes more material than its name suggests, and both the hole compensation
+  and the collision stroke floor are width-of-material-removed questions. A 0.0
+  buffer (the code default) makes both the identity, reproducing the historical
+  nominal-diameter geometry byte-for-byte. See
+  [`../AGENTS.md`](../AGENTS.md) "Physical vs. effective cutter diameter" for
+  the full invariant table.
 - **Single geometry chokepoint**: `resolution.hole_engraved_radius(diameter,
   cutter_diameter, adjust)` is the pure math; the only call site is
   `collision.holes.hole_circles_local`, which is the single source of hole
