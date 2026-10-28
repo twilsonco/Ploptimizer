@@ -61,10 +61,12 @@ The shipped tags are ``<i> <u> <b> <scale:N> <sup> <sub> <s> <sc> <f:name>``,
 ``<oc>`` (the original cutter: the wrapped segment keeps the line's own
 tool, immune to markup-induced cutter changes), ``<vc>`` (vertical
 centering: the wrapped segment's glyphs are raised or lowered so each glyph's
-ink is centred between the baseline and the capline) and ``<tc:color>`` (the
+ink is centred between the baseline and the capline), ``<tc:color>`` (the
 stroke-color layer of the wrapped segment -- the inline form of the
 ``text_color`` field; the name is canonicalized by the ``color_resolver``
-injected into :func:`parse_markup`).
+injected into :func:`parse_markup`) and ``<cb:D>`` (the kerf buffer in inches
+for the wrapped segment -- overrides the line's cascaded ``cutter_buffer_text``
+per character; ``0.0`` explicitly zeroes the buffer for the span).
 
 Manual kerning
 --------------
@@ -95,9 +97,11 @@ from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple
 
 __all__ = [
+    "MAX_BUFFER_ARG",
     "MAX_CUTTER_ARG",
     "MAX_SCALE_ARG",
     "MAX_SHIFT_ARG",
+    "MIN_BUFFER_ARG",
     "MIN_CUTTER_ARG",
     "MIN_SCALE_ARG",
     "MIN_SHIFT_ARG",
@@ -293,6 +297,7 @@ class Style:
     v_center: bool = False
     kern: int = 0
     text_color: Optional[str] = None
+    cutter_buffer: Optional[float] = None
 
 
 #: The style of unmarked text (every field at its default).
@@ -330,6 +335,14 @@ MIN_CUTTER_ARG: float = 0.0
 #: Upper bound of the ``<c:D>`` argument (inches). Generous: the largest
 #: tool in the shop inventory is 0.25in, so 1.0in only bounds a typo.
 MAX_CUTTER_ARG: float = 1.0
+
+#: Lower bound of the ``<cb:D>`` argument (inclusive -- 0.0 explicitly
+#: overrides the line's buffer to zero, which is a valid "no extra buffer").
+MIN_BUFFER_ARG: float = 0.0
+
+#: Upper bound of the ``<cb:D>`` argument (inches). Generous: the same
+#: ceiling as ``MAX_CUTTER_ARG`` bounds runaway specs.
+MAX_BUFFER_ARG: float = 1.0
 
 
 def _parse_scale_arg(arg: str) -> float:
@@ -484,6 +497,46 @@ def _parse_cutter_arg(arg: str) -> float:
 def _format_cutter_arg(cutter: Optional[float]) -> str:
     """Format :attr:`Style.cutter` back into the canonical tag argument."""
     return "" if cutter is None else f"{cutter:g}"
+
+
+def _parse_cutter_buffer_arg(arg: str) -> float:
+    """Parse and validate a ``<cb:D>`` argument (the kerf buffer, inches).
+
+    The value is a non-negative width in inches. ``0.0`` is legal: it
+    explicitly overrides the line's cascaded buffer to zero for the span.
+    The syntactic bounds are deliberately loose (up to :data:`MAX_BUFFER_ARG`
+    to catch clear typos); the real limit is that ``cutter + buffer`` must
+    leave material to engrave, which the pipeline validates at resolution
+    time.
+
+    Args:
+        arg: The raw ``name:args`` argument text.
+
+    Returns:
+        The kerf buffer in inches.
+
+    Raises:
+        MarkupError: If the argument is not a float in
+            ``[MIN_BUFFER_ARG, MAX_BUFFER_ARG]`` (fail-loud, like an
+            unclosed tag).
+    """
+    try:
+        buffer = float(arg)
+    except ValueError:
+        raise MarkupError(
+            f"cutter buffer tag argument {arg!r} is not a number (expected e.g. <cb:0.015>)."
+        ) from None
+    if not MIN_BUFFER_ARG <= buffer <= MAX_BUFFER_ARG:
+        raise MarkupError(
+            f"cutter buffer tag argument {arg!r} is outside the supported range"
+            f" [{MIN_BUFFER_ARG}, {MAX_BUFFER_ARG}]."
+        )
+    return buffer
+
+
+def _format_cutter_buffer_arg(cutter_buffer: Optional[float]) -> str:
+    """Format :attr:`Style.cutter_buffer` back into the canonical tag argument."""
+    return "" if cutter_buffer is None else f"{cutter_buffer:g}"
 
 
 def _parse_text_color_arg(arg: str) -> str:
@@ -752,6 +805,27 @@ register_tag(
     arg=lambda style: _format_text_color_arg(style.text_color),
     is_active=lambda style: style.text_color is not None,
 )
+# Registered LAST so every existing serialization order stays bit-identical.
+# The kerf-buffer tag: a value tag (like <c:D>) whose argument is the kerf
+# buffer in inches for the run. A bare <cb> is literal text (the buffer is
+# mandatory, the <c:>/<scale> rule). apply is set-to-value (idempotent), so
+# a nested <cb:0.02> inside <cb:0.01> restores 0.01 for the trailing text
+# for free (the close pops the pre-open Style), and serialize_runs re-emits
+# name:arg via _format_cutter_buffer_arg (the reflow round-trip depends on
+# it). The argument is validated here (a bad value raises MarkupError ->
+# the CLI aborts). Unlike <c:D>, this tag carries NO inventory snap and
+# adds NO new pen or PLT file -- it is a pure width modifier: the physical
+# tool stays the same, only the effective engraved width (cutter + buffer)
+# changes. The pipeline uses it to widen per_char_cutters into
+# effective_per_char_cutters (and effective_used_cutters) on a per-character
+# basis, overriding the line's cascaded cutter_buffer scalar for each span.
+register_tag(
+    "cb",
+    lambda style, arg: replace(style, cutter_buffer=_parse_cutter_buffer_arg(arg)),
+    accepts_args=True,
+    arg=lambda style: _format_cutter_buffer_arg(style.cutter_buffer),
+    is_active=lambda style: style.cutter_buffer is not None,
+)
 
 
 @dataclass(frozen=True)
@@ -899,6 +973,20 @@ class StyledText:
         the line-content reflow) keeps every run on its own layer.
         """
         return tuple(style.text_color for style in _per_char_styles(self))
+
+    @property
+    def cutter_buffer_values(self) -> Tuple[Optional[float], ...]:
+        """Per-character ``<cb:...>`` kerf buffer overrides, aligned with
+        :attr:`plain_text`.
+
+        ``None`` at every position the line's own cascaded buffer applies
+        (every character outside a ``<cb:...>`` span); the override value in
+        inches inside one. The per-character sibling of :attr:`cutter_values`,
+        derived from the runs like every other flag array, so a pre-pass that
+        rewrites the line's text (``with_markup``, the line-content reflow)
+        keeps every run on its own buffer.
+        """
+        return tuple(style.cutter_buffer for style in _per_char_styles(self))
 
     @property
     def kern_values(self) -> Tuple[int, ...]:

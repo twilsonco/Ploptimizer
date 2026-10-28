@@ -12,6 +12,8 @@ from typing import List
 import pytest
 
 from plt_optimizer.generate.markup import (
+    MAX_BUFFER_ARG,
+    MIN_BUFFER_ARG,
     PLAIN,
     SUB_DIRECTION,
     SUP_DIRECTION,
@@ -644,7 +646,7 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc, f) fixes serialization nesting."""
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb) fixes serialization nesting."""
         assert list(TAG_REGISTRY) == [
             "i",
             "u",
@@ -659,6 +661,7 @@ class TestUnderlineRegistry:
             "oc",
             "vc",
             "tc",
+            "cb",
         ]
 
 
@@ -762,6 +765,7 @@ class TestScaleRegistry:
             "oc",
             "vc",
             "tc",
+            "cb",
         ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
@@ -920,6 +924,7 @@ class TestSupSubRegistry:
             "oc",
             "vc",
             "tc",
+            "cb",
         ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
@@ -1215,7 +1220,7 @@ class TestStrikethroughRegistry:
         assert len(styled.runs) == 1
 
     def test_strike_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc, f) fixes nesting."""
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb) fixes nesting."""
         assert list(TAG_REGISTRY) == [
             "i",
             "u",
@@ -1230,6 +1235,7 @@ class TestStrikethroughRegistry:
             "oc",
             "vc",
             "tc",
+            "cb",
         ]
 
     def test_nested_strike_serializes_flat(self) -> None:
@@ -1331,7 +1337,7 @@ class TestSmallCapsRegistry:
         assert serialize_runs(styled.runs) == "<sc>abc</sc>"
 
     def test_small_caps_is_registered_last(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc, f) fixes nesting."""
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb) fixes nesting."""
         assert list(TAG_REGISTRY) == [
             "i",
             "u",
@@ -1346,6 +1352,7 @@ class TestSmallCapsRegistry:
             "oc",
             "vc",
             "tc",
+            "cb",
         ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
@@ -1542,7 +1549,7 @@ class TestCutterRegistry:
         assert spec.args_optional is False
         # The <oc> flag tag was registered after <c>, so <c> is no longer last.
         assert list(TAG_REGISTRY).index("c") == list(TAG_REGISTRY).index("f") + 1
-        assert list(TAG_REGISTRY)[-1] == "tc"
+        assert list(TAG_REGISTRY)[-1] == "cb"
         assert spec.apply(PLAIN, "0.06") == CUTTER
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(CUTTER, "0.06") == CUTTER
@@ -1580,6 +1587,7 @@ class TestCutterRegistry:
             "oc",
             "vc",
             "tc",
+            "cb",
         ]
 
 
@@ -1688,7 +1696,7 @@ class TestOriginalCutterRegistry:
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-3] == "oc"
+        assert list(TAG_REGISTRY)[-4] == "oc"
         assert list(TAG_REGISTRY).index("vc") == list(TAG_REGISTRY).index("oc") + 1
         assert spec.apply(PLAIN, "") == Style(original_cutter=True)
         # Set-to-True: re-applying is idempotent (nesting <oc> in <oc> is a no-op).
@@ -1794,12 +1802,12 @@ class TestVCenterRegistry:
     """The <vc> registry entry (the vertical-centering flag tag)."""
 
     def test_v_center_is_registered_as_a_flag(self) -> None:
-        """The tag takes no args and is registered after <oc> (before <tc>)."""
+        """The tag takes no args and is registered after <oc> (before <tc> and <cb>)."""
         spec = TAG_REGISTRY["vc"]
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-1] == "tc"
+        assert list(TAG_REGISTRY)[-1] == "cb"
         assert list(TAG_REGISTRY).index("vc") == list(TAG_REGISTRY).index("oc") + 1
         assert spec.apply(PLAIN, "") == Style(v_center=True)
         # Set-to-True: re-applying is idempotent (nesting <vc> in <vc> is a no-op).
@@ -2038,12 +2046,13 @@ class TestTextColorRegistry:
     """The <tc:color> registry entry (the stroke-color value tag)."""
 
     def test_text_color_is_registered_with_args(self) -> None:
-        """The tag accepts a mandatory arg and is registered last (order pin)."""
+        """The tag accepts a mandatory arg and is registered second-to-last (before <cb>)."""
         spec = TAG_REGISTRY["tc"]
         assert spec.accepts_args is True
         assert spec.args_optional is False
         assert spec.arg is not None
-        assert list(TAG_REGISTRY)[-1] == "tc"
+        assert list(TAG_REGISTRY).index("tc") == list(TAG_REGISTRY).index("vc") + 1
+        assert list(TAG_REGISTRY)[-1] == "cb"
 
     def test_apply_is_set_to_value_and_idempotent(self) -> None:
         """Applying the same color twice is the identity (the <f:...> rule)."""
@@ -2166,3 +2175,162 @@ class TestTextColorWords:
         words, separators = split_styled_words_with_separators(styled)
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.text_color == "red" for sep in separators)
+
+
+CUTTER_BUFFER = Style(cutter_buffer=0.015)
+
+
+class TestCutterBufferRegistry:
+    """The <cb:D> registry entry (the inline kerf-buffer value tag)."""
+
+    def test_cutter_buffer_is_registered_with_args(self) -> None:
+        """The tag accepts a mandatory arg and is registered LAST."""
+        spec = TAG_REGISTRY["cb"]
+        assert spec.accepts_args is True
+        assert spec.args_optional is False
+        assert list(TAG_REGISTRY).index("cb") == list(TAG_REGISTRY).index("tc") + 1
+        assert list(TAG_REGISTRY)[-1] == "cb"
+        assert spec.apply(PLAIN, "0.015") == CUTTER_BUFFER
+        # Set-to-value: re-applying with the same argument is idempotent.
+        assert spec.apply(CUTTER_BUFFER, "0.015") == CUTTER_BUFFER
+        # A new argument replaces the active buffer.
+        assert spec.apply(CUTTER_BUFFER, "0.030") == Style(cutter_buffer=0.030)
+        # Applying <cb> inside <i> composes.
+        assert spec.apply(Style(italic=True), "0.015") == Style(italic=True, cutter_buffer=0.015)
+
+    def test_is_active_predicate(self) -> None:
+        """The tag is active exactly when a buffer override is set."""
+        spec = TAG_REGISTRY["cb"]
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(CUTTER_BUFFER) is True
+
+    def test_arg_serializer_round_trip(self) -> None:
+        """The arg serializer emits the canonical argument the parser accepts."""
+        spec = TAG_REGISTRY["cb"]
+        assert spec.arg is not None
+        assert spec.arg(CUTTER_BUFFER) == "0.015"
+        assert spec.apply(PLAIN, spec.arg(CUTTER_BUFFER)) == CUTTER_BUFFER
+
+    def test_zero_buffer_is_valid(self) -> None:
+        """0.0 is a valid argument -- it explicitly overrides the line buffer to zero."""
+        spec = TAG_REGISTRY["cb"]
+        zero = Style(cutter_buffer=0.0)
+        assert spec.apply(PLAIN, "0") == zero
+        assert spec.is_active(zero) is True
+
+    def test_cutter_buffer_is_independent_of_the_other_tags(self) -> None:
+        """<cb:D> is its own field (never confused with <c:D> or <scale:N>)."""
+        styled = parse_markup("<cb:0.015><scale:0.5>x</scale></cb>")
+        assert styled.cutter_buffer_values == (0.015,)
+        assert styled.scale_values == (0.5,)
+        assert styled.cutter_values == (None,)
+
+
+class TestCutterBufferParse:
+    """Parsing the <cb:D> tag (the inline kerf buffer)."""
+
+    def test_buffer_run_and_values(self) -> None:
+        """The run carries the buffer and the per-char values align."""
+        styled = parse_markup("A<cb:0.015>B</cb>C")
+        assert styled.plain_text == "ABC"
+        assert styled.cutter_buffer_values == (None, 0.015, None)
+
+    def test_bare_buffer_is_literal_text(self) -> None:
+        """The buffer value is mandatory, so a bare <cb> is not markup (the <c:D> rule).
+
+        A bare open tag is literal text; the matching close then has no open
+        to close, which is the framework's hard error for a mandatory-arg tag.
+        """
+        styled = parse_markup("a <cb> b")
+        assert styled.plain_text == "a <cb> b"
+        assert styled.has_markup is False
+        with pytest.raises(MarkupError, match="Unexpected closing tag"):
+            parse_markup("<cb>text</cb>")
+
+    def test_non_numeric_argument_is_an_error(self) -> None:
+        """A non-numeric buffer is broken markup (fail-loud)."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<cb:abc>x</cb>")
+        assert "not a number" in str(excinfo.value)
+
+    def test_empty_argument_is_an_error(self) -> None:
+        """An empty buffer is broken markup (fail-loud)."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<cb:>x</cb>")
+        assert "not a number" in str(excinfo.value)
+
+    def test_zero_argument_is_valid(self) -> None:
+        """Zero is a valid buffer (explicitly overrides the line buffer to zero)."""
+        styled = parse_markup("A<cb:0>B</cb>C")
+        assert styled.cutter_buffer_values == (None, 0.0, None)
+
+    def test_negative_argument_is_an_error(self) -> None:
+        """A negative buffer is outside the supported range."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup("<cb:-0.01>x</cb>")
+        assert "outside the supported range" in str(excinfo.value)
+
+    def test_oversized_argument_is_an_error(self) -> None:
+        """A buffer above the ceiling is outside the supported range."""
+        with pytest.raises(MarkupError) as excinfo:
+            parse_markup(f"<cb:{MAX_BUFFER_ARG + 0.1}>x</cb>")
+        assert "outside the supported range" in str(excinfo.value)
+
+    def test_min_buffer_is_accepted(self) -> None:
+        """The minimum bound (0.0) is exactly accepted."""
+        styled = parse_markup(f"<cb:{MIN_BUFFER_ARG}>x</cb>")
+        assert styled.cutter_buffer_values == (0.0,)
+
+    def test_max_buffer_is_accepted(self) -> None:
+        """The maximum bound is exactly accepted."""
+        styled = parse_markup(f"<cb:{MAX_BUFFER_ARG}>x</cb>")
+        assert styled.cutter_buffer_values == (MAX_BUFFER_ARG,)
+
+    def test_crossing_buffer_span_is_the_intersection(self) -> None:
+        """Crossing <cb>/<i> spans compose per-character like every other tag."""
+        styled = parse_markup("<cb:0.015>A<i>B</i>C</cb>")
+        assert styled.plain_text == "ABC"
+        assert styled.cutter_buffer_values == (0.015, 0.015, 0.015)
+        assert styled.italic_flags == (False, True, False)
+
+
+class TestCutterBufferSerialize:
+    """The <cb:D> serialization round-trip (the reflow depends on it)."""
+
+    def test_serialized_form_reparses_identically(self) -> None:
+        """serialize_runs -> parse_markup reproduces the same per-char values."""
+        styled = parse_markup("A<cb:0.015>B</cb>C")
+        raw = serialize_runs(styled.runs)
+        assert raw == "A<cb:0.015>B</cb>C"
+        assert parse_markup(raw).cutter_buffer_values == styled.cutter_buffer_values
+
+    def test_nested_buffer_restores_the_outer_value(self) -> None:
+        """A nested <cb:D> restores the outer buffer for the trailing text."""
+        styled = parse_markup("<cb:0.015>a<cb:0.030>b</cb>c</cb>")
+        assert styled.cutter_buffer_values == (0.015, 0.030, 0.015)
+        raw = serialize_runs(styled.runs)
+        assert parse_markup(raw).cutter_buffer_values == styled.cutter_buffer_values
+
+    def test_style_boundaries_see_the_buffer_change(self) -> None:
+        """A buffer span's edges are style boundaries (the reflow's guard)."""
+        styled = parse_markup("ab<cb:0.015>cd</cb>ef")
+        assert style_boundaries(styled) == (2, 4)
+
+
+class TestCutterBufferWords:
+    """The <cb:D> reflow tokens (the line-content reflow round-trip)."""
+
+    def test_styled_word_keeps_the_buffer_argument(self) -> None:
+        """A styled word token round-trips with its buffer."""
+        styled = parse_markup("big <cb:0.015>buf</cb>")
+        words = split_styled_words(styled)
+        assert [word.text for word in words] == ["big", "buf"]
+        assert serialize_word(words[1]) == "<cb:0.015>buf</cb>"
+        assert serialize_word(words[0]) == "big"
+
+    def test_space_spanning_buffer_run_keeps_the_separator(self) -> None:
+        """<cb:X>foo bar</cb> tokenizes with the buffer separator (underline rule)."""
+        styled = parse_markup("<cb:0.015>foo bar</cb>")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["foo", "bar"]
+        assert all(sep.cutter_buffer == 0.015 for sep in separators)

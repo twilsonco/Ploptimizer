@@ -1773,6 +1773,49 @@ class ResolvedTextLine:
         return any(run.style.cutter is not None for run in self.styled_runs)
 
     @property
+    def cutter_buffer_overrides(self) -> Tuple[Optional[float], ...]:
+        """Per-character `<cb:...>` kerf buffer overrides aligned with :attr:`plain_text`.
+
+        `None` at every position the line's own :attr:`cutter_buffer` applies;
+        the override value in inches inside a `<cb:...>` span. Mirrors
+        :attr:`cutter_overrides`: DERIVED from :attr:`styled_runs` (never a
+        stored positional array), so a pre-pass that rewrites the line's text
+        (:meth:`with_markup`, the line-content reflow) keeps every run on its
+        own buffer.
+        """
+        if not self.styled_runs:
+            return ()
+        return tuple(
+            style.cutter_buffer
+            for run in self.styled_runs
+            for style in (run.style,) * len(run.text)
+        )
+
+    @property
+    def has_cutter_buffer_overrides(self) -> bool:
+        """True when any markup run of this line carries a `<cb:...>` buffer tag."""
+        return any(run.style.cutter_buffer is not None for run in self.styled_runs)
+
+    @property
+    def per_char_buffers(self) -> Tuple[float, ...]:
+        """Per-character kerf buffers aligned with :attr:`plain_text`.
+
+        Each character's effective kerf buffer: the `<cb:D>` override inside a
+        buffer span, falling back to the line's own :attr:`cutter_buffer`
+        outside one. `()` when the line carries no `<cb:...>` run -- the
+        fast path that keeps the scalar :attr:`cutter_buffer` path unchanged
+        (every consumer of the effective-width properties degrades to the
+        historical expression, bit-identical). DERIVED from the runs (never a
+        stored positional array), so the line-content reflow keeps every run
+        on its own buffer.
+        """
+        if not self.has_cutter_buffer_overrides:
+            return ()
+        overrides = self.cutter_buffer_overrides
+        line_buf = self.cutter_buffer
+        return tuple(override if override is not None else line_buf for override in overrides)
+
+    @property
     def original_cutter_flags(self) -> Tuple[bool, ...]:
         """Per-character `<oc>` flags aligned with :attr:`plain_text`.
 
@@ -2080,11 +2123,19 @@ class ResolvedTextLine:
     def effective_per_char_cutters(self) -> Tuple[float, ...]:
         """Per-character engraved widths aligned with :attr:`plain_text`.
 
-        :attr:`per_char_cutters` widened by :attr:`cutter_buffer` -- the
-        array handed to the renderers as `cutter_diameters` (the glyph advance
-        and per-pair kerning clearance) and to the decoration geometry. The
-        pen split keeps using the physical :attr:`per_char_cutters`.
+        :attr:`per_char_cutters` widened by the per-character kerf buffer
+        (:attr:`per_char_buffers` when any `<cb:D>` span is active, else the
+        scalar :attr:`cutter_buffer`) -- the array handed to the renderers as
+        `cutter_diameters` (the glyph advance and per-pair kerning clearance)
+        and to the decoration geometry. The pen split keeps using the physical
+        :attr:`per_char_cutters`.
         """
+        buffers = self.per_char_buffers
+        if buffers:
+            return tuple(
+                effective_cutter_diameter(diameter, buffer)
+                for diameter, buffer in zip(self.per_char_cutters, buffers)
+            )
         return tuple(
             effective_cutter_diameter(diameter, self.cutter_buffer)
             for diameter in self.per_char_cutters
@@ -2094,10 +2145,27 @@ class ResolvedTextLine:
     def effective_used_cutters(self) -> Tuple[float, ...]:
         """Every distinct engraved width this line produces, ascending.
 
-        :attr:`used_cutters` widened by :attr:`cutter_buffer`. The collision
-        stroke floor and the descender relief use the line's **widest**
-        engraved stroke, so they consume ``max(effective_used_cutters)``.
+        :attr:`used_cutters` widened by the kerf buffer. When any `<cb:D>`
+        span is active, each physical tool uses the **maximum** buffer among
+        all characters that engrave with it (the widest stroke the tool
+        produces, which is what ``vectorize.cutter_widths`` and the collision
+        floor need). Without a per-character override the scalar
+        :attr:`cutter_buffer` applies uniformly, identical to the historical
+        expression. The collision stroke floor and the descender relief use
+        the line's **widest** engraved stroke, so they consume
+        ``max(effective_used_cutters)``.
         """
+        buffers = self.per_char_buffers
+        if buffers:
+            # Map each physical tool to the max buffer among its characters.
+            tool_max_buf: dict[float, float] = {}
+            for diameter, buf in zip(self.per_char_cutters, buffers):
+                if diameter not in tool_max_buf or buf > tool_max_buf[diameter]:
+                    tool_max_buf[diameter] = buf
+            return tuple(
+                effective_cutter_diameter(diameter, tool_max_buf.get(diameter, self.cutter_buffer))
+                for diameter in self.used_cutters
+            )
         return tuple(
             effective_cutter_diameter(diameter, self.cutter_buffer)
             for diameter in self.used_cutters

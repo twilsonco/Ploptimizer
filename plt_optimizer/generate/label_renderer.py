@@ -2317,8 +2317,9 @@ def _decoration_runs(
     and the ``<s>`` strikethrough): maximal runs of marked characters,
     optionally split at the spaces inside each run (``breaks_spaces``), and
     always split where the engraving LAYER changes (``<b>``/``<scale:N>``
-    cutter boundaries and ``<tc:color>`` color boundaries -- one stroke
-    cannot be cut by two tools nor ride two layers' pens).
+    cutter boundaries, ``<tc:color>`` color boundaries, and ``<cb:D>`` buffer
+    boundaries -- one stroke cannot be cut by two tools, ride two layers'
+    pens, or encode two different kerf buffers in its Y position).
 
     Args:
         line: The resolved text line (plain text, per-character cutters).
@@ -2334,8 +2335,13 @@ def _decoration_runs(
         runs = _split_runs_at_spaces(line.plain_text, runs)
     cutters = line.per_char_cutters
     colors = line.per_char_colors
-    if cutters and (len(set(cutters)) > 1 or (colors and len(set(colors)) > 1)):
-        runs = _split_runs_at_layer(runs, cutters, colors)
+    buffers = line.per_char_buffers
+    if cutters and (
+        len(set(cutters)) > 1
+        or (colors and len(set(colors)) > 1)
+        or (buffers and len(set(buffers)) > 1)
+    ):
+        runs = _split_runs_at_layer(runs, cutters, colors, buffers)
     return runs
 
 
@@ -2410,24 +2416,29 @@ def _split_runs_at_layer(
     runs: Tuple[Tuple[int, int], ...],
     cutters: Tuple[float, ...],
     colors: Tuple[str, ...],
+    buffers: Tuple[float, ...] = (),
 ) -> Tuple[Tuple[int, int], ...]:
-    """Split each decorated run where the engraving layer changes.
+    """Split each decorated run where the engraving layer or buffer changes.
 
     A decoration stroke is cut with its run's own tool and lands on its run's
     own ``(cutter, color)`` pen, so one stroke cannot span two layers. The
     layer changes at a ``<b>`` boundary (the plain tool vs. the bold rung), at
     a ``<scale:N>`` boundary (the effective-height cutter) and at a
     ``<tc:color>`` boundary (the stroke-color layer), so this is the general
-    form of the bold-boundary split.
+    form of the bold-boundary split. When ``buffers`` is non-empty (a
+    ``<cb:D>`` span is active), runs also split at buffer boundaries so each
+    underline run carries a consistent kerf buffer for the Y encoding.
 
     Args:
         runs: The decorated runs (inclusive ``plain_text`` indices).
         cutters: Per-character cutter diameters aligned with ``plain_text``.
         colors: Per-character resolved colors aligned with ``plain_text``
             (``()`` = the line is single-color; only cutters split then).
+        buffers: Per-character kerf buffers aligned with ``plain_text``
+            (``()`` = the line uses a uniform scalar buffer; no extra split).
 
     Returns:
-        The runs split at layer boundaries, in order.
+        The runs split at layer and buffer boundaries, in order.
     """
     split: List[Tuple[int, int]] = []
     for first, last in runs:
@@ -2435,7 +2446,8 @@ def _split_runs_at_layer(
         for index in range(first, last):
             cutter_changed = cutters[index] != cutters[index + 1]
             color_changed = bool(colors) and colors[index] != colors[index + 1]
-            if cutter_changed or color_changed:
+            buffer_changed = bool(buffers) and buffers[index] != buffers[index + 1]
+            if cutter_changed or color_changed or buffer_changed:
                 split.append((start, index))
                 start = index + 1
         split.append((start, last))
@@ -2465,14 +2477,18 @@ def _run_cutter(line: ResolvedTextLine, first: int) -> float:
 def _run_effective_cutter(line: ResolvedTextLine, first: int) -> float:
     """Return the width the decorated run starting at ``first`` engraves.
 
-    :func:`_run_cutter` widened by the line's kerf buffer (see
+    :func:`_run_cutter` widened by the kerf buffer at position ``first`` --
+    the per-character `<cb:D>` override when active, else the line's
+    scalar :attr:`~ResolvedTextLine.cutter_buffer` (see
     :func:`plt_optimizer.generate.resolution.effective_cutter_diameter`). The
     underline centerline sits one engraved width below the baseline -- so the
     ink gap under the text stays exactly ``underline_offset_inches`` whatever
     the buffer -- and its break cuts pad by half that width, because both
     measure ink. The pen layer keeps the physical tool.
     """
-    return _run_cutter(line, first) + line.cutter_buffer
+    buffers = line.per_char_buffers
+    buf = buffers[first] if buffers and first < len(buffers) else line.cutter_buffer
+    return _run_cutter(line, first) + buf
 
 
 def _run_color(line: ResolvedTextLine, first: int) -> str:
@@ -2928,16 +2944,17 @@ def _underline_run_layers(
     line: ResolvedTextLine,
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> Tuple[Tuple[float, float, float, str], ...]:
-    """Return ``(x_min, x_max, cutter, color)`` per underline RUN of ``line``.
+) -> Tuple[Tuple[float, float, float, str, float], ...]:
+    """Return ``(x_min, x_max, cutter, color, buffer)`` per underline RUN of ``line``.
 
-    The underline stroke's Y recovers its cutter exactly (the centerline sits
-    ``cutter + underline_offset_inches`` below the baseline), but it encodes
-    nothing about the ``<tc:color>`` layer, so the run's **span** identifies
-    the color: the gate splits runs at layer boundaries, each gap-cut segment
-    lies inside its run's span, and the spans are recomputed from the same
-    ``glyph_groups`` partition of the same block as
-    :func:`_underline_strokes` (bit-for-bit).
+    The underline stroke's Y encodes ``-(effective_cutter + offset)``, where
+    ``effective_cutter = physical + buffer``. To recover the physical cutter
+    from Y, the recovery site must subtract the **run's own buffer** (not the
+    line's scalar), so each run carries its buffer here. The gate splits runs
+    at buffer boundaries (see :func:`_decoration_runs`) so each run's buffer
+    is consistent within the span. The X span identifies the color (which the
+    Y encodes nothing about) and the buffer to use in the Y recovery (span
+    lookup before the subtraction).
 
     Args:
         line: The resolved text line.
@@ -2945,8 +2962,8 @@ def _underline_run_layers(
         glyph_groups: The per-glyph stroke partition (decorations excluded).
 
     Returns:
-        One ``(x_min, x_max, cutter, color)`` quadruple per underline run with
-        geometry, in run order (empty when the line has no underline).
+        One ``(x_min, x_max, cutter, color, buffer)`` 5-tuple per underline
+        run with geometry, in run order (empty when the line has no underline).
     """
     runs = _underline_render_gate(line)
     if not runs or not glyph_groups:
@@ -2958,13 +2975,19 @@ def _underline_run_layers(
         glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
         bounds = glyph_block.bounds()
         boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
-    spans: List[Tuple[float, float, float, str]] = []
+    per_char_bufs = line.per_char_buffers
+    spans: List[Tuple[float, float, float, str, float]] = []
     for first, last in runs:
         positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
         if not positions:
             continue
         x_min, x_max = _run_span(boxes, positions)
-        spans.append((x_min, x_max, _run_cutter(line, first), _run_color(line, first)))
+        buf = (
+            per_char_bufs[first]
+            if per_char_bufs and first < len(per_char_bufs)
+            else line.cutter_buffer
+        )
+        spans.append((x_min, x_max, _run_cutter(line, first), _run_color(line, first), buf))
     return tuple(spans)
 
 
@@ -3059,21 +3082,27 @@ def _stroke_layer_map(
         # The round trip is not float-exact (0.06 + 0.05 back to 0.06 can land
         # one ulp off), which would key a spurious pen layer, so it snaps to the
         # closest cutter the line actually engraves with. The drawn width
-        # includes the line's kerf buffer (see :func:`_underline_strokes`), so
-        # the buffer comes back off before the snap: the pen layer is the
-        # PHYSICAL tool. Without the subtraction a large buffer could snap to a
-        # neighbouring rung the run never uses. The color comes from the run
-        # whose span contains the (gap-cut) segment.
-        recovered = -y - line.underline_offset_inches - line.cutter_buffer
-        cutter = min(known, key=lambda known_cutter: abs(known_cutter - recovered))
+        # includes the run's kerf buffer (see :func:`_underline_strokes` and
+        # :func:`_run_effective_cutter`), which may be a per-character ``<cb:D>``
+        # override instead of the line's scalar buffer. The gate splits runs at
+        # buffer boundaries, so each run's buffer is consistent; the span lookup
+        # below identifies the run (and its buffer) from the stroke's X position.
+        # Using the run's buffer instead of the line's scalar keeps the recovery
+        # exact even when the per-run buffer differs significantly from the line
+        # buffer. Without the subtraction a large buffer could snap to a
+        # neighbouring rung the run never uses. The color also comes from the run.
+        run_buffer = line.cutter_buffer
         color = line_color
-        for x_min, x_max, _run_cutter_value, run_color in underline_spans:
+        for x_min, x_max, _run_cutter_value, run_color, span_buffer in underline_spans:
             if (
                 start.real >= x_min - _INK_EMISSION_FLOOR
                 and stroke.segments[0].end.real <= x_max + _INK_EMISSION_FLOOR
             ):
                 color = run_color
+                run_buffer = span_buffer
                 break
+        recovered = -y - line.underline_offset_inches - run_buffer
+        cutter = min(known, key=lambda known_cutter: abs(known_cutter - recovered))
         mapping[index] = (cutter, color)
     resolved = tuple(
         layer if layer is not None else (line.cutter_diameter, line_color) for layer in mapping

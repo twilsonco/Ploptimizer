@@ -8229,6 +8229,91 @@ class TestCutterBufferResolution:
         )
 
 
+class TestInlineCutterBufferOverrides:
+    """<cb:D> inline markup widens effective_* widths per character."""
+
+    @staticmethod
+    def _line(text: str, line_buffer: float = 0.01) -> ResolvedTextLine:
+        """Resolve a minimal line with the given text and line-level buffer."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            cutter_buffer_text=line_buffer,
+            labels=[LabelSpec(id="lbl", width=4.0, height=2.0, content=[TextLine(text=text)])],
+        )
+        return resolve_job_spec(job, available_cutters=_INVENTORY)[0].content[0]
+
+    def test_no_cb_tag_gives_empty_overrides(self) -> None:
+        """A line without <cb:> markup has no active overrides (the fast path)."""
+        # A resolved line with markup but no <cb:> has all-None overrides array.
+        line = self._line("A<scale:0.5>B</scale>C")
+        assert all(v is None for v in line.cutter_buffer_overrides)
+        assert line.has_cutter_buffer_overrides is False
+        assert line.per_char_buffers == ()
+
+    def test_cb_tag_populates_overrides_and_buffers(self) -> None:
+        """A <cb:D> span sets the overrides and per_char_buffers arrays."""
+        line = self._line("A<cb:0.02>B</cb>C")
+        assert line.cutter_buffer_overrides == (None, 0.02, None)
+        assert line.has_cutter_buffer_overrides is True
+        # per_char_buffers falls back to the line buffer where there's no override.
+        assert line.per_char_buffers == pytest.approx((0.01, 0.02, 0.01))
+
+    def test_effective_per_char_cutters_uses_per_char_buffer(self) -> None:
+        """effective_per_char_cutters widens each character with its own buffer."""
+        line = self._line("A<cb:0.02>B</cb>C")
+        physical = line.per_char_cutters
+        buffers = line.per_char_buffers
+        expected = tuple(d + b for d, b in zip(physical, buffers))
+        assert line.effective_per_char_cutters == pytest.approx(expected)
+
+    def test_effective_per_char_cutters_without_override_unchanged(self) -> None:
+        """Without <cb:D>, effective_per_char_cutters uses the scalar buffer."""
+        line = self._line("A<scale:0.5>B</scale>C")
+        expected = tuple(d + 0.01 for d in line.per_char_cutters)
+        assert line.effective_per_char_cutters == pytest.approx(expected)
+
+    def test_effective_used_cutters_uses_max_buffer_per_tool(self) -> None:
+        """effective_used_cutters uses the widest buffer for each physical tool."""
+        # The line has no <scale:> or <c:> markup so all characters use one
+        # physical cutter; the <cb:0.02> run overrides just one character's
+        # buffer. The used_cutter for that tool should reflect the MAX buffer
+        # (0.02), not the average.
+        line = self._line("A<cb:0.02>B</cb>C")
+        physical_cutter = line.cutter_diameter
+        # Only one physical tool, so effective_used_cutters = (physical + max_buffer,)
+        assert line.used_cutters == pytest.approx((physical_cutter,))
+        # max buffer in this line = 0.02 (for the <cb:0.02>B segment)
+        assert line.effective_used_cutters == pytest.approx((physical_cutter + 0.02,))
+        assert line.effective_max_cutter_diameter == pytest.approx(physical_cutter + 0.02)
+
+    def test_cb_tag_does_not_create_a_new_tool(self) -> None:
+        """The <cb:D> tag is a pure width modifier: used_cutters is unchanged."""
+        line_without = self._line("ABC")
+        line_with = self._line("A<cb:0.02>B</cb>C")
+        assert line_with.used_cutters == line_without.used_cutters
+
+    def test_zero_cb_overrides_line_buffer_to_zero(self) -> None:
+        """<cb:0> explicitly zeroes the buffer for the span."""
+        line = self._line("A<cb:0>B</cb>C", line_buffer=0.01)
+        assert line.per_char_buffers == pytest.approx((0.01, 0.0, 0.01))
+        physical = line.per_char_cutters
+        assert line.effective_per_char_cutters == pytest.approx(
+            (physical[0] + 0.01, physical[1] + 0.0, physical[2] + 0.01)
+        )
+
+    def test_multiple_cb_runs_each_carry_their_own_buffer(self) -> None:
+        """Each <cb:D> span is independent; the fallback fills the gaps."""
+        line = self._line("A<cb:0.02>B</cb>C<cb:0.03>D</cb>")
+        assert line.per_char_buffers == pytest.approx((0.01, 0.02, 0.01, 0.03))
+
+    def test_buffer_override_survives_reflow_text_swap(self) -> None:
+        """The override is derived from styled_runs, so with_markup keeps it."""
+        line = self._line("A<cb:0.02>B</cb>C")
+        moved = line.with_markup("A<cb:0.02>XY</cb>C")
+        assert moved.per_char_buffers == pytest.approx((0.01, 0.02, 0.02, 0.01))
+
+
 class TestCutterBufferRoutingCascade:
     """cutter_buffer_routing widens the boundary/hole cutter per label."""
 

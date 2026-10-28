@@ -1118,22 +1118,8 @@ lighter one on the rest, without splitting the line into two YAML entries.
 - **No schema field, no `job-config.json` key, no cascade** — the value rides
   the tag (the `<scale:N>` precedent). No new `DEFAULT_*` constant ⇒ no
   `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row.
-- **Planned follow-up (not implemented): inline cutter buffer.** The intended
-  shape is a `<cb:D>` tag mirroring this one: a `Style.cutter_buffer` field, a
-  `register_tag("cb", ...)` entry registered LAST (so every existing
-  serialization order stays bit-identical), a per-character
-  `cutter_buffer_overrides` derivation, and resolution that widens
-  `per_char_cutters` per run. The seam already exists:
-  `ResolvedTextLine.cutter_buffer` is a **per-line scalar** and every effective
-  width is a **derived property** (`effective_per_char_cutters`,
-  `effective_used_cutters`, `effective_max_cutter_diameter`,
-  `effective_bold_cutter_diameter`), so turning the scalar into a
-  per-character array requires no change at any consumer — only inside the
-  properties. The per-line value currently feeds `label_renderer._run_effective
-  _cutter` (the underline/strikethrough geometry) and
-  `vectorize.cutter_widths` (the PDF preview widths, which aggregate per
-  physical tool with `max()` — a per-character buffer would need that map to
-  become pen-keyed.
+- **Inline cutter buffer (`<cb:D>`) is implemented** — see
+  `### Inline Cutter Buffer (<cb:D>)` below.
 - **Reporting**: `layout_report.py` prints a per-line finding
   `Line N: '<text>' cutter 0.030in (engraved cutter 0.030in, line cutter
   0.060in)` — the requested diameter and the tool that actually runs (they
@@ -1438,7 +1424,67 @@ contract, applied per character). Works on **PLT and TTF** fonts.
   (`tests/test_layout_report.py`) and the `text_color_markup` JSON entry
   (`tests/test_generation_report.py`).
 
-### Manual Kerning (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
+
+### Inline Cutter Buffer (`<cb:D>`)
+
+`<cb:D>...</cb>` is the fourteenth shipped markup tag: the wrapped characters
+engrave with a **kerf buffer override** of `D` inches, replacing the line's
+cascaded `cutter_buffer_text` scalar for the span. `D` must be a non-negative
+float; `0.0` explicitly zeroes out the buffer for the span (overriding the
+line's configured buffer to zero). A bare `<cb>` without the argument is
+**literal text** (the `<c:D>` rule: the argument is mandatory).
+
+- **A value tag (like `<c:D>`)**: `Style.cutter_buffer: Optional[float] =
+  None` (`None` = use the line's scalar, a float = the override). `apply` is
+  set-to-value (idempotent), so a nested `<cb:0.02>` inside `<cb:0.01>`
+  restores `0.01` for the trailing text for free (the close pops the pre-open
+  Style). `register_tag("cb", ...)` is registered **LAST** in `TAG_REGISTRY`
+  so every existing serialization order stays bit-identical.
+- **Argument bounds**: `[0.0, 1.0]` (inclusive, generous upper bound —
+  `MIN_BUFFER_ARG = 0.0`, `MAX_BUFFER_ARG = 1.0`). The parse raises
+  `MarkupError` for a non-float or an out-of-range value (fail-loud). The
+  upper bound only catches runaway typos; the real limit (that `cutter +
+  buffer` must leave material to engrave) is not checked at parse time —
+  only the line-level `cutter_size` and `<c:D>` material checks exist.
+- **No new pen, no new PLT file, no inventory snap** — the tag is a **pure
+  width modifier**: the physical tool stays the same, only the effective
+  engraved width (`cutter + buffer`) changes. The `<c:D>` tag names a tool;
+  `<cb:D>` widens whatever tool is already in use.
+- **The three new resolution properties**:
+  - `ResolvedTextLine.cutter_buffer_overrides` — per-character
+    `Optional[float]` array aligned with `plain_text` (`None` outside a
+    `<cb:D>` span, the float inside). Mirrors `cutter_overrides`. `()` when
+    no styled runs exist.
+  - `ResolvedTextLine.has_cutter_buffer_overrides` — `True` when any run
+    carries a `<cb:D>` tag (the fast-path guard).
+  - `ResolvedTextLine.per_char_buffers` — per-character float array (the
+    override when set, the line's `cutter_buffer` scalar elsewhere). `()`
+    when `has_cutter_buffer_overrides` is `False` (the fast path that keeps
+    every pre-feature consumer bit-identical).
+- **The effective-width properties use per-character buffers**:
+  - `effective_per_char_cutters` — widens each character with its own buffer
+    from `per_char_buffers`. No change for lines without `<cb:D>`.
+  - `effective_used_cutters` — for each physical tool in `used_cutters`,
+    uses the **maximum** buffer among all characters engraving with that tool
+    (so `vectorize.cutter_widths` stays correct without any change to
+    `vectorize.py`). No change for lines without `<cb:D>`.
+  - `effective_cutter_diameter` / `effective_bold_cutter_diameter` — still
+    use the line-level scalar (no change; line-wide effective widths are not
+    per-character).
+- **Underline geometry is exact**: `_run_effective_cutter` uses
+  `per_char_buffers[first]` (the run's own buffer) instead of the line's
+  scalar. `_decoration_runs` (via `_split_runs_at_layer`) also splits runs at
+  buffer boundaries, so each underline run is consistent. `_underline_run_layers`
+  returns 5-tuples `(x_min, x_max, cutter, color, buffer)` — the recovery
+  site in `_stroke_layer_map` looks up the run's buffer from the span (not
+  the line's scalar) before subtracting it to recover the physical cutter.
+- **No schema field, no `job-config.json` key, no cascade** — the value rides
+  the tag (the `<scale:N>` precedent). No new `DEFAULT_*` constant ⇒ no
+  `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row.
+- Unit tests: `TestCutterBufferRegistry` / `TestCutterBufferParse` /
+  `TestCutterBufferSerialize` / `TestCutterBufferWords`
+  (`tests/test_markup.py`), `TestInlineCutterBufferOverrides`
+  (`tests/test_resolution.py`). (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
 
 Manual kerning is the framework's one **non-tag** markup feature: the
 cascading `kern_pos_string` / `kern_neg_string` fields name *marker strings*

@@ -835,13 +835,12 @@ historical expression. The code defaults are `0.0` (so the no-config path is
 unchanged); the shipped `job-config.json` carries the shop's measured values.
 Pinned by `tests/test_phase3_export.py::TestZeroBufferRegression`.
 
-**Planned follow-up (not implemented):** inline markup for a per-run buffer
-(e.g. `<cb:0.01>`), mirroring `<c:D>`: a `Style.cutter_buffer` field, a
-`register_tag` entry, a per-character `cutter_buffer_overrides` derivation, and
-`per_char_cutters`-style resolution. The buffer is deliberately stored
-**per line** (`ResolvedTextLine.cutter_buffer`) and every effective width is a
-**property**, which is exactly the seam that follow-up plugs into — no consumer
-needs to change when the per-line scalar becomes a per-character array.
+**Inline cutter buffer `<cb:D>` is implemented:** the fourteenth shipped
+markup tag lets individual runs override the line's `cutter_buffer_text` scalar
+per character. See `markup/AGENTS.md` "Inline Cutter Buffer" for the full
+contract. The effective-width properties (`effective_per_char_cutters`,
+`effective_used_cutters`) use per-character buffers when any `<cb:D>` span is
+active; lines without the tag are bit-identical to the pre-feature baseline.
 
 ### Multi-Stroke (Bold) PLT Fonts (`target_boldness_factor`, `multistroke_overlap_ratio`)
 
