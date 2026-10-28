@@ -440,6 +440,11 @@ def _label_entries(
                 "nominal_text_height": _round(line.nominal_text_height),
                 "toolpath_text_height": _round(line.toolpath_text_height),
                 "cutter_diameter": _round(line.cutter_diameter),
+                # The kerf buffer the line's cascade resolved, and the width
+                # its tool therefore engraves (the value every clearance and
+                # the PDF proof stroke uses).
+                "cutter_buffer": _round(line.cutter_buffer),
+                "effective_cutter_diameter": _round(line.effective_cutter_diameter),
                 "font": line.font,
                 "text_color": line.text_color,
                 "text_h_alignment": line.text_h_alignment,
@@ -453,7 +458,9 @@ def _label_entries(
     holes: List[Dict[str, Any]] = []
     for hole in source.holes:
         engraved = 2.0 * _engraved_hole_radius(
-            hole.diameter, source.hole_cutter_diameter, source.hole_adjust_for_cutter
+            hole.diameter,
+            source.effective_hole_cutter_diameter,
+            source.hole_adjust_for_cutter,
         )
         holes.append(
             {
@@ -482,6 +489,11 @@ def _label_entries(
         "h_margin": _round(source.h_margin),
         "v_margin": _round(source.v_margin),
         "hole_margin": _round(source.hole_margin),
+        # The physical boundary/hole tool, its kerf buffer, and the width it
+        # engraves (the value the hole compensation and collision floors use).
+        "hole_cutter_diameter": _round(source.hole_cutter_diameter),
+        "hole_cutter_buffer": _round(source.hole_cutter_buffer),
+        "effective_hole_cutter_diameter": _round(source.effective_hole_cutter_diameter),
         "material": source.material,
         "plate_id": source.plate_id,
         "has_collisions": bool(rendered.has_collisions) if rendered is not None else None,

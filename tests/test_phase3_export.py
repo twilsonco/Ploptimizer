@@ -7100,3 +7100,248 @@ class TestPreviewColors:
             assert plot["fills"] == [("white", 1.0)]
             # wb core text + black contrast outlines (borders and holes).
             assert {f for _w, _a, f in plot["layers"]} == {"black"}
+
+
+class TestCutterBufferDemoExample:
+    """Regression tests for tests_deps/cutter_buffer_job.yaml.
+
+    The fixture pins the kerf-buffer cascade (``cutter_buffer_text`` /
+    ``cutter_buffer_routing``, job -> plate (parity) -> label -> line) and the
+    physical-vs-effective split: the ENGRAVED width (tool + buffer) drives the
+    toolpath height, the collision/hole geometry and the PDF proof stroke
+    widths, while the tool identity (pen map, per-cutter PLT file names) stays
+    the nominal diameter.
+    """
+
+    _SPEC = Path("tests_deps/cutter_buffer_job.yaml")
+
+    def _labels(self):
+        """Resolve the fixture (no inventory: the ideal cutters apply)."""
+        return {label.id: label for label in resolve_job_spec(parse_yaml(self._SPEC))}
+
+    def _export(self, tmp_path: Path, job_id: str = "cb", **export_kwargs):
+        """Export the fixture, returning the result."""
+        job = parse_yaml(self._SPEC)
+        return export_per_cutter_plts(
+            resolve_job_spec(job),
+            job.plates,
+            output_dir=tmp_path,
+            job_id=job_id,
+            optimize=False,
+            plots=False,
+            **export_kwargs,
+        )
+
+    # -- The cascade -------------------------------------------------------
+
+    def test_plate_tier_never_applies(self) -> None:
+        """The plate's 0.5 parity value reaches no label (plate is parity only)."""
+        for label in self._labels().values():
+            for line in label.content:
+                assert line.cutter_buffer < 0.1
+
+    def test_job_tier_applies(self) -> None:
+        """A label omitting the field inherits the job's 0.010."""
+        line = self._labels()["job_buffer"].content[0]
+        assert line.cutter_buffer == pytest.approx(0.010)
+        assert line.effective_cutter_diameter == pytest.approx(line.cutter_diameter + 0.010)
+
+    def test_label_tier_overrides_job(self) -> None:
+        """The label's 0.020 beats the job's 0.010."""
+        assert self._labels()["label_override"].content[0].cutter_buffer == pytest.approx(0.020)
+
+    def test_line_tier_overrides_label_and_job(self) -> None:
+        """One label carries two lines on two different widths."""
+        content = self._labels()["line_override"].content
+        assert content[0].cutter_buffer == pytest.approx(0.004)
+        assert content[1].cutter_buffer == pytest.approx(0.010)
+
+    def test_explicit_zero_opts_a_line_out(self) -> None:
+        """An explicit 0.0 is a value: the line engraves = nominal."""
+        content = self._labels()["explicit_zero"].content
+        assert content[0].cutter_buffer == pytest.approx(0.010)
+        assert content[1].cutter_buffer == 0.0
+        assert content[1].effective_cutter_diameter == pytest.approx(content[1].cutter_diameter)
+
+    def test_toolpath_compensates_everywhere(self) -> None:
+        """Every line's engraved silhouette stays exactly nominal tall."""
+        for label in self._labels().values():
+            for line in label.content:
+                assert line.toolpath_text_height == pytest.approx(
+                    line.nominal_text_height - line.effective_cutter_diameter
+                )
+
+    # -- The routing buffer ------------------------------------------------
+
+    def test_routing_buffer_cascades_per_label(self) -> None:
+        """The job's 0.045 applies; one label overrides it to 0.0."""
+        labels = self._labels()
+        assert labels["routing_holes"].hole_cutter_buffer == pytest.approx(0.045)
+        assert labels["routing_off"].hole_cutter_buffer == 0.0
+        assert labels["zero_control"].hole_cutter_buffer == 0.0
+
+    def test_routing_buffer_shrinks_the_emitted_hole(self) -> None:
+        """The cutter-compensated hole circle loses the ENGRAVED width."""
+        from plt_optimizer.generate.collision.holes import hole_circles_local
+
+        labels = self._labels()
+        (bx, _by, buffered_r) = hole_circles_local(labels["routing_holes"])[0]
+        (nx, _ny, legacy_r) = hole_circles_local(labels["routing_off"])[0]
+        # Both labels share the 0.25in hole and the same physical tool; only
+        # the routing buffer differs, so the buffered path circle is smaller.
+        assert buffered_r == pytest.approx(legacy_r - 0.045 / 2.0)
+
+    def test_routing_buffer_keeps_the_engraved_hole_edge_fixed(self) -> None:
+        """The finished hole is unchanged: the centre and radius cancel.
+
+        The centre offset carries engraved/2 and the emitted radius loses
+        engraved/2, so the hole's OUTER edge sits at exactly
+        ``hole_margin + specified_diameter`` whatever the buffer -- the
+        compensation moves the path, never the finished hole.
+        """
+        from plt_optimizer.generate.collision.holes import hole_circles_local
+
+        labels = self._labels()
+        (bx, _by, buffered_r) = hole_circles_local(labels["routing_holes"])[0]
+        (nx, _ny, legacy_r) = hole_circles_local(labels["routing_off"])[0]
+        assert bx + buffered_r == pytest.approx(nx + legacy_r)
+        # The centre itself moves inward by half the buffer.
+        assert bx - nx == pytest.approx(0.045 / 2.0)
+
+    # -- Tool identity stays physical --------------------------------------
+
+    def test_plt_file_names_keep_the_physical_tool(self, tmp_path: Path) -> None:
+        """A 0.060in cutter writes `60_txt_*` even at a 0.010in buffer."""
+        result = self._export(tmp_path)
+        text_names = sorted(p.stem for p in result.plt_paths if "_txt_" in p.name)
+        assert text_names, "the fixture must export text layers"
+        for stem in text_names:
+            token = _parse_plt_stem(stem).cutter
+            assert token is not None
+            # 60 = the ideal cutter for 0.5in text; never 70 (60 + 10 buffer).
+            assert token == "60", stem
+
+    def test_bh_file_name_keeps_the_physical_hole_tool(self, tmp_path: Path) -> None:
+        """The structural file names the tool, not its engraved width."""
+        result = self._export(tmp_path)
+        bh = [p for p in result.plt_paths if "_bh_" in p.name]
+        assert bh
+        from plt_optimizer.generate.resolution import DEFAULT_BOUNDARY_HOLE_CUTTER
+
+        for path in bh:
+            assert _parse_plt_stem(path.stem).cutter == _format_cutter(DEFAULT_BOUNDARY_HOLE_CUTTER)
+
+    # -- The PDF proof stroke widths ---------------------------------------
+
+    def test_pdf_previews_draw_the_engraved_width(self, tmp_path: Path) -> None:
+        """Every proof layer's width is the tool PLUS its kerf buffer."""
+        from unittest.mock import patch
+
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        captured: dict[str, list[float]] = {}
+
+        def _fake_plot(layers, output_path=None, show_plot=False, fills=(), **kwargs):
+            captured[Path(output_path).name] = [layer.width_inches for layer in layers]
+
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
+            export_per_cutter_plts(
+                labels,
+                job.plates,
+                output_dir=tmp_path,
+                job_id="cbpdf",
+                optimize=False,
+                plots=True,
+            )
+
+        assert captured, "the export must write proof previews"
+        # The per-cutter text proof: 0.060 tool + the widest buffer in the job
+        # (the label tier's 0.020) = 0.080.
+        text_plots = {n: w for n, w in captured.items() if "_txt_" in n}
+        assert text_plots, "expected per-cutter text previews"
+        for widths in text_plots.values():
+            assert widths and all(math.isclose(w, 0.080, abs_tol=1e-9) for w in widths)
+        # The structural proof: the 0.015 hole tool + the routing buffer 0.045.
+        bh_plots = {n: w for n, w in captured.items() if "_bh_" in n}
+        assert bh_plots, "expected borders+holes previews"
+        for widths in bh_plots.values():
+            assert widths and all(math.isclose(w, 0.060, abs_tol=1e-9) for w in widths)
+        # The combined proof carries both widths (text pen + structural pens).
+        all_plots = {n: w for n, w in captured.items() if n.startswith("all_")}
+        assert all_plots
+        widths = {round(w, 6) for ws in all_plots.values() for w in ws}
+        assert 0.080 in widths and 0.060 in widths
+
+
+class TestZeroBufferRegression:
+    """Buffers of 0.0 reproduce the pre-buffer output byte-for-byte."""
+
+    def _spec(self, tmp_path: Path, *, buffers: Optional[str]) -> Path:
+        """Copy the reference spec, optionally declaring both buffers as 0.0."""
+        text = Path("tests_deps/test123_spec.yaml").read_text(encoding="utf-8")
+        if buffers is not None:
+            # Insert above the job_name line (the value must stay on its key).
+            text = text.replace("  job_name:", f"{buffers}  job_name:", 1)
+        path = tmp_path / "spec.yaml"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _contents(self, tmp_path: Path, spec: Path) -> dict[str, str]:
+        """Export a spec and return every written PLT's content by name."""
+        job = parse_yaml(spec)
+        result = export_per_cutter_plts(
+            resolve_job_spec(job),
+            job.plates,
+            output_dir=tmp_path / "out",
+            job_id="zero",
+            optimize=False,
+            plots=False,
+        )
+        return {path.name: path.read_text(encoding="utf-8") for path in result.plt_paths}
+
+    def test_explicit_zero_buffers_are_byte_identical(self, tmp_path: Path) -> None:
+        """`cutter_buffer_*: 0.0` at the job tier changes no emitted byte."""
+        legacy = self._contents(tmp_path / "legacy", self._spec(tmp_path, buffers=None))
+        zeroed = self._contents(
+            tmp_path / "zeroed",
+            self._spec(
+                tmp_path,
+                buffers="  cutter_buffer_text: 0.0\n  cutter_buffer_routing: 0.0\n",
+            ),
+        )
+        assert legacy
+        assert zeroed.keys() == legacy.keys()
+        for name, content in legacy.items():
+            assert zeroed[name] == content, name
+
+    def test_zero_buffer_pdf_widths_are_the_nominal_tools(self, tmp_path: Path) -> None:
+        """With no buffer the proofs draw the physical cutter exactly."""
+        from unittest.mock import patch
+
+        spec = self._spec(tmp_path, buffers=None)
+        job = parse_yaml(spec)
+        captured: dict[str, list[float]] = {}
+
+        def _fake_plot(layers, output_path=None, show_plot=False, fills=(), **kwargs):
+            captured[Path(output_path).name] = [layer.width_inches for layer in layers]
+
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
+            export_per_cutter_plts(
+                resolve_job_spec(job),
+                job.plates,
+                output_dir=tmp_path / "out",
+                job_id="zero",
+                optimize=False,
+                plots=True,
+            )
+        for name, widths in captured.items():
+            if "_txt_" not in name and "_bh_" not in name:
+                continue
+            token = _parse_plt_stem(Path(name).stem).cutter
+            assert token is not None, name
+            expected = int(token) / 1000.0
+            assert all(math.isclose(w, expected, abs_tol=1e-9) for w in widths), name

@@ -947,14 +947,34 @@ def export_per_cutter_plts(
         default=DEFAULT_BOUNDARY_HOLE_CUTTER,
     )
 
-    # Pen -> physical cutter diameter (inches): the true stroke width each
-    # pen engraves with. Text pens come from the (cutter, color) pen map;
-    # the structural pens (borders, holes) all share the job hole cutter.
-    # The simple physical-width plots consume this to split the in-memory
-    # combined plate by pen and draw every stroke at its real width.
-    pen_widths: dict[int, float] = {pen: cutter for pen, (cutter, _color) in layer_by_pen.items()}
-    pen_widths[LAYER_BOUNDARY] = hole_cutter
-    pen_widths[LAYER_HOLES] = hole_cutter
+    # Physical cutter (inches) -> the width it engraves (tool + the widest
+    # kerf buffer among the lines that use it). The per-cutter PLT file names
+    # and the pen map stay keyed on the PHYSICAL tool (a 0.030in cutter always
+    # writes ``30_txt_*.plt``), so the previews -- whose width the file-name
+    # token supplies -- need this map to draw the real ink corridor.
+    cutter_widths: dict[float, float] = {}
+    for label in resolved_labels:
+        for line in label.content:
+            for physical, engraved in zip(line.used_cutters, line.effective_used_cutters):
+                cutter_widths[physical] = max(cutter_widths.get(physical, 0.0), engraved)
+
+    # Pen -> the width each pen ENGRAVES (tool + kerf buffer): the true stroke
+    # width the simple physical-width plots draw. Text pens come from the
+    # (cutter, color) pen map; the structural pens (borders, holes) all share
+    # the job hole cutter. The combined plot is split by pen and every stroke
+    # is expanded to this width, so the proof matches the material the machine
+    # removes (a 45-degree-flank V-bit cuts wider than its nominal diameter).
+    pen_widths: dict[int, float] = {
+        pen: cutter_widths.get(cutter, cutter) for pen, (cutter, _color) in layer_by_pen.items()
+    }
+    # Job-level boundary/hole kerf buffer (all labels share the job-resolved
+    # value; fall back to no buffer for content-less jobs).
+    hole_cutter_width = max(
+        (label.effective_hole_cutter_diameter for label in resolved_labels),
+        default=hole_cutter,
+    )
+    pen_widths[LAYER_BOUNDARY] = hole_cutter_width
+    pen_widths[LAYER_HOLES] = hole_cutter_width
 
     # Pen -> stroke-color tag: the colored combined-plot previews resolve
     # each text pen's ink color from its (text_color / <tc:>) layer tag,
@@ -1046,6 +1066,15 @@ def export_per_cutter_plts(
             f"plotter units ({', '.join(parts)})"
         )
 
+    # Written PLT path -> the width its strokes ENGRAVE (inches). The mirrored
+    # per-file PDF previews read their stroke width from the file-name cutter
+    # token, which is the PHYSICAL tool (the tool identity must stay physical
+    # so the name matches a tool the shop owns), so the kerf-buffered width is
+    # tracked here per file instead. The text and structural cutters can share
+    # a nominal size while carrying different buffers, which is why this is
+    # keyed by path and not merged into `cutter_widths`.
+    file_widths: dict[Path, float] = {}
+
     # Phase 3: Assemble each plate in memory, then split by pen group.
     # Files are named [<plate>_][<material>_]<cutter>_<kind>_<job_id>: the
     # plate number (1-based packing-order index, 2-digit padded) is
@@ -1092,6 +1121,7 @@ def export_per_cutter_plts(
             structure_path = ensure_plot_filename_length(structure_path, _LOG)
             structure_path.write_text(bh_content + "\n", encoding="utf-8")
             result.plt_paths.append(structure_path)
+            file_widths[structure_path] = hole_cutter_width
 
         # Text group: one file per distinct text cutter/color pen with
         # content. With optimization enabled the layer is routed directly
@@ -1135,6 +1165,7 @@ def export_per_cutter_plts(
             text_path = ensure_plot_filename_length(text_path, _LOG)
             text_path.write_text(written_content + "\n", encoding="utf-8")
             result.plt_paths.append(text_path)
+            file_widths[text_path] = pen_widths[pen_id]
 
     # Extract text height from resolved labels for plot titles
     text_height: float | None = None
@@ -1158,6 +1189,7 @@ def export_per_cutter_plts(
                 pen_widths=pen_widths,
                 pen_colors=pen_colors,
                 preview_background=preview_background,
+                file_widths=file_widths,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
@@ -1177,6 +1209,7 @@ def _write_simple_plots(
     pen_widths: Optional[Mapping[int, float]] = None,
     pen_colors: Optional[Mapping[int, str]] = None,
     preview_background: str = DEFAULT_PREVIEW_BACKGROUND_COLOR,
+    file_widths: Optional[Mapping[Path, float]] = None,
 ) -> list[Path]:
     """Write true-stroke-width PDF previews for a per-cutter export.
 
@@ -1184,16 +1217,18 @@ def _write_simple_plots(
     ``output_dir/pdf/`` mirroring the PLT file names: every cutting stroke
     is expanded into the ink corridor its cutter engraves (see
     :func:`~plt_optimizer.diagnostics.plotter.plot_physical_strokes`), so
-    each stroke measures its real cutter diameter on the inch grid. The
-    per-file width comes from the cutter token of the file-name stem; the
-    structural (``bh`` = borders + holes) layers keep the semi-transparent
-    underlay look while text ink renders fully opaque.
+    each stroke measures its real engraved width on the inch grid (the
+    physical cutter plus the cascaded ``cutter_buffer_text`` /
+    ``cutter_buffer_routing`` kerf buffer, supplied per file through
+    ``file_widths``; the file-name cutter token itself stays the physical
+    tool). The structural (``bh`` = borders + holes) layers keep the
+    semi-transparent underlay look while text ink renders fully opaque.
 
     Additionally renders one combined ``[<plate>_][<material>_]all_<job_id>.pdf``
     per plate from the in-memory combined content (text + borders + holes
     together). When ``pen_widths`` is provided, the combined content is
     split per pen (the assembly keeps its ``SP`` sections) and every pen
-    draws at its own cutter width; without it the combined plot falls back
+    draws at its own engraved width; without it the combined plot falls back
     to the thin centerline preview.
 
     The combined plots are colored proofs (see
@@ -1226,10 +1261,11 @@ def _write_simple_plots(
             ``combined_by_plate`` drive the plots.
         job_name: Human-readable job name for plot titles (optional).
         text_height: Text height in inches for text plot titles (optional).
-        pen_widths: Physical cutter diameter (inches) per HPGL pen number
-            of the assembled plate (text pens from the pen map, structural
-            pens 2/3 at the job hole cutter). Enables per-stroke widths in
-            the combined plots. ``None`` renders combined plots thin.
+        pen_widths: Engraved stroke width (inches) per HPGL pen number of
+            the assembled plate -- the physical cutter plus its kerf buffer
+            (text pens from the pen map, structural pens 2/3 at the job hole
+            cutter). Enables per-stroke widths in the combined plots. ``None``
+            renders combined plots thin.
         pen_colors: Stroke-color tag per HPGL pen number (the pen map's
             ``text_color`` value; ``"none"`` = implicit default). Colors
             the combined-plot text ink via
@@ -1242,6 +1278,12 @@ def _write_simple_plots(
             :data:`~plt_optimizer.generate.preview_colors.DEFAULT_PREVIEW_BACKGROUND_COLOR`).
             Drill holes punch this same color ("see-through" discs); their
             outlines share the label border's contrast color.
+        file_widths: Engraved stroke width (inches) per written PLT path (the
+            physical cutter token in its name plus that layer's kerf buffer).
+            Overrides the width parsed from the file name for the mirrored
+            per-file previews, so a buffered job proofs the real ink corridor
+            while the file name keeps naming the tool the shop owns. ``None``
+            (direct/synthetic callers) plots the nominal token width.
 
     Returns:
         List of written PDF paths.
@@ -1297,6 +1339,11 @@ def _write_simple_plots(
             else "PLT Toolpath Visualization"
         )
         width_inches = _stem_cutter_inches(plt_path.stem)
+        if width_inches is not None and file_widths is not None:
+            # The stem token is the PHYSICAL tool; the preview must draw the
+            # width it engraves (tool + kerf buffer), which the export tracked
+            # per written file.
+            width_inches = file_widths.get(plt_path, width_inches)
         if width_inches is not None:
             # Single-tool file: every stroke engraves at the file's cutter.
             plot_physical_strokes(

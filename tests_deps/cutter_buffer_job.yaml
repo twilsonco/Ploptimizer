@@ -1,0 +1,137 @@
+# Fixture for the cutter kerf buffer (`cutter_buffer_text` +
+# `cutter_buffer_routing`).
+#
+# Both fields cascade job -> plate (parity) -> label -> line, with a
+# job-config.json key; the CODE fallback is 0.0 for both (this fixture ships
+# no config, so every value below comes from the spec itself).
+#
+# The model: a V-bit with roughly 45-degree flanks cuts a groove WIDER than
+# its nominal diameter (the deeper the cut, the wider the stroke), so the
+# pipeline computes an EFFECTIVE cutter width = physical tool + buffer and
+# uses it for every measurement of ink (kerning clearance, the toolpath
+# height, the text/hole collision floor, the cutter-compensated hole radius,
+# the compression margin, the packing kerf, the PDF proof stroke widths).
+# The TOOL stays physical: inventory snapping, the pen map, the per-cutter PLT
+# file names, the <b> bold rung and the compression-driven downsize ladder all
+# use the nominal diameter -- a 0.030in cutter always writes `30_txt_*.plt`.
+#
+# The behavior matrix pinned by tests/test_phase3_export.py
+# (TestCutterBufferDemoExample) and tests/test_resolution.py
+# (TestCutterBufferResolution):
+#
+#   - `zero_control`   no buffer anywhere -> the legacy geometry, and the PLT
+#                      bytes are identical to the same label with an explicit
+#                      `cutter_buffer_text: 0.0` (TestZeroBufferRegression).
+#   - `job_buffer`     the JOB-level text buffer (0.010) widens the line:
+#                      toolpath height drops by exactly the buffer and the
+#                      engraved silhouette stays `text_height`.
+#   - `label_override` the LABEL tier (0.020) beats the job tier.
+#   - `line_override`  the LINE tier (0.004) beats label and job.
+#   - `explicit_zero`  an explicit `0.0` on a line opts that line out of the
+#                      job's 0.010 (only `None` means unset).
+#   - `routing_holes`  the routing buffer (0.045) widens the boundary/hole
+#                      tool, so the cutter-compensated emitted hole circle
+#                      shrinks by the extra width and the hole margin offset
+#                      grows by half of it; the `*_bh_*.plt` file name keeps
+#                      the physical tool token.
+#
+# `max_h_compress` stays 0.0 and every label is roomy, so no line compresses
+# and no cutter downsizes: every pinned number below is pure buffer geometry.
+job:
+  job_name: Cutter Buffer Demo
+
+  text_height: 0.5
+  margin: 0.1
+  line_spacing: 0.15
+  max_h_compress: 0.0
+  auto_descending_character_adjustment: false
+  cutter_downsize: false
+
+  # Job tier: the text buffer every label/line inherits, and the routing
+  # buffer every label inherits.
+  cutter_buffer_text: 0.010
+  cutter_buffer_routing: 0.045
+
+  plates:
+    - id: plate_1
+      width: 24.0
+      height: 16.0
+      # Plate tier: schema parity only (accepted, canonicalized, never
+      # applied). This value must NOT reach any label.
+      cutter_buffer_text: 0.5
+
+  labels:
+    # 1. Legacy control: an explicit 0.0 on both tiers opts the label out, so
+    #    it engraves exactly like a job with no buffer configured at all.
+    - id: zero_control
+      width: 4.0
+      height: 2.0
+      cutter_buffer_text: 0.0
+      cutter_buffer_routing: 0.0
+      content:
+        - text: "ZERO"
+
+    # 2. The job tier's 0.010 text buffer applies.
+    - id: job_buffer
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "JOB"
+
+    # 3. The label tier (0.020) overrides the job tier.
+    - id: label_override
+      width: 4.0
+      height: 2.0
+      cutter_buffer_text: 0.020
+      content:
+        - text: "LABEL"
+
+    # 4. The line tier (0.004) overrides label and job; the second line keeps
+    #    the job's 0.010, so one label engraves two widths.
+    - id: line_override
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "LINE"
+          cutter_buffer_text: 0.004
+        - text: "JOB"
+
+    # 5. An explicit 0.0 on ONE line opts that line out of the job's 0.010
+    #    (only `None` means unset), while its sibling inherits the buffer.
+    - id: explicit_zero
+      width: 4.0
+      height: 2.0
+      content:
+        - text: "PLAIN"
+        - text: "PINNED"
+          cutter_buffer_text: 0.0
+
+    # 6. Routing buffer on drill holes: the emitted hole circle shrinks by the
+    #    ENGRAVED boundary/hole width (tool + 0.045), and the hole centre
+    #    offset grows by half of it. The `*_bh_*.plt` name keeps the physical
+    #    tool token.
+    - id: routing_holes
+      width: 4.0
+      height: 2.0
+      hole_margin: 0.15
+      holes:
+        - location: top-left
+          diameter: 0.25
+        - location: bottom-right
+          diameter: 0.25
+      content:
+        - text: "HOLES"
+
+    # 7. A label that overrides the routing buffer to 0.0: its holes emit the
+    #    historical nominal-cutter compensation while its text keeps the job's
+    #    0.010 -- the two buffers are independent.
+    - id: routing_off
+      width: 4.0
+      height: 2.0
+      cutter_buffer_routing: 0.0
+      hole_margin: 0.15
+      holes:
+        - location: top-left
+          diameter: 0.25
+      content:
+        - text: "OFF"

@@ -341,7 +341,9 @@ def _hole_adjust_lines(label: ResolvedLabel) -> list[str]:
     """
     if not label.hole_adjust_for_cutter or not label.holes:
         return []
-    cutter = label.hole_cutter_diameter
+    # The compensation consumes the ENGRAVED width (tool + kerf buffer), so the
+    # report names that too: the emitted circle is what the machine cuts.
+    cutter = label.effective_hole_cutter_diameter
     lines: list[str] = []
     seen: list[float] = []
     for hole in label.holes:

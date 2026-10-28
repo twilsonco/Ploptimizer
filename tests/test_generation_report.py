@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from plt_optimizer.generate.generation_report import (
     REPORT_JSON_NAME,
@@ -32,7 +35,11 @@ from plt_optimizer.generate.generation_report import (
 )
 from plt_optimizer.generate.label_renderer import DescenderFix, RenderedLabel
 from plt_optimizer.generate.layout_report import LineFinding, collect_line_findings
-from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.resolution import (
+    ResolvedHoleSpec,
+    ResolvedLabel,
+    ResolvedTextLine,
+)
 from plt_optimizer.utils.stage_timing import StageTimings
 
 
@@ -439,6 +446,49 @@ class TestLineFindings:
         assert line["cutter_diameter"] == 0.03
         assert line["nominal_text_height"] == 0.3
         assert line["text_h_alignment"] == "center"
+
+    def test_cutter_buffer_keys_are_reported(self, tmp_path: Path) -> None:
+        """The line entry names the tool, its kerf buffer and the engraved width."""
+        resolved, rendered = _label("l1", [_line("A")])
+        resolved = replace(resolved, content=[replace(resolved.content[0], cutter_buffer=0.005)])
+        rendered = replace(rendered, source_label=resolved)
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        line = report["labels"][0]["lines"][0]
+        assert line["cutter_diameter"] == 0.03
+        assert line["cutter_buffer"] == 0.005
+        assert line["effective_cutter_diameter"] == 0.035
+
+    def test_hole_cutter_buffer_keys_are_reported(self, tmp_path: Path) -> None:
+        """The label entry names the physical hole tool, buffer and width."""
+        holes = [ResolvedHoleSpec(diameter=0.25, location="left")]
+        resolved, rendered = _label("l1", [_line("A")], holes=holes)
+        resolved = replace(resolved, hole_cutter_diameter=0.015, hole_cutter_buffer=0.045)
+        rendered = replace(rendered, source_label=resolved)
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        label = report["labels"][0]
+        assert label["hole_cutter_diameter"] == 0.015
+        assert label["hole_cutter_buffer"] == 0.045
+        assert label["effective_hole_cutter_diameter"] == 0.06
+        # The engraved hole diameter compensates for the ENGRAVED width.
+        assert label["holes"][0]["engraved_diameter"] == pytest.approx(0.25)
 
     def test_floats_are_rounded(self, tmp_path: Path) -> None:
         """Every float in the report is rounded to the fixed precision."""

@@ -536,6 +536,16 @@ def _run_generate(args: argparse.Namespace) -> int:
     tools = {
         "available_cutters": list(inventory) if inventory else [],
         "boundary_hole_cutter_size": boundary_hole_cutter,
+        # Kerf buffers (inches) the job-config added to each cutter to get the
+        # width it engraves; the per-line/per-label resolved values (which the
+        # spec can override) are reported on the labels themselves. `None`
+        # when no config is in play (the code fallback is then 0.0).
+        "cutter_buffer_text": (
+            job_config.defaults.cutter_buffer_text if job_config is not None else None
+        ),
+        "cutter_buffer_routing": (
+            job_config.defaults.cutter_buffer_routing if job_config is not None else None
+        ),
     }
 
     # Lazy heavy imports (see module docstring note in the top-level imports).
