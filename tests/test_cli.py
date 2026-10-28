@@ -275,7 +275,10 @@ class TestGenerateSubcommand:
             "      material: wb(uv)\n"
             "      content:\n"
             "        - text: Hello\n"
-            "          text_height: 0.5\n"
+            "          text_height: 0.5\n",
+            # The spec loader reads UTF-8; writing with the locale default
+            # (cp1252 on Windows) would mangle the non-ASCII job name.
+            encoding="utf-8",
         )
 
         out_dir = tmp_path / "out"

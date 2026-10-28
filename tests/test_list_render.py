@@ -9,6 +9,8 @@ fast path.
 
 from __future__ import annotations
 
+import pytest
+
 from plt_optimizer.generate.label_renderer import (
     _compose_marker_block,
     _marker_line_clone,
@@ -213,7 +215,9 @@ class TestPositionedMarkerLines:
         )
         bounds = [positioned[1].bounds() for positioned in _render_positioned_lines(label)]
         assert bounds[0] is not None and bounds[1] is not None
-        assert bounds[1][0] - bounds[0][0] == 0.3
+        # The hanging indent is a float sum (0.2 + 0.3), so compare with a
+        # tolerance: the exact difference is 0.29999999999999993 on Linux.
+        assert bounds[1][0] - bounds[0][0] == pytest.approx(0.3)
 
     def test_left_alignment_anchors_the_marker_column(self) -> None:
         """A left-aligned list starts its markers at the margin."""

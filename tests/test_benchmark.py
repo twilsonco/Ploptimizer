@@ -2394,11 +2394,15 @@ class TestRunStrategiesWithTimeout:
     def test_timeout_only_affects_the_offending_strategy(self) -> None:
         """A slow strategy fails while its fast sibling still succeeds."""
         strategies = {"instant": _InstantStrategy(), "sleeping": _SleepingStrategy()}
+        # The budget must cover Windows' spawn overhead (the child re-imports
+        # the whole benchmark module tree before the strategy runs, which can
+        # exceed a second on CI), while remaining far below the sleeping
+        # strategy's 3600s sleep so that one still trips the timeout.
         outcomes = _run_strategies_with_timeout(
-            strategies, [], strategy_timeout=1.0, text_logger=None
+            strategies, [], strategy_timeout=30.0, text_logger=None
         )
         assert outcomes["instant"].error is None
-        assert outcomes["sleeping"].error == "timed out after 1.0s"
+        assert outcomes["sleeping"].error == "timed out after 30.0s"
 
 
 class TestTerminatePoolWorkers:
