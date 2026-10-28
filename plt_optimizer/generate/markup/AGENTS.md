@@ -68,7 +68,7 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
-  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc` (each tag registers
+  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb` (each tag registers
   last so every earlier tag's serialization stays bit-identical). The font tag
   (`<f:font name>`, see Inline Font Selection below) is the one tag whose
   argument needs pipeline knowledge (the font catalog): `parse_markup` accepts
