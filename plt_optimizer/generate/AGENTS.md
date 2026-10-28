@@ -798,7 +798,9 @@ returned by `_underline_run_layers` / `_strikethrough_run_layers`, which
 (`-y - underline_offset_inches`). `_run_cutter` therefore stays **physical**
 (pen identity + a consistent Y-inversion) and
 `label_renderer._run_effective_cutter` supplies the **effective** width for the
-drawn geometry; the recovery site subtracts `line.cutter_buffer` before snapping
+drawn geometry; the recovery site subtracts the run's own buffer (the
+`<cb:D>`-aware span lookup in `_underline_run_layers`, the line scalar when
+the line carries no override) before snapping
 to `known`. Skipping the subtraction lets a large buffer snap an underline to a
 neighbouring rung the run never engraves with, landing its strokes on the wrong
 pen/PLT file.
@@ -811,6 +813,47 @@ and a path-keyed `file_widths` for the per-file plots (a text pen and the `bh`
 pen can share a nominal size while carrying different buffers, which is why the
 two maps are separate). `_write_simple_plots(file_widths=...)` prefers it over
 `_stem_cutter_inches`.
+
+**Per-stroke preview widths (`<cb:D>` visibility).** The emitted HPGL carries
+no width channel, so the pen/file-keyed widths above alone cannot show a
+`<cb:D>` span: the tag never changes the physical tool, so the span shares
+its pen with the surrounding text, and a per-pen width (the pen's widest
+engraved stroke) inflates the whole pen. The previews therefore consult a
+per-stroke width map: `label_renderer._stroke_width_map` records each stroke's
+engraved width (glyph strokes from `effective_per_char_cutters`, an underline
+stroke inverts its centerline Y, a strike stroke takes its run's
+`_run_effective_cutter`), the array rides `TextChunkRecord.stroke_widths`
+through the pen split, and `plate_optimizer.build_stroke_width_map` re-keys it
+into the PARSED device stream (`segment_width_key`): line segments by
+normalized integer endpoint pairs (direction-agnostic, so the sweeps'
+reversals and the merger's tip-to-tail stitching still match — chained
+through `_path_line_keys` because the parser derives a `PD` start from the
+previous `AA`'s float end, not the emitted integer), arcs by
+`(int center, |sweep|)` — the traversal invariants the emission carries
+exactly (a reversed traversal negates the sweep and re-chains the endpoints a
+unit off; center + magnitude survive both).
+`_write_simple_plots` splits each parsed pen/file into consecutive
+constant-width `PhysicalStrokeLayer`s by that lookup, falling back to the
+per-pen/per-file width for every segment the map does not cover (structural
+content, synthetic exports). The optimized per-file stream keys exactly (the
+plate transform and the emission share their rounding); the combined proof
+parses the un-optimized assembly, whose vertical centering applies its float
+adjustment to the integer device Y at a different rounding point than the
+plate transform, so a line's endpoints land up to one plotter unit off (the Y
+drift propagates through the parser's AA chain into X). The lookup therefore
+probes +/-1 unit in increasing total drift, accepting only a UNIQUE hit at the
+first drift level that hits (an ambiguous level falls back to the pen width --
+glyph geometry is dense, so a union over all levels is ambiguous almost
+everywhere). Arcs need no probe: `(center, |sweep|)` is emission-exact in both
+streams. The map is NOT gated on the tag: every rendered line contributes its
+own per-stroke widths, so a line that merely shares a tool with a buffered
+span keeps its own (narrower) width in the proof. A job whose buffers are all
+zero maps every stroke to its physical cutter, which equals the pen width --
+the previews stay visually identical. Pinned by
+`tests/test_phase3_export.py::TestPerStrokePreviewWidths` (both the optimized
+and un-optimized paths, the drift probe), `tests/test_plate_optimizer.py::TestBuildStrokeWidthMap`
+(map keys survive emission + parsing, arcs, rotation, reversal) and
+`tests/test_label_renderer_gaps.py::TestStrokeWidthMap`.
 
 **Known approximation: the multi-stroke boldness ladder.**
 `multi_stroke_cutter_diameter` sizes the per-pass **tool** so the `N` passes

@@ -1481,6 +1481,14 @@ line's configured buffer to zero). A bare `<cb>` without the argument is
 - **No schema field, no `job-config.json` key, no cascade** — the value rides
   the tag (the `<scale:N>` precedent). No new `DEFAULT_*` constant ⇒ no
   `docs/schema/generate_ai_docs.py` `_FALLBACK_NOTES` row.
+- **PDF previews draw the span at its own width.** The preview stroke width
+  is keyed per *pen* (the physical tool), and `<cb:D>` never changes the pen —
+  the span shares its tool's pen with the surrounding text. The previews
+  therefore consult a per-stroke engraved-width map (see `generate/AGENTS.md`
+  "Per-stroke preview widths"): each `<cb:D>` stroke draws at
+  `cutter + D` and its neighbours at their own `cutter + buffer`, so the
+  delta is visible in the `all`/per-file PDFs. A job without the tag keeps
+  the per-pen render bit-identically.
 - Unit tests: `TestCutterBufferRegistry` / `TestCutterBufferParse` /
   `TestCutterBufferSerialize` / `TestCutterBufferWords`
   (`tests/test_markup.py`), `TestInlineCutterBufferOverrides`

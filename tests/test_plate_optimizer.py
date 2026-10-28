@@ -32,11 +32,13 @@ from plt_optimizer.generate.plate_optimizer import (
     _record_paths_with_glyphs,
     _stroke_to_path,
     _transform_point,
+    build_stroke_width_map,
     build_text_blocks,
     build_text_blocks_with_glyphs,
     emit_layer_document,
     optimize_structural_layer,
     optimize_text_layer,
+    segment_width_key,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.text_geometry import ArcSeg, LineSeg, Stroke, TextBlock
@@ -1098,3 +1100,179 @@ class TestOptimizeStructuralLayer:
         ]
         assert len(sweeps) == 4
         assert all(math.isclose(sweep, 90.0) for sweep in sweeps)
+
+
+def _width_record(
+    spans: List[Tuple[Tuple[float, float], Tuple[float, float]]],
+    widths: Tuple[float, ...],
+    pen: int = 1,
+    line_index: int = 0,
+    glyph_groups: Tuple[Tuple[int, ...], ...] = (),
+) -> TextChunkRecord:
+    """Build a chunk record carrying per-stroke engraved widths.
+
+    Args:
+        spans: ``(start, end)`` inch pairs, one stroke per span.
+        widths: Engraved width (inches) per stroke, aligned with ``spans``.
+        pen: Pen number for the record.
+        line_index: Source line index.
+        glyph_groups: Optional per-glyph stroke groups (the intra sweep's).
+
+    Returns:
+        A TextChunkRecord with ``stroke_widths`` set.
+    """
+    record = _glyph_record(spans, glyph_groups, pen=pen, line_index=line_index)
+    return TextChunkRecord(
+        line_index=record.line_index,
+        word_index=record.word_index,
+        word_text=record.word_text,
+        pen=record.pen,
+        blocks=record.blocks,
+        bounds=record.bounds,
+        glyph_groups=record.glyph_groups,
+        stroke_widths=widths,
+    )
+
+
+class TestBuildStrokeWidthMap:
+    """``build_stroke_width_map``: device-space keys the previews can look up.
+
+    The map is the preview's only per-stroke width channel (the emitted HPGL
+    carries none), so its keys MUST match the endpoints the parser produces
+    from the emitted layer -- through the plate transform, the integer
+    emission rounding, the arc-end arithmetic, the direction/glyph sweeps'
+    reversals, and the merger's tip-to-tail stitching.
+    """
+
+    def test_empty_when_no_record_carries_widths(self) -> None:
+        """The fast path: no <cb:D> override -> empty map."""
+        rendered = _make_rendered((_multi_stroke_record([((0.0, 0.0), (1.0, 0.0))]),))
+        assert build_stroke_width_map([_packed("t", 0.0, 0.0)], {"t": rendered}) == {}
+
+    def test_keys_match_the_emitted_and_parsed_layer(self) -> None:
+        """Every parsed segment of the optimized layer finds its width.
+
+        End-to-end: build the map, run the real text-layer optimization,
+        parse the emitted HPGL, and look every parsed segment up. A key
+        mismatch (transform, rounding, or reversal) shows as a miss.
+        """
+        from plt_optimizer.core.parser import PLTParser
+
+        spans = [
+            ((0.1, 0.2), (0.4, 0.2)),
+            ((0.5, 0.3), (0.9, 0.3)),
+            ((1.0, 0.1), (1.3, 0.6)),
+        ]
+        widths = (0.075, 0.19, 0.075)
+        rendered = _make_rendered(
+            (_width_record(spans, widths, glyph_groups=((0,), (1,), (2,))),),
+            x_max=2.0,
+        )
+        packed = [_packed("t", 1.0, 2.0)]
+        width_map = build_stroke_width_map(packed, {"t": rendered})
+        assert len(width_map) == 3
+
+        optimization = optimize_text_layer(
+            packed, {"t": rendered}, 1, _fast_strategy, intra_sweep=True
+        )
+        assert optimization is not None
+        document = PLTParser().parse_string(optimization.content)
+        seen: List[float] = []
+        for path in document.stroke_paths:
+            for segment in path.segments:
+                key = segment_width_key(segment)
+                assert key in width_map, f"parsed segment {key} missing from width map"
+                seen.append(width_map[key])
+        assert sorted(seen) == pytest.approx([0.075, 0.075, 0.19])
+
+    def test_arc_segments_match_the_parsed_endpoints(self) -> None:
+        """An arc's key uses the PARSER's end arithmetic, not the pre-round one."""
+        from plt_optimizer.core.parser import PLTParser
+
+        strokes = (
+            Stroke(
+                pen_up=complex(0.2, 0.3),
+                segments=(ArcSeg(complex(0.2, 0.3), complex(0.35, 0.25), 90.0),),
+            ),
+            Stroke(
+                pen_up=complex(0.6, 0.2),
+                segments=(LineSeg(complex(0.6, 0.2), complex(0.9, 0.45)),),
+            ),
+        )
+        points = [complex(0.2, 0.3), complex(0.35, 0.25), complex(0.6, 0.2), complex(0.9, 0.45)]
+        record = TextChunkRecord(
+            line_index=0,
+            word_index=None,
+            word_text="",
+            pen=1,
+            blocks=(TextBlock(strokes=strokes),),
+            bounds=(
+                min(p.real for p in points),
+                min(p.imag for p in points),
+                max(p.real for p in points),
+                max(p.imag for p in points),
+            ),
+            stroke_widths=(0.19, 0.075),
+        )
+        rendered = _make_rendered((record,), x_max=2.0)
+        packed = [_packed("t", 0.5, 1.5)]
+        width_map = build_stroke_width_map(packed, {"t": rendered})
+        assert len(width_map) == 2
+
+        optimization = optimize_text_layer(packed, {"t": rendered}, 1, _fast_strategy)
+        assert optimization is not None
+        document = PLTParser().parse_string(optimization.content)
+        matched = 0
+        for path in document.stroke_paths:
+            for segment in path.segments:
+                key = segment_width_key(segment)
+                assert key in width_map, f"parsed segment {key} missing from width map"
+                matched += 1
+        assert matched >= 2
+
+    def test_reversed_traversal_still_matches(self) -> None:
+        """The normalized key survives a reversed block traversal.
+
+        A reversed path swaps each segment's start/end (and negates an arc's
+        sweep, which moves the arc's END to the other side), so a directional
+        key would miss. The glyph sweep needs >= 2 groups to flip, so this
+        drives the reversal through the intra sweep with a real 2-glyph chunk
+        whose optimal traversal reverses one glyph.
+        """
+        from plt_optimizer.core.parser import PLTParser
+
+        # Two glyphs, each two strokes; the second glyph sits far right so the
+        # sweep has a reason to re-trace it.
+        spans = [
+            ((0.1, 0.1), (0.1, 0.5)),
+            ((0.15, 0.1), (0.15, 0.5)),
+            ((1.4, 0.1), (1.4, 0.5)),
+            ((1.45, 0.1), (1.45, 0.5)),
+        ]
+        widths = (0.075, 0.19, 0.075, 0.19)
+        rendered = _make_rendered(
+            (_width_record(spans, widths, glyph_groups=((0, 1), (2, 3))),),
+            x_max=2.0,
+        )
+        packed = [_packed("t", 0.0, 0.0)]
+        width_map = build_stroke_width_map(packed, {"t": rendered})
+        optimization = optimize_text_layer(packed, {"t": rendered}, 1, _fast_strategy)
+        assert optimization is not None
+        document = PLTParser().parse_string(optimization.content)
+        for path in document.stroke_paths:
+            for segment in path.segments:
+                assert segment_width_key(segment) in width_map
+
+    def test_rotated_label_keys_match_the_assembly(self) -> None:
+        """A sideways-packed label's widths key on its rotated device points."""
+        spans = [((0.1, 0.2), (0.4, 0.2)), ((0.5, 0.3), (0.9, 0.3))]
+        widths = (0.075, 0.19)
+        rendered = _make_rendered((_width_record(spans, widths),), x_max=2.0)
+        packed = [_packed("t", 3.0, 4.0, rotated=True)]
+        width_map = build_stroke_width_map(packed, {"t": rendered})
+        assert len(width_map) == 2
+        # The rotated transform maps (x, y) -> (rot_y_max - y, x - rot_x_min)
+        # plus the slot; every key must be a positive device point.
+        for (start, end) in width_map:
+            for x, y in (start, end):
+                assert x >= 0 and y >= 0

@@ -7234,7 +7234,16 @@ class TestCutterBufferDemoExample:
     # -- The PDF proof stroke widths ---------------------------------------
 
     def test_pdf_previews_draw_the_engraved_width(self, tmp_path: Path) -> None:
-        """Every proof layer's width is the tool PLUS its kerf buffer."""
+        """Every proof stroke draws at ITS OWN tool + buffer width.
+
+        The per-cutter text proof shares one 0.060 pen across the cascade, so
+        the pre-per-stroke preview drew the WHOLE pen at the job's widest
+        buffer (0.080). The per-stroke width map now renders each line at its
+        own engraved width: 0.060 (zero buffers), 0.064 (line tier 0.004),
+        0.070 (job tier 0.010) and 0.080 (label tier 0.020). Structural
+        strokes carry no chunk widths, so the bh proof keeps the single
+        pen-level width (0.015 hole tool + 0.045 routing buffer = 0.060).
+        """
         from unittest.mock import patch
 
         job = parse_yaml(self._SPEC)
@@ -7257,12 +7266,11 @@ class TestCutterBufferDemoExample:
             )
 
         assert captured, "the export must write proof previews"
-        # The per-cutter text proof: 0.060 tool + the widest buffer in the job
-        # (the label tier's 0.020) = 0.080.
+        # The per-cutter text proof: every cascade width, per stroke.
         text_plots = {n: w for n, w in captured.items() if "_txt_" in n}
         assert text_plots, "expected per-cutter text previews"
         for widths in text_plots.values():
-            assert widths and all(math.isclose(w, 0.080, abs_tol=1e-9) for w in widths)
+            assert {round(w, 6) for w in widths} == {0.060, 0.064, 0.070, 0.080}
         # The structural proof: the 0.015 hole tool + the routing buffer 0.045.
         bh_plots = {n: w for n, w in captured.items() if "_bh_" in n}
         assert bh_plots, "expected borders+holes previews"
@@ -7272,7 +7280,7 @@ class TestCutterBufferDemoExample:
         all_plots = {n: w for n, w in captured.items() if n.startswith("all_")}
         assert all_plots
         widths = {round(w, 6) for ws in all_plots.values() for w in ws}
-        assert 0.080 in widths and 0.060 in widths
+        assert {0.060, 0.064, 0.070, 0.080} <= widths
 
 
 class TestZeroBufferRegression:
@@ -7345,3 +7353,180 @@ class TestZeroBufferRegression:
             assert token is not None, name
             expected = int(token) / 1000.0
             assert all(math.isclose(w, expected, abs_tol=1e-9) for w in widths), name
+
+
+def _cutter_buffer_label(label_id: str = "cbtag", buffer_override: bool = True) -> ResolvedLabel:
+    """Build a label whose middle run carries a ``<cb:D>`` buffer override.
+
+    Args:
+        label_id: Label identifier.
+        buffer_override: When True, the ``CD`` run carries ``<cb:0.04>``;
+            when False the text is plain (the control for the fast path).
+
+    Returns:
+        A resolved label rendering on the 0.06in tool (line buffer 0.015).
+    """
+    import dataclasses
+
+    from plt_optimizer.generate.markup import parse_markup
+
+    text = "AB<cb:0.04>CD</cb>E" if buffer_override else "ABCDE"
+    styled = parse_markup(text, "<", ">")
+    line = ResolvedTextLine(
+        text=text,
+        nominal_text_height=0.5,
+        toolpath_text_height=0.5 - (0.06 + 0.015),
+        cutter_diameter=0.06,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        cutter_buffer=0.015,
+    )
+    line = dataclasses.replace(line, plain_text=styled.plain_text, styled_runs=styled.runs)
+    return ResolvedLabel(
+        id=label_id,
+        count=1,
+        width=3.0,
+        height=1.5,
+        margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
+        content=[line],
+    )
+
+
+class TestPerStrokePreviewWidths:
+    """The simple-outline previews draw each stroke at its ENGRAVED width.
+
+    A ``<cb:D>`` span never changes the physical tool, so it shares its pen
+    (and per-cutter file) with the surrounding text. The per-pen preview width
+    (the pen's widest engraved stroke) inflates the whole pen; the per-stroke
+    width map (``plate_optimizer.build_stroke_width_map``) gives the previews
+    the per-stroke truth, keyed by the parsed segment's device endpoints.
+    """
+
+    @staticmethod
+    def _capture_physical_plots():
+        """Return (patcher, captured) capturing every physical plot's layers."""
+        from unittest.mock import patch
+
+        captured: dict[str, list[tuple[float, int]]] = {}
+
+        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+            captured[Path(output_path).name] = [
+                (layer.width_inches, len(list(layer.segments))) for layer in layers
+            ]
+
+        patcher = patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        )
+        return patcher, captured
+
+    @pytest.mark.parametrize("optimize", [False, True])
+    def test_cb_span_draws_wider_than_its_pen_neighbors(
+        self, tmp_path: Path, optimize: bool
+    ) -> None:
+        """Both preview paths split the shared pen into per-stroke widths."""
+        patcher, captured = self._capture_physical_plots()
+        with patcher:
+            export_per_cutter_plts(
+                [_cutter_buffer_label()],
+                output_dir=tmp_path,
+                job_id="cbw",
+                optimize=optimize,
+                fast_mode=True,
+                plots=True,
+            )
+        assert captured
+        # The span's 0.06 + 0.04 = 0.10in ink and its neighbours' 0.06 + 0.015
+        # = 0.075in ink must BOTH appear -- in the mirrored per-file preview
+        # and in the combined proof (optimize=True routes the per-file stream;
+        # the combined proof always assembles un-optimized).
+        txt = [name for name in captured if "_txt_" in name]
+        assert txt
+        for name in txt:
+            widths = {round(width, 3) for width, _count in captured[name]}
+            assert widths == {0.075, 0.1}, name
+        combined = [name for name in captured if name.startswith("all_")]
+        assert combined
+        for name in combined:
+            widths = {round(width, 3) for width, _count in captured[name]}
+            assert 0.1 in widths and 0.075 in widths, name
+
+    def test_line_without_cb_override_stays_uniform(self, tmp_path: Path) -> None:
+        """The fast path: no <cb:D> -> one layer at the pen width, as before."""
+        patcher, captured = self._capture_physical_plots()
+        with patcher:
+            export_per_cutter_plts(
+                [_cutter_buffer_label(label_id="plain", buffer_override=False)],
+                output_dir=tmp_path,
+                job_id="cbp",
+                optimize=True,
+                fast_mode=True,
+                plots=True,
+            )
+        txt = [name for name in captured if "_txt_" in name]
+        assert txt
+        for name in txt:
+            assert {round(width, 3) for width, _count in captured[name]} == {0.075}
+            assert len(captured[name]) == 1
+
+    def test_preview_probe_tolerates_assembly_drift(self, tmp_path: Path) -> None:
+        """A ±1-unit endpoint drift (the combined proof's assembly chain) hits.
+
+        The un-optimized assembly centers its Y shift at a different rounding
+        point than the plate transform, so the combined preview's parsed
+        segments land up to one plotter unit off the map keys. The lookup
+        probes in increasing drift and accepts a unique hit; an ambiguous
+        drift level falls back to the pen width.
+        """
+        from unittest.mock import patch
+
+        from plt_optimizer.generate.plate_optimizer import line_width_key
+        from plt_optimizer.generate.vectorize import _write_simple_plots
+
+        plt_dir = tmp_path / "plt"
+        plt_dir.mkdir()
+        # One line segment (0,0) -> (100,0) on the 60mil tool.
+        plt_path = plt_dir / "60_txt_probe.plt"
+        plt_path.write_text("IN;PA;PU0,0;PD100,0;SP;\n", encoding="utf-8")
+        result = PerCutterExport(plt_paths=[plt_path], combined_by_plate={}, pdf_paths=[])
+
+        captured: dict[str, list[float]] = {}
+
+        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+            captured[Path(output_path).name] = [layer.width_inches for layer in layers]
+
+        # Drifted key: the map says (0,1) -> (100,1) engraves 0.19.
+        drifted = {line_width_key((0, 1), (100, 1)): 0.19}
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
+            _write_simple_plots(
+                tmp_path,
+                "probe",
+                result,
+                pen_widths={1: 0.06},
+                file_widths={plt_path: 0.06},
+                file_stroke_widths={plt_path: drifted},
+            )
+        assert captured["60_txt_probe.pdf"] == [0.19]
+
+        # Ambiguous drift level: two candidate widths at equal drift -> the
+        # conservative pen width.
+        ambiguous = {
+            line_width_key((0, 1), (100, 1)): 0.19,
+            line_width_key((0, -1), (100, -1)): 0.075,
+        }
+        captured.clear()
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
+        ):
+            _write_simple_plots(
+                tmp_path,
+                "probe",
+                result,
+                pen_widths={1: 0.06},
+                file_widths={plt_path: 0.06},
+                file_stroke_widths={plt_path: ambiguous},
+            )
+        assert captured["60_txt_probe.pdf"] == [0.06]

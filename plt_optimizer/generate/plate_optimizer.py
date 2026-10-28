@@ -50,7 +50,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from plt_optimizer.core.chunker import MacroBlock
 from plt_optimizer.core.models import (
@@ -516,6 +516,220 @@ def build_text_blocks(
     """
     blocks, _glyph_groups = build_text_blocks_with_glyphs(packed_labels, rendered_labels_map, pen)
     return blocks
+
+
+StrokeKey = Tuple[Tuple[int, int], Tuple[int, int]]
+ArcKey = Tuple[Tuple[int, int], float]
+WidthKey = Union[StrokeKey, ArcKey]
+
+
+def _normalized_key(start: Tuple[int, int], end: Tuple[int, int]) -> StrokeKey:
+    """Return the direction-independent ``(start, end)`` key.
+
+    The glyph/direction sweeps reverse whole paths (segment order swapped,
+    start/end exchanged, arc sweeps negated), and the merger stitches paths
+    tip-to-tail, so the parsed stream may traverse a stroke in either
+    direction. Keying on the sorted endpoint pair makes the lookup direction
+    agnostic.
+    """
+    return (start, end) if start <= end else (end, start)
+
+
+def _arc_key(center: Coordinate, sweep_angle: float) -> ArcKey:
+    """Return the direction-independent ``(center, |sweep|)`` key of an arc.
+
+    A line segment identifies itself by its endpoints, but a reversed
+    traversal re-chains an ``AA`` arc from its (integer-rounded) exit point,
+    and the parser's float arithmetic then lands its endpoints a plotter unit
+    off the forward chain -- an endpoint key would miss. The center and the
+    sweep MAGNITUDE are traversal invariants the emission carries exactly
+    (:func:`_format_segment` rounds the center to integer units and the
+    reversal only negates the sweep), so arcs key on them. Two arcs sharing a
+    center AND |sweep| belong to the same glyph circle (a full circle is
+    emitted as equal-sweep arcs about one center) and share one character's
+    engraved width, so the key is collision-safe.
+    """
+    center_units = (int(round(center.x)), int(round(center.y)))
+    magnitude = abs(sweep_angle)
+    # Match _format_segment's emission precision (int text, else 3 decimals)
+    # so the parsed float(parts[2]) lands on exactly this value.
+    magnitude = float(int(magnitude)) if magnitude == int(magnitude) else float(f"{magnitude:.3f}")
+    return (center_units, magnitude)
+
+
+def line_width_key(start: Tuple[int, int], end: Tuple[int, int]) -> StrokeKey:
+    """Return the width-map key of a line segment from integer endpoints.
+
+    Public for the preview lookup's ±1-unit probe (the combined proof parses
+    the un-optimized assembly, whose centering rounds the Y shift at a
+    different point than the plate transform, so a line's endpoints land up
+    to one plotter unit off the map keys).
+    """
+    return _normalized_key(start, end)
+
+
+def segment_width_key(segment: Segment) -> WidthKey:
+    """Return the width-map key of one PARSED segment.
+
+    The shared key function of :func:`build_stroke_width_map` (which keys the
+    pre-optimization paths) and the preview lookup (which keys the parsed
+    emitted segments): line segments by normalized integer endpoints, arcs by
+    ``(center, |sweep|)``. Both sides read the same emission-exact values, so
+    the lookup survives the direction/glyph sweeps and the merger.
+    """
+    if isinstance(segment, ArcSegment):
+        return _arc_key(segment.center, segment.sweep_angle)
+    start = (int(round(segment.start.x)), int(round(segment.start.y)))
+    end = (int(round(segment.end.x)), int(round(segment.end.y)))
+    return _normalized_key(start, end)
+
+
+def _parsed_arc_end(
+    start: Tuple[float, float], center: Tuple[int, int], sweep: float
+) -> Tuple[float, float]:
+    """Reproduce the core parser's ``AA`` end point from the EMITTED values.
+
+    The parser derives an arc's end from the CURRENT chained pen position (a
+    3-decimal ``Coordinate`` float), the integer center and the sweep text it
+    parses back (see
+    :meth:`plt_optimizer.core.parser.PLTParser._parse_arc_command`), and a
+    ``PD`` that follows an ``AA`` chain STARTS at that float (the emitted
+    integer of the arc end never reaches the file). A line keyed on the
+    renderer's own transformed endpoints therefore drifts a unit off the
+    parsed stream; keying on this chain matches it exactly. The chain must
+    carry the FLOAT position (not a per-step integer rounding): glyph
+    outlines are long ``AA`` chains and each step's rounding compounds.
+
+    Args:
+        start: The chained pen position (device units, 3-decimal float).
+        center: The emitted (integer-rounded) arc center.
+        sweep: The emitted sweep in degrees (sign = traversal direction).
+
+    Returns:
+        The parser's arc end as a 3-decimal float pair (Coordinate rounding).
+    """
+    cx, cy = float(center[0]), float(center[1])
+    sx, sy = float(start[0]), float(start[1])
+    radius = math.hypot(sx - cx, sy - cy)
+    theta = math.atan2(sy - cy, sx - cx) + math.radians(sweep)
+    return round(cx + radius * math.cos(theta), 3), round(cy + radius * math.sin(theta), 3)
+
+
+def _emit_sweep(sweep: float) -> float:
+    """Round a sweep to the precision :func:`_format_segment` emits."""
+    return float(int(sweep)) if sweep == int(sweep) else float(f"{sweep:.3f}")
+
+
+def _path_line_keys(path: StrokePath) -> List[WidthKey]:
+    """Return the parsed-stream keys of a path's LINE segments.
+
+    Chains the pen position exactly as the parser does -- forward from the
+    emitted pen-up, and reversed from the path's integer exit point (the
+    pen-up a reversed traversal emits) with negated arc sweeps -- so a line
+    following an ``AA`` chain keys on the parser's float-derived start in
+    either traversal direction. Arcs are keyed separately by
+    :func:`segment_width_key` (center + |sweep|), which no chain can drift.
+    """
+    keys: List[WidthKey] = []
+
+    def _chain(
+        position: Tuple[float, float], segments: Sequence[Segment], *, reversed_walk: bool
+    ) -> None:
+        for segment in segments:
+            start = position
+            if isinstance(segment, ArcSegment):
+                center = (int(round(segment.center.x)), int(round(segment.center.y)))
+                sweep = -segment.sweep_angle if reversed_walk else segment.sweep_angle
+                position = _parsed_arc_end(start, center, _emit_sweep(sweep))
+            else:
+                # A reversed traversal flips every segment (start <-> end), so
+                # the parsed stream's terminal coordinate is the ORIGINAL
+                # segment's start. PU/PD coordinates emit as integers.
+                terminal = segment.start if reversed_walk else segment.end
+                position = (float(int(round(terminal.x))), float(int(round(terminal.y))))
+                keys.append(
+                    _normalized_key(
+                        (int(round(start[0])), int(round(start[1]))),
+                        (int(round(position[0])), int(round(position[1]))),
+                    )
+                )
+
+    if path.pen_up_position is not None and path.segments:
+        entry = (
+            float(int(round(path.pen_up_position.x))),
+            float(int(round(path.pen_up_position.y))),
+        )
+        _chain(entry, path.segments, reversed_walk=False)
+        last = path.segments[-1]
+        reverse_entry = (
+            float(int(round(last.end.x))),
+            float(int(round(last.end.y))),
+        )
+        _chain(reverse_entry, list(reversed(path.segments)), reversed_walk=True)
+    return keys
+
+
+def build_stroke_width_map(
+    packed_labels: Sequence[PackedLabel],
+    rendered_labels_map: Dict[str, RenderedLabel],
+) -> Dict[WidthKey, float]:
+    """Map every text stroke's device-space endpoints to its engraved width.
+
+    The per-cutter pen split keys on the PHYSICAL tool, so a ``<cb:D>`` span
+    shares its pen (and its PLT file) with the surrounding text; the emitted
+    HPGL carries no width channel. The simple-outline PDF previews draw each
+    pen at one width (the pen's widest engraved stroke), which inflates the
+    span's narrower neighbours (and every line sharing the tool). This map
+    gives the previews the per-stroke truth: each chunk record's
+    :attr:`TextChunkRecord.stroke_widths` is walked
+    through the exact plate-space transform the emission uses
+    (:func:`_record_paths_with_glyphs`), keyed per segment with
+    :func:`segment_width_key` (endpoints for lines, center + |sweep| for
+    arcs; both survive the sweeps, the merger, and the emission rounding). A
+    job whose buffers are all zero maps every stroke to its physical cutter,
+    which equals the pen width -- the previews stay visually identical.
+
+    Args:
+        packed_labels: Labels placed on the plate.
+        rendered_labels_map: Cache of rendered labels by label ID.
+
+    Returns:
+        Mapping of :func:`segment_width_key` keys (line segments: normalized
+        integer device endpoint pairs; arcs: ``(center, |sweep|)``) to
+        engraved widths in inches. Empty when no chunk record carries
+        per-stroke widths.
+    """
+    widths: Dict[WidthKey, float] = {}
+    for packed_label in packed_labels:
+        rendered = rendered_labels_map.get(packed_label.source_label.id)
+        if rendered is None or not rendered.text_chunks:
+            continue
+        transform = _label_transform(rendered, packed_label.source_label)
+        dx_units = _units(packed_label.x)
+        dy_units = _units(packed_label.y)
+        for record in rendered.text_chunks:
+            if not record.stroke_widths:
+                continue
+            paths, _glyph_groups = _record_paths_with_glyphs(
+                transform, record, packed_label.rotated, dx_units, dy_units
+            )
+            # The record's widths align with its flattened stroke sequence;
+            # _record_paths_with_glyphs drops empty strokes, so walk the same
+            # non-empty strokes in the same order.
+            strokes = [stroke for block in record.blocks for stroke in block.strokes]
+            live = [(index, stroke) for index, stroke in enumerate(strokes) if not stroke.is_empty]
+            if len(live) != len(paths):
+                continue  # defensive: transform dropped geometry -> pen width
+            for (stroke_index, _stroke), path in zip(live, paths):
+                if stroke_index >= len(record.stroke_widths):
+                    continue
+                width = record.stroke_widths[stroke_index]
+                for segment in path.segments:
+                    if isinstance(segment, ArcSegment):
+                        widths[segment_width_key(segment)] = width
+                for key in _path_line_keys(path):
+                    widths[key] = width
+    return widths
 
 
 def build_text_blocks_with_glyphs(

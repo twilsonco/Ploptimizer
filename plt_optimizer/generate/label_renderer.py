@@ -222,6 +222,13 @@ class _LineEntry(NamedTuple):
             bold run and each ``<scale:N>`` run land on their own tool's pen
             and each ``<tc:color>`` run lands on its own color's pen.
             Empty when the line has no markup (no per-stroke variation).
+        stroke_widths: The engraved stroke WIDTH (inches) of every stroke of
+            this line, in stroke order (see :func:`_stroke_width_map`). The
+            PDF previews draw each stroke at its own engraved width so a
+            ``<cb:D>`` span is visible inside a pen its neighbours share (and
+            the span's narrower neighbours keep their own width). Empty only
+            when the glyph partition does not cover the line (the previews
+            then fall back to the pen's single width).
     """
 
     line_index: int
@@ -230,6 +237,7 @@ class _LineEntry(NamedTuple):
     compression_scale: float = 1.0
     line_spacing: Optional[float] = None
     stroke_layers: Tuple[Tuple[float, str], ...] = ()
+    stroke_widths: Tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -249,6 +257,9 @@ class _RenderedLine:
         glyph_groups: Per-glyph stroke indices.
         stroke_layers: Per-stroke engraving ``(cutter, color)`` layers (the
             pen split).
+        stroke_widths: Per-stroke engraved widths (inches) for the previews
+            (see :func:`_stroke_width_map`); ``()`` when the line's glyph
+            partition does not cover it.
         display_text: The line's text as engraved -- the composed
             ``"marker text"`` for a list line, else ``plain_text`` (names the
             glyph partition for the descender relief and the reports).
@@ -272,6 +283,7 @@ class _RenderedLine:
     display_text: str
     indent_left: float = 0.0
     align_group_id: int = -1
+    stroke_widths: Tuple[float, ...] = ()
 
 
 class TextChunkMode(str, Enum):
@@ -338,6 +350,15 @@ class TextChunkRecord:
             contours). Consumed by the plate-space intra-chunk glyph sweep,
             which reverses whole glyphs (stroke order + tracing direction)
             to cut intra-chunk rapid travel.
+        stroke_widths: The engraved stroke WIDTH (inches) of every stroke of
+            the flattened :attr:`blocks` sequence (aligned with the
+            ``blocks`` stroke order; see
+            :func:`plt_optimizer.generate.label_renderer._stroke_width_map`).
+            The PDF previews look each stroke up (in device space) to draw it
+            at its true engraved width, so a ``<cb:D>`` span is visible
+            inside a pen its neighbours share (and the span's neighbours keep
+            their own width). Empty when the line's glyph partition does not
+            cover it (the previews then fall back to the pen's single width).
     """
 
     line_index: int
@@ -347,6 +368,7 @@ class TextChunkRecord:
     blocks: Tuple[TextBlock, ...]
     bounds: Tuple[float, float, float, float]
     glyph_groups: Tuple[Tuple[int, ...], ...] = ()
+    stroke_widths: Tuple[float, ...] = ()
 
     @property
     def contours(self) -> Tuple[np.ndarray, ...]:
@@ -2893,8 +2915,8 @@ def _strikethrough_run_layers(
     line: ResolvedTextLine,
     block: TextBlock,
     glyph_groups: Tuple[Tuple[int, ...], ...],
-) -> Tuple[Tuple[float, float, float, str], ...]:
-    """Return ``(x_min, x_max, cutter, color)`` per strikethrough stroke.
+) -> Tuple[Tuple[float, float, float, str, float], ...]:
+    """Return ``(x_min, x_max, cutter, color, engraved_width)`` per strike run.
 
     The pen split needs each strike stroke's tool and color layer, and --
     unlike the underline
@@ -2905,6 +2927,9 @@ def _strikethrough_run_layers(
     for the underline. The stroke's **span** identifies its run instead, and
     the gate splits runs at layer boundaries, so the run's first character
     owns the tool and the layer (see :func:`_run_cutter` / :func:`_run_color`).
+    The 5th slot carries the width the run ENGRAVES
+    (:func:`_run_effective_cutter`) -- the per-stroke preview widths need it
+    because the Y encodes no width for a strike.
 
     The spans are recomputed from the same ``glyph_groups`` partition of the
     same block, so they match :func:`_strikethrough_strokes` bit-for-bit.
@@ -2915,8 +2940,9 @@ def _strikethrough_run_layers(
         glyph_groups: The per-glyph stroke partition (decorations excluded).
 
     Returns:
-        One ``(x_min, x_max, cutter, color)`` quadruple per emitted strike
-        stroke, in run order (empty when the line has no strike geometry).
+        One ``(x_min, x_max, cutter, color, engraved_width)`` 5-tuple per
+        emitted strike stroke, in run order (empty when the line has no
+        strike geometry).
     """
     runs = _strikethrough_render_gate(line)
     if not runs or not glyph_groups:
@@ -2928,7 +2954,7 @@ def _strikethrough_run_layers(
         glyph_block = TextBlock(strokes=tuple(block.strokes[i] for i in indices))
         bounds = glyph_block.bounds()
         boxes.append(bounds if bounds is not None else (0.0, 0.0, 0.0, 0.0))
-    spans: List[Tuple[float, float, float, str]] = []
+    spans: List[Tuple[float, float, float, str, float]] = []
     for first, last in runs:
         positions = _run_glyph_positions(line.plain_text, glyph_groups, first, last)
         if not positions:
@@ -2936,7 +2962,15 @@ def _strikethrough_run_layers(
         x_min, x_max = _run_span(boxes, positions)
         if x_max - x_min < _INK_EMISSION_FLOOR:
             continue
-        spans.append((x_min, x_max, _run_cutter(line, first), _run_color(line, first)))
+        spans.append(
+            (
+                x_min,
+                x_max,
+                _run_cutter(line, first),
+                _run_color(line, first),
+                _run_effective_cutter(line, first),
+            )
+        )
     return tuple(spans)
 
 
@@ -3069,7 +3103,7 @@ def _stroke_layer_map(
         # floats agree to the emitted precision).
         if strike_cap is not None:
             if abs(y - strike_cap) <= _INK_EMISSION_FLOOR:
-                for x_min, x_max, cutter, color in strike_spans:
+                for x_min, x_max, cutter, color, _width in strike_spans:
                     if (
                         abs(start.real - x_min) <= _INK_EMISSION_FLOOR
                         and abs(stroke.segments[0].end.real - x_max) <= _INK_EMISSION_FLOOR
@@ -3113,6 +3147,94 @@ def _stroke_layer_map(
         # pen before <tc:> existed, and still does -- bit-identical).
         return ()
     return resolved
+
+
+def _stroke_width_map(
+    line: ResolvedTextLine,
+    block: TextBlock,
+    glyph_groups: Tuple[Tuple[int, ...], ...],
+) -> Tuple[float, ...]:
+    """Return the engraved stroke WIDTH (inches) of every stroke.
+
+    The per-cutter pen split keys on the PHYSICAL tool, so a ``<cb:D>`` span
+    shares its pen with the surrounding text and the per-pen preview width
+    (the pen's widest engraved stroke) inflates every stroke on it. The PDF
+    previews need the per-stroke engraved width to draw the ``<cb:D>`` delta.
+    Every stroke of a pen-sharing line gets its own entry, not just the
+    ``<cb:D>`` span's: the per-pen preview width is the pen's WIDEST engraved
+    stroke, so a line that merely shares a tool with a buffered span would
+    otherwise be drawn at the span's inflated width.
+
+    The walk mirrors :func:`_stroke_layer_map` exactly (same partition, same
+    decoration identification): glyph strokes take the character's
+    :attr:`ResolvedTextLine.effective_per_char_cutters` entry; a
+    strikethrough stroke takes its run's :func:`_run_effective_cutter` (the
+    Y encodes no width, so the span identifies the run); an underline stroke
+    INVERTS its centerline Y (``-(engraved width + offset)``) back into the
+    width the stroke was drawn at (float-exact -- the same arithmetic built
+    the Y, and unlike the layer map no snapping is needed because the width
+    is continuous, not a discrete pen key).
+
+    Args:
+        line: The resolved text line.
+        block: The line's block with the decorations appended, in the
+            renderers' local frame (baseline ``y = 0``).
+        glyph_groups: The per-glyph stroke partition (decorations excluded).
+
+    Returns:
+        One engraved width per stroke of ``block``, in stroke order; **empty**
+        when the glyph partition does not cover the line exactly (the
+        decoration widths cannot be keyed reliably -- the caller falls back to
+        the per-pen width).
+    """
+    eff = line.effective_per_char_cutters
+    cutters = line.per_char_cutters
+    if not eff or not cutters or not glyph_groups:
+        return ()
+    if len(_glyph_chars(line.plain_text)) != len(glyph_groups):
+        return ()
+    line_eff = line.effective_cutter_diameter
+    widths: List[Optional[float]] = [None] * len(block.strokes)
+    glyph_position = 0
+    for char_index, (char, _cutter) in enumerate(zip(line.plain_text, cutters)):
+        if char == " ":
+            continue
+        if glyph_position >= len(glyph_groups):
+            break
+        for index in glyph_groups[glyph_position]:
+            widths[index] = eff[char_index]
+        glyph_position += 1
+    strike_cap = line.strikethrough_cap if line.has_strikethrough else None
+    strike_spans = (
+        _strikethrough_run_layers(line, block, glyph_groups) if strike_cap is not None else ()
+    )
+    for index, stroke in enumerate(block.strokes):
+        if widths[index] is not None:
+            continue
+        if not stroke.segments:  # pragma: no cover - every stroke cuts
+            widths[index] = line_eff
+            continue
+        start = stroke.segments[0].start
+        y = start.imag
+        if strike_cap is not None and abs(y - strike_cap) <= _INK_EMISSION_FLOOR:
+            for x_min, x_max, _cutter, _color, run_width in strike_spans:
+                if (
+                    abs(start.real - x_min) <= _INK_EMISSION_FLOOR
+                    and abs(stroke.segments[0].end.real - x_max) <= _INK_EMISSION_FLOOR
+                ):
+                    widths[index] = run_width
+                    break
+            if widths[index] is None:
+                widths[index] = line_eff
+            continue
+        # An underline stroke (the only remaining decoration): its centerline
+        # Y is -(engraved width + offset), so the width inverts exactly. Any
+        # other unpartitioned geometry (never below the baseline) keeps the
+        # line's own engraved width -- the mirror of the layer map's
+        # snap-to-known fallback.
+        recovered = -y - line.underline_offset_inches
+        widths[index] = recovered if recovered > 0.0 else line_eff
+    return tuple(width if width is not None else line_eff for width in widths)
 
 
 def _baseline_shift_inches(
@@ -3618,16 +3740,18 @@ def _composed_stroke_layers(
     text_line: ResolvedTextLine,
     text_block: TextBlock,
     text_glyphs: Tuple[Tuple[int, ...], ...],
-) -> Tuple[Tuple[float, str], ...]:
-    """Return the engraving layer of every stroke of a composed marker line.
+) -> Tuple[Tuple[Tuple[float, str], ...], Tuple[float, ...]]:
+    """Return the engraving layer and width of every stroke of a composed line.
 
     The marker and the text are separate renders, each with its own per-stroke
-    layer map (see :func:`_stroke_layer_map`); the composed block's strokes
+    layer map (see :func:`_stroke_layer_map`) and per-stroke width map (see
+    :func:`_stroke_width_map`); the composed block's strokes
     are the marker's followed by the text's, so the arrays concatenate. A
     single-layer half (an empty map) is filled with that half's own line
     ``(cutter, color)``,
     keeping the array total-length exact -- the pen split then routes the
-    marker's strokes to the marker's tool and the text's to the text's.
+    marker's strokes to the marker's tool and the text's to the text's. The
+    width array concatenates the same way (see :func:`_stroke_width_map`).
 
     Args:
         marker_line: The marker-only render clone.
@@ -3638,8 +3762,10 @@ def _composed_stroke_layers(
         text_glyphs: The text's per-glyph stroke partition.
 
     Returns:
-        One ``(cutter diameter, color)`` layer per stroke of the composed
-        block, in stroke order.
+        ``(layers, widths)``: one ``(cutter diameter, color)`` layer per
+        stroke of the composed block (in stroke order), and the per-stroke
+        engraved widths (``()`` only when NEITHER half's glyph partition
+        covers its block -- the previews then fall back to the pen width).
     """
     marker_map = _stroke_layer_map(marker_line, marker_block, marker_glyphs)
     text_map = _stroke_layer_map(text_line, text_block, text_glyphs)
@@ -3649,7 +3775,18 @@ def _composed_stroke_layers(
     text_array = text_map or ((text_line.cutter_diameter, text_line.text_color),) * len(
         text_block.strokes
     )
-    return tuple(marker_array) + tuple(text_array)
+    layers = tuple(marker_array) + tuple(text_array)
+    marker_widths = _stroke_width_map(marker_line, marker_block, marker_glyphs)
+    text_widths = _stroke_width_map(text_line, text_block, text_glyphs)
+    if not marker_widths and not text_widths:
+        return layers, ()
+    marker_width_array = marker_widths or (marker_line.effective_cutter_diameter,) * len(
+        marker_block.strokes
+    )
+    text_width_array = text_widths or (text_line.effective_cutter_diameter,) * len(
+        text_block.strokes
+    )
+    return layers, tuple(marker_width_array) + tuple(text_width_array)
 
 
 def _glyph_chars(text: str) -> List[str]:
@@ -5417,6 +5554,7 @@ def _render_positioned_lines(
         # composed line already produces.
         composed_text = line.plain_text
         stroke_layers: Tuple[Tuple[float, str], ...] = ()
+        stroke_widths: Tuple[float, ...] = ()
         if line.marker_text:
             marker_line = _marker_line_clone(line)
             try:
@@ -5443,7 +5581,7 @@ def _render_positioned_lines(
                 )
                 indent = max(line.indent_left, min_indent)
                 text_glyphs = glyph_groups
-                stroke_layers = _composed_stroke_layers(
+                stroke_layers, stroke_widths = _composed_stroke_layers(
                     marker_line, marker_block, marker_glyphs, line, block, text_glyphs
                 )
                 block, glyph_groups, word_groups = _compose_marker_block(
@@ -5497,6 +5635,9 @@ def _render_positioned_lines(
                 display_text=composed_text,
                 indent_left=line.indent_left,
                 align_group_id=line.align_group_id,
+                stroke_widths=stroke_widths
+                if line.marker_text
+                else _stroke_width_map(line, block, glyph_groups),
             )
         )
         baseline_geometry.append(
@@ -5570,6 +5711,7 @@ def _render_positioned_lines(
     x_word_groups: List[Optional[List[Tuple[str, List[int]]]]] = []
     x_glyph_groups: List[Tuple[Tuple[int, ...], ...]] = []
     x_stroke_layers: List[Tuple[Tuple[float, str], ...]] = []
+    x_stroke_widths: List[Tuple[float, ...]] = []
     x_display_texts: List[str] = []
     effective_scales: List[float] = []
 
@@ -5689,6 +5831,7 @@ def _render_positioned_lines(
         x_word_groups.append(rendered.word_groups)
         x_glyph_groups.append(rendered.glyph_groups)
         x_stroke_layers.append(rendered.stroke_layers)
+        x_stroke_widths.append(rendered.stroke_widths)
         x_display_texts.append(rendered.display_text)
 
     if not x_blocks:
@@ -5837,6 +5980,7 @@ def _render_positioned_lines(
                     compression_scale=effective_scales[i],
                     line_spacing=reported_spacing,
                     stroke_layers=x_stroke_layers[i],
+                    stroke_widths=x_stroke_widths[i],
                 ),
                 x_word_groups[i],
                 x_glyph_groups[i],
@@ -5906,12 +6050,14 @@ def _split_block_by_layers(
     word_groups: Optional[List[Tuple[str, List[int]]]],
     glyph_groups: Tuple[Tuple[int, ...], ...],
     default_layer: Tuple[float, str],
+    stroke_widths: Tuple[float, ...] = (),
 ) -> List[
     Tuple[
         TextBlock,
         Optional[List[Tuple[str, List[int]]]],
         Tuple[Tuple[int, ...], ...],
         Tuple[float, str],
+        Tuple[float, ...],
     ]
 ]:
     """Split one positioned line block into one group per engraving layer.
@@ -5935,10 +6081,13 @@ def _split_block_by_layers(
         glyph_groups: Per-glyph stroke indices.
         default_layer: The layer for any stroke the array does not cover
             (defensive; the map is built over the same block).
+        stroke_widths: The per-stroke engraved widths (see
+            :func:`_stroke_width_map`); remapped into each group's index
+            space. ``()`` (the fast path) keeps every group's array empty.
 
     Returns:
-        One ``(block, words, glyphs, layer)`` tuple per distinct layer, in
-        ascending layer order (the pen-map order), each non-empty.
+        One ``(block, words, glyphs, layer, widths)`` tuple per distinct
+        layer, in ascending layer order (the pen-map order), each non-empty.
     """
     positions_by_layer: dict[Tuple[float, str], List[int]] = {}
     for index in range(len(positioned_block.strokes)):
@@ -5951,6 +6100,7 @@ def _split_block_by_layers(
             Optional[List[Tuple[str, List[int]]]],
             Tuple[Tuple[int, ...], ...],
             Tuple[float, str],
+            Tuple[float, ...],
         ]
     ] = []
     for layer in sorted(positions_by_layer):
@@ -5966,7 +6116,12 @@ def _split_block_by_layers(
         glyphs = tuple(
             tuple(local[i] for i in group if i in local) for group in glyph_groups if group
         )
-        groups.append((block, words, glyphs, layer))
+        widths = (
+            tuple(stroke_widths[i] for i in positions if i < len(stroke_widths))
+            if stroke_widths
+            else ()
+        )
+        groups.append((block, words, glyphs, layer, widths))
     return groups
 
 
@@ -6049,19 +6204,27 @@ def _render_text_lines_by_pen(
         )
 
         stroke_layers = entry.stroke_layers
+        stroke_widths = entry.stroke_widths
         if stroke_layers and len(set(stroke_layers)) > 1:
             halves = _split_block_by_layers(
-                positioned_block, stroke_layers, word_groups, glyph_groups, single_layer
+                positioned_block,
+                stroke_layers,
+                word_groups,
+                glyph_groups,
+                single_layer,
+                stroke_widths,
             )
         elif stroke_layers:
             # A uniform non-line layer (a <tc:color> span over the whole
             # line): the map is only empty when the line is uniform on its
             # OWN layer, so a single-element array routes the whole block.
-            halves = [(positioned_block, word_groups, glyph_groups, stroke_layers[0])]
+            halves = [
+                (positioned_block, word_groups, glyph_groups, stroke_layers[0], stroke_widths)
+            ]
         else:
-            halves = [(positioned_block, word_groups, glyph_groups, single_layer)]
+            halves = [(positioned_block, word_groups, glyph_groups, single_layer, stroke_widths)]
 
-        for half_block, half_words, half_glyphs, half_layer in halves:
+        for half_block, half_words, half_glyphs, half_layer, half_widths in halves:
             pen = LAYER_TEXT
             if pen_map is not None and line_content is not None:
                 pen = pen_map.get(half_layer, LAYER_TEXT)
@@ -6073,6 +6236,11 @@ def _render_text_lines_by_pen(
                         continue  # blank segment: no strokes to route
                     word_block = TextBlock(strokes=tuple(half_block.strokes[i] for i in indices))
                     word_bounds = word_block.bounds()
+                    word_widths = (
+                        tuple(half_widths[i] for i in indices)
+                        if half_widths and len(half_widths) == len(half_block.strokes)
+                        else ()
+                    )
                     chunk_records.append(
                         TextChunkRecord(
                             line_index=line_index,
@@ -6082,6 +6250,7 @@ def _render_text_lines_by_pen(
                             blocks=(word_block,),
                             bounds=word_bounds if word_bounds is not None else entry[2],
                             glyph_groups=_word_local_glyph_groups(half_glyphs, indices),
+                            stroke_widths=word_widths,
                         )
                     )
             else:
@@ -6094,6 +6263,9 @@ def _render_text_lines_by_pen(
                         blocks=(half_block,),
                         bounds=entry[2],
                         glyph_groups=half_glyphs,
+                        stroke_widths=half_widths
+                        if len(half_widths) == len(half_block.strokes)
+                        else (),
                     )
                 )
     return (

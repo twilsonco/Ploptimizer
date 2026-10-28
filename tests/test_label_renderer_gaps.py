@@ -1448,12 +1448,43 @@ class TestTextColorLayerHelpers:
         )
         # Ascending layer order: 'none' first, 'red' second; the word group
         # remaps into each half's index space.
-        assert [layer for _b, _w, _g, layer in groups] == [(0.06, "none"), (0.06, "red")]
+        assert [layer for _b, _w, _g, layer, _wd in groups] == [(0.06, "none"), (0.06, "red")]
         assert groups[0][1] == [("ab", [0])]
         assert groups[1][1] == [("ab", [0])]
+        # No width array (the fast path): every group's widths stay empty.
+        assert [widths for _b, _w, _g, _l, widths in groups] == [(), ()]
         # Strokes the array does not cover fall back to the default layer.
         short = _split_block_by_layers(block, layers[:1], None, (), (0.03, "teal"))
-        assert [layer for _b, _w, _g, layer in short] == [(0.03, "teal"), (0.06, "none")]
+        assert [layer for _b, _w, _g, layer, _wd in short] == [(0.03, "teal"), (0.06, "none")]
+
+    def test_split_block_by_layers_remaps_stroke_widths(self) -> None:
+        """A per-stroke width array follows its strokes into each layer group."""
+        from plt_optimizer.generate.label_renderer import _split_block_by_layers
+        from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
+
+        block = TextBlock(
+            strokes=(
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 1 + 0j),)),
+                Stroke(pen_up=0j, segments=(LineSeg(0j, 0 + 1j),)),
+                Stroke(pen_up=0j, segments=(LineSeg(1j, 1 + 1j),)),
+            )
+        )
+        layers = ((0.06, "none"), (0.125, "none"), (0.06, "none"))
+        widths = (0.075, 0.19, 0.075)
+        groups = _split_block_by_layers(
+            block, layers, None, ((0,), (1,), (2,)), (0.06, "none"), widths
+        )
+        assert [layer for _b, _w, _g, layer, _wd in groups] == [(0.06, "none"), (0.125, "none")]
+        # The 0.06 group keeps strokes 0 and 2 (with their widths); the 0.125
+        # group takes stroke 1.
+        assert groups[0][4] == (0.075, 0.075)
+        assert groups[1][4] == (0.19,)
+        # Stroke starts: the 0.06 group collected strokes 0 (start 0j) and 2
+        # (start 1j); the 0.125 group took stroke 1 (start 0j).
+        assert [tuple(s.segments[0].start for s in g[0].strokes) for g in groups] == [
+            (0j, 1j),
+            (0j,),
+        ]
 
     def test_run_layers_guards_return_empty(self) -> None:
         """The decoration layer helpers bail on a missing run/partition."""
@@ -1613,3 +1644,149 @@ class TestKerfBufferedDecorations:
         assert [(s.pen_up, tuple((g.start, g.end) for g in s.segments)) for s in zb.strokes] == [
             (s.pen_up, tuple((g.start, g.end) for g in s.segments)) for s in lb.strokes
         ]
+
+
+class TestStrokeWidthMap:
+    """``_stroke_width_map``: the per-stroke ENGRAVED widths the previews draw.
+
+    The pen split keys on the PHYSICAL tool, so a ``<cb:D>`` span shares its
+    pen with the surrounding text and the per-pen preview width inflates every
+    stroke on it. The width map gives the previews the per-stroke truth: glyph
+    strokes take their character's ``effective_per_char_cutters`` entry, an
+    underline stroke inverts its centerline Y, a strikethrough stroke takes
+    its run's effective cutter. Lines without a ``<cb:D>`` override keep the
+    empty fast path (the pen's single width is exact for them).
+    """
+
+    def _buffered(self, text: str, buffer: float, **kwargs: object) -> ResolvedTextLine:
+        """Build a markup line carrying a kerf buffer."""
+        import dataclasses
+
+        from plt_optimizer.generate.markup import parse_markup
+
+        styled = parse_markup(text, "<", ">")
+        line = ResolvedTextLine(
+            text=text,
+            nominal_text_height=0.5,
+            toolpath_text_height=0.5 - (0.06 + buffer),
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+            cutter_buffer=buffer,
+            **kwargs,  # type: ignore[arg-type]
+        )
+        return dataclasses.replace(line, plain_text=styled.plain_text, styled_runs=styled.runs)
+
+    def test_line_without_cb_override_carries_uniform_widths(self) -> None:
+        """No <cb:D> span -> every stroke at the line's own engraved width.
+
+        The map is NOT gated on the tag: a line that merely shares a tool
+        with a buffered span must keep its own (narrower) width in the
+        preview, which the per-pen width would inflate.
+        """
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_width_map,
+        )
+
+        plain = _markup_line("AB")
+        block, _words, glyphs = _render_line_block(plain, TextChunkMode.LINE)
+        widths = _stroke_width_map(plain, block, glyphs)
+        assert len(widths) == len(block.strokes)
+        assert set(widths) == {plain.effective_cutter_diameter}
+
+        buffered = self._buffered("<u>AB</u>", 0.02)
+        ublock, _uwords, uglyphs = _render_line_block(buffered, TextChunkMode.LINE)
+        uwidths = _stroke_width_map(buffered, ublock, uglyphs)
+        # Glyph strokes at 0.06 + 0.02; the underline inverts to the same.
+        assert set(round(w, 4) for w in uwidths) == {0.08}
+
+    def test_glyph_strokes_carry_the_per_character_engraved_width(self) -> None:
+        """A <cb:D> span widens only its own characters' glyph strokes."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_width_map,
+        )
+
+        line = self._buffered("a<cb:0.04>b</cb>c", 0.015)
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        widths = _stroke_width_map(line, block, glyphs)
+        assert len(widths) == len(block.strokes)
+        eff = line.effective_per_char_cutters
+        # Glyph widths come from the per-character engraved array: 'a'/'c' at
+        # 0.06 + 0.015, the span's 'b' at 0.06 + 0.04.
+        assert eff[0] == pytest.approx(0.075)
+        assert eff[1] == pytest.approx(0.10)
+        assert eff[2] == pytest.approx(0.075)
+        by_glyph = {}
+        for glyph_index, indices in enumerate(glyphs):
+            for stroke_index in indices:
+                by_glyph[glyph_index] = widths[stroke_index]
+        assert by_glyph[0] == pytest.approx(0.075)
+        assert by_glyph[1] == pytest.approx(0.10)
+        assert by_glyph[2] == pytest.approx(0.075)
+
+    def test_underline_stroke_width_inverts_the_centerline_y(self) -> None:
+        """An underline under a <cb:D> span draws at the span's width."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_width_map,
+        )
+
+        line = self._buffered("<u>a<cb:0.04>b</cb>c</u>", 0.015)
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        widths = _stroke_width_map(line, block, glyphs)
+        offset = line.underline_offset_inches
+        underline_indices = [
+            index
+            for index, stroke in enumerate(block.strokes)
+            if stroke.segments and stroke.segments[0].start.imag < 0.0
+        ]
+        assert underline_indices, "expected underline strokes"
+        for index in underline_indices:
+            y = block.strokes[index].segments[0].start.imag
+            # The map reports exactly the width the Y encodes.
+            assert widths[index] == pytest.approx(-y - offset, abs=1e-9)
+        # The gate splits the underline at the buffer boundary, so the span's
+        # run draws at 0.06 + 0.04 and the rest at 0.06 + 0.015.
+        drawn = sorted({round(widths[index], 4) for index in underline_indices})
+        assert drawn == pytest.approx([0.075, 0.10], abs=1e-4)
+
+    def test_strikethrough_stroke_width_is_the_run_effective_cutter(self) -> None:
+        """A strike stroke's Y encodes no width, so its run's width is used."""
+        from plt_optimizer.generate.label_renderer import (
+            TextChunkMode,
+            _render_line_block,
+            _stroke_width_map,
+        )
+
+        line = self._buffered("a<s>b<cb:0.04>c</cb></s>d", 0.015)
+        block, _words, glyphs = _render_line_block(line, TextChunkMode.LINE)
+        widths = _stroke_width_map(line, block, glyphs)
+        cap = line.strikethrough_cap
+        strike_indices = [
+            index
+            for index, stroke in enumerate(block.strokes)
+            if stroke.segments
+            and abs(stroke.segments[0].start.imag - cap) <= 1e-9
+            and all(
+                abs(segment.start.imag - cap) <= 1e-9
+                and abs(segment.end.imag - cap) <= 1e-9
+                for segment in stroke.segments
+            )
+        ]
+        assert strike_indices, "expected strikethrough strokes"
+        # The gate splits the strike at the buffer boundary: the 'b' run
+        # engraves 0.06 + 0.015, the '<cb:0.04>' run 0.06 + 0.04.
+        drawn = sorted({round(widths[index], 4) for index in strike_indices})
+        assert drawn == pytest.approx([0.075, 0.10], abs=1e-4)
+
+    def test_mismatched_glyph_partition_is_inert(self) -> None:
+        """A partition that does not cover the line bails to the pen width."""
+        from plt_optimizer.generate.label_renderer import _stroke_width_map
+
+        line = self._buffered("a<cb:0.04>b</cb>", 0.015)
+        assert _stroke_width_map(line, TextBlock(strokes=()), ((),)) == ()

@@ -29,7 +29,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
@@ -39,7 +39,7 @@ from plt_optimizer.core.filenames import (
     ensure_plot_filename_length,
     sanitize_filename_component,
 )
-from plt_optimizer.core.models import PLTDocument, Segment
+from plt_optimizer.core.models import ArcSegment, PLTDocument, Segment
 from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.core.units import inches_to_units
 from plt_optimizer.generate.label_renderer import (
@@ -52,8 +52,12 @@ from plt_optimizer.generate.packing.layout import PackedPlate
 from plt_optimizer.generate.plate_optimizer import (
     PlateOptimization,
     StrategyFactory,
+    WidthKey,
+    build_stroke_width_map,
+    line_width_key,
     optimize_structural_layer,
     optimize_text_layer,
+    segment_width_key,
 )
 from plt_optimizer.generate.preview_colors import DEFAULT_PREVIEW_BACKGROUND_COLOR
 from plt_optimizer.generate.resolution import (
@@ -1075,6 +1079,15 @@ def export_per_cutter_plts(
     # keyed by path and not merged into `cutter_widths`.
     file_widths: dict[Path, float] = {}
 
+    # Per-plate device-space stroke-width maps (see
+    # :func:`plt_optimizer.generate.plate_optimizer.build_stroke_width_map`).
+    # The per-file previews read theirs by written PLT path; the combined
+    # previews by plate number. A job whose buffers are all zero maps every
+    # stroke to its physical cutter (= the pen width), so the previews stay
+    # visually identical.
+    plate_stroke_widths: dict[int, dict[WidthKey, float]] = {}
+    file_stroke_widths: dict[Path, dict[WidthKey, float]] = {}
+
     # Phase 3: Assemble each plate in memory, then split by pen group.
     # Files are named [<plate>_][<material>_]<cutter>_<kind>_<job_id>: the
     # plate number (1-based packing-order index, 2-digit padded) is
@@ -1087,6 +1100,11 @@ def export_per_cutter_plts(
     for plate_no, plate in enumerate(packed_plates, start=1):
         prefix = _format_plate_prefix(plate_no, plate_counts[plate_no], plate.material)
         plate_str = prefix.rstrip("_") or f"{plate_no:02d}"
+        # Per-stroke engraved widths for the previews (a <cb:D> span shares
+        # its pen with the surrounding text; the per-pen width alone cannot
+        # show it). Empty map = every preview keeps the per-pen width.
+        stroke_widths = build_stroke_width_map(plate.labels, rendered_labels_map)
+        plate_stroke_widths[plate_no] = stroke_widths
         # Structural group: borders (SP2) + holes (SP3) share one run.
         with stage_timer("assemble_split", _LOG, timings=stage_timings):
             combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
@@ -1166,6 +1184,7 @@ def export_per_cutter_plts(
             text_path.write_text(written_content + "\n", encoding="utf-8")
             result.plt_paths.append(text_path)
             file_widths[text_path] = pen_widths[pen_id]
+            file_stroke_widths[text_path] = stroke_widths
 
     # Extract text height from resolved labels for plot titles
     text_height: float | None = None
@@ -1190,6 +1209,8 @@ def export_per_cutter_plts(
                 pen_colors=pen_colors,
                 preview_background=preview_background,
                 file_widths=file_widths,
+                file_stroke_widths=file_stroke_widths,
+                plate_stroke_widths=plate_stroke_widths,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
@@ -1210,6 +1231,8 @@ def _write_simple_plots(
     pen_colors: Optional[Mapping[int, str]] = None,
     preview_background: str = DEFAULT_PREVIEW_BACKGROUND_COLOR,
     file_widths: Optional[Mapping[Path, float]] = None,
+    file_stroke_widths: Optional[Mapping[Path, Mapping[WidthKey, float]]] = None,
+    plate_stroke_widths: Optional[Mapping[int, Mapping[WidthKey, float]]] = None,
 ) -> list[Path]:
     """Write true-stroke-width PDF previews for a per-cutter export.
 
@@ -1284,6 +1307,17 @@ def _write_simple_plots(
             per-file previews, so a buffered job proofs the real ink corridor
             while the file name keeps naming the tool the shop owns. ``None``
             (direct/synthetic callers) plots the nominal token width.
+        file_stroke_widths: Per-stroke engraved widths (device endpoint key ->
+            inches, see
+            :func:`plt_optimizer.generate.plate_optimizer.build_stroke_width_map`)
+            per written PLT path. When a parsed segment's endpoints hit the
+            map, that stroke draws at its own engraved width (a ``<cb:D>``
+            span visible inside a pen its neighbours share); segments the map
+            does not cover keep the file's ``file_widths`` entry. ``None``
+            keeps the per-file width uniform.
+        plate_stroke_widths: The same per-stroke width maps keyed by plate
+            number for the combined previews. ``None`` keeps each pen at its
+            single ``pen_widths`` entry.
 
     Returns:
         List of written PDF paths.
@@ -1326,6 +1360,101 @@ def _write_simple_plots(
             return None
         return width if width > 0.0 else None
 
+    def _lookup_width(
+        stroke_widths: Mapping[WidthKey, float],
+        segment: Segment,
+        default_width: float,
+    ) -> float:
+        """Look up one parsed segment's engraved width, tolerating a 1-unit drift.
+
+        The optimized per-file stream keys exactly (the plate transform and
+        the emission share their rounding). The combined proof parses the
+        un-optimized assembly, whose vertical centering applies its float
+        adjustment to the integer device Y, while the plate transform rounds
+        it into the local -> device chain -- the two land up to one plotter
+        unit apart (the Y drift propagates through the parser's AA chain into
+        X too). A +/-1-unit probe recovers those: probes are tried in
+        increasing total drift, and the FIRST drift level that hits accepts
+        only a UNIQUE width (an ambiguous level falls back to the pen width,
+        the conservative per-pen behavior -- glyph geometry is dense, so
+        neighbouring strokes' keys sit within one unit and a union over all
+        levels would be ambiguous almost everywhere). Arcs key on (center,
+        |sweep|), which the centering shift carries exactly in both streams,
+        so they need no probe.
+        """
+        width = stroke_widths.get(segment_width_key(segment))
+        if width is not None:
+            return width
+        if isinstance(segment, ArcSegment):
+            return default_width
+        start = (int(round(segment.start.x)), int(round(segment.start.y)))
+        end = (int(round(segment.end.x)), int(round(segment.end.y)))
+        offsets = (-1, 0, 1)
+        for drift in range(5):
+            candidates: set[float] = set()
+            for dx_start in offsets:
+                for dy_start in offsets:
+                    for dx_end in offsets:
+                        for dy_end in offsets:
+                            if abs(dx_start) + abs(dy_start) + abs(dx_end) + abs(dy_end) != drift:
+                                continue
+                            probed = line_width_key(
+                                (start[0] + dx_start, start[1] + dy_start),
+                                (end[0] + dx_end, end[1] + dy_end),
+                            )
+                            found = stroke_widths.get(probed)
+                            if found is not None:
+                                candidates.add(found)
+            if candidates:
+                return candidates.pop() if len(candidates) == 1 else default_width
+        return default_width
+
+    def _layers_by_width(
+        segments: List[Segment],
+        default_width: float,
+        stroke_widths: Optional[Mapping[WidthKey, float]],
+        *,
+        alpha: float,
+        facecolor: str,
+        label: str,
+    ) -> List[PhysicalStrokeLayer]:
+        """Split parsed segments into consecutive constant-width layers.
+
+        Each segment draws at its mapped engraved width (a ``<cb:D>`` span),
+        falling back to ``default_width`` (the pen/file width). Consecutive
+        segments sharing a width group into one layer; a pen-down run crossing
+        a width boundary splits into two corridors whose round caps overlap at
+        the junction. Without a width map the whole segment list is one layer
+        (the historical uniform per-pen render, bit-identical).
+        """
+        if not stroke_widths:
+            return [
+                PhysicalStrokeLayer(
+                    segments=segments,
+                    width_inches=default_width,
+                    alpha=alpha,
+                    label=label,
+                    facecolor=facecolor,
+                )
+            ]
+        grouped: List[Tuple[float, List[Segment]]] = []
+        for segment in segments:
+            width = _lookup_width(stroke_widths, segment, default_width)
+            if grouped and grouped[-1][0] == width:
+                grouped[-1][1].append(segment)
+            else:
+                grouped.append((width, [segment]))
+        return [
+            PhysicalStrokeLayer(
+                segments=group,
+                width_inches=width,
+                alpha=alpha,
+                label=label,
+                facecolor=facecolor,
+            )
+            for width, group in grouped
+        ]
+
     for plt_path in result.plt_paths:
         document = parser.parse_file(plt_path)
         pdf_path = pdf_dir / f"{plt_path.stem}.pdf"
@@ -1345,16 +1474,18 @@ def _write_simple_plots(
             # per written file.
             width_inches = file_widths.get(plt_path, width_inches)
         if width_inches is not None:
-            # Single-tool file: every stroke engraves at the file's cutter.
+            # Single-tool file: every stroke engraves at the file's cutter,
+            # except the strokes the per-stroke width map covers (a <cb:D>
+            # span sharing this file's pen).
             plot_physical_strokes(
-                [
-                    PhysicalStrokeLayer(
-                        segments=_segments_of(document),
-                        width_inches=width_inches,
-                        alpha=PHYSICAL_STRUCTURAL_ALPHA if is_structural else 1.0,
-                        label=plt_path.stem,
-                    )
-                ],
+                _layers_by_width(
+                    _segments_of(document),
+                    width_inches,
+                    file_stroke_widths.get(plt_path) if file_stroke_widths else None,
+                    alpha=PHYSICAL_STRUCTURAL_ALPHA if is_structural else 1.0,
+                    facecolor="black",
+                    label=plt_path.stem,
+                ),
                 output_path=pdf_path,
                 title=title,
                 show_plot=False,
@@ -1406,17 +1537,17 @@ def _write_simple_plots(
                 is_boundary = pen_id == LAYER_BOUNDARY
                 is_hole = pen_id == LAYER_HOLES
                 structural = is_boundary or is_hole
-                layers.append(
-                    PhysicalStrokeLayer(
-                        segments=pen_segments,
-                        width_inches=pen_widths[pen_id],
+                layers.extend(
+                    _layers_by_width(
+                        pen_segments,
+                        pen_widths[pen_id],
+                        plate_stroke_widths.get(plate_no) if plate_stroke_widths else None,
                         alpha=1.0,
-                        label=f"pen {pen_id}",
+                        # Contrast outline for the structural pens: the
+                        # label border AND its drill holes share it --
+                        # black on white stock, white over every other
+                        # material background.
                         facecolor=(
-                            # Contrast outline for the structural pens: the
-                            # label border AND its drill holes share it --
-                            # black on white stock, white over every other
-                            # material background.
                             outline_color_for(material_colors.background)
                             if structural
                             else resolve_text_color(
@@ -1424,6 +1555,7 @@ def _write_simple_plots(
                                 material_colors,
                             )
                         ),
+                        label=f"pen {pen_id}",
                     )
                 )
                 if is_boundary and material_colors.background is not None:

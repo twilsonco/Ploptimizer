@@ -147,7 +147,8 @@ def detect_text_hole_collisions(
     )
     results: List[CollisionResult] = []
 
-    for line_index, line_text, bounds, _scale, _spacing, _cutters in line_entries:
+    for entry in line_entries:
+        line_index, line_text, bounds = entry.line_index, entry.line_text, entry.bounds
         threshold = collision_threshold(label, line_index)
         x_min, y_min, x_max, y_max = bounds
         shifted: Tuple[float, float, float, float] = (
