@@ -23,6 +23,8 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_CUTTER_DOWNSIZE,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE,
+    DEFAULT_CUTTER_BUFFER_ROUTING,
+    DEFAULT_CUTTER_BUFFER_TEXT,
     DEFAULT_CUTTER_SIZE,
     DEFAULT_DESCENDING_CHARACTER_CLEARANCE,
     DEFAULT_DESCENDING_CHARACTER_RAISE,
@@ -90,6 +92,7 @@ from plt_optimizer.generate.resolution import (
     compute_horizontal_scale,
     ellipse_content_inset,
     design_pass_spacing,
+    effective_cutter_diameter,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
@@ -113,6 +116,7 @@ from plt_optimizer.generate.schema import (
     HoleSpec,
     JobSpec,
     LabelSpec,
+    PlateSpec,
     TextColor,
     TextHAlignment,
     TextLine,
@@ -7961,3 +7965,375 @@ class TestTextColorMarkupResolution:
         line = resolve_job_spec(job)[0].content[0]
         moved = line.with_markup("A<tc:red>XY</tc>C")
         assert moved.color_runs == (None, "red", "red", None)
+
+
+class TestCutterBufferResolution:
+    """The kerf buffer widens each cutter into its engraved width."""
+
+    @staticmethod
+    def _job(*lines: TextLine, **levels: object) -> JobSpec:
+        """Build a one-label job; ``levels`` keys are ``job__field`` / ``label__field``."""
+        job_kwargs: dict[str, object] = {}
+        label_kwargs: dict[str, object] = {}
+        for key, value in levels.items():
+            tier, _, field = key.partition("__")
+            (job_kwargs if tier == "job" else label_kwargs)[field] = value
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=4.0,
+                    height=2.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=list(lines) or [TextLine(text="X")],
+                )
+            ],
+        )
+
+    def _line(self, *lines: TextLine, **levels: object) -> ResolvedTextLine:
+        """Resolve the job's first line against the test inventory."""
+        return resolve_job_spec(self._job(*lines, **levels), available_cutters=_INVENTORY)[
+            0
+        ].content[0]
+
+    @staticmethod
+    def _tall_job(line: TextLine, **job_kwargs: object) -> JobSpec:
+        """Build a tiny-text-height job (so a cutter can run out of material)."""
+        return JobSpec(
+            job_name="J",
+            text_height=0.05,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[LabelSpec(id="lbl", width=4.0, height=2.0, content=[line])],
+        )
+
+    # -- The pure model ----------------------------------------------------
+
+    def test_effective_is_physical_plus_buffer(self) -> None:
+        """The kerf model is a plain additive width."""
+        assert effective_cutter_diameter(0.03, 0.005) == pytest.approx(0.035)
+        assert effective_cutter_diameter(0.03, 0.0) == pytest.approx(0.03)
+
+    def test_code_defaults_are_zero(self) -> None:
+        """Unconfigured jobs engrave = nominal (the legacy path stays identical)."""
+        assert DEFAULT_CUTTER_BUFFER_TEXT == 0.0
+        assert DEFAULT_CUTTER_BUFFER_ROUTING == 0.0
+
+    def test_resolved_line_defaults_to_zero_buffer(self) -> None:
+        """A manually constructed line has no buffer (identity properties)."""
+        line = ResolvedTextLine(
+            text="X",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        assert line.cutter_buffer == DEFAULT_CUTTER_BUFFER_TEXT
+        assert line.effective_cutter_diameter == pytest.approx(0.06)
+        assert line.effective_used_cutters == line.used_cutters
+        assert line.effective_per_char_cutters == line.per_char_cutters
+        assert line.effective_bold_cutter_diameter is None
+
+    # -- The cascade -------------------------------------------------------
+
+    def test_line_defaults_to_zero_when_unset(self) -> None:
+        """No tier declaring the buffers resolves to the 0.0 fallback."""
+        line = self._line()
+        assert line.cutter_buffer == 0.0
+
+    def test_job_level_cascades(self) -> None:
+        """A job-level buffer applies to lines that omit the field."""
+        line = self._line(job__cutter_buffer_text=0.01)
+        assert line.cutter_buffer == pytest.approx(0.01)
+
+    def test_label_overrides_job(self) -> None:
+        """The label tier beats the job tier."""
+        line = self._line(job__cutter_buffer_text=0.01, label__cutter_buffer_text=0.02)
+        assert line.cutter_buffer == pytest.approx(0.02)
+
+    def test_line_overrides_label_and_job(self) -> None:
+        """The line tier is the most specific."""
+        line = self._line(
+            TextLine(text="X", cutter_buffer_text=0.004),
+            job__cutter_buffer_text=0.01,
+            label__cutter_buffer_text=0.02,
+        )
+        assert line.cutter_buffer == pytest.approx(0.004)
+
+    def test_explicit_zero_is_honored(self) -> None:
+        """An intentional 0.0 (engraved = nominal) is a value, not 'unset'."""
+        line = self._line(
+            TextLine(text="X", cutter_buffer_text=0.0),
+            job__cutter_buffer_text=0.01,
+        )
+        assert line.cutter_buffer == 0.0
+        assert line.effective_cutter_diameter == pytest.approx(line.cutter_diameter)
+
+    def test_plate_tier_is_never_applied(self) -> None:
+        """The plate tier is schema parity: its value must not reach a label."""
+        job = JobSpec(
+            job_name="J",
+            text_height=0.5,
+            plates=[PlateSpec(id="p", width=24.0, height=16.0, cutter_buffer_text=0.5)],
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=4.0,
+                    height=2.0,
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job, available_cutters=_INVENTORY)[0]
+        assert label.content[0].cutter_buffer == 0.0
+
+    # -- The effective widths ---------------------------------------------
+
+    def test_effective_width_widens_the_tool(self) -> None:
+        """effective = the resolved tool + the buffer."""
+        line = self._line(job__cutter_buffer_text=0.01)
+        assert line.cutter_diameter == pytest.approx(0.06)
+        assert line.effective_cutter_diameter == pytest.approx(0.07)
+
+    def test_toolpath_compensates_for_the_effective_width(self) -> None:
+        """nominal - effective: the engraved silhouette stays nominal tall."""
+        line = self._line(job__cutter_buffer_text=0.01)
+        assert line.toolpath_text_height == pytest.approx(0.5 - 0.07)
+
+    def test_nominal_height_untouched(self) -> None:
+        """The buffer never moves the nominal height (vertical fit math)."""
+        line = self._line(job__cutter_buffer_text=0.01)
+        assert line.nominal_text_height == pytest.approx(0.5)
+
+    def test_character_spacing_fallback_scales_with_effective(self) -> None:
+        """The unset-spacing fallback is effective * 1.5, not tool * 1.5."""
+        plain = self._line()
+        buffered = self._line(job__cutter_buffer_text=0.01)
+        assert plain.character_spacing == pytest.approx(0.06 * 1.5)
+        assert buffered.character_spacing == pytest.approx(0.07 * 1.5)
+
+    def test_explicit_character_spacing_wins(self) -> None:
+        """A declared spacing is never touched by the buffer."""
+        line = self._line(job__cutter_buffer_text=0.01, label__character_spacing=0.05)
+        assert line.character_spacing == pytest.approx(0.05)
+
+    def test_bold_rung_is_physical_and_toolpath_effective(self) -> None:
+        """The bold rung stays an inventory tool; its height uses its width."""
+        line = self._line(
+            TextLine(text="a<b>B</b>", font="Dino"),
+            job__cutter_buffer_text=0.01,
+        )
+        assert line.cutter_diameter == pytest.approx(0.06)
+        assert line.bold_cutter_diameter == pytest.approx(0.09)
+        assert line.effective_bold_cutter_diameter == pytest.approx(0.10)
+        assert line.bold_toolpath_text_height == pytest.approx(0.5 - 0.10)
+
+    def test_effective_used_cutters_widen_every_rung(self) -> None:
+        """Every rung the line engraves with widens by the same buffer."""
+        line = self._line(
+            TextLine(text="a<b>B</b>", font="Dino"),
+            job__cutter_buffer_text=0.01,
+        )
+        assert line.used_cutters == pytest.approx((0.06, 0.09))
+        assert line.effective_used_cutters == pytest.approx((0.07, 0.10))
+        assert line.effective_max_cutter_diameter == pytest.approx(0.10)
+
+    def test_pen_map_keys_on_the_physical_tool(self) -> None:
+        """Tool identity is physical: the buffer never invents a pen."""
+        job = self._job(job__cutter_buffer_text=0.01)
+        labels = resolve_job_spec(job, available_cutters=_INVENTORY)
+        assert build_cutter_pen_map(labels) == {(0.06, "none"): 1}
+
+    def test_explicit_cutter_size_also_gets_the_buffer(self) -> None:
+        """cutter_size names a TOOL, so the buffer applies to it too."""
+        line = self._line(
+            TextLine(text="X", cutter_size=0.03),
+            job__cutter_buffer_text=0.005,
+        )
+        assert line.cutter_diameter == pytest.approx(0.03)
+        assert line.effective_cutter_diameter == pytest.approx(0.035)
+        assert line.toolpath_text_height == pytest.approx(0.5 - 0.035)
+
+    def test_cutter_markup_run_gets_the_buffer(self) -> None:
+        """A <c:D> run's engraved width is D + buffer; its pen stays D."""
+        line = self._line(
+            TextLine(text="A<c:0.03>B</c>C"),
+            job__cutter_buffer_text=0.005,
+        )
+        assert line.per_char_cutters == pytest.approx((0.06, 0.03, 0.06))
+        assert line.effective_per_char_cutters == pytest.approx((0.065, 0.035, 0.065))
+
+    def test_cutter_markup_material_check_uses_effective(self) -> None:
+        """A <c:D> tool whose ENGRAVED width fills the height aborts."""
+        # 0.045 + 0.01 = 0.055 >= text_height 0.05: the buffer tips it over
+        # (the tool alone would have fitted).
+        with pytest.raises(CutterSizeError, match="kerf buffer"):
+            resolve_job_spec(
+                self._tall_job(
+                    TextLine(text="A<c:0.045>B</c>C"),
+                    cutter_buffer_text=0.01,
+                ),
+                available_cutters=_INVENTORY,
+            )
+
+    def test_explicit_cutter_size_material_check_uses_effective(self) -> None:
+        """The tool alone fits, the tool + buffer does not: CutterSizeError."""
+        with pytest.raises(CutterSizeError, match="kerf buffer"):
+            resolve_job_spec(
+                self._tall_job(
+                    TextLine(text="X", cutter_size=0.045),
+                    cutter_buffer_text=0.01,
+                ),
+                available_cutters=_INVENTORY,
+            )
+
+    def test_zero_buffer_error_message_is_legacy(self) -> None:
+        """With no buffer the abort message keeps its historical wording."""
+        with pytest.raises(CutterSizeError) as excinfo:
+            resolve_job_spec(
+                self._tall_job(TextLine(text="X", cutter_size=0.06)),
+                available_cutters=_INVENTORY,
+            )
+        assert "kerf buffer" not in str(excinfo.value)
+
+    def test_glyph_render_plan_uses_effective_widths(self) -> None:
+        """The renderer's per-character arrays are engraved widths."""
+        from plt_optimizer.generate.markup import PLAIN, Run, Style
+
+        line = self._line(
+            TextLine(text="aB"),
+            job__cutter_buffer_text=0.01,
+        )
+        line = replace(line, styled_runs=(Run("a", PLAIN), Run("B", Style(scale=0.5))))
+        plan = glyph_render_plan(line)
+        assert plan is not None
+        diameters, scales = plan
+        # Plain 0.06 + 0.01; the 0.5x run's ladder rung 0.03 + 0.01.
+        assert diameters == pytest.approx((0.07, 0.04))
+        assert scales[0] == pytest.approx(1.0)
+        assert scales[1] == pytest.approx((0.5 * 0.5 - 0.04) / (0.5 - 0.07))
+
+    def test_buffer_survives_the_reflow_text_swap(self) -> None:
+        """A text-rewriting pre-pass keeps the line's buffer (property-derived)."""
+        line = self._line(
+            TextLine(text="A<scale:0.5>B</scale>C"),
+            job__cutter_buffer_text=0.01,
+        )
+        moved = line.with_markup("A<scale:0.5>XY</scale>C")
+        assert moved.cutter_buffer == pytest.approx(0.01)
+        assert moved.effective_per_char_cutters == pytest.approx(
+            tuple(c + 0.01 for c in moved.per_char_cutters)
+        )
+
+
+class TestCutterBufferRoutingCascade:
+    """cutter_buffer_routing widens the boundary/hole cutter per label."""
+
+    @staticmethod
+    def _job(**levels: float | None) -> JobSpec:
+        """Build a one-label job with holes; keys are ``job`` / ``label``."""
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            cutter_buffer_routing=levels.get("job"),
+            holes=[{"location": "left", "diameter": 0.25}],
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=4.0,
+                    height=2.0,
+                    cutter_buffer_routing=levels.get("label"),
+                    holes=[{"location": "left", "diameter": 0.25}],
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+
+    def test_default_is_zero(self) -> None:
+        """No tier declaring the routing buffer resolves to 0.0."""
+        label = resolve_job_spec(self._job(), available_cutters=_INVENTORY)[0]
+        assert label.hole_cutter_buffer == 0.0
+        assert label.effective_hole_cutter_diameter == pytest.approx(label.hole_cutter_diameter)
+
+    def test_job_level_cascades(self) -> None:
+        """The job tier applies to labels that omit the field."""
+        label = resolve_job_spec(
+            self._job(job=0.045), available_cutters=_INVENTORY, boundary_hole_cutter_size=0.015
+        )[0]
+        assert label.hole_cutter_diameter == pytest.approx(0.015)
+        assert label.hole_cutter_buffer == pytest.approx(0.045)
+        assert label.effective_hole_cutter_diameter == pytest.approx(0.06)
+
+    def test_label_overrides_job(self) -> None:
+        """The label tier beats the job tier."""
+        label = resolve_job_spec(self._job(job=0.045, label=0.0), available_cutters=_INVENTORY)[0]
+        assert label.hole_cutter_buffer == 0.0
+
+    def test_tool_identity_stays_physical(self) -> None:
+        """The bh cutter snaps to the inventory on the NOMINAL size."""
+        label = resolve_job_spec(
+            self._job(job=0.045), available_cutters=_INVENTORY, boundary_hole_cutter_size=0.02
+        )[0]
+        assert label.hole_cutter_diameter == pytest.approx(0.02)
+        assert label.effective_hole_cutter_diameter == pytest.approx(0.065)
+
+    def test_hole_diameters_stay_nominal(self) -> None:
+        """Resolution keeps the SPECIFIED hole diameters; only radii compensate."""
+        label = resolve_job_spec(
+            self._job(job=0.045), available_cutters=_INVENTORY, boundary_hole_cutter_size=0.015
+        )[0]
+        assert label.holes[0].diameter == pytest.approx(0.25)
+
+    def test_resolved_label_defaults_to_zero_buffer(self) -> None:
+        """A manually constructed label has no routing buffer."""
+        label = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        assert label.hole_cutter_buffer == DEFAULT_CUTTER_BUFFER_ROUTING
+        assert label.effective_hole_cutter_diameter == pytest.approx(DEFAULT_BOUNDARY_HOLE_CUTTER)
+
+
+class TestMultiStrokeLadderBufferContract:
+    """The boldness ladder sizes a PHYSICAL tool, so the buffer is a no-op at 0.14.
+
+    The documented approximation (generate/AGENTS.md "Known approximation: the
+    multi-stroke boldness ladder"): compensating the target by the buffer
+    (`W = target - (N-1) * d - buffer`) cannot thin the pass at the shop default
+    `target_boldness_factor: 0.14`, because the design point sits exactly ON the
+    gap-free floor `d / (1 - overlap_ratio)` and the floor clamps it back. This
+    pins that measurement so the docstring cannot go stale.
+    """
+
+    @pytest.mark.parametrize("stroke_count", [3, 5, 7])
+    @pytest.mark.parametrize("nominal_height", [0.25, 0.5, 1.0])
+    def test_design_point_sits_on_the_floor(self, nominal_height: float, stroke_count: int) -> None:
+        """At factor 0.14 / overlap 0.25 the ideal equals the floor (zero headroom)."""
+        ladder = multi_stroke_cutter_diameter(nominal_height, stroke_count)
+        assert ladder.ideal == pytest.approx(ladder.floor, abs=1e-12)
+        assert ladder.cutter == pytest.approx(ladder.floor, abs=1e-12)
+        assert ladder.clamped is False
+
+    @pytest.mark.parametrize("buffer", [0.005, 0.045])
+    def test_compensating_the_target_cannot_thin_the_pass(self, buffer: float) -> None:
+        """Subtracting the buffer from the target leaves the floor's cutter."""
+        for nominal_height in (0.25, 0.5, 1.0):
+            for stroke_count in (3, 5, 7):
+                plain = multi_stroke_cutter_diameter(nominal_height, stroke_count)
+                compensated = multi_stroke_cutter_diameter(
+                    nominal_height,
+                    stroke_count,
+                    boldness_factor=DEFAULT_TARGET_BOLDNESS_FACTOR
+                    - buffer / nominal_height,
+                )
+                # The ideal drops below the floor, so the floor wins: identical cutter.
+                assert compensated.cutter == pytest.approx(plain.cutter)
+                assert compensated.clamped is True

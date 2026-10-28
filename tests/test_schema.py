@@ -3192,6 +3192,116 @@ class TestRoundedRectangleField:
         assert plate.rounded_rectangle_proportional is True
 
 
+class TestCutterBufferFields:
+    """The cascading kerf-buffer fields (line -> label -> job + plate parity)."""
+
+    FIELDS = ("cutter_buffer_text", "cutter_buffer_routing")
+
+    def test_defaults_to_none_everywhere(self) -> None:
+        """Every tier defaults both fields to None (resolution -> 0.0)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        line = TextLine(text="X")
+        plate = PlateSpec(id="p", width=24.0, height=16.0)
+        for name in self.FIELDS:
+            assert getattr(job, name) is None
+            assert getattr(label, name) is None
+            assert getattr(line, name) is None
+            assert getattr(plate, name) is None
+
+    def test_live_on_text_attributes_so_all_tiers_inherit(self) -> None:
+        """The full four-tier cascade: text, label, job, plate and content tiers."""
+        for name in self.FIELDS:
+            assert name in TextAttributes.model_fields
+            assert name in TextLine.model_fields
+            assert name in ContentEntry.model_fields
+            assert name in LabelAttributes.model_fields
+            assert name in LabelSpec.model_fields
+            assert name in JobSpec.model_fields
+            assert name in PlateSpec.model_fields
+
+    def test_accepts_zero_and_positive_values(self) -> None:
+        """0.0 (legacy engraved = nominal) and any positive buffer are valid."""
+        for buffer in (0.0, 0.005, 0.045, 1.0):
+            line = TextLine(text="X", cutter_buffer_text=buffer)
+            assert line.cutter_buffer_text == buffer
+            label = LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                cutter_buffer_routing=buffer,
+            )
+            assert label.cutter_buffer_routing == buffer
+
+    def test_rejects_negative_buffer(self) -> None:
+        """A buffer below 0.0 is a validation error at every tier."""
+        for name in self.FIELDS:
+            with pytest.raises(ValidationError):
+                TextLine(text="X", **{name: -0.001})
+            with pytest.raises(ValidationError):
+                LabelSpec(
+                    id="l",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                    **{name: -0.001},
+                )
+            with pytest.raises(ValidationError):
+                JobSpec(
+                    job_name="J",
+                    width=2.0,
+                    height=1.0,
+                    content=[TextLine(text="X")],
+                    **{name: -0.001},
+                )
+            with pytest.raises(ValidationError):
+                PlateSpec(id="p", width=24.0, height=16.0, **{name: -0.001})
+
+    def test_plate_parity_fields_accept_values(self) -> None:
+        """The plate parity fields accept the same values (not applied there)."""
+        plate = PlateSpec(
+            id="p",
+            width=24.0,
+            height=16.0,
+            cutter_buffer_text=0.01,
+            cutter_buffer_routing=0.05,
+        )
+        assert plate.cutter_buffer_text == 0.01
+        assert plate.cutter_buffer_routing == 0.05
+
+    def test_parses_from_yaml_at_every_tier(self, tmp_path: Path) -> None:
+        """A spec declaring the buffers at job, plate, label and line parses."""
+        spec = tmp_path / "buffers.yaml"
+        spec.write_text(
+            "job:\n"
+            '  job_name: "Buffers"\n'
+            "  text_height: 0.5\n"
+            "  cutter_buffer_text: 0.010\n"
+            "  cutter_buffer_routing: 0.045\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      cutter_buffer_text: 0.020\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      width: 4.0\n"
+            "      height: 2.0\n"
+            "      cutter_buffer_routing: 0.050\n"
+            "      content:\n"
+            '        - text: "X"\n'
+            "          cutter_buffer_text: 0.004\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec)
+        assert job.cutter_buffer_text == 0.010
+        assert job.cutter_buffer_routing == 0.045
+        assert job.plates[0].cutter_buffer_text == 0.020
+        assert job.labels[0].cutter_buffer_routing == 0.050
+        assert job.labels[0].content[0].cutter_buffer_text == 0.004
+
+
 class TestRoundLabelDimensions:
     """Round labels relax the both-dimensions-required rule (one = circle)."""
 

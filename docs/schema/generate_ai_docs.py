@@ -100,7 +100,21 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from text_height "
     "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
-    "up) and the toolpath height becomes `text_height - cutter_size`.",
+    "up) and the toolpath height becomes `text_height - (cutter_size + cutter_buffer_text)` "
+    "(the buffer applies to an explicit tool exactly like an automatic one).",
+    "DEFAULT_CUTTER_BUFFER_TEXT": "0.0 = a text cutter engraves exactly its nominal diameter "
+    "(the legacy behaviour, and the code fallback so an unconfigured job is bit-identical). "
+    "Added to the physical diameter to get the width it engraves: a roughly 45-degree-flank "
+    "V-bit cuts wider than nominal. The effective width drives the toolpath height, kerning "
+    "clearance, collision floors, compression margins and the PDF proof strokes; the tool, the "
+    "pen map and the PLT file names stay physical. job-config.json supplies the shop default "
+    "(currently 0.005).",
+    "DEFAULT_CUTTER_BUFFER_ROUTING": "0.0 = the boundary/hole cutter engraves exactly its "
+    "nominal diameter (the legacy behaviour and the code fallback). The structural sibling of "
+    "DEFAULT_CUTTER_BUFFER_TEXT: added to the physical boundary/hole tool to get the engraved "
+    "width used by the cutter-compensated hole radius, the hole-margin offset, the collision "
+    "stroke floor, the round-label packing kerf and the PDF proof strokes. job-config.json "
+    "supplies the shop default (currently 0.045).",
     "DEFAULT_TARGET_BOLDNESS_FACTOR": "0.14 = the target engraved stroke width (as a fraction "
     "of text height) for multi-stroke (bold) PLT fonts (`stroke_count` > 1 in the font's "
     "catalog file). "

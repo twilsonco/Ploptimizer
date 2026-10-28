@@ -78,6 +78,8 @@ _FULL_CONFIG: dict[str, Any] = {
     "descending_character_clearance": 0.05,
     "descending_character_reciprocal_scale": 0.6,
     "hole_adjust_for_cutter": False,
+    "cutter_buffer_text": 0.007,
+    "cutter_buffer_routing": 0.033,
     "plate_width": 24.0,
     "plate_height": 16.0,
     "left_clearance": 0.0,
@@ -566,6 +568,50 @@ class TestApplyJobConfigDefaults:
         assert filled["bold_boldness_multiplier"] == 2.0
         assert filled["rounded_rectangle_fraction"] == 0.35
         assert filled["rounded_rectangle_proportional"] is True
+
+    def test_cutter_buffer_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured kerf buffers land as job-level values."""
+        config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["cutter_buffer_text"] == 0.007
+        assert filled["cutter_buffer_routing"] == 0.033
+
+    def test_cutter_buffer_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared kerf buffer is never overridden by the config."""
+        config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
+        filled = apply_job_config_defaults(
+            _minimal_job(cutter_buffer_text=0.0, cutter_buffer_routing=0.02), config
+        )
+        # An explicit 0.0 is a value (legacy engraved = nominal), not "unset".
+        assert filled["cutter_buffer_text"] == 0.0
+        assert filled["cutter_buffer_routing"] == 0.02
+
+    def test_cutter_buffer_absent_stays_unset(self, tmp_path: Path) -> None:
+        """A config without the keys leaves them unset (resolution -> 0.0)."""
+        config_data = {k: v for k, v in _FULL_CONFIG.items() if not k.startswith("cutter_buffer")}
+        config = load_job_config(_write_config(tmp_path, config_data))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert "cutter_buffer_text" not in filled
+        assert "cutter_buffer_routing" not in filled
+
+    def test_cutter_buffer_negative_rejected_at_load(self, tmp_path: Path) -> None:
+        """A negative kerf buffer fails at config load, not on the first job."""
+        for name in ("cutter_buffer_text", "cutter_buffer_routing"):
+            with pytest.raises(JobConfigError, match=name):
+                load_job_config(_write_config(tmp_path, {**_FULL_CONFIG, name: -0.001}))
+
+    def test_repo_config_ships_cutter_buffers(self) -> None:
+        """The shipped shop config configures both kerf buffers.
+
+        Adaptive: the values are the config's own, never pinned here (the
+        repo config is hand-tuned for the real shop).
+        """
+        config = load_job_config(Path("job-config.json"))
+        assert config is not None
+        for name in ("cutter_buffer_text", "cutter_buffer_routing"):
+            value = getattr(config.defaults, name)
+            assert value is not None, f"job-config.json must ship {name}"
+            assert value >= 0.0
 
     def test_cutter_downsize_job_layer_fill(self, tmp_path: Path) -> None:
         """Configured cutter-downsize defaults land as job-level values."""

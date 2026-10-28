@@ -205,6 +205,26 @@ DEFAULT_HOLE_TEXT_COLLISION_DISTANCE: float = 0.15
 # effective value is snapped to the shop inventory (next size down, else
 # next size up).
 DEFAULT_BOUNDARY_HOLE_CUTTER: float = 0.015
+# Kerf buffer (inches) ADDED to a cutter diameter to get the width it
+# actually engraves. A V-bit with roughly 45-degree flanks cuts a groove
+# wider than its nominal diameter -- the deeper the cut, the wider the
+# stroke -- so the nominal tool under-reports the engraved stroke. The
+# CODE fallback is 0.0 (engraved = nominal, the historical behaviour: the
+# no-config path stays bit-identical); `job-config.json` ships the shop's
+# measured values. `cutter_buffer_text` covers the per-line text cutters,
+# `cutter_buffer_routing` the single boundary/drill-hole cutter.
+#
+# The buffer produces the EFFECTIVE cutter diameter (see
+# :func:`effective_cutter_diameter`), used wherever a *width of material
+# removed* matters (kerning clearance, the character-spacing fallback, the
+# collision stroke floor, hole compensation, compression margins, packing
+# kerf, PDF proof stroke widths) and subtracted from the nominal text height
+# so the engraved silhouette keeps its specified size. The TOOL stays
+# physical: inventory snapping, the pen map, the per-cutter PLT file names,
+# the `<b>` bold rung, the `<scale:N>` ladder and the compression-driven
+# downsize walk all use the nominal diameter.
+DEFAULT_CUTTER_BUFFER_TEXT: float = 0.0
+DEFAULT_CUTTER_BUFFER_ROUTING: float = 0.0
 # Cutter-compensated drill holes. `True` (the default) shrinks the EMITTED
 # hole circle by the boundary/hole cutter diameter -- the cutter radius on
 # each side of the hole's path -- so the engraved hole measures the specified
@@ -647,6 +667,12 @@ def get_cutter_diameter(
     prevents using an impractically small tool that could result in
     illegible hairline text or unnecessary tool wear.
 
+    The result is the **physical** tool (an inventory identity: the pen map
+    and the per-cutter PLT file names key on it). The width it engraves --
+    this value plus the line's `cutter_buffer_text` kerf buffer -- is
+    :func:`effective_cutter_diameter`, and the toolpath height compensates
+    for the engraved width, not the tool.
+
     Args:
         nominal_height: The nominal text height in inches.
         available_inventory: Optional list of cutter diameters available in
@@ -689,6 +715,69 @@ def get_cutter_diameter(
         return closest_wider
     else:
         return closest_narrower
+
+
+def effective_cutter_diameter(physical: float, buffer: float) -> float:
+    """Return the width a cutter of `physical` diameter actually engraves.
+
+    The kerf model. A V-bit with roughly 45-degree flanks cuts a groove wider
+    than its nominal diameter (the deeper the cut, the wider the stroke), so
+    the engraved width is the nominal tool plus the cascaded
+    ``cutter_buffer_text`` / ``cutter_buffer_routing`` value:
+
+        effective = physical + buffer
+
+    ``buffer == 0.0`` (the code default) makes this the identity, which is why
+    an unconfigured job engraves -- and previews -- exactly as before.
+
+    The result is a WIDTH OF MATERIAL REMOVED, never a tool: inventory
+    snapping, the pen map, the per-cutter PLT file names, the ``<b>`` bold
+    rung, the ``<scale:N>`` ladder and the compression-driven downsize walk all
+    keep the physical diameter (a 0.030in cutter still writes ``30_txt_*.plt``).
+    Everything that measures ink uses this value, and the toolpath height
+    compensates for it (``nominal_text_height - effective``) so the engraved
+    silhouette keeps its specified size.
+
+    Args:
+        physical: The matched tool diameter in inches.
+        buffer: The cascaded kerf buffer in inches (``>= 0.0``).
+
+    Returns:
+        The effective engraved width in inches.
+    """
+    return physical + buffer
+
+
+def _buffer_suffix(buffer: float) -> str:
+    """Render the kerf buffer for a "leaves no material" message.
+
+    The cutter errors quote the ENGRAVED width, so the message names the
+    buffer that produced it; a `0.0` buffer (the code default) adds nothing,
+    keeping the historical wording byte-identical.
+
+    Args:
+        buffer: The cascaded kerf buffer in inches.
+
+    Returns:
+        `" (+ Ng in kerf buffer)"` when `buffer > 0.0`, else `""`.
+    """
+    if buffer <= 0.0:
+        return ""
+    return f" (+{buffer:g} in kerf buffer)"
+
+
+def _buffer_tail(buffer: float) -> str:
+    """Qualify a "must be smaller than text_height" hint with the buffer.
+
+    Args:
+        buffer: The cascaded kerf buffer in inches.
+
+    Returns:
+        `" (plus the kerf buffer)"` when `buffer > 0.0`, else `""`.
+    """
+    if buffer <= 0.0:
+        return ""
+    return " (plus the kerf buffer)"
 
 
 def snap_boundary_hole_cutter(
@@ -739,6 +828,12 @@ def hole_engraved_radius(
     unaffected (it is placed from the specified diameter), so hole positions
     stay bit-identical with the mechanism off.
 
+    `cutter_diameter` is the **engraved** width the caller resolves
+    (`ResolvedLabel.effective_hole_cutter_diameter` -- the physical tool plus
+    the `cutter_buffer_routing` kerf buffer), not the nominal tool, so the
+    compensation accounts for the extra material a 45-degree-flank V-bit
+    removes.
+
     A specified diameter at or below the cutter diameter leaves no path to
     draw (the cutter alone is at least the target hole); the radius clamps
     to :data:`MIN_HOLE_EMITTED_RADIUS_INCHES` -- the smallest circle the
@@ -747,8 +842,9 @@ def hole_engraved_radius(
 
     Args:
         diameter: The specified (nominal) hole diameter in inches.
-        cutter_diameter: The boundary/hole cutter diameter in inches
-            (`ResolvedLabel.hole_cutter_diameter`).
+        cutter_diameter: The width the boundary/hole cutter engraves, in
+            inches (`ResolvedLabel.effective_hole_cutter_diameter` -- the
+            physical tool plus the `cutter_buffer_routing` kerf buffer).
         adjust: Cutter compensation on/off (`hole_adjust_for_cutter`
             cascade). `False` returns the historical `diameter / 2`.
 
@@ -1015,9 +1111,21 @@ class ResolvedTextLine:
         nominal_text_height: The requested font height in inches (before
             cutter compensation).
         toolpath_text_height: The actual toolpath height in inches (after
-            subtracting cutter diameter). This is what vpype renders.
-        cutter_diameter: The matched tool diameter in inches, used for
-            kerf compensation and pre-job reporting.
+            subtracting the **effective** cutter width,
+            :attr:`effective_cutter_diameter`). This is what vpype renders.
+        cutter_diameter: The matched **physical** tool diameter in inches --
+            the tool that goes in the spindle. Inventory snapping, the pen
+            map, the per-cutter PLT file names, the `<b>` bold rung, the
+            `<scale:N>` ladder and the compression-driven downsize walk all
+            key on this value. Widths of material removed use
+            :attr:`effective_cutter_diameter` instead.
+        cutter_buffer: The kerf buffer in inches cascaded line -> label -> job
+            (`cutter_buffer_text`, `job-config.json` default; code fallback
+            `DEFAULT_CUTTER_BUFFER_TEXT` = 0.0). Added to every cutter this
+            line engraves with to get the width it actually engraves (see
+            :attr:`effective_cutter_diameter`). A per-LINE value so the
+            planned inline markup can grow it into a per-character array
+            without touching any consumer.
         character_spacing: Extra spacing between characters in inches.
         line_spacing: Extra spacing between text lines in inches.
         max_h_compress: Maximum horizontal compression fraction in
@@ -1426,6 +1534,7 @@ class ResolvedTextLine:
     plain_text: str = ""
     styled_runs: Tuple[Run, ...] = ()
     cutter_size: Optional[float] = DEFAULT_CUTTER_SIZE
+    cutter_buffer: float = DEFAULT_CUTTER_BUFFER_TEXT
     target_boldness_factor: float = DEFAULT_TARGET_BOLDNESS_FACTOR
     multistroke_overlap_ratio: float = DEFAULT_MULTISTROKE_OVERLAP_RATIO
     cutter_downsize: bool = DEFAULT_CUTTER_DOWNSIZE
@@ -1937,6 +2046,73 @@ class ResolvedTextLine:
             layers.add((cutter, color))
         return tuple(sorted(layers))
 
+    # -- Effective (engraved) widths --------------------------------------
+    #
+    # The physical cutters above are TOOLS (the pen map, the per-cutter PLT
+    # file names and the inventory ladder all key on them). The properties
+    # below are the same cutters widened by :attr:`cutter_buffer` -- the
+    # width of material the tool actually removes. Every geometry that
+    # measures INK consumes these; every mechanism that selects a TOOL
+    # consumes the physical ones. All DERIVED (never stored positionally),
+    # so the pre-passes that clone a line and the reflow that rewrites its
+    # text keep every run on its own width.
+
+    @property
+    def effective_cutter_diameter(self) -> float:
+        """The width the line's own tool actually engraves, inches.
+
+        :attr:`cutter_diameter` plus :attr:`cutter_buffer` (see
+        :func:`effective_cutter_diameter`). The kerning clearance, the glyph
+        advance, the underline/strikethrough geometry, the compression margin
+        and the collision stroke floor all measure ink with this, not with the
+        nominal tool. `0.0` buffer makes it the identity (legacy output).
+        """
+        return effective_cutter_diameter(self.cutter_diameter, self.cutter_buffer)
+
+    @property
+    def effective_bold_cutter_diameter(self) -> Optional[float]:
+        """The width the line's `<b>` bold rung engraves (`None` = no rung)."""
+        if self.bold_cutter_diameter is None:
+            return None
+        return effective_cutter_diameter(self.bold_cutter_diameter, self.cutter_buffer)
+
+    @property
+    def effective_per_char_cutters(self) -> Tuple[float, ...]:
+        """Per-character engraved widths aligned with :attr:`plain_text`.
+
+        :attr:`per_char_cutters` widened by :attr:`cutter_buffer` -- the
+        array handed to the renderers as `cutter_diameters` (the glyph advance
+        and per-pair kerning clearance) and to the decoration geometry. The
+        pen split keeps using the physical :attr:`per_char_cutters`.
+        """
+        return tuple(
+            effective_cutter_diameter(diameter, self.cutter_buffer)
+            for diameter in self.per_char_cutters
+        )
+
+    @property
+    def effective_used_cutters(self) -> Tuple[float, ...]:
+        """Every distinct engraved width this line produces, ascending.
+
+        :attr:`used_cutters` widened by :attr:`cutter_buffer`. The collision
+        stroke floor and the descender relief use the line's **widest**
+        engraved stroke, so they consume ``max(effective_used_cutters)``.
+        """
+        return tuple(
+            effective_cutter_diameter(diameter, self.cutter_buffer)
+            for diameter in self.used_cutters
+        )
+
+    @property
+    def effective_max_cutter_diameter(self) -> float:
+        """The widest width this line engraves, inches.
+
+        ``max(effective_used_cutters)`` -- the value the stroke-aware clearance
+        floors need. `0.0` is impossible for a rendered line (its own cutter is
+        always a member), so no guard is required.
+        """
+        return max(self.effective_used_cutters)
+
     @property
     def per_char_cutters(self) -> Tuple[float, ...]:
         """Per-character cutter diameters aligned with :attr:`plain_text`.
@@ -2109,8 +2285,10 @@ class ResolvedTextLine:
 
         The centerline contract: a glyph's stored geometry is the path the
         *design* cutter follows, so the line's plain run scales it to
-        `nominal - cutter` and the bold run scales the same geometry to
-        `nominal - bold_cutter`. The ratio `<= 1` (a thicker tool
+        `nominal - effective_cutter` and the bold run scales the same geometry
+        to `nominal - effective_bold_cutter` (the ENGRAVED widths -- the tool
+        widened by :attr:`cutter_buffer`, matching the compensated
+        :attr:`toolpath_text_height`). The ratio `<= 1` (a thicker tool
         engraves a fatter stroke, so the centerlines shrink to keep the
         engraved silhouette inside its box). `1.0` when the line has no
         bold run, the bold cutter equals the plain one (top-of-inventory
@@ -2118,8 +2296,10 @@ class ResolvedTextLine:
         """
         if self.bold_cutter_diameter is None:
             return 1.0
-        plain = self.nominal_text_height - self.cutter_diameter
-        bold = self.nominal_text_height - self.bold_cutter_diameter
+        plain = self.nominal_text_height - self.effective_cutter_diameter
+        bold = self.nominal_text_height - effective_cutter_diameter(
+            self.bold_cutter_diameter, self.cutter_buffer
+        )
         if plain <= 0.0 or bold <= 0.0:
             return 1.0
         return min(1.0, bold / plain)
@@ -2186,15 +2366,20 @@ class ResolvedLabel:
             with the stroke floor `0.5 * (hole_cutter_diameter +
             line.cutter_diameter)` this forms the effective collision
             threshold used by the renderer.
-        hole_cutter_diameter: Cutter diameter in inches used to cut label
-            boundaries and drill holes (from `tools.json`
+        hole_cutter_diameter: **Physical** cutter diameter in inches used to
+            cut label boundaries and drill holes (from `tools.json`
             `boundary_hole_cutter_size`, snapped to the inventory;
-            default `0.015`). Used to compute the collision stroke floor
-            and -- when :attr:`hole_adjust_for_cutter` is enabled -- the
-            cutter-compensated emitted hole diameter.
+            default `0.015`). The tool identity -- the `*_bh_*.plt` file name
+            token -- keys on this. Widths of material removed use
+            :attr:`effective_hole_cutter_diameter`.
+        hole_cutter_buffer: Kerf buffer in inches added to
+            :attr:`hole_cutter_diameter` to get the width the boundary/hole
+            tool actually engraves (from the `cutter_buffer_routing` cascade,
+            label -> job, default `DEFAULT_CUTTER_BUFFER_ROUTING` = 0.0). The
+            structural sibling of :attr:`ResolvedTextLine.cutter_buffer`.
         hole_adjust_for_cutter: Shrink the emitted drill-hole circle by
-            :attr:`hole_cutter_diameter` so the engraved hole measures the
-            specified diameter (from the `hole_adjust_for_cutter` cascade,
+            :attr:`effective_hole_cutter_diameter` so the engraved hole measures
+            the specified diameter (from the `hole_adjust_for_cutter` cascade,
             label -> job, default `True`; see
             :func:`hole_engraved_radius`). The hole centres are placed from
             the specified diameter and never move. Applied by
@@ -2313,6 +2498,7 @@ class ResolvedLabel:
     global_compress_by_line: dict[int, float] = field(default_factory=dict)
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
     hole_cutter_diameter: float = DEFAULT_BOUNDARY_HOLE_CUTTER
+    hole_cutter_buffer: float = DEFAULT_CUTTER_BUFFER_ROUTING
     text_chunk_mode: str = "line"
     plate_id: Optional[str] = None
     material: Optional[str] = None
@@ -2330,6 +2516,22 @@ class ResolvedLabel:
     hole_aware_horizontal_shift_inches: float = 0.0
     adjust_h_center_for_single_side_hole: bool = False
     hole_adjust_for_cutter: bool = DEFAULT_HOLE_ADJUST_FOR_CUTTER
+
+    @property
+    def effective_hole_cutter_diameter(self) -> float:
+        """The width the boundary/hole tool actually engraves, inches.
+
+        :attr:`hole_cutter_diameter` plus :attr:`hole_cutter_buffer` (see
+        :func:`effective_cutter_diameter`). The structural sibling of
+        :attr:`ResolvedTextLine.effective_cutter_diameter`: the
+        cutter-compensated emitted hole radius, the hole-margin edge offset,
+        the text/hole collision stroke floor, the round-label packing kerf,
+        the descender relief against the border and the PDF proof stroke
+        widths of the structural pens all measure ink with this. The tool
+        identity (the `*_bh_*.plt` file name) keeps the physical
+        :attr:`hole_cutter_diameter`. A `0.0` buffer makes it the identity.
+        """
+        return effective_cutter_diameter(self.hole_cutter_diameter, self.hole_cutter_buffer)
 
     @property
     def center_text_by_band(self) -> bool:
@@ -3649,11 +3851,12 @@ def glyph_render_plan(
     # a bare <sup> on plain text is exactly a <scale:d> run (the argumented
     # form contributes 1.0 here and rides the renderer's baseline shift).
     sup_flags = line.sup_sub_scales
-    # The per-character engraving cutters (derived from each character's scale
-    # factor, so they follow the text through a reflow): a scaled run's
-    # effective-height ladder cutter, the bold rung, or the line's own tool.
-    diameters = list(line.per_char_cutters)
-    plain = line.nominal_text_height - line.cutter_diameter
+    # The per-character engraving WIDTHS (the tool widened by the line's kerf
+    # buffer -- the renderer's per-pair kerning floor measures ink): a scaled
+    # run's effective-height ladder cutter, the bold rung, or the line's own
+    # tool.
+    diameters = list(line.effective_per_char_cutters)
+    plain = line.nominal_text_height - line.effective_cutter_diameter
     scales: List[float] = []
     clamped = False
     for index, diameter in enumerate(diameters):
@@ -3671,7 +3874,7 @@ def glyph_render_plan(
             "affected glyphs clamp to a minimal geometry (engraving heavier "
             "than the requested scale).",
             line.plain_text,
-            line.cutter_diameter,
+            line.effective_cutter_diameter,
         )
     return tuple(diameters), tuple(scales)
 
@@ -4008,6 +4211,7 @@ def _validate_cutter_markup(
     nominal_height: float,
     styled_runs: Sequence[Run],
     available_cutters: Optional[list[float]],
+    cutter_buffer: float = DEFAULT_CUTTER_BUFFER_TEXT,
 ) -> None:
     """Validate the `<c:D>` cutter markup of one text line.
 
@@ -4037,6 +4241,9 @@ def _validate_cutter_markup(
         nominal_height: The line's nominal text height in inches.
         styled_runs: The line's parsed markup runs.
         available_cutters: Optional shop inventory in inches.
+        cutter_buffer: The line's cascaded kerf buffer in inches. The
+            material check is against the ENGRAVED width (declared tool +
+            buffer), exactly like the line-level `cutter_size` contract.
 
     Raises:
         CutterSizeError: If a declared diameter leaves no material to
@@ -4061,12 +4268,13 @@ def _validate_cutter_markup(
                 requested,
                 snapped,
             )
-        if nominal_height - snapped <= 0.0:
+        if nominal_height - effective_cutter_diameter(snapped, cutter_buffer) <= 0.0:
             raise CutterSizeError(
                 f"label {label_id!r} line {line_index} ({line_text!r}): "
-                f"<c:> cutter {snapped:g}in leaves no material to engrave "
-                f"(text_height {nominal_height:g}in); the cutter must be "
-                f"smaller than text_height"
+                f"<c:> cutter {snapped:g}in{_buffer_suffix(cutter_buffer)} leaves "
+                f"no material to engrave (text_height {nominal_height:g}in); the "
+                f"cutter{_buffer_tail(cutter_buffer)} must be smaller than "
+                f"text_height"
             )
 
 
@@ -4316,16 +4524,21 @@ def _resolve_content(
     """Resolve text lines with cutter compensation applied.
 
     Cascades values from line -> label -> job -> default, then determines
-    the appropriate cutter diameter and subtracts it from the nominal
-    height to produce the toolpath height.
+    the appropriate cutter diameter and subtracts the width it ENGRAVES
+    (the tool plus the cascaded `cutter_buffer_text` kerf buffer, see
+    :func:`effective_cutter_diameter`) from the nominal height to produce
+    the toolpath height. The physical tool is what the pen map, the PLT file
+    names and the inventory ladder key on; the effective width is what every
+    ink measurement (kerning clearance, collision floors, the compression
+    margin, the PDF proof stroke) consumes.
 
     An explicit `cutter_size` (cascaded line -> label -> job) overrides
     the automatic height-based selection: the requested diameter is snapped
     to `available_cutters` (next size down, else next size up) and the
     nominal height is kept as the user's intent, so only the toolpath
-    height (`nominal_height - cutter_size`) changes. When the explicit
-    cutter leaves no material to engrave (toolpath height <= 0),
-    :class:`CutterSizeError` is raised.
+    height (`nominal_height - (cutter_size + buffer)`) changes. When the
+    explicit cutter's engraved width leaves no material to engrave (toolpath
+    height <= 0), :class:`CutterSizeError` is raised.
 
     When no explicit cutter is set and the line's font is a multi-stroke
     (bold) PLT font (`stroke_count > 1` in its catalog file), the
@@ -4382,6 +4595,22 @@ def _resolve_content(
         else:
             line_cutter_size = DEFAULT_CUTTER_SIZE
 
+        # Resolve the kerf buffer with the same explicit-None precedence
+        # (line -> label -> job -> default). The job tier carries the
+        # `job-config.json` value injected by apply_job_config_defaults. An
+        # intentional 0.0 (legacy engraved = nominal) is honored, and only
+        # `None` means unset. The buffer widens the tool into the width it
+        # engraves (see :func:`effective_cutter_diameter`); the tool itself
+        # stays physical.
+        if line.cutter_buffer_text is not None:
+            line_cutter_buffer: float = line.cutter_buffer_text
+        elif label_input.cutter_buffer_text is not None:
+            line_cutter_buffer = label_input.cutter_buffer_text
+        elif job.cutter_buffer_text is not None:
+            line_cutter_buffer = job.cutter_buffer_text
+        else:
+            line_cutter_buffer = DEFAULT_CUTTER_BUFFER_TEXT
+
         # Resolve the font name (line -> label -> job -> default). Schema
         # validation already canonicalized every explicit value, so the
         # cascade only picks the first tier that is set. Resolved *before*
@@ -4435,13 +4664,17 @@ def _resolve_content(
                     line_cutter_size,
                     cutter_dia,
                 )
-            toolpath_height = nominal_height - cutter_dia
+            toolpath_height = nominal_height - effective_cutter_diameter(
+                cutter_dia, line_cutter_buffer
+            )
             if toolpath_height <= 0.0:
                 raise CutterSizeError(
                     f"label {label_id!r} line {line_index} ({line.text!r}): "
-                    f"cutter_size {cutter_dia:g}in leaves no material to "
-                    f"engrave (text_height {nominal_height:g}in); cutter_size "
-                    f"must be smaller than text_height"
+                    f"cutter_size {cutter_dia:g}in"
+                    f"{_buffer_suffix(line_cutter_buffer)} leaves no material to "
+                    f"engrave (text_height {nominal_height:g}in); cutter_size"
+                    f"{_buffer_tail(line_cutter_buffer)} must be smaller than "
+                    f"text_height"
                 )
         else:
             stroke_count = plt_font_stroke_count(line_font)
@@ -4504,21 +4737,30 @@ def _resolve_content(
                 cutter_dia = get_cutter_diameter(
                     nominal_height, available_cutters, tolerance_factor
                 )
-            toolpath_height = nominal_height - cutter_dia
+            toolpath_height = nominal_height - effective_cutter_diameter(
+                cutter_dia, line_cutter_buffer
+            )
             if stroke_count > 1 and toolpath_height <= 0.0:
                 raise CutterSizeError(
                     f"label {label_id!r} line {line_index} ({line.text!r}): "
-                    f"multi-stroke cutter {cutter_dia:g}in leaves no material "
+                    f"multi-stroke cutter {cutter_dia:g}in"
+                    f"{_buffer_suffix(line_cutter_buffer)} leaves no material "
                     f"to engrave (text_height {nominal_height:g}in); lower the "
                     f"boldness factor or increase text_height"
                 )
 
-        # Resolve spacing (kerning can now dynamically rely on cutter_dia if omitted)
+        # The width this line's tool engraves (tool + kerf buffer). Every
+        # geometry that measures INK consumes it; `cutter_dia` above stays the
+        # physical tool (pen map, PLT file names, the downsize ladder).
+        effective_cutter = effective_cutter_diameter(cutter_dia, line_cutter_buffer)
+
+        # Resolve spacing (kerning measures the engraved stroke, so the
+        # fallback clearance scales with the EFFECTIVE width, not the tool)
         char_spacing = (
             line.character_spacing
             or label_input.character_spacing
             or job.character_spacing
-            or (cutter_dia * 1.5)
+            or (effective_cutter * 1.5)
         )
 
         # Resolve line_spacing, checking for "auto" at each cascade level
@@ -4865,6 +5107,7 @@ def _resolve_content(
                 nominal_height=nominal_height,
                 styled_runs=styled.runs,
                 available_cutters=available_cutters,
+                cutter_buffer=line_cutter_buffer,
             )
 
         # Bold markup: the `<b>` runs engrave with a thicker cutter (see
@@ -4891,7 +5134,12 @@ def _resolve_content(
                 available_cutters=available_cutters,
             )
             if bold_cutter is not None:
-                bold_toolpath = nominal_height - bold_cutter
+                # The rung is a physical tool; the toolpath compensates for
+                # the width it engraves (tool + kerf buffer), matching the
+                # plain run above.
+                bold_toolpath = nominal_height - effective_cutter_diameter(
+                    bold_cutter, line_cutter_buffer
+                )
 
         # Per-run scale cutters: each `<scale:N>` run engraves with the
         # cutter for `N * nominal_height` of text (the same ladder the
@@ -5059,6 +5307,7 @@ def _resolve_content(
                 plain_text=styled.plain_text,
                 styled_runs=styled.runs,
                 cutter_size=line_cutter_size,
+                cutter_buffer=line_cutter_buffer,
                 target_boldness_factor=line_target_boldness_factor,
                 multistroke_overlap_ratio=line_multistroke_overlap_ratio,
                 cutter_downsize=line_cutter_downsize,
@@ -5166,13 +5415,27 @@ def _resolve_label(
         label_hole_adjust_for_cutter = DEFAULT_HOLE_ADJUST_FOR_CUTTER
 
     # Snap the boundary/hole cutter to the shop inventory (next size down,
-    # else next size up). Used only for the collision stroke floor.
+    # else next size up). The physical tool: the `*_bh_*.plt` file name.
     requested_hole_cutter = (
         DEFAULT_BOUNDARY_HOLE_CUTTER
         if boundary_hole_cutter_size is None
         else boundary_hole_cutter_size
     )
     hole_cutter = snap_boundary_hole_cutter(requested_hole_cutter, available_cutters)
+
+    # Resolve the boundary/hole kerf buffer with the explicit-None precedence
+    # (label -> job -> default; the plate tier is schema parity only, see
+    # schema.PlateSpec). Hole geometry is a per-label property, so the label
+    # tier is authoritative. An intentional 0.0 (engraved = nominal) is
+    # honored. Added to the snapped tool to get the engraved width the hole
+    # compensation, the hole margin offset, the collision stroke floor, the
+    # round-label packing kerf and the PDF proof use.
+    if label_input.cutter_buffer_routing is not None:
+        label_hole_cutter_buffer: float = label_input.cutter_buffer_routing
+    elif job.cutter_buffer_routing is not None:
+        label_hole_cutter_buffer = job.cutter_buffer_routing
+    else:
+        label_hole_cutter_buffer = DEFAULT_CUTTER_BUFFER_ROUTING
 
     # Text chunk mode is job-level only (like allow_rotation); a root-level
     # job masquerading as a label carries the field itself.
@@ -5383,6 +5646,7 @@ def _resolve_label(
         min_hole_margin=label_min_hole_margin,
         hole_text_collision_distance=label_collision_distance,
         hole_cutter_diameter=hole_cutter,
+        hole_cutter_buffer=label_hole_cutter_buffer,
         hole_adjust_for_cutter=label_hole_adjust_for_cutter,
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,

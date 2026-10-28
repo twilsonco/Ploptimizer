@@ -809,10 +809,49 @@ class TextAttributes(BaseModel):
             "tool auto-selected from `text_height`. Snapped to the shop "
             "inventory (`tools.json` `available_cutters`: next size down, else "
             "next size up); the rendered toolpath height becomes "
-            "`text_height - cutter_size`. Omit (`null`) to keep automatic "
-            "cutter selection from `text_height`. Must be > 0 and below the "
-            "line's `text_height`. No `job-config.json` counterpart. Cascades "
-            "line -> label -> job."
+            "`text_height - (cutter_size + cutter_buffer_text)`. Omit (`null`) "
+            "to keep automatic cutter selection from `text_height`. Must be > 0 "
+            "and below the line's `text_height` (the buffer included). No "
+            "`job-config.json` counterpart. Cascades line -> label -> job."
+        ),
+    )
+    cutter_buffer_text: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Kerf buffer in inches ADDED to a text line's cutter diameter to "
+            "get the width it actually engraves. A V-bit with roughly 45-degree "
+            "flanks cuts wider than its nominal diameter (the deeper the cut, "
+            "the wider the stroke), so the nominal tool under-reports the "
+            "engraved stroke. The effective width drives every geometry that is "
+            "a width of material removed - glyph kerning clearance, the "
+            "character-spacing fallback, the text/hole collision stroke floor, "
+            "the compression margin, the descender relief and the `all_*.pdf` "
+            "proof stroke widths - and the toolpath height compensates "
+            "(`text_height - effective`) so the engraved text stays exactly "
+            "`text_height` tall. The TOOL itself stays physical: pen map, "
+            "per-cutter PLT file names, inventory snapping, the `<b>` bold rung "
+            "and the compression-driven downsize ladder all use the nominal "
+            "diameter. Cascades line -> label -> job (fallback 0.0 = legacy "
+            "behaviour; `job-config.json` ships the shop value)."
+        ),
+    )
+    cutter_buffer_routing: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Kerf buffer in inches ADDED to the boundary/drill-hole cutter "
+            "diameter (`tools.json` `boundary_hole_cutter_size`) to get the "
+            "width it actually engraves - the structural sibling of "
+            "`cutter_buffer_text`, same 45-degree-flank rationale. The "
+            "effective width drives the cutter-compensated drill-hole radius, "
+            "the hole-margin edge offset, the text/hole collision stroke floor, "
+            "the round-label packing kerf, the descender relief against the "
+            "border and the `all_*.pdf` proof stroke widths for the border/hole "
+            "pens. The TOOL stays physical (the `*_bh_*.plt` file name keeps "
+            "the nominal tool size). Cascades line -> label -> job (the label "
+            "tier is authoritative - hole geometry is per label; fallback 0.0 = "
+            "legacy behaviour; `job-config.json` ships the shop value)."
         ),
     )
     target_boldness_factor: Optional[float] = Field(
@@ -2015,6 +2054,22 @@ class PlateSpec(BaseModel):
         default=None,
         ge=0.0,
         description="Minimum hole margin in inches (schema parity; not applied at plate level).",
+    )
+    cutter_buffer_text: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Text kerf buffer in inches (schema parity; not applied at plate "
+            "level -- text lines resolve their cutter before packing)."
+        ),
+    )
+    cutter_buffer_routing: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Boundary/hole kerf buffer in inches (schema parity; not applied at "
+            "plate level -- hole geometry is a per-label property)."
+        ),
     )
     space_width_fraction: Optional[float] = Field(
         default=None,

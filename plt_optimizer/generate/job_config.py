@@ -285,6 +285,15 @@ class JobDefaults(BaseModel):
             margin in inches.
         hole_text_collision_distance: Default engraved-stroke air gap in
             inches between text and drill-hole strokes.
+        cutter_buffer_text: Default kerf buffer in inches added to a text
+            line's cutter diameter to get the width it engraves (a
+            roughly 45-degree-flank V-bit cuts wider than nominal). The
+            effective width drives the geometry and the PDF proof stroke
+            widths; the tool, the pen map and the PLT file names stay
+            physical. Unset falls back to 0.0 (legacy: engraved = nominal).
+        cutter_buffer_routing: Default kerf buffer in inches added to the
+            boundary/drill-hole cutter diameter, the structural sibling of
+            ``cutter_buffer_text``. Unset falls back to 0.0.
         max_h_compress: Default maximum horizontal compression fraction
             in ``[0.0, 1.0]``.
         space_width_fraction: Default space advance fraction for
@@ -462,6 +471,35 @@ class JobDefaults(BaseModel):
         description=(
             "Default engraved-stroke air gap in inches between text and "
             "drill-hole strokes (job layer; required-when-unconfigured)."
+        ),
+    )
+    cutter_buffer_text: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default kerf buffer in inches added to a text line's cutter "
+            "diameter to get the width it actually engraves (a roughly "
+            "45-degree-flank V-bit cuts wider than its nominal diameter). "
+            "The effective width drives the geometry (kerning clearance, "
+            "collision stroke floor, compression margin) and the PDF proof "
+            "stroke widths, and the toolpath height compensates so engraved "
+            "text stays text_height tall; the tool, the pen map and the PLT "
+            "file names stay physical. Cascades line -> label -> job; unset "
+            "falls back to 0.0 (engraved = nominal)."
+        ),
+    )
+    cutter_buffer_routing: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default kerf buffer in inches added to the boundary/drill-hole "
+            "cutter diameter to get the width it actually engraves (the "
+            "structural sibling of cutter_buffer_text). The effective width "
+            "drives the cutter-compensated hole radius, the hole margin edge "
+            "offset, the collision stroke floor, the round-label packing kerf "
+            "and the PDF proof stroke widths; the *_bh_* file name keeps the "
+            "physical tool. Cascades line -> label -> job; unset falls back "
+            "to 0.0."
         ),
     )
     max_h_compress: Optional[float] = Field(
@@ -1217,6 +1255,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "hole_margin",
     "min_hole_margin",
     "hole_text_collision_distance",
+    "cutter_buffer_text",
+    "cutter_buffer_routing",
     "max_h_compress",
     "text_h_alignment",
     "space_width_fraction",
