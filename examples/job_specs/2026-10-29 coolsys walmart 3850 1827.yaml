@@ -1,0 +1,14 @@
+job:
+  job_name: Coolsys Walmart 3850 and Walmart 1827
+  material: bw
+  width: 3
+  height: 2
+  text_height: 0.5
+  holes:
+    - location: sides
+  font: helv1
+  labels:
+    - id: Walmart 3850
+      replacement_text_file: 2026-10-29 coolsys walmart 3850.txt
+    - id: Walmart 1827
+      replacement_text_file: 2026-10-29 coolsys walmart 1827.txt
