@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -335,3 +336,112 @@ class TestExitCodes:
             if report.file_error or problems:
                 failures.append(f"{spec.name}: {problems}")
         assert not failures, "example specs failed validation:\n" + "\n".join(failures)
+
+
+# ---------------------------------------------------------------------------
+# Location independence (the validating-jobs skill mirrors this file)
+# ---------------------------------------------------------------------------
+
+#: The Hermes skill's mirrored copy of this script (generator-managed).
+MIRROR = (
+    REPO_ROOT
+    / "docs"
+    / "skills"
+    / "engraving-jobs"
+    / "validating-jobs"
+    / "scripts"
+    / "validate_job_spec.py"
+)
+
+
+def _fake_checkout(root: Path) -> Path:
+    """Build a minimal PLT-Optimizer checkout marker tree.
+
+    Args:
+        root: Directory to turn into the fake checkout root.
+
+    Returns:
+        A nested directory inside the fake checkout (a script's location).
+    """
+    root.mkdir(parents=True)
+    (root / "pyproject.toml").write_text("[project]\nname = 'plt-optimizer'\n", encoding="utf-8")
+    package = root / "plt_optimizer"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    nested = root / "docs" / "skills" / "engraving-jobs" / "validating-jobs" / "scripts"
+    nested.mkdir(parents=True)
+    return nested
+
+
+class TestBootstrapSysPath:
+    """The import bootstrap works from any directory, and fails helpfully."""
+
+    def test_noop_when_pipeline_importable(self, script: Any, monkeypatch: Any) -> None:
+        """An importable plt_optimizer short-circuits the walk."""
+        monkeypatch.setattr(script.importlib.util, "find_spec", lambda _n: object())
+        before = list(sys.path)
+        script.bootstrap_sys_path(REPO_ROOT / "scripts" / "validate_job_spec.py")
+        assert sys.path == before
+
+    def test_walks_up_to_checkout_root(self, script: Any, tmp_path: Path, monkeypatch: Any) -> None:
+        """A mirrored copy finds the checkout above it and prepends that root."""
+        nested = _fake_checkout(tmp_path / "checkout")
+        monkeypatch.setattr(script.importlib.util, "find_spec", lambda _n: None)
+        root = str(nested.parents[4])
+        monkeypatch.setattr(sys, "path", [p for p in sys.path if p != root])
+        script.bootstrap_sys_path(nested / "validate_job_spec.py")
+        assert sys.path[0] == root
+
+    def test_missing_checkout_exits_2_with_hints(
+        self, script: Any, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        """No package and no checkout: exit 2, naming both fixes."""
+        isolated = tmp_path / "a" / "b"
+        isolated.mkdir(parents=True)
+        monkeypatch.setattr(script.importlib.util, "find_spec", lambda _n: None)
+        with pytest.raises(SystemExit) as excinfo:
+            script.bootstrap_sys_path(isolated / "validate_job_spec.py")
+        assert excinfo.value.code == script.EXIT_FILE_ERROR
+        stderr = capsys.readouterr().err
+        assert "uv run python scripts/validate_job_spec.py" in stderr
+        assert "pip install plt-optimizer" in stderr
+
+
+class TestLocationNeutralDefaults:
+    """Defaults are cwd-relative, matching `generate --job-config`."""
+
+    def test_defaults_are_relative(self, script: Any) -> None:
+        parser = script.build_parser()
+        assert parser.get_default("job_config") == "job-config.json"
+        assert parser.get_default("tools") == "tools.json"
+
+    def test_help_lists_no_repo_path(self, script: Any) -> None:
+        """The usage text must not leak a machine-specific checkout path."""
+        text = " ".join(script.build_parser().format_help().split())
+        assert "job-config.json in the CWD" in text
+        assert "tools.json in the CWD" in text
+
+
+class TestMirroredCopyRuns:
+    """The skill's mirrored copy is a runnable artifact, not a listing."""
+
+    def test_mirror_runs_from_foreign_cwd(self, tmp_path: Path) -> None:
+        """Run the mirror with a cwd outside the repo and no config layer."""
+        if not MIRROR.exists():  # pragma: no cover - guarded by the skills suite
+            pytest.skip("skill mirror not generated yet")
+        spec = _write_spec(tmp_path, _GOOD_SPEC)
+        result = subprocess.run(
+            [sys.executable, str(MIRROR), str(spec), "--job-config", "", "--tools", ""],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "job spec is valid" in result.stdout
+
+    def test_mirror_is_byte_identical_to_source(self) -> None:
+        """The mirror contract: no path rewrites, so drift is a copy-paste bug."""
+        if not MIRROR.exists():  # pragma: no cover - guarded by the skills suite
+            pytest.skip("skill mirror not generated yet")
+        source = REPO_ROOT / "scripts" / "validate_job_spec.py"
+        assert MIRROR.read_bytes() == source.read_bytes()

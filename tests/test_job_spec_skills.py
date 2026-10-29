@@ -32,7 +32,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -121,9 +123,7 @@ def _allowed_tokens() -> Set[str]:
     """
     allowed = set(gen.all_field_names(_schema()))
     config = json.loads(
-        (REFERENCE_SKILL_REFERENCES / "job_config.schema.json").read_text(
-            encoding="utf-8"
-        )
+        (REFERENCE_SKILL_REFERENCES / "job_config.schema.json").read_text(encoding="utf-8")
     )
     allowed |= set(config.get("properties", {}))
     allowed |= set(gen._ai._load_tool_options())
@@ -301,7 +301,7 @@ class TestSkillFrontmatter:
 # ---------------------------------------------------------------------------
 
 _LINK_RE = re.compile(r"\]\(([^)#\s]+)\)")
-_LOCAL_REF_RE = re.compile(r"`(references/[A-Za-z0-9_.\-]+)`")
+_LOCAL_REF_RE = re.compile(r"`((?:references|scripts)/[A-Za-z0-9_.\-]+)`")
 
 
 class TestLinkIntegrity:
@@ -320,7 +320,7 @@ class TestLinkIntegrity:
         assert not broken, f"broken skill links: {broken}"
 
     def test_every_file_referenced_by_name(self) -> None:
-        """references//examples/ files are named in their own SKILL.md.
+        """references//examples//scripts/ files are named in their own SKILL.md.
 
         Hermes installs only files referenced by name from a SKILL.md, so an
         unreferenced file is dead weight in the repo and invisible to the
@@ -331,7 +331,7 @@ class TestLinkIntegrity:
             text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
             named = set(_LOCAL_REF_RE.findall(text))
             named |= {f"examples/{m}" for m in re.findall(r"examples/([A-Za-z0-9_.\-]+)", text)}
-            for subdir in ("references", "examples"):
+            for subdir in ("references", "examples", "scripts"):
                 base = skill_dir / subdir
                 if not base.exists():
                     continue
@@ -348,6 +348,51 @@ class TestLinkIntegrity:
             assert "references/snippets.yaml" in text, theme.name
             for ref in theme.extra_refs:
                 assert f"`{ref}`" in text, f"{theme.name}: {ref}"
+
+
+# ---------------------------------------------------------------------------
+# Skill-scripts mirror (validating-jobs/scripts/)
+# ---------------------------------------------------------------------------
+
+
+class TestSkillScriptsMirror:
+    """The validation helpers ship inside the skill that documents them."""
+
+    def test_mirror_set_matches_registry(self) -> None:
+        """validating-jobs/scripts/ contains exactly the mirrored basenames."""
+        expected = set(gen.SKILL_SCRIPT_SOURCES)
+        actual = {p.name for p in gen.SKILL_SCRIPTS_DIR.iterdir()}
+        assert actual == expected
+
+    def test_mirrors_are_byte_identical_to_sources(self) -> None:
+        """The mirror contract: no rewrites, so drift is a copy-paste bug."""
+        for name in gen.SKILL_SCRIPT_SOURCES:
+            source = REPO_ROOT / "scripts" / name
+            mirror = gen.SKILL_SCRIPTS_DIR / name
+            assert mirror.read_bytes() == source.read_bytes(), name
+
+    @pytest.mark.skipif(os.name != "posix", reason="the exec bit is a POSIX concept")
+    def test_mirrors_are_executable(self) -> None:
+        """`./scripts/<name>` must work for an installed agent on POSIX."""
+        for name in gen.SKILL_SCRIPT_SOURCES:
+            mode = (gen.SKILL_SCRIPTS_DIR / name).stat().st_mode
+            assert mode & stat.S_IXUSR, name
+
+    def test_skill_md_names_its_scripts(self) -> None:
+        """Hermes installs only files referenced by name from the SKILL.md."""
+        text = (gen.VALIDATING_SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        for name in gen.SKILL_SCRIPT_SOURCES:
+            assert f"`scripts/{name}`" in text, name
+
+    def test_registry_problems_catch_missing_source(self, tmp_path: Path) -> None:
+        """A mirrored script whose repo source vanished is a registry problem."""
+        original = gen.REPO_ROOT
+        try:
+            gen.REPO_ROOT = tmp_path  # empty tree: no scripts/ at all
+            problems = gen.skill_script_problems()
+        finally:
+            gen.REPO_ROOT = original
+        assert len(problems) == len(gen.SKILL_SCRIPT_SOURCES)
 
 
 # ---------------------------------------------------------------------------

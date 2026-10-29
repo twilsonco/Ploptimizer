@@ -276,3 +276,76 @@ class TestCountErrors:
         ]
         assert script.count_errors(findings) == 1
         assert script.count_errors(findings, strict=True) == 2
+
+
+# ---------------------------------------------------------------------------
+# Location independence (the validating-jobs skill mirrors this file)
+# ---------------------------------------------------------------------------
+
+
+def _fake_checkout(root: Path) -> Path:
+    """Build a minimal PLT-Optimizer checkout marker tree.
+
+    Args:
+        root: Directory to turn into the fake checkout root.
+
+    Returns:
+        A nested directory inside the fake checkout (a script's location).
+    """
+    root.mkdir(parents=True)
+    (root / "pyproject.toml").write_text("[project]\nname = 'plt-optimizer'\n", encoding="utf-8")
+    package = root / "plt_optimizer"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    nested = root / "docs" / "skills" / "engraving-jobs" / "validating-jobs" / "scripts"
+    nested.mkdir(parents=True)
+    return nested
+
+
+class TestBootstrapSysPath:
+    """The import bootstrap works from any directory, and fails helpfully."""
+
+    def test_noop_when_pipeline_importable(self, script: Any, monkeypatch: Any) -> None:
+        """An importable plt_optimizer short-circuits the walk."""
+        monkeypatch.setattr(script.importlib.util, "find_spec", lambda _n: object())
+        before = list(sys.path)
+        script.bootstrap_sys_path(REPO_ROOT / "scripts" / "validate_job_config.py")
+        assert sys.path == before
+
+    def test_walks_up_to_checkout_root(self, script: Any, tmp_path: Path, monkeypatch: Any) -> None:
+        """A mirrored copy finds the checkout above it and prepends that root."""
+        nested = _fake_checkout(tmp_path / "checkout")
+        monkeypatch.setattr(script.importlib.util, "find_spec", lambda _n: None)
+        root = str(nested.parents[4])
+        monkeypatch.setattr(sys, "path", [p for p in sys.path if p != root])
+        script.bootstrap_sys_path(nested / "validate_job_config.py")
+        assert sys.path[0] == root
+
+    def test_missing_checkout_exits_2_with_hints(
+        self, script: Any, tmp_path: Path, monkeypatch: Any, capsys: Any
+    ) -> None:
+        """No package and no checkout: exit 2, naming both fixes."""
+        isolated = tmp_path / "a" / "b"
+        isolated.mkdir(parents=True)
+        monkeypatch.setattr(script.importlib.util, "find_spec", lambda _n: None)
+        with pytest.raises(SystemExit) as excinfo:
+            script.bootstrap_sys_path(isolated / "validate_job_config.py")
+        assert excinfo.value.code == script.EXIT_FILE_ERROR
+        stderr = capsys.readouterr().err
+        assert "uv run python scripts/validate_job_config.py" in stderr
+        assert "pip install plt-optimizer" in stderr
+
+
+class TestLocationNeutralDefaults:
+    """Defaults are cwd-relative, matching `generate --job-config`."""
+
+    def test_config_default_is_relative(self, script: Any) -> None:
+        parser = script.build_parser()
+        default = parser.get_default("config")
+        assert default == Path("job-config.json")
+        assert not default.is_absolute()
+
+    def test_help_lists_no_repo_path(self, script: Any) -> None:
+        """The usage text must not leak a machine-specific checkout path."""
+        text = " ".join(script.build_parser().format_help().split())
+        assert "job-config.json in the CWD" in text
