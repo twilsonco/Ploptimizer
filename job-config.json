@@ -1,5 +1,5 @@
 {
-  "description": "Shop-level job defaults for the generate pipeline (companion to tools.json). Values here supply the top-most (job/plate) layer of the cascade: labels may still override them per label or per text line. plate_width/plate_height are the default plate size (plate layer + unbounded auto-allocation); left_clearance/top_clearance are the default plate edge clearances. cutter_buffer_text/cutter_buffer_routing are kerf buffers in inches ADDED to the text and boundary/hole cutter diameters to get the width they actually engrave (a roughly 45-degree-flank V-bit cuts wider than nominal); the engraved toolpath, collision clearances and PDF proof stroke widths use that effective width while the tool, the pen map and the PLT file names stay physical, and 0.0 restores the legacy engraved = nominal behaviour. Fields configured nowhere (missing here AND missing from the job spec) are required: max_h_compress, hole_margin, min_hole_margin, hole_text_collision_distance, plate_width, plate_height. Maintain one file per engraver/toolset and select it with 'plt-optimizer generate --job-config <path>'.",
+  "description": "Shop-level job defaults for the generate pipeline (companion to tools.json). Values here supply the top-most (job/plate) layer of the cascade: labels may still override them per label or per text line. plate_width/plate_height are the default plate size (plate layer + unbounded auto-allocation); left_clearance/top_clearance are the default plate edge clearances. cutter_buffer_text/cutter_buffer_routing are kerf buffers in inches ADDED to the text and boundary/hole cutter diameters to get the width they actually engrave (a roughly 45-degree-flank V-bit cuts wider than nominal); the engraved toolpath, collision clearances and PDF proof stroke widths use that effective width while the tool, the pen map and the PLT file names stay physical, and 0.0 restores the legacy engraved = nominal behaviour. Fields configured nowhere (missing here AND missing from the job spec) are required: max_h_compress, hole_margin, min_hole_margin, hole_text_collision_distance, plate_width, plate_height. align_margin_adjust_global defaults the per-label sharing of the collision-avoidance edge-margin increase (when a left/right-aligned line slides off its anchored margin to clear a drill hole, true makes every same-alignment line of the label match the increased margin so the anchored edges stay flush; false moves only the colliding line). Maintain one file per engraver/toolset and select it with 'plt-optimizer generate --job-config <path>'.",
   "preview_background_color": "#D3D3D3",
   "max_h_compress": 0.7,
   "font": null,
@@ -58,7 +58,8 @@
   "descending_character_clearance": 0.7,
   "descending_character_reciprocal_scale": 0.8,
   "hole_adjust_for_cutter": true,
-  "plate_width": 30.0,
+  "align_margin_adjust_global": false,
+  "plate_width": 24.0,
   "plate_height": 16.0,
   "left_clearance": 0.0,
   "top_clearance": 0.0,

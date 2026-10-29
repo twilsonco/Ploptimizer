@@ -392,6 +392,12 @@ class JobDefaults(BaseModel):
             drill holes. When true, the emitted hole circle shrinks by the
             boundary/hole cutter diameter so the engraved hole measures the
             specified diameter. Unset falls back to True.
+        align_margin_adjust_global: Default per-label sharing of the
+            collision-avoidance edge-margin increase. When true, a
+            `left`/`right`-aligned line that slides off its anchored margin to
+            clear a drill hole makes every other line of the label sharing
+            that alignment match the increased margin (flush anchored edges).
+            Unset falls back to False.
         tool_options: Engraver tool options (header commands) metadata with
             HPGL command prefixes, types, units, dual defaults, and bounds.
         preview_background_color: Page/plot background color (hex string)
@@ -1032,6 +1038,18 @@ class JobDefaults(BaseModel):
             "true."
         ),
     )
+    align_margin_adjust_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default per-label sharing of the collision-avoidance edge-margin "
+            "increase (job layer; cascades label -> job, never text lines). "
+            "When true, a left/right-aligned line that slides off its anchored "
+            "margin to clear a drill hole makes every other line of the label "
+            "sharing that exact text_h_alignment match the increased margin, "
+            "so the group's anchored edges stay flush. Unset falls back to "
+            "false (only the colliding line moves)."
+        ),
+    )
     text_chunk_mode: Optional[Literal["line", "word"]] = Field(
         default=None, description="Default plate-space text optimization granularity."
     )
@@ -1307,6 +1325,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "descending_character_reciprocal_scale",
     "adjust_h_center_for_single_side_hole",
     "hole_adjust_for_cutter",
+    "align_margin_adjust_global",
     "allow_rotation",
     "text_chunk_mode",
     "layout",

@@ -1507,6 +1507,22 @@ class LabelAttributes(TextAttributes):
             "`true`. Accepted on plates for schema parity only."
         ),
     )
+    align_margin_adjust_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Share the collision-avoidance edge-margin increase across the "
+            "text lines of one label: when a `left`/`right`-aligned line has "
+            "to slide off its anchored margin to clear a drill hole, every "
+            "other line of the label sharing that exact `text_h_alignment` "
+            "matches the increased margin, so the group's anchored edges stay "
+            "flush. False (the default) moves only the colliding line. Only "
+            "the automatic collision-avoidance slide is shared - declared "
+            "margins are never touched. Setting the option at the job level "
+            "enables it for every label; sharing is always per-label. "
+            "Cascades label -> job (fallback false); explicit true is honored. "
+            "Accepted on plates for schema parity only."
+        ),
+    )
 
     @field_validator("material")
     @classmethod
@@ -2408,6 +2424,14 @@ class PlateSpec(BaseModel):
         description=(
             "Cutter-compensated drill-hole diameter (schema parity; not "
             "applied at plate level -- labels render before packing)."
+        ),
+    )
+    align_margin_adjust_global: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Per-label sharing of the collision-avoidance edge-margin increase "
+            "(schema parity; not applied at plate level -- labels render "
+            "before packing)."
         ),
     )
     bullet_string: Optional[str] = Field(
