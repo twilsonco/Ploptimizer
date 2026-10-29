@@ -127,3 +127,34 @@ which is what a CI gate on the shop config should use.
 The helpers import `plt_optimizer` and the standard library only. `jsonschema`
 is a `dev` extra and is **not** installed on the plotter PC, so neither helper
 may depend on it; the Pydantic models are the validator.
+
+## The mirror contract: repo `scripts/` -> `validating-jobs/scripts/`
+
+The two helpers are authored once, in the tool repository's top-level
+`scripts/` directory, where the CI suite (`tests/test_validate_job_config.py`,
+`tests/test_validate_job_spec.py`) exercises them. `generate_skills.py` copies
+both files byte-for-byte into this skill's `scripts/` directory and marks the
+copies executable, exactly as it copies `examples/job_specs/` into
+`recipes/examples/`. `--check` (and the skills drift test) fails when a mirror
+and its source differ, so the skill can never document a script that diverged
+from the tested one.
+
+Two consequences of the byte-identical rule:
+
+- **The scripts are location-independent.** They cannot assume they sit one
+  level below a repo root, so each one bootstraps its own import path: use an
+  already-importable `plt_optimizer` (installed package, `uv run` inside a
+  checkout, `PYTHONPATH`), else walk up from the script's own file looking for
+  a checkout root (`pyproject.toml` + `plt_optimizer/__init__.py`), else exit
+  `2` with a message naming both fixes. The same file therefore runs from
+  `repo/scripts/`, from this skill's `scripts/` inside a checkout, and from an
+  install directory that has no checkout at all.
+- **Defaults follow the cwd, not the script.** `--job-config` / `--tools` /
+  `--config` default to `job-config.json` / `tools.json` in the current
+  directory — the same rule `plt-optimizer generate` uses — because a skill
+  install has no repo root to point at. "Run it beside your files" is the
+  contract; an explicit path always wins.
+
+The source of truth stays in the repo: the mirror is a distribution artifact
+for the agent, not a second implementation. Editing a helper means editing
+`scripts/validate_*.py` and regenerating the skill tree.

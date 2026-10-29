@@ -43,7 +43,9 @@ internally — you work only in inches.
    Validate the shop config first when it changed
    (`uv run python scripts/validate_job_config.py`) — a config defect is
    reported per-spec and blames the spec. The validating-jobs skill documents
-   both helpers, their advisory warnings, and the exit-code contract.
+   both helpers, their advisory warnings, and the exit-code contract, and
+   carries its own executable copies (`../validating-jobs/scripts/`) for runs
+   outside a checkout.
 
    Structural checks against the JSON Schema
    (`../engraving-job-complete-reference/references/job_spec.schema.json` for the spec,
@@ -134,7 +136,7 @@ specs to copy; `../engraving-job-complete-reference/references/JOB_SPEC.md` is t
 - [Plates, Layout and Bin-Packing](../plates-layout-and-packing/SKILL.md) — Pack labels onto material plates: layout, rotation, clearances.
 - [Tool Options (HPGL Header Commands)](../tool-options/SKILL.md) — Engraver velocity, spindle, dwell and Z via tool_options.
 - [Running the CLI and Fixing Failures](../running-and-troubleshooting/SKILL.md) — Generate command, outputs, validation entry, error taxonomy.
-- [Validating Jobs, Configs and Cutter Inventories](../validating-jobs/SKILL.md) — pre-flight checks via scripts/validate_*.py.
+- [Validating Jobs, Configs and Cutter Inventories](../validating-jobs/SKILL.md) — pre-flight checks via the skill's own `scripts/validate_*.py`.
 - [Recipes — Complete Example Job Specs](../recipes/SKILL.md) — copy-and-adapt runnable specs.
 - [Engraving Job — Complete Reference](../engraving-job-complete-reference/SKILL.md) — exhaustive field/enum/default/schema reference.
 <!-- END AUTO-TOC -->

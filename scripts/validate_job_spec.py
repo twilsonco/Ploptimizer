@@ -19,8 +19,18 @@ Run with::
     uv run python scripts/validate_job_spec.py my_job.yaml --job-config cfg.json
     uv run python scripts/validate_job_spec.py my_job.yaml --json
 
+This file lives in the repo ``scripts/`` directory and is mirrored byte-for-byte
+into the ``validating-jobs`` Hermes skill (``validating-jobs/scripts/``), so it
+locates the pipeline itself instead of assuming a fixed depth below a repo root:
+an importable ``plt_optimizer`` (installed package, ``uv run`` in a checkout,
+``PYTHONPATH``) is used as-is, otherwise the nearest checkout root above this
+file is added to ``sys.path``. The ``--job-config`` / ``--tools`` defaults are
+cwd-relative, exactly like ``plt-optimizer generate``, so run it beside the job
+files (or pass the paths).
+
 Exit codes: ``0`` valid · ``1`` validation errors · ``2`` a file could not be
-read (spec absent, unreadable, or malformed YAML).
+read (spec absent, unreadable, or malformed YAML), or the pipeline could not be
+located.
 
 Stdlib + ``plt_optimizer`` only: ``jsonschema`` is a dev extra and is not
 installed on the Windows 7 plotter PC this pipeline deploys to.
@@ -29,6 +39,7 @@ installed on the Windows 7 plotter PC this pipeline deploys to.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import logging
 import sys
@@ -36,21 +47,75 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-# Repo root (one level above scripts/) so the pipeline imports and the
-# repo-root-relative defaults (job-config.json, tools.json) work from any cwd.
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
-    sys.path.insert(0, str(REPO_ROOT))
+EXIT_OK = 0
+EXIT_ERRORS = 1
+EXIT_FILE_ERROR = 2
+
+#: Files that together identify a PLT-Optimizer checkout root.
+_REPO_ROOT_MARKERS: tuple[str, ...] = ("pyproject.toml", "plt_optimizer/__init__.py")
+
+#: Actionable guidance printed (exit ``2``) when the pipeline cannot be located.
+_PIPELINE_NOT_FOUND = (
+    "cannot import plt_optimizer - this helper is a thin CLI over the pipeline's\n"
+    "own validation gates, so it needs the package. Fix it one of two ways:\n"
+    "  1. inside a checkout: run it with uv from the repo root\n"
+    "       uv run python scripts/validate_job_spec.py ...\n"
+    "  2. anywhere else (e.g. an installed skill): install the package\n"
+    "       uv tool install plt-optimizer   (or: pip install plt-optimizer)\n"
+    "     then run it beside the spec/job-config.json/tools.json it validates,\n"
+    "     or pass --job-config / --tools."
+)
+
+
+def find_repo_root(start: Path) -> Optional[Path]:
+    """Find the nearest PLT-Optimizer checkout root at or above ``start``.
+
+    Args:
+        start: Directory (or file inside one) to start the upward walk from.
+
+    Returns:
+        The directory containing every marker in :data:`_REPO_ROOT_MARKERS`, or
+        ``None`` when no ancestor qualifies.
+    """
+    directory = start if start.is_dir() else start.parent
+    for candidate in (directory, *directory.parents):
+        if all((candidate / marker).exists() for marker in _REPO_ROOT_MARKERS):
+            return candidate
+    return None
+
+
+def bootstrap_sys_path(start: Optional[Path] = None) -> None:
+    """Make ``plt_optimizer`` importable from wherever this script lives.
+
+    Args:
+        start: Path to treat as this script's location (defaults to
+            ``__file__``); a parameter so the walk is unit-testable.
+
+    Raises:
+        SystemExit: Exit code ``2`` with :data:`_PIPELINE_NOT_FOUND` when the
+            package is neither importable nor reachable from a checkout root.
+    """
+    if importlib.util.find_spec("plt_optimizer") is not None:
+        return
+    origin = Path(__file__).resolve() if start is None else Path(start).resolve()
+    repo_root = find_repo_root(origin)
+    if repo_root is None:
+        print(
+            f"{_PIPELINE_NOT_FOUND}\n(looked for a PLT-Optimizer checkout above {origin})",
+            file=sys.stderr,
+        )
+        raise SystemExit(EXIT_FILE_ERROR)
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+
+bootstrap_sys_path()
 
 import yaml  # noqa: E402
 
 from plt_optimizer.generate.job_config import JobConfigError  # noqa: E402
 from plt_optimizer.generate.schema import JobSpec, parse_yaml  # noqa: E402
 from plt_optimizer.generate.substitution import _resolve_file_path  # noqa: E402
-
-EXIT_OK = 0
-EXIT_ERRORS = 1
-EXIT_FILE_ERROR = 2
 
 SEVERITY_ERROR = "error"
 SEVERITY_WARNING = "warning"
@@ -314,26 +379,31 @@ def build_parser() -> argparse.ArgumentParser:
         prog="validate_job_spec.py",
         description="Validate a job spec YAML without running generation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Exit codes: 0 valid | 1 validation errors | 2 file unreadable",
+        epilog=(
+            "Exit codes: 0 valid | 1 validation errors | "
+            "2 file unreadable, or the pipeline could not be located"
+        ),
     )
     parser.add_argument("spec", type=Path, help="Path to the job spec YAML.")
     parser.add_argument(
         "--job-config",
         type=str,
-        default=str(REPO_ROOT / "job-config.json"),
+        # Cwd-relative, exactly like `generate --job-config`: run the helper beside
+        # the job files, or pass an explicit path.
+        default="job-config.json",
         help=(
             "Shop defaults JSON, exactly as `generate --job-config` uses it "
-            "(default: repo job-config.json). Pass an empty value to opt out "
-            "of the config layer entirely."
+            "(default: job-config.json in the CWD). Pass an empty value to opt "
+            "out of the config layer entirely."
         ),
     )
     parser.add_argument(
         "--tools",
         type=str,
-        default=str(REPO_ROOT / "tools.json"),
+        default="tools.json",
         help=(
-            "Cutter inventory JSON (default: repo tools.json). Pass an empty "
-            "value to skip the inventory check."
+            "Cutter inventory JSON (default: tools.json in the CWD). Pass an "
+            "empty value to skip the inventory check."
         ),
     )
     parser.add_argument(

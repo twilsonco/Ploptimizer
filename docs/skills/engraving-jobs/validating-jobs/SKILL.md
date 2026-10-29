@@ -1,6 +1,6 @@
 ---
 name: validating-jobs
-description: 'Pre-flight validation of job specs, shop configs and cutter inventories via the scripts/validate_*.py helpers. Use when: checking a job YAML before generating; editing a job-config.json; "is this spec valid"; diagnosing a config-gate failure; agent or CI pre-commit checks. Keywords: validate, job-config, parse_yaml, pre-flight, yaml check, schema, tool_options, font.'
+description: "Pre-flight validation of job specs, shop configs and cutter inventories via the skill's own scripts/validate_*.py helpers. Use when: checking a job YAML before generating; editing a job-config.json; \"is this spec valid\"; diagnosing a config-gate failure; agent or CI pre-commit checks. Keywords: validate, job-config, parse_yaml, pre-flight, yaml check, schema, tool_options, font."
 version: 1.0.0
 metadata:
   hermes:
@@ -15,19 +15,38 @@ the pipeline's own gates, so they can never disagree with
 `plt-optimizer generate` — and neither one renders typography, writes PLT/PDF
 output, or needs the plotter attached.
 
-Run them from the repo root (they bootstrap their own import path, so the cwd
-does not matter for imports; the *defaults* are repo-root-relative).
+Both helpers live in this skill's own [`scripts/`](scripts/) directory, so they
+travel with the skill. `scripts/validate_job_config.py` and
+`scripts/validate_job_spec.py` are the same files the tool's repo ships under
+its top-level `scripts/` (byte-identical mirrors, regenerated with the skill
+tree), and they locate the pipeline themselves:
+
+- **Inside a checkout** — run them with `uv` from the repo root:
+  `uv run python scripts/validate_job_spec.py my_job.yaml` (the repo's own
+  `scripts/` copies; identical behaviour).
+- **Anywhere else** (an installed skill directory, a job folder on the plotter
+  PC) — run them with any Python that can import `plt_optimizer`
+  (`pip show plt-optimizer`, or `uv tool install plt-optimizer`):
+  `python scripts/validate_job_spec.py /path/to/my_job.yaml`.
+
+When the pipeline cannot be imported, both exit `2` and print the two fixes
+above. The `--job-config` / `--tools` / `--config` defaults are **cwd-relative**
+(`job-config.json`, `tools.json`) exactly like `plt-optimizer generate`, so run
+the helper beside the files it validates, or pass the paths explicitly.
 
 ## The two helpers
 
 ### 1. `scripts/validate_job_config.py` — the shop defaults file
 
 ```bash
-uv run python scripts/validate_job_config.py                       # repo job-config.json
-uv run python scripts/validate_job_config.py --config cfg.json     # a per-engraver config
-uv run python scripts/validate_job_config.py --json                # machine-readable
-uv run python scripts/validate_job_config.py --strict              # warnings fail the run
+python scripts/validate_job_config.py                    # job-config.json in the CWD
+python scripts/validate_job_config.py --config cfg.json   # a per-engraver config
+python scripts/validate_job_config.py --json              # machine-readable
+python scripts/validate_job_config.py --strict            # warnings fail the run
 ```
+
+Inside a tool checkout, prefix each with `uv` (`uv run python scripts/...`) from
+the repo root, which uses the project environment.
 
 Gate: `load_job_config` → the `JobDefaults` model. Catches unknown keys (the
 config forbids them, so a typo fails), ranges, enums, the font name, and the
@@ -47,10 +66,10 @@ surface these until a specific job fails):
 ### 2. `scripts/validate_job_spec.py` — a job YAML (plus its data file)
 
 ```bash
-uv run python scripts/validate_job_spec.py my_job.yaml
-uv run python scripts/validate_job_spec.py my_job.yaml --job-config cfg.json
-uv run python scripts/validate_job_spec.py my_job.yaml --job-config "" --tools ""
-uv run python scripts/validate_job_spec.py my_job.yaml --json
+python scripts/validate_job_spec.py my_job.yaml
+python scripts/validate_job_spec.py my_job.yaml --job-config cfg.json
+python scripts/validate_job_spec.py my_job.yaml --job-config "" --tools ""
+python scripts/validate_job_spec.py my_job.yaml --json
 ```
 
 Gate: `parse_yaml` with the same `--job-config` the CLI uses — YAML syntax, the
@@ -66,9 +85,10 @@ Extra pre-flight the parser cannot do:
 - the `tools.json` cutter inventory shape (`available_cutters` positive
   numbers, `boundary_hole_cutter_size` positive).
 
-`--job-config` and `--tools` default to the repo files (like the generate CLI).
-Pass `""` to opt out of a layer: an empty value skips it, which is how you
-validate a spec that must stand on its own.
+`--job-config` and `--tools` default to `job-config.json` / `tools.json` in the
+current directory (like the generate CLI). Pass `""` to opt out of a layer: an
+empty value skips it, which is how you validate a spec that must stand on its
+own.
 
 ## Recommended order
 
@@ -83,7 +103,7 @@ validate a spec that must stand on its own.
 |---|---|
 | `0` | valid (warnings allowed without `--strict`) |
 | `1` | validation errors — fix the file |
-| `2` | the file itself is unusable: absent, unreadable, or not valid JSON/YAML |
+| `2` | the file itself is unusable: absent, unreadable, or not valid JSON/YAML — or `plt_optimizer` could not be located |
 
 `--json` emits `{path, ok, errors, warnings, findings: [{severity, message}]}`
 (plus `job_name` / `label_count` / `plate_count` for a spec that parsed).
@@ -105,6 +125,10 @@ validate a spec that must stand on its own.
 - Validate with the **same** `--job-config` you generate with. A spec that
   passes with `--job-config ""` can fail against a config that injects
   defaults, and vice versa.
+- The config/inventory defaults follow the **cwd**, not the script (mirroring
+  `generate`). Running the helper from a directory that happens to hold its own
+  `job-config.json` validates against *that* file — pass `--job-config` when in
+  doubt.
 - `parse_yaml` is the authoritative gate for a spec; a JSON-Schema validator
   over `job_spec.schema.json` checks structure only and skips every cross-field
   rule. Use the helper.
@@ -117,6 +141,10 @@ validate a spec that must stand on its own.
 
 - `references/semantics.md` — what each gate covers, the layering of config vs
   spec checks, and the failure modes each validation tier exists to catch.
+- `scripts/validate_job_config.py` — the shop-config helper (executable copy of
+  the tool's repo script; same bytes, same gates).
+- `scripts/validate_job_spec.py` — the job-spec helper (executable copy of the
+  tool's repo script).
 - [`../generate-engraving-job/SKILL.md`](../generate-engraving-job/SKILL.md) —
   the main workflow skill and category TOC.
 - [`../running-and-troubleshooting/SKILL.md`](../running-and-troubleshooting/SKILL.md)
