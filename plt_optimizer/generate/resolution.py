@@ -476,6 +476,13 @@ DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE: bool = False
 # most-compressed (minimum) scale, clamped to each receiver's own
 # `1 - max_h_compress` budget floor.
 DEFAULT_H_COMPRESS_GLOBAL: bool = False
+# Per-label sharing of the collision-avoidance edge-margin increase. `False`
+# (the default) moves only the colliding `left`/`right`-aligned line away
+# from the drill hole it collides with; `True` makes every other line of the
+# label sharing that exact alignment match the increased edge margin, so the
+# group's anchored edges stay flush. Consumed by the Phase-3 edge-margin
+# sweep in `plt_optimizer.generate.collision.detection`.
+DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL: bool = False
 # Arc-preserving non-uniform text transforms. `True` (the default) refits
 # each PLT glyph arc's ellipse image (horizontal compression, the cap-line
 # clamp, the descender relief, the italic shear) with a short chain of
@@ -2406,6 +2413,29 @@ class ResolvedLabel:
             lines not in the dict use scale `1.0` (uncompressed). Set by
             the renderer via `dataclasses.replace`; never sourced from the
             YAML schema.
+        collision_edge_margin_by_line: Mapping of line index to extra margin
+            in inches on the line's *anchored* edge when text-hole collision
+            avoidance had to slide a `left`/`right`-aligned line away from a
+            drill hole on that side (Phase 3). `left`-aligned lines gain the
+            margin on their left edge, `right`-aligned lines on their right;
+            center-aligned lines ignore it. An empty dict (the default) means
+            no line was slid. Set by the renderer via `dataclasses.replace`;
+            never sourced from the YAML schema.
+        collision_center_by_line: Line indices whose `text_h_alignment`
+            collision avoidance switched to `"center"` because sliding the
+            anchored edge could not clear the holes (the line collides with
+            holes on both sides, or has no slack left). A switched line
+            centers within the (possibly increased) edge margins, which makes
+            the Phase-4 horizontal compression act symmetrically on it. Empty
+            (the default) means no line was switched. Set by the renderer via
+            `dataclasses.replace`; never sourced from the YAML schema.
+        align_margin_adjust_global: Whether the collision-avoidance edge-margin
+            increase (see :attr:`collision_edge_margin_by_line`) is matched by
+            every other line of the label sharing the colliding line's exact
+            `text_h_alignment` (so the group's anchored edges stay flush).
+            `False` (the default, from the `align_margin_adjust_global`
+            cascade, label -> job -> `job-config.json`) moves only the
+            colliding line. Set by the resolution engine.
         cutter_downsize_by_line: Mapping of line index to the `(original,
             final)` cutter diameters in inches for lines whose *automatic*
             cutter was reduced by the compression-driven cutter reduction
@@ -2562,6 +2592,8 @@ class ResolvedLabel:
     content: list[ResolvedTextLine] = field(default_factory=list)
     min_hole_margin: Optional[float] = None
     collision_compress_by_line: dict[int, float] = field(default_factory=dict)
+    collision_edge_margin_by_line: dict[int, float] = field(default_factory=dict)
+    collision_center_by_line: frozenset[int] = frozenset()
     cutter_downsize_by_line: dict[int, tuple[float, float]] = field(default_factory=dict)
     global_compress_by_line: dict[int, float] = field(default_factory=dict)
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
@@ -2584,6 +2616,7 @@ class ResolvedLabel:
     hole_aware_horizontal_shift_inches: float = 0.0
     adjust_h_center_for_single_side_hole: bool = False
     hole_adjust_for_cutter: bool = DEFAULT_HOLE_ADJUST_FOR_CUTTER
+    align_margin_adjust_global: bool = DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
 
     @property
     def effective_hole_cutter_diameter(self) -> float:
@@ -3309,6 +3342,7 @@ def compute_horizontal_offset(
     margin: float,
     alignment: str,
     hole_aware_h_shift: float = 0.0,
+    edge_margin: float = 0.0,
 ) -> float:
     """Compute the target left-edge X for a rendered line inside the margin box.
 
@@ -3317,11 +3351,12 @@ def compute_horizontal_offset(
     that span:
 
     - `"left"`: the line's left-most point sits precisely at the left
-      margin (`margin`).
+      margin (`margin`), plus any collision-avoidance `edge_margin`.
     - `"right"`: the line's right-most point sits precisely at the right
-      margin (`margin + available_width`).
+      margin (`margin + available_width`), minus any `edge_margin`.
     - `"center"` (default): the line is centered within the span, plus any
-      hole-aware horizontal shift.
+      hole-aware horizontal shift. `edge_margin` is inert (a centered line
+      has no anchored edge to slide).
 
     When the line is wider than the available width (e.g. compression is
     disabled), `"center"` overflows symmetrically and `"left"` /
@@ -3340,15 +3375,28 @@ def compute_horizontal_offset(
             asymmetric left/right holes (positive = rightward). Applied only
             when `alignment` is `"center"`; fixed-edge alignment ignores it.
             `0.0` (the default) applies no shift.
+        edge_margin: Extra margin in inches on the line's anchored edge (the
+            text-hole collision-avoidance slide: `left` slides the line
+            rightward, `right` slides it leftward). Applied only to fixed-edge
+            alignment, and clamped so a line that fits the content area is
+            never pushed out of it. `0.0` (the default) applies no slide.
 
     Returns:
         The X coordinate where the line's left-most point (its `min_x`)
         should be translated to.
     """
     if alignment == "left":
-        return margin
+        target = margin + edge_margin
+        if edge_margin > 0.0 and rendered_width <= available_width:
+            # Never slide a fitting line past the right inner margin.
+            target = min(target, margin + available_width - rendered_width)
+        return target
     if alignment == "right":
-        return margin + available_width - rendered_width
+        target = margin + available_width - edge_margin - rendered_width
+        if edge_margin > 0.0 and rendered_width <= available_width:
+            # Never slide a fitting line past the left inner margin.
+            target = max(target, margin)
+        return target
     # Center alignment: apply hole-aware shift
     center_x = (available_width - rendered_width) / 2.0 + hole_aware_h_shift
     return margin + center_x
@@ -5482,6 +5530,19 @@ def _resolve_label(
     else:
         label_hole_adjust_for_cutter = DEFAULT_HOLE_ADJUST_FOR_CUTTER
 
+    # Sharing of the collision-avoidance edge-margin increase (cascades
+    # label -> job; the plate tier is schema parity only, see
+    # schema.PlateSpec). Resolved at the LABEL level because the adjustment
+    # spreads across the label's own text lines. Explicit `False` is honored
+    # (only the colliding line moves), and only `None` means unset. Consumed
+    # by the Phase-3 edge-margin sweep in `collision.detection`.
+    if label_input.align_margin_adjust_global is not None:
+        label_align_margin_adjust_global: bool = label_input.align_margin_adjust_global
+    elif job.align_margin_adjust_global is not None:
+        label_align_margin_adjust_global = job.align_margin_adjust_global
+    else:
+        label_align_margin_adjust_global = DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
+
     # Snap the boundary/hole cutter to the shop inventory (next size down,
     # else next size up). The physical tool: the `*_bh_*.plt` file name.
     requested_hole_cutter = (
@@ -5727,6 +5788,7 @@ def _resolve_label(
         descending_character_clearance=label_descender_clearance,
         descending_character_reciprocal_scale=label_descender_recip,
         adjust_h_center_for_single_side_hole=label_adjust_h_for_side_holes,
+        align_margin_adjust_global=label_align_margin_adjust_global,
         shape_type=label_shape,
         rounded_rectangle_fraction=label_rounded_fraction,
         rounded_rectangle_proportional=label_rounded_proportional,
