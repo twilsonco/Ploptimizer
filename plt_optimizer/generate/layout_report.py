@@ -24,6 +24,12 @@ what is engraved without appearing in the YAML spec:
   descending glyphs the automatic descending-character adjustment vertically
   downscaled and raised because a glyph on the following line came close to
   colliding with them (``auto_descending_character_adjustment``).
+- **Collision-avoidance edge margin / alignment switch**
+  (:attr:`plt_optimizer.generate.resolution.ResolvedLabel.collision_edge_margin_by_line`
+  and :attr:`~plt_optimizer.generate.resolution.ResolvedLabel.collision_center_by_line`
+  on the rendered label's ``source_label``): the anchored-edge slide a
+  ``left``/``right``-aligned line got to clear a drill hole, and the lines
+  whose declared alignment the avoidance switched to ``center``.
 - **Bold markup** (:attr:`plt_optimizer.generate.resolution.ResolvedTextLine.bold_cutter_diameter`):
   the thicker cutter a ``<b>`` run of the line engraves with, alongside the
   line's own (plain) cutter -- the tool swap the markup caused, which the YAML
@@ -109,6 +115,9 @@ class LineFinding:
     Attributes:
         line_index: Index of the text line in the label's ``content``.
         text: The line's markup-stripped text (``plain_text``).
+        alignment: The line's declared ``text_h_alignment`` (``"left"`` /
+            ``"center"`` / ``"right"``). Set for every finding; excluded from
+            :attr:`has_effect` (it is context, not an applied effect).
         compression: The *effective* horizontal scale applied while
             rendering (``1.0`` = natural width). Set only when the line
             was compressed below ``1.0``.
@@ -152,10 +161,18 @@ class LineFinding:
             hanging indent is a measured column, so both are reported. The
             indent is the marker column + gap in inches. ``None`` for a plain
             line.
+        edge_margin: The ``(anchored side, inches)`` pair for a line whose
+            anchored margin collision avoidance increased to slide it off a
+            drill hole (``("left", 0.35)`` = the line's left edge moved
+            0.35in rightward). ``None`` when the line was not slid.
+        align_switched: ``True`` when collision avoidance switched the line's
+            declared ``text_h_alignment`` to ``center`` (its edge-margin slide
+            budget was exhausted: holes collide on both sides).
     """
 
     line_index: int
     text: str
+    alignment: str = "center"
     compression: Optional[float] = None
     requested_spacing: Optional[float] = None
     effective_spacing: Optional[float] = None
@@ -170,6 +187,8 @@ class LineFinding:
     v_center: Optional[tuple[int, tuple[str, ...]]] = None
     text_color_runs: Optional[tuple[int, tuple[str, ...]]] = None
     list_marker: Optional[tuple[str, float]] = None
+    edge_margin: Optional[tuple[str, float]] = None
+    align_switched: bool = False
 
     @property
     def has_effect(self) -> bool:
@@ -185,19 +204,23 @@ class LineFinding:
             return True
         if self.relief:
             return True
-        return any(
-            value is not None
-            for value in (
-                self.bold,
-                self.markup_scale,
-                self.sup_sub,
-                self.font_runs,
-                self.cutter_runs,
-                self.original_cutter,
-                self.v_center,
-                self.text_color_runs,
-                self.list_marker,
+        return (
+            any(
+                value is not None
+                for value in (
+                    self.bold,
+                    self.markup_scale,
+                    self.sup_sub,
+                    self.font_runs,
+                    self.cutter_runs,
+                    self.original_cutter,
+                    self.v_center,
+                    self.text_color_runs,
+                    self.list_marker,
+                    self.edge_margin,
+                )
             )
+            or self.align_switched
         )
 
 
@@ -358,7 +381,7 @@ def _hole_adjust_lines(label: ResolvedLabel) -> list[str]:
 def collect_line_findings(
     rendered: RenderedLabel,
 ) -> list[LineFinding]:
-    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter / v-center / text color).
+    """Collect the per-line findings (compression / spacing / downsize / relief / bold / scale / sup-sub / font / cutter / original cutter / v-center / text color / edge margin / alignment switch).
 
     Args:
         rendered: The rendered label carrying the render-time maps plus the
@@ -389,12 +412,16 @@ def collect_line_findings(
     content = rendered.source_label.content
     downsizes = rendered.source_label.cutter_downsize_by_line
     reliefs = rendered.descender_adjustments_by_line
+    edge_margins = rendered.source_label.collision_edge_margin_by_line
+    switched = rendered.source_label.collision_center_by_line
     findings: list[LineFinding] = []
     for line_index in sorted(
         set(rendered.compression_by_line)
         | set(rendered.line_spacing_by_line)
         | set(downsizes)
         | set(reliefs)
+        | set(edge_margins)
+        | set(switched)
         | {index for index, line in enumerate(content) if line.bold_cutter_diameter is not None}
         | {index for index, line in enumerate(content) if line.has_scale}
         | {index for index, line in enumerate(content) if line.has_sup_sub}
@@ -446,9 +473,12 @@ def collect_line_findings(
         list_marker: tuple[str, float] | None = None
         if line.marker_text:
             list_marker = (line.marker_text, line.indent_left)
+        edge_shift = edge_margins.get(line_index)
+        edge_margin = (line.text_h_alignment, edge_shift) if edge_shift else None
         finding = LineFinding(
             line_index=line_index,
             text=line.plain_text,
+            alignment=line.text_h_alignment,
             compression=scale if compressed else None,
             requested_spacing=float(requested) if deviates else None,
             effective_spacing=effective if deviates else None,
@@ -463,6 +493,8 @@ def collect_line_findings(
             v_center=v_center,
             text_color_runs=text_color_runs,
             list_marker=list_marker,
+            edge_margin=edge_margin,
+            align_switched=line_index in switched,
         )
         if not finding.has_effect:
             continue
@@ -676,6 +708,20 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"list marker {marker_text!r} (text column {indent_left:.3f}in)"
+                )
+            edge_margin = entry.edge_margin
+            if edge_margin is not None:
+                side, shift = edge_margin
+                # The slide is collision avoidance moving the anchored edge,
+                # invisible in the YAML, so name the side and the distance.
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"{side} edge margin +{shift:.3f}in (hole avoidance)"
+                )
+            if entry.align_switched:
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"alignment {line.text_h_alignment} -> center (hole avoidance)"
                 )
             if entry.relief:
                 for fix in entry.relief:

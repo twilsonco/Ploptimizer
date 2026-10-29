@@ -397,6 +397,23 @@ def _finding_entries(finding: LineFinding) -> List[Dict[str, Any]]:
                 "indent_left": _round(indent_left),
             }
         )
+    if finding.edge_margin is not None:
+        side, shift = finding.edge_margin
+        entries.append(
+            {
+                "type": "edge_margin",
+                "side": side,
+                "shift": _round(shift),
+            }
+        )
+    if finding.align_switched:
+        entries.append(
+            {
+                "type": "alignment_switch",
+                "from": finding.alignment,
+                "to": "center",
+            }
+        )
     return entries
 
 
@@ -736,6 +753,10 @@ def _format_finding_line(label_id: str, line: Dict[str, Any]) -> str:
             parts.append(
                 f"list marker {entry['marker_text']!r} (text column {entry['indent_left']:.3f}in)"
             )
+        elif kind == "edge_margin":
+            parts.append(f"{entry['side']} edge margin +{entry['shift']:.3f}in (hole avoidance)")
+        elif kind == "alignment_switch":
+            parts.append(f"alignment {entry['from']} -> center (hole avoidance)")
     if not parts:
         return ""
     return f"  Label {label_id} line {line['index']} {line['plain_text']!r}: " + "; ".join(parts)
