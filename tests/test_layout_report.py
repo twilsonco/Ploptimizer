@@ -13,7 +13,9 @@ from plt_optimizer.generate.layout_report import format_layout_report, has_layou
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
 
-def _line(text: str, line_spacing: float = 0.0) -> ResolvedTextLine:
+def _line(
+    text: str, line_spacing: float = 0.0, alignment: str = "center"
+) -> ResolvedTextLine:
     """Build a minimal resolved text line with the given requested spacing."""
     return ResolvedTextLine(
         text=text,
@@ -23,7 +25,7 @@ def _line(text: str, line_spacing: float = 0.0) -> ResolvedTextLine:
         character_spacing=0.0,
         line_spacing=line_spacing,
         max_h_compress=0.0,
-        text_h_alignment="center",
+        text_h_alignment=alignment,
     )
 
 
@@ -35,6 +37,8 @@ def _label(
     spacing: dict[int, float] | None = None,
     downsizes: dict[int, tuple[float, float]] | None = None,
     descenders: dict[int, tuple[DescenderFix, ...]] | None = None,
+    edge_margins: dict[int, float] | None = None,
+    center_switched: set[int] | None = None,
 ) -> tuple[ResolvedLabel, RenderedLabel]:
     """Build a (resolved, rendered) pair carrying the given render-time maps."""
     resolved = ResolvedLabel(
@@ -48,6 +52,8 @@ def _label(
         holes=[],
         content=lines,
         cutter_downsize_by_line=dict(downsizes or {}),
+        collision_edge_margin_by_line=dict(edge_margins or {}),
+        collision_center_by_line=frozenset(center_switched or set()),
     )
     rendered = RenderedLabel(
         source_label=resolved,
@@ -123,6 +129,56 @@ class TestCompactMode:
             "    Line 0: 'WIDE' scale 0.870 (13.0% compressed)",
         ]
         assert has_layout_findings([resolved], {"l1": rendered})
+
+    def test_edge_margin_is_a_finding(self) -> None:
+        """A slid line prints its side and the margin it gained."""
+        resolved, rendered = _label(
+            "l1", [_line("SERIAL", 0.0, "left"), _line("B")], edge_margins={0: 0.3525}
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert lines == [
+            "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line 0: 'SERIAL' left edge margin +0.352in (hole avoidance)",
+        ]
+        assert has_layout_findings([resolved], {"l1": rendered})
+
+    def test_alignment_switch_is_a_finding(self) -> None:
+        """A switched line prints the alignment it declared and the one it got."""
+        resolved, rendered = _label(
+            "l1", [_line("SERIAL", 0.0, "left"), _line("B")], center_switched={0}
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert lines == [
+            "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line 0: 'SERIAL' alignment left -> center (hole avoidance)",
+        ]
+        assert has_layout_findings([resolved], {"l1": rendered})
+
+    def test_edge_margin_and_compression_print_together(self) -> None:
+        """A slid-then-compressed line reports both effects on one line index."""
+        resolved, rendered = _label(
+            "l1",
+            [_line("SERIAL", 0.0, "left")],
+            compression={0: 0.85},
+            edge_margins={0: 0.2},
+            center_switched={0},
+        )
+
+        lines = format_layout_report([resolved], {"l1": rendered})
+
+        assert lines == [
+            "Label l1:",
+            "    Margins: horizontal 0.100in (left/right), vertical 0.100in (top/bottom)",
+            "    Line 0: 'SERIAL' scale 0.850 (15.0% compressed)",
+            "    Line 0: 'SERIAL' left edge margin +0.200in (hole avoidance)",
+            "    Line 0: 'SERIAL' alignment left -> center (hole avoidance)",
+        ]
 
     def test_compression_and_spacing_print_in_line_order(self) -> None:
         """Findings on different lines print in content order."""

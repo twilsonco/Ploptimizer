@@ -1834,6 +1834,55 @@ class TestHoleAdjustForCutterField:
         assert plate.hole_adjust_for_cutter is False
 
 
+class TestAlignMarginAdjustGlobalField:
+    """Tests for the align_margin_adjust_global label-tier field."""
+
+    def test_inherited_on_label_and_job_tiers_only(self) -> None:
+        """align_margin_adjust_global lives on LabelAttributes, never on TextLine."""
+        assert "align_margin_adjust_global" in LabelAttributes.model_fields
+        assert "align_margin_adjust_global" in JobSpec.model_fields
+        assert "align_margin_adjust_global" in PlateSpec.model_fields
+        assert "align_margin_adjust_global" not in TextLine.model_fields
+        assert "align_margin_adjust_global" not in TextAttributes.model_fields
+
+    def test_label_and_job_accept_booleans(self) -> None:
+        """Both directions validate on the tiers that carry the field."""
+        label = LabelSpec(
+            id="lbl", content=[TextLine(text="X")], align_margin_adjust_global=True
+        )
+        assert label.align_margin_adjust_global is True
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            align_margin_adjust_global=True,
+            content=[TextLine(text="X")],
+        )
+        assert job.align_margin_adjust_global is True
+
+    def test_default_is_none(self) -> None:
+        """Schema default is None (unset); resolution applies the False fallback."""
+        assert (
+            LabelSpec(id="lbl", content=[TextLine(text="X")]).align_margin_adjust_global is None
+        )
+        assert (
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+            ).align_margin_adjust_global
+            is None
+        )
+
+    def test_plate_accepts_field_for_parity(self) -> None:
+        """PlateSpec should accept the field for schema parity."""
+        plate = PlateSpec(
+            id="plate_1", width=24.0, height=12.0, align_margin_adjust_global=True
+        )
+        assert plate.align_margin_adjust_global is True
+
+
 class TestAutoDescendingCharacterAdjustment:
     """Tests for the label-tier descending-character relief fields.
 

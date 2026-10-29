@@ -78,6 +78,7 @@ _FULL_CONFIG: dict[str, Any] = {
     "descending_character_clearance": 0.05,
     "descending_character_reciprocal_scale": 0.6,
     "hole_adjust_for_cutter": False,
+    "align_margin_adjust_global": True,
     "cutter_buffer_text": 0.007,
     "cutter_buffer_routing": 0.033,
     "plate_width": 24.0,
@@ -339,6 +340,7 @@ class TestJobDefaultsModel:
         assert "descending_character_v_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_raise" not in REQUIRED_WHEN_UNCONFIGURED
         assert "hole_adjust_for_cutter" not in REQUIRED_WHEN_UNCONFIGURED
+        assert "align_margin_adjust_global" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_clearance" not in REQUIRED_WHEN_UNCONFIGURED
         assert "descending_character_reciprocal_scale" not in REQUIRED_WHEN_UNCONFIGURED
         assert "underline_offset_fraction" not in REQUIRED_WHEN_UNCONFIGURED
@@ -457,6 +459,9 @@ class TestJobDefaultsModel:
         assert JobDefaults().hole_adjust_for_cutter is None
         assert JobDefaults(hole_adjust_for_cutter=False).hole_adjust_for_cutter is False
         assert JobDefaults(hole_adjust_for_cutter=True).hole_adjust_for_cutter is True
+        assert JobDefaults().align_margin_adjust_global is None
+        assert JobDefaults(align_margin_adjust_global=False).align_margin_adjust_global is False
+        assert JobDefaults(align_margin_adjust_global=True).align_margin_adjust_global is True
         assert JobDefaults().rounded_rectangle_fraction is None
         assert JobDefaults(rounded_rectangle_fraction=0.5).rounded_rectangle_fraction == 0.5
         assert JobDefaults(rounded_rectangle_fraction=0.0).rounded_rectangle_fraction == 0.0
@@ -708,6 +713,18 @@ class TestApplyJobConfigDefaults:
         config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
         filled = apply_job_config_defaults(_minimal_job(hole_adjust_for_cutter=True), config)
         assert filled["hole_adjust_for_cutter"] is True
+
+    def test_align_margin_adjust_global_job_layer_fill(self, tmp_path: Path) -> None:
+        """The configured edge-margin sharing default lands as a job-level value."""
+        config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
+        filled = apply_job_config_defaults(_minimal_job(), config)
+        assert filled["align_margin_adjust_global"] is True
+
+    def test_align_margin_adjust_global_yaml_wins(self, tmp_path: Path) -> None:
+        """A spec-declared align_margin_adjust_global is never overridden by the config."""
+        config = load_job_config(_write_config(tmp_path, _FULL_CONFIG))
+        filled = apply_job_config_defaults(_minimal_job(align_margin_adjust_global=False), config)
+        assert filled["align_margin_adjust_global"] is False
 
     def test_optimize_line_content_job_layer_fill(self, tmp_path: Path) -> None:
         """The configured reflow default lands as a job-level value."""

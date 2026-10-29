@@ -43,7 +43,9 @@ from plt_optimizer.generate.resolution import (
 from plt_optimizer.utils.stage_timing import StageTimings
 
 
-def _line(text: str, line_spacing: float = 0.0) -> ResolvedTextLine:
+def _line(
+    text: str, line_spacing: float = 0.0, alignment: str = "center"
+) -> ResolvedTextLine:
     """Build a minimal resolved text line with the given requested spacing."""
     return ResolvedTextLine(
         text=text,
@@ -53,7 +55,7 @@ def _line(text: str, line_spacing: float = 0.0) -> ResolvedTextLine:
         character_spacing=0.0,
         line_spacing=line_spacing,
         max_h_compress=0.0,
-        text_h_alignment="center",
+        text_h_alignment=alignment,
     )
 
 
@@ -67,6 +69,8 @@ def _label(
     descenders: dict[int, tuple[DescenderFix, ...]] | None = None,
     holes: list | None = None,
     hole_adjust: bool = False,
+    edge_margins: dict[int, float] | None = None,
+    center_switched: set[int] | None = None,
 ) -> tuple[ResolvedLabel, RenderedLabel]:
     """Build a (resolved, rendered) pair carrying the given render-time maps."""
     resolved = ResolvedLabel(
@@ -81,6 +85,8 @@ def _label(
         content=lines,
         cutter_downsize_by_line=dict(downsizes or {}),
         hole_adjust_for_cutter=hole_adjust,
+        collision_edge_margin_by_line=dict(edge_margins or {}),
+        collision_center_by_line=frozenset(center_switched or set()),
     )
     rendered = RenderedLabel(
         source_label=resolved,
@@ -412,6 +418,42 @@ class TestLineFindings:
         assert findings[0]["scale_y"] == 0.6
         assert findings[0]["reciprocal"] is False
 
+    def test_edge_margin_finding(self, tmp_path: Path) -> None:
+        """A slid line records the anchored side and the margin it gained."""
+        resolved, rendered = _label(
+            "l1", [_line("SERIAL", 0.0, "left")], edge_margins={0: 0.3525}
+        )
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        findings = report["labels"][0]["lines"][0]["findings"]
+        assert findings == [{"type": "edge_margin", "side": "left", "shift": 0.3525}]
+
+    def test_alignment_switch_finding(self, tmp_path: Path) -> None:
+        """A switched line records the alignment it declared and the one it got."""
+        resolved, rendered = _label(
+            "l1", [_line("SERIAL", 0.0, "left")], center_switched={0}
+        )
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        findings = report["labels"][0]["lines"][0]["findings"]
+        assert findings == [{"type": "alignment_switch", "from": "left", "to": "center"}]
+
     def test_untouched_line_has_no_findings(self, tmp_path: Path) -> None:
         """A line with no applied effect carries an empty finding list."""
         resolved, rendered = _label("l1", [_line("A")])
@@ -531,6 +573,10 @@ class TestLineFindingDataclass:
         assert (
             LineFinding(line_index=0, text="A", original_cutter=(3, (0.03,))).has_effect
         )
+        assert LineFinding(line_index=0, text="A", edge_margin=("left", 0.35)).has_effect
+        assert LineFinding(line_index=0, text="A", align_switched=True).has_effect
+        # The declared alignment is context, not an applied effect.
+        assert not LineFinding(line_index=0, text="A", alignment="left").has_effect
 
     def test_collect_line_findings_matches_the_report(self) -> None:
         """The structured findings are the same ones the text report prints."""
@@ -586,6 +632,29 @@ class TestFormatSummary:
         assert "status:    failed" in text
         assert "LabelRenderError: boom" in text
         assert "stage: export" in text
+
+    def test_summary_names_the_hole_avoidance_findings(self, tmp_path: Path) -> None:
+        """The slide and the alignment switch render in the summary findings."""
+        resolved, rendered = _label(
+            "l1",
+            [_line("SERIAL 42", 0.0, "left")],
+            edge_margins={0: 0.3525},
+            center_switched={0},
+        )
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        text = format_summary(report)
+
+        assert "left edge margin +0.352in (hole avoidance)" in text
+        assert "alignment left -> center (hole avoidance)" in text
 
     def test_summary_caps_the_findings_list(self, tmp_path: Path) -> None:
         """A long findings list is truncated with a pointer to the JSON."""

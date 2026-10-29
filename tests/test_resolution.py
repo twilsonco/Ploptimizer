@@ -35,6 +35,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_FONT,
     DEFAULT_H_COMPRESS_GLOBAL,
     DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY,
+    DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL,
     DEFAULT_HOLE_ADJUST_FOR_CUTTER,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
@@ -1150,6 +1151,56 @@ class TestComputeHorizontalOffset:
     def test_unknown_alignment_falls_back_to_center(self) -> None:
         """Unknown alignment strings must behave like "center"."""
         assert compute_horizontal_offset(1.5, 3.0, 0.2, "justify") == pytest.approx(0.95)
+
+
+class TestComputeHorizontalOffsetWithEdgeMargin:
+    """Unit tests for the collision-avoidance edge_margin parameter."""
+
+    def test_left_anchors_at_margin_plus_edge_margin(self) -> None:
+        """ "left" slides rightward by the edge margin."""
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "left", edge_margin=0.3) == pytest.approx(
+            0.5
+        )
+
+    def test_right_anchors_at_margin_minus_edge_margin(self) -> None:
+        """ "right" slides leftward by the edge margin."""
+        # Right inner edge 3.2, width 1.5, minus 0.3in of edge margin.
+        assert compute_horizontal_offset(
+            1.5, 3.0, 0.2, "right", edge_margin=0.3
+        ) == pytest.approx(1.4)
+
+    def test_zero_edge_margin_is_the_legacy_position(self) -> None:
+        """edge_margin=0.0 reproduces every alignment exactly."""
+        for alignment, expected in (("left", 0.2), ("right", 1.7), ("center", 0.95)):
+            assert compute_horizontal_offset(
+                1.5, 3.0, 0.2, alignment, edge_margin=0.0
+            ) == pytest.approx(expected)
+
+    def test_center_ignores_edge_margin(self) -> None:
+        """A centered line has no anchored edge: the slide is inert."""
+        assert compute_horizontal_offset(
+            1.5, 3.0, 0.2, "center", edge_margin=0.5
+        ) == pytest.approx(0.95)
+
+    def test_slide_clamped_by_far_margin(self) -> None:
+        """A fitting line is never slid past the far inner margin."""
+        # Slack is 3.2 - (0.2 + 1.5) = 1.5; a 3.0in slide clamps to 1.7.
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "left", edge_margin=3.0) == pytest.approx(
+            1.7
+        )
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "right", edge_margin=3.0) == pytest.approx(
+            0.2
+        )
+
+    def test_over_wide_line_keeps_the_slide(self) -> None:
+        """An over-wide line has no slack, so the clamp must not fight it."""
+        # Line (5.0) wider than the span (3.0): the slide still applies.
+        assert compute_horizontal_offset(5.0, 3.0, 0.2, "left", edge_margin=0.3) == pytest.approx(
+            0.5
+        )
+        assert compute_horizontal_offset(5.0, 3.0, 0.2, "right", edge_margin=0.3) == pytest.approx(
+            -2.1
+        )
 
 
 class TestTextHAlignmentCascade:
@@ -7000,6 +7051,82 @@ class TestHoleEngravedRadius:
         diameter = 0.015 + 3.0 * MIN_HOLE_EMITTED_RADIUS_INCHES
         radius = hole_engraved_radius(diameter, 0.015, True)
         assert radius == pytest.approx(1.5 * MIN_HOLE_EMITTED_RADIUS_INCHES)
+
+
+class TestAlignMarginAdjustGlobalCascade:
+    """align_margin_adjust_global cascades label -> job -> False (explicit-None)."""
+
+    @staticmethod
+    def _job(**levels: bool | None) -> JobSpec:
+        """Build a one-label job applying align_margin_adjust_global at the given levels."""
+        job_kwargs: dict[str, bool | None] = {}
+        label_kwargs: dict[str, bool | None] = {}
+        if "job" in levels:
+            job_kwargs["align_margin_adjust_global"] = levels["job"]
+        if "label" in levels:
+            label_kwargs["align_margin_adjust_global"] = levels["label"]
+        return JobSpec(
+            job_name="J",
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=1.0,
+                    **label_kwargs,  # type: ignore[arg-type]
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+
+    def test_default_module_constant_is_false(self) -> None:
+        """The shipped default keeps the per-line (surgical) slide behaviour."""
+        assert DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL is False
+
+    def test_default_resolves_false(self) -> None:
+        """All levels omitting resolves to the False fallback."""
+        assert resolve_job_spec(self._job())[0].align_margin_adjust_global is False
+
+    def test_job_true_used_when_label_omits(self) -> None:
+        """Job-level True cascades onto labels that omit the field."""
+        assert resolve_job_spec(self._job(job=True))[0].align_margin_adjust_global is True
+
+    def test_label_overrides_job(self) -> None:
+        """Label-level False beats the job-level True."""
+        assert (
+            resolve_job_spec(self._job(job=True, label=False))[0].align_margin_adjust_global
+            is False
+        )
+
+    def test_label_true_is_honored(self) -> None:
+        """An intentional label-level True never falls through."""
+        assert (
+            resolve_job_spec(self._job(job=False, label=True))[0].align_margin_adjust_global
+            is True
+        )
+
+    def test_resolved_label_defaults_false(self) -> None:
+        """A manually constructed ResolvedLabel defaults to the shipped default."""
+        label = ResolvedLabel(
+            id="l",
+            count=1,
+            width=2.0,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+        )
+        assert label.align_margin_adjust_global is DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
+        assert label.collision_edge_margin_by_line == {}
+        assert label.collision_center_by_line == frozenset()
+
+    def test_new_renderer_state_starts_empty(self) -> None:
+        """Resolution never sets the collision edge-margin/center maps."""
+        label = resolve_job_spec(self._job(job=True))[0]
+        assert label.collision_edge_margin_by_line == {}
+        assert label.collision_center_by_line == frozenset()
+        assert label.align_margin_adjust_global is True
 
 
 class TestHoleAdjustForCutterCascade:

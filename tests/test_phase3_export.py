@@ -7591,3 +7591,95 @@ class TestPerStrokePreviewWidths:
                 file_stroke_widths={plt_path: ambiguous},
             )
         assert captured["60_txt_arcp.pdf"] == [0.06]
+
+
+class TestEdgeMarginCollisionAvoidanceExport:
+    """End-to-end: edge-aligned text/hole collisions export clean.
+
+    Before the Phase-3 edge-margin slide, a ``left``-aligned line under a
+    ``left`` drill hole was unresolvable (compression leaves the anchored end
+    pinned), so ``assert_no_collisions`` aborted the job. The slide fixes it
+    during rendering, and the adjusted label must reach the packer/export
+    through ``RenderedLabel.source_label``.
+    """
+
+    @staticmethod
+    def _job(**overrides: object) -> object:
+        from plt_optimizer.generate.schema import JobSpec, PlateSpec
+
+        kwargs: dict[str, object] = {
+            "job_name": "Edge Avoid",
+            "width": 4.0,
+            "height": 1.0,
+            "text_height": 0.4,
+            "margin": 0.1,
+            "hole_margin": 0.1875,
+            "min_hole_margin": 0.1875,
+            "max_h_compress": 0.3,
+            "hole_text_collision_distance": 0.0,
+            "text_h_alignment": "left",
+            "holes": [{"location": "left", "diameter": 0.25}],
+            "plates": [PlateSpec(id="p1", width=12.0, height=12.0)],
+            "content": [TextLine(text="SERIAL 42")],
+        }
+        kwargs.update(overrides)
+        return JobSpec(**kwargs)
+
+    def test_left_aligned_job_exports_clean(self, tmp_path: Path) -> None:
+        """The job exports, and the render cache carries the slid label."""
+        labels = resolve_job_spec(self._job())
+        assert labels[0].align_margin_adjust_global is False
+
+        result = export_per_cutter_plts(
+            labels,
+            output_dir=tmp_path,
+            job_id="edge",
+            optimize=False,
+            plots=False,
+        )
+
+        assert result.plt_paths
+        (rendered,) = result.rendered_labels.values()
+        assert rendered.collision_detected is True
+        assert rendered.has_collisions is False
+        # The slide resolved it: a positive left edge margin, no compression.
+        assert list(rendered.source_label.collision_edge_margin_by_line.values())[0] > 0.0
+        assert rendered.compression_by_line == {}
+
+    def test_align_margin_adjust_global_cascades_to_the_label(self) -> None:
+        """The job-level sharing flag reaches the resolved label."""
+        labels = resolve_job_spec(self._job(align_margin_adjust_global=True))
+        assert labels[0].align_margin_adjust_global is True
+
+    def test_slide_reaches_the_emitted_text_geometry(self, tmp_path: Path) -> None:
+        """The emitted text geometry is slid by exactly the recorded margin."""
+        from plt_optimizer.core.units import units_to_inches
+
+        # Every X,Y coordinate pair the text file emits (PU/PD sequences).
+        pair_xy = re.compile(r"(-?\d+),(-?\d+)")
+
+        def text_left_edge(job: object, tag: str) -> tuple[float, float]:
+            """The emitted text's minimum X (inches) and the label's slide."""
+            result = export_per_cutter_plts(
+                resolve_job_spec(job),
+                output_dir=tmp_path / tag,
+                job_id=tag,
+                optimize=False,
+                plots=False,
+            )
+            path = next(p for p in result.plt_paths if "_txt_" in p.name)
+            xs = [units_to_inches(int(x)) for x, _y in pair_xy.findall(path.read_text())]
+            assert xs
+            rendered = next(iter(result.rendered_labels.values()))
+            slide = list(rendered.source_label.collision_edge_margin_by_line.values())
+            return min(xs), (slide[0] if slide else 0.0)
+
+        # The two runs pack identically (same label size, same plate), so the
+        # difference in the emitted text's left edge IS the slide. The
+        # baseline is the same job with the hole suppressed (no collision, so
+        # no avoidance fires; the hole never moves the text by itself).
+        avoided, slide = text_left_edge(self._job(), "edgeslide")
+        baseline, _ = text_left_edge(self._job(holes=[]), "edgebase")
+
+        assert slide > 0.0
+        assert avoided - baseline == pytest.approx(slide, abs=1e-3)

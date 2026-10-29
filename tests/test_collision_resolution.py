@@ -30,7 +30,9 @@ from plt_optimizer.generate.collision.detection import (
     assert_no_collisions,
     collision_threshold,
     detect_text_hole_collisions,
+    format_unresolvable_collision,
     resolve_via_compression,
+    resolve_via_edge_margin,
     resolve_via_margin_adjustment,
 )
 from plt_optimizer.generate.label_renderer import (
@@ -643,3 +645,443 @@ class TestKerfBufferThreshold:
         )
         _lc, buffered_entries = _render_text_local_with_bounds(buffered)
         assert len(detect_text_hole_collisions(buffered, buffered_entries)) >= 1
+
+
+LEFT_HOLE = [ResolvedHoleSpec(diameter=0.25, location="left")]
+RIGHT_HOLE = [ResolvedHoleSpec(diameter=0.25, location="right")]
+BOTTOM_HOLE_ONLY = [ResolvedHoleSpec(diameter=0.25, location="bottom")]
+
+
+def _edge_line(
+    text: str,
+    alignment: str = "left",
+    height: float = 0.4,
+    max_h_compress: float = 0.3,
+) -> ResolvedTextLine:
+    """Build a cutter-compensated line with an explicit horizontal alignment."""
+    cutter_dia = 0.03
+    return ResolvedTextLine(
+        text=text,
+        nominal_text_height=height,
+        toolpath_text_height=height - cutter_dia,
+        cutter_diameter=cutter_dia,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        max_h_compress=max_h_compress,
+        text_h_alignment=alignment,
+    )
+
+
+def _edge_label(
+    texts: list[str],
+    alignments: list[str],
+    holes: list[ResolvedHoleSpec],
+    width: float = 4.0,
+    max_h_compress: float = 0.3,
+    heights: list[float] | None = None,
+    **overrides: object,
+) -> ResolvedLabel:
+    """Build a 4x1in label whose edge-aligned text overlaps a near-side hole.
+
+    The 0.4in ``SERIAL 42`` line spans x ~= [0.1, 2.534] on a 4in label with
+    0.1in margins; a 0.25in ``left`` hole at the default 0.1875in hole margin
+    (circle x = [0.1875, 0.4375]) sits under its anchored end. Compression
+    cannot free it (the anchored edge stays pinned), so the fix is the
+    Phase-3 edge-margin slide: +0.3525in clears the stroke floor exactly.
+    """
+    line_heights = heights or [0.4] * len(texts)
+    return ResolvedLabel(
+        id="edge_label",
+        count=1,
+        width=width,
+        height=1.0,
+        margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
+        hole_margin=0.1875,
+        holes=holes,
+        content=[
+            _edge_line(text, alignment, height, max_h_compress)
+            for text, alignment, height in zip(texts, alignments, line_heights)
+        ],
+        hole_text_collision_distance=0.0,
+        hole_cutter_diameter=0.0,
+        **overrides,  # type: ignore[arg-type]
+    )
+
+
+class TestEdgeMarginSlide:
+    """Phase 3: slide edge-aligned text off a hole on its anchored side."""
+
+    def test_left_aligned_line_slides_off_left_hole(self) -> None:
+        """A left-aligned line clears a left hole by increasing its left margin."""
+        label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
+        adjusted = rendered.source_label
+        assert adjusted.collision_edge_margin_by_line == {0: pytest.approx(0.3525)}
+        # The slide is the whole fix: no compression, no alignment switch,
+        # and the hole margin is untouched.
+        assert rendered.compression_by_line == {}
+        assert adjusted.collision_center_by_line == frozenset()
+        assert adjusted.hole_margin == pytest.approx(label.hole_margin)
+        # The emitted geometry really is collision-free.
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+        # The line moved right; its width is untouched (a rigid slide).
+        _lc, before = _render_text_local_with_bounds(label)
+        assert entries[0].bounds[0] == pytest.approx(before[0].bounds[0] + 0.3525)
+        assert (entries[0].bounds[2] - entries[0].bounds[0]) == pytest.approx(
+            before[0].bounds[2] - before[0].bounds[0]
+        )
+
+    def test_right_aligned_line_slides_off_right_hole(self) -> None:
+        """The mirror case: a right-aligned line slides leftward off a right hole."""
+        label = _edge_label(["SERIAL 42"], ["right"], RIGHT_HOLE)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        assert rendered.source_label.collision_edge_margin_by_line == {0: pytest.approx(0.3525)}
+        _lc, entries = _render_text_local_with_bounds(rendered.source_label)
+        assert detect_text_hole_collisions(rendered.source_label, entries) == []
+        # Anchored on the right: the line's right edge moved inward.
+        _lc, before = _render_text_local_with_bounds(label)
+        assert entries[0].bounds[2] == pytest.approx(before[0].bounds[2] - 0.3525)
+
+    def test_slide_logs_warning_naming_side_and_distance(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The avoidance action logs at WARNING with the direction and margin."""
+        label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE)
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            render_label_to_plt(label)
+
+        messages = [r.getMessage() for r in caplog.records if "edge margin" in r.getMessage()]
+        assert messages
+        assert "edge_label" in messages[0]
+        assert "left-aligned" in messages[0]
+        assert "0.3525in" in messages[0]
+        assert "line 0" in messages[0]
+        assert "line 0 ('SERIAL 42')" in messages[0]
+
+    def test_gated_on_compression_budget(self) -> None:
+        """max_h_compress=0 skips the slide (behaviour predates this phase)."""
+        label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE, max_h_compress=0.0)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is True
+        assert rendered.source_label is label
+        assert rendered.source_label.collision_edge_margin_by_line == {}
+
+    def test_center_aligned_text_never_gets_an_edge_margin(self) -> None:
+        """A centered line has no anchored edge: compression resolves it, as before."""
+        label = _edge_label(["SERIAL 42"], ["center"], SIDE_HOLES, width=3.0)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        adjusted = rendered.source_label
+        assert adjusted.collision_edge_margin_by_line == {}
+        assert adjusted.collision_center_by_line == frozenset()
+        assert rendered.compression_by_line[0] == pytest.approx(0.85)
+
+    def test_slide_stays_inside_the_content_area(self) -> None:
+        """The slide never pushes a fitting line past the far inner margin."""
+        label = _edge_label(["SERIAL 42"], ["left"], [*LEFT_HOLE, *RIGHT_HOLE])
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+        for entry in entries:
+            assert entry.bounds[0] >= label.h_margin - 1e-9
+            assert entry.bounds[2] <= label.width - label.h_margin + 1e-9
+
+    def test_slide_stacks_on_top_of_hole_margin_floor(self) -> None:
+        """Phase 2's floor applies first; the slide then clears what remains."""
+        label = _edge_label(
+            ["SERIAL 42"],
+            ["left"],
+            [*LEFT_HOLE, *BOTTOM_HOLE_ONLY],
+            min_hole_margin=0.0,
+        )
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        adjusted = rendered.source_label
+        # The bottom hole clears by dropping the margin to the floor, and the
+        # left hole by the slide (which needs less travel at the floor margin).
+        assert adjusted.hole_margin == pytest.approx(0.0)
+        assert adjusted.collision_edge_margin_by_line[0] == pytest.approx(0.165)
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+
+    def test_resolver_returns_none_without_edge_collisions(self) -> None:
+        """A label with no edge-aligned near-side collision has nothing to slide."""
+        label = _edge_label(["SERIAL 42"], ["center"], LEFT_HOLE)
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert resolve_via_edge_margin(label, entries) is None
+
+
+class TestAlignMarginAdjustGlobal:
+    """Sharing the edge-margin increase with same-alignment siblings."""
+
+    def test_disabled_moves_only_the_colliding_line(self) -> None:
+        """The default (false) leaves the sibling at its declared margin."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            LEFT_HOLE,
+            heights=[0.4, 0.12],
+        )
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        assert adjusted.align_margin_adjust_global is False
+        assert set(adjusted.collision_edge_margin_by_line) == {0}
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        by_index = {entry.line_index: entry.bounds for entry in entries}
+        assert by_index[0][0] == pytest.approx(0.1 + 0.3525)
+        assert by_index[1][0] == pytest.approx(0.1)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+
+    def test_enabled_matches_sibling_edge(self) -> None:
+        """With sharing on, the sibling takes the same margin: edges stay flush."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            LEFT_HOLE,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        assert adjusted.collision_edge_margin_by_line == {
+            0: pytest.approx(0.3525),
+            1: pytest.approx(0.3525),
+        }
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        left_edges = [round(entry.bounds[0], 6) for entry in entries]
+        assert left_edges == [pytest.approx(0.4525, abs=1e-6)] * 2
+
+    def test_shared_shift_respects_the_tightest_sibling_cap(self) -> None:
+        """A sibling with less slack caps the shared shift for the whole group."""
+        # The wide second line leaves only ~0.05in of slack on the right.
+        label = _edge_label(
+            ["SERIAL 42", "WIDE LABEL TE"],
+            ["left", "left"],
+            LEFT_HOLE,
+            align_margin_adjust_global=True,
+        )
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        # The shared shift is the sibling's cap, not the colliding line's need.
+        shift = adjusted.collision_edge_margin_by_line[0]
+        assert 0.0 < shift < 0.3525
+        assert adjusted.collision_edge_margin_by_line[1] == pytest.approx(shift)
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+        for entry in entries:
+            assert entry.bounds[2] <= label.width - label.h_margin + 1e-9
+
+    def test_sharing_never_crosses_alignment_values(self) -> None:
+        """A center-aligned sibling is never given the left-aligned slide."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "center"],
+            LEFT_HOLE,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        rendered = render_label_to_plt(label)
+
+        assert set(rendered.source_label.collision_edge_margin_by_line) == {0}
+
+
+class TestAlignmentSwitchToCenter:
+    """Phase 4: switch to center when the edge margin is exhausted."""
+
+    def test_both_side_holes_switch_alignment_then_compress(self) -> None:
+        """A line colliding on both sides centers, and compression finishes the job."""
+        label = _edge_label(["SERIAL 42"], ["left"], SIDE_HOLES, width=2.9)
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert {c.hole_location for c in detect_text_hole_collisions(label, entries)} == {
+            "left",
+            "right",
+        }
+
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
+        # The line's anchored end sits under the left hole, so the slide is
+        # capped by the right hole (no slack): the switch carries it to center,
+        # where the compression acts symmetrically on both ends.
+        assert adjusted.collision_center_by_line == frozenset({0})
+        assert adjusted.collision_compress_by_line[0] < 1.0
+        assert rendered.compression_by_line[0] == pytest.approx(
+            adjusted.collision_compress_by_line[0], rel=1e-3
+        )
+        _lc, final = _render_text_local_with_bounds(adjusted)
+        assert detect_text_hole_collisions(adjusted, final) == []
+
+    def test_switch_logged_with_the_compression_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The resolution WARNING states that the alignment was switched."""
+        label = _edge_label(["SERIAL 42"], ["left"], SIDE_HOLES, width=2.9)
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            render_label_to_plt(label)
+
+        messages = [
+            r.getMessage() for r in caplog.records if "center alignment" in r.getMessage()
+        ]
+        assert messages
+        assert "edge_label" in messages[0]
+
+    def test_center_switch_respects_compression_budget(self) -> None:
+        """A budget too small to clear the centered line leaves it colliding."""
+        label = _edge_label(["SERIAL 42"], ["left"], SIDE_HOLES, width=2.9, max_h_compress=0.05)
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is True
+
+    def test_unresolvable_diagnostics_report_the_switch(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The ERROR breakdown names the alignment the avoidance switched."""
+        label = _edge_label(["SERIAL 42"], ["left"], SIDE_HOLES, width=2.9, max_h_compress=0.05)
+        with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
+            rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is True
+        messages = [
+            r.getMessage() for r in caplog.records if "cannot be resolved" in r.getMessage()
+        ]
+        assert messages
+        assert "Alignment switched to center: 0" in messages[0]
+        assert "Edge-margin slide" not in messages[0]
+
+    def test_unresolvable_diagnostics_report_the_slide(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The ERROR breakdown names the edge margin the avoidance spent."""
+        label = _edge_label(
+            ["SERIAL 42"],
+            ["left"],
+            [*LEFT_HOLE, *BOTTOM_HOLE_ONLY],
+            min_hole_margin=0.1875,
+        )
+        with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
+            rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is True
+        messages = [
+            r.getMessage() for r in caplog.records if "cannot be resolved" in r.getMessage()
+        ]
+        assert messages
+        # The slide cleared the left hole; the bottom hole needs the margin
+        # (blocked by the floor) or a shorter line, so the job is unresolvable.
+        assert "Edge-margin slide: line 0 (+0.3525in)" in messages[0]
+        assert "bottom hole" in messages[0]
+
+
+class TestEdgeMarginSlideUnitCases:
+    """Direct unit coverage for the Phase-3 helper branches."""
+
+    def test_no_holes_returns_none(self) -> None:
+        """A label without holes has nothing to slide away from."""
+        label = _edge_label(["SERIAL 42"], ["left"], [])
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert resolve_via_edge_margin(label, entries) is None
+
+    def test_no_slack_returns_none(self) -> None:
+        """A line already filling the content area has no slide budget."""
+        # 4.34in of text inside a 3.8in content box: the far-margin cap is 0.
+        label = _edge_label(["WIDE LABEL TEXT"], ["left"], LEFT_HOLE, width=3.0)
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert resolve_via_edge_margin(label, entries) is None
+
+    def test_rounded_rectangle_uses_the_inset_content_box(self) -> None:
+        """A rounded label's slide cap follows the inset, not the raw margin."""
+        label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE)
+        rounded = replace(label, rounded_rectangle_fraction=0.5)
+        _lc, rounded_entries = _render_text_local_with_bounds(rounded)
+        _lc, sharp_entries = _render_text_local_with_bounds(label)
+        slid = resolve_via_edge_margin(rounded, rounded_entries)
+        sharp = resolve_via_edge_margin(label, sharp_entries)
+        assert slid is not None and sharp is not None
+        # The corner inset widens the effective margin, shrinking the slack.
+        assert 0.0 < slid.collision_edge_margin_by_line[0] < (
+            sharp.collision_edge_margin_by_line[0]
+        )
+
+    def test_right_aligned_far_left_hole_caps_the_slide(self) -> None:
+        """A right-aligned line's slide stops before it reaches a far left hole."""
+        label = _edge_label(["SERIAL 42"], ["right"], [*LEFT_HOLE, *RIGHT_HOLE], width=3.0)
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        assert rendered.has_collisions is False
+        # The far (left) hole caps the slide, so the switch + compression finish it.
+        assert adjusted.collision_edge_margin_by_line[0] < 0.3525
+        assert 0 in adjusted.collision_center_by_line
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+
+    def test_center_switch_alone_can_clear_without_compression(self) -> None:
+        """Centering a pinned line can clear the hole with zero compression."""
+        # 4in label: the 2.434in centered line starts at x=0.783, clear of the
+        # left hole's right edge (0.4375) + the stroke floor.
+        label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE, width=4.0)
+        result = resolve_via_compression(
+            label, 0.3, render=_render_text_local_with_bounds
+        )
+
+        assert result is not None
+        assert result.collision_center_by_line == frozenset({0})
+        # The switch alone resolved it: the sweep never ran.
+        assert result.collision_compress_by_line == {}
+        _lc, entries = _render_text_local_with_bounds(result)
+        assert detect_text_hole_collisions(result, entries) == []
+
+
+class TestUnresolvableDiagnosticsState:
+    """The diagnostics report the label state the sweep evaluated."""
+
+    def test_compression_state_without_an_attempted_scale(self) -> None:
+        """A label carrying compression (no attempted scale) reports its average."""
+        label = replace(
+            _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE),
+            collision_compress_by_line={0: 0.8},
+            collision_edge_margin_by_line={0: 0.25},
+            collision_center_by_line=frozenset({0}),
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+        collisions = detect_text_hole_collisions(label, entries)
+        message = format_unresolvable_collision(label, collisions)
+
+        assert "Compression: max_h_compress=0.30 applied" in message
+        assert "most aggressive text scale 0.800" in message
+        assert "Edge-margin slide: line 0 (+0.2500in)" in message
+        assert "Alignment switched to center: 0" in message
+
+    def test_zero_slack_sibling_is_skipped_by_the_shared_shift(self) -> None:
+        """A sibling with no slide budget (it overflows) receives nothing."""
+        # The second line is wider than the content box: its far-margin cap is
+        # 0, so the shared shift (min of the group) collapses to 0 for it and
+        # only the colliding line slides.
+        label = _edge_label(
+            ["SERIAL 42", "WIDE LABEL TEXT XXXXX"],
+            ["left", "left"],
+            LEFT_HOLE,
+            align_margin_adjust_global=True,
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+        slid = resolve_via_edge_margin(label, entries)
+
+        assert slid is not None
+        assert set(slid.collision_edge_margin_by_line) == {0}
