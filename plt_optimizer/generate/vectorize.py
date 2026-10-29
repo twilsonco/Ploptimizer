@@ -1528,11 +1528,7 @@ def _write_simple_plots(
             result.material_by_plate.get(plate_no),
         )
         pdf_path = pdf_dir / f"{prefix}all_{job_id}.pdf"
-        title = (
-            f"{job_name} combined view (plate {plate_no})"
-            if job_name
-            else "PLT Toolpath Visualization"
-        )
+        title = f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization"
         parsed_material = parse_material_colors(result.material_by_plate.get(plate_no))
         # Material-agnostic (or unrecognized-name) plates proof as "wb"
         # stock: white label background, black text, black outlines.
@@ -1703,11 +1699,7 @@ def write_default_plots(
                 result.material_by_plate.get(plate_no),
             )
             pdf_path = pdf_dir / f"{prefix}all_{job_id}_default.pdf"
-            title = (
-                f"{job_name} combined view (plate {plate_no})"
-                if job_name
-                else "PLT Toolpath Visualization"
-            )
+            title = f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization"
             plot_plt_document(
                 document,
                 output_path=pdf_path,

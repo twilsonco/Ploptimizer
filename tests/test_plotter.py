@@ -208,7 +208,7 @@ class TestPlotPltDocumentWithSegments:
         path = self._make_path([seg])
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
-        assert "X (inches)" == fig.axes[0].get_xlabel()
+        assert "Width (inches)" == fig.axes[0].get_xlabel()
 
     def test_plotting_sets_ylabel(self) -> None:
         """Test plot sets correct y-axis label."""
@@ -216,7 +216,7 @@ class TestPlotPltDocumentWithSegments:
         path = self._make_path([seg])
         doc = PLTDocument(stroke_paths=[path])
         fig = plot_plt_document(doc)
-        assert "Y (inches)" == fig.axes[0].get_ylabel()
+        assert "Height (inches)" == fig.axes[0].get_ylabel()
 
     def test_plotting_has_legend(self) -> None:
         """Test plot creates a legend."""
@@ -2226,8 +2226,8 @@ class TestShowAxesAndTitle:
         fig = plot_plt_document(self._make_doc(), title="Chrome check")
         ax = fig.axes[0]
         assert all(spine.get_visible() for spine in ax.spines.values())
-        assert ax.get_xlabel() == "X (inches)"
-        assert ax.get_ylabel() == "Y (inches)"
+        assert ax.get_xlabel() == "Width (inches)"
+        assert ax.get_ylabel() == "Height (inches)"
         assert ax.get_legend() is not None
         assert ax.get_title() == "Chrome check"
         plt.close(fig)
@@ -2249,7 +2249,7 @@ class TestShowAxesAndTitle:
         fig = plot_plt_document(self._make_doc(), title="Nope", show_title=False)
         ax = fig.axes[0]
         assert ax.get_title() == ""
-        assert ax.get_xlabel() == "X (inches)"
+        assert ax.get_xlabel() == "Width (inches)"
         assert ax.get_legend() is not None
         plt.close(fig)
 
@@ -2485,8 +2485,8 @@ class TestPlotPhysicalStrokes:
         )
         fig = plot_physical_strokes([layer], title="Physical check")
         ax = fig.axes[0]
-        assert ax.get_xlabel() == "X (inches)"
-        assert ax.get_ylabel() == "Y (inches)"
+        assert ax.get_xlabel() == "Width (inches)"
+        assert ax.get_ylabel() == "Height (inches)"
         assert ax.get_title() == "Physical check"
         assert all(spine.get_visible() for spine in ax.spines.values())
         for locs in (ax.xaxis.get_majorticklocs(), ax.yaxis.get_majorticklocs()):

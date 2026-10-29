@@ -498,8 +498,8 @@ def plot_plt_document(
         if show_title:
             ax.set_title(title)
         if show_axes:
-            ax.set_xlabel("X (inches)")
-            ax.set_ylabel("Y (inches)")
+            ax.set_xlabel("Width (inches)")
+            ax.set_ylabel("Height (inches)")
             # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
             _apply_inch_tick_layout(ax)
             # Only draw the legend when the axes carry labeled artists: simple
@@ -741,8 +741,8 @@ def plot_physical_strokes(
         if show_title:
             ax.set_title(title)
         if show_axes:
-            ax.set_xlabel("X (inches)")
-            ax.set_ylabel("Y (inches)")
+            ax.set_xlabel("Width (inches)")
+            ax.set_ylabel("Height (inches)")
             _apply_inch_tick_layout(ax)
         else:
             ax.get_xaxis().set_visible(False)
@@ -896,8 +896,8 @@ def create_path_diagram(
     ax.plot(xs[0], ys[0], "go", markersize=12, zorder=10, label="Start")
     ax.plot(xs[-1], ys[-1], "rs", markersize=12, zorder=10, label="End")
 
-    ax.set_xlabel("X (inches)")
-    ax.set_ylabel("Y (inches)")
+    ax.set_xlabel("Width (inches)")
+    ax.set_ylabel("Height (inches)")
     ax.set_title(title)
     # Fixed drafting grid: major ticks/gridlines every inch, minor every 0.5in
     _apply_inch_tick_layout(ax)
