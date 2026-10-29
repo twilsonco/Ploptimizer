@@ -1,12 +1,14 @@
 """Text-hole collision detection, avoidance phases, and job gate.
 
 The collision system in one place: the stroke-aware threshold, detection
-of (text line, drill hole) pairs below it, the two opt-in avoidance phases
-(hole-margin reduction, horizontal compression), the unresolvable-collision
-diagnostics, and the job-level :func:`assert_no_collisions` gate.
+of (text line, drill hole) pairs below it, the opt-in avoidance phases
+(hole-margin reduction, edge-margin slide for edge-aligned text, the
+alignment switch to center plus horizontal compression), the
+unresolvable-collision diagnostics, and the job-level
+:func:`assert_no_collisions` gate.
 
-The Phase 3 compression sweep must re-render text to measure the
-compressed bounds; the renderer lives in
+The compression sweep must re-render text to measure the compressed
+bounds; the renderer lives in
 :mod:`plt_optimizer.generate.label_renderer`, so the sweeps take an
 injected ``render`` callback (the same seam as the line-content
 ``ScaleProbe``) instead of importing the renderer - this module has zero
@@ -19,15 +21,20 @@ created; the contract is ``AGENTS.md`` beside this file.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.collision.geometry import CollisionResult, circle_aabb_gap
 from plt_optimizer.generate.collision.holes import hole_circles_local
+from plt_optimizer.generate.collision.shapes import rounded_rect_corner
+from plt_optimizer.generate.resolution import (
+    ResolvedLabel,
+    rounded_rect_content_inset,
+)
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.label_renderer import RenderedLabel, _LineEntry
-    from plt_optimizer.generate.resolution import ResolvedLabel
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +294,298 @@ def resolve_via_margin_adjustment(
     return None
 
 
+def _content_edges(label: ResolvedLabel) -> Tuple[float, float]:
+    """The alignment content box ``[left_edge, right_edge]`` in label-local X.
+
+    Mirrors the renderer's Pass A/C frame: the box spans
+    ``[h_margin, width - h_margin]``, where a rounded-rectangle label's
+    effective ``h_margin`` is widened by the corner inset (the same rule
+    ``_render_text_local_with_bounds`` applies, so the sweep's caps match
+    where the renderer will actually anchor the lines).
+
+    Args:
+        label: The resolved label to measure.
+
+    Returns:
+        ``(left_edge, right_edge)`` in inches.
+    """
+    h_margin = label.h_margin
+    corner = rounded_rect_corner(label)
+    if corner is not None:
+        content_width, _content_height = rounded_rect_content_inset(
+            label.width, label.height, h_margin, label.v_margin, corner
+        )
+        h_margin = max(h_margin, (label.width - content_width) / 2.0)
+    return h_margin, label.width - h_margin
+
+
+def _max_edge_shift(
+    bounds: Tuple[float, float, float, float],
+    alignment: str,
+    circles: Sequence[Tuple[float, float, float]],
+    threshold: float,
+    left_edge: float,
+    right_edge: float,
+) -> float:
+    """How far an edge-aligned line may slide off its anchored margin.
+
+    The cap is the smallest of:
+    - the line's slack to the FAR content-area margin (a fitting line is
+      never pushed out of the box; an overflowing line has no slack);
+    - per far-side hole, the shift at which that hole STARTS colliding
+      (the user's rule: slide until a hole collides on the far side).
+
+    Args:
+        bounds: The line's collision-frame AABB ``(x_min, y_min, x_max, y_max)``.
+        alignment: ``"left"`` or ``"right"`` (the anchored side).
+        circles: All hole circles (label-local, collision frame).
+        threshold: The line's stroke-aware collision threshold, inches.
+        left_edge: Content box left edge, inches.
+        right_edge: Content box right edge, inches.
+
+    Returns:
+        The maximum non-negative slide in inches.
+    """
+    x_min, y_min, x_max, y_max = bounds
+    cap = (right_edge - x_max) if alignment == "left" else (x_min - left_edge)
+    for center_x, center_y, radius in circles:
+        dy = max(y_min - center_y, 0.0, center_y - y_max)
+        root_sq = (threshold + radius) ** 2 - dy * dy
+        if root_sq < 0.0:
+            continue  # Vertically out of reach: a horizontal slide never collides.
+        root = math.sqrt(root_sq)
+        if alignment == "left" and center_x > x_max:
+            cap = min(cap, center_x - root - x_max)
+        elif alignment == "right" and center_x < x_min:
+            cap = min(cap, x_min - center_x - root)
+    return max(0.0, cap)
+
+
+def _required_edge_shift(
+    bounds: Tuple[float, float, float, float],
+    center_x: float,
+    center_y: float,
+    radius: float,
+    threshold: float,
+    alignment: str,
+) -> float:
+    """The slide that clears one near-side (line, hole) collision exactly.
+
+    Sliding an edge-aligned line away from its anchored margin is a rigid
+    horizontal translate of its AABB, so ``circle_aabb_gap`` is monotonic in
+    the slide and the shift reaching the threshold solves in closed form:
+    ``dx(slide) = root`` with ``root = sqrt((threshold + r)^2 - dy^2)``. A
+    detected collision guarantees ``|dy| <= threshold + r``, so the root is
+    real.
+
+    Args:
+        bounds: The line's collision-frame AABB.
+        center_x: Hole centre X.
+        center_y: Hole centre Y.
+        radius: Hole radius.
+        threshold: The line's stroke-aware collision threshold, inches.
+        alignment: ``"left"`` (slide rightward) or ``"right"`` (leftward).
+
+    Returns:
+        The minimum non-negative slide in inches.
+    """
+    x_min, y_min, x_max, y_max = bounds
+    dy = max(y_min - center_y, 0.0, center_y - y_max)
+    root = math.sqrt(max(0.0, (threshold + radius) ** 2 - dy * dy))
+    if alignment == "left":
+        return max(0.0, center_x + root - x_min)
+    return max(0.0, x_max - center_x + root)
+
+
+def resolve_via_edge_margin(
+    label: ResolvedLabel,
+    line_entries: Sequence[_LineEntry],
+    band_center_offset_inches: float = 0.0,
+    line_desc: str = "",
+) -> Optional[ResolvedLabel]:
+    """Phase 3: slide edge-aligned lines off the holes on their anchored side.
+
+    Horizontal compression cannot free a ``left``/``right``-aligned line from
+    a hole on its anchored side: the anchored edge stays pinned at the
+    margin, so compressing only shortens the far end. This phase increases
+    that line's edge margin (slides it away from the near-side hole) by the
+    closed-form shift that clears the collision, capped by the line's slack
+    to the far margin and by the shift at which a far-side hole starts
+    colliding (beyond that cap the line collides with holes on BOTH sides,
+    which is where the Phase-4 alignment switch to center takes over).
+
+    When ``label.align_margin_adjust_global`` is enabled, every other line
+    sharing the colliding line's exact ``text_h_alignment`` matches the
+    increased edge margin (the group's anchored edges stay flush); the shared
+    shift is capped by the tightest cap among all lines receiving it. When
+    disabled (the default), only the colliding line moves.
+
+    The slide is analytical (a rigid AABB translate), so this phase costs no
+    sweep renders; the caller re-renders to verify.
+
+    Args:
+        label: The label whose collision should be resolved (may already
+            carry a Phase 2 margin reduction).
+        line_entries: Rendered text bounds (the current frame, reflecting
+            any edge margins already applied).
+        band_center_offset_inches: The band-center offset of ``line_entries``.
+        line_desc: Optional description of the offending lines for the
+            resolution WARNING.
+
+    Returns:
+        A clone of ``label`` with ``collision_edge_margin_by_line`` set when
+        at least one line can slide, otherwise ``None`` (no edge-aligned
+        near-side collision, or no slide budget). The clone may only
+        PARTIALLY resolve the collisions (the cap stops the slide); the
+        caller re-detects and escalates.
+    """
+    if not label.holes:
+        return None
+    circles = hole_circles_local(label)
+    shift_y = (
+        label.height / 2.0 - band_center_offset_inches - label.hole_aware_vertical_shift_inches
+    )
+    bounds_by_line = {
+        entry.line_index: (
+            entry.bounds[0],
+            entry.bounds[1] + shift_y,
+            entry.bounds[2],
+            entry.bounds[3] + shift_y,
+        )
+        for entry in line_entries
+    }
+    left_edge, right_edge = _content_edges(label)
+
+    # Per colliding edge-aligned line: the shift clearing its near-side holes.
+    required: Dict[int, float] = {}
+    for collision in detect_text_hole_collisions(label, line_entries, band_center_offset_inches):
+        line_index = collision.line_index
+        if not 0 <= line_index < len(label.content):  # pragma: no cover - defensive
+            continue
+        alignment = label.content[line_index].text_h_alignment
+        if alignment not in ("left", "right"):
+            continue
+        bounds = bounds_by_line.get(line_index)
+        if bounds is None:  # pragma: no cover - a collision always has an entry
+            continue
+        center_x, center_y, radius = circles[collision.hole_index]
+        x_min, _y_min, x_max, _y_max = bounds
+        near = (
+            (center_x < (x_min + x_max) / 2.0)
+            if alignment == "left"
+            else (center_x > (x_min + x_max) / 2.0)
+        )
+        if not near:
+            continue
+        need = _required_edge_shift(
+            bounds, center_x, center_y, radius, collision_threshold(label, line_index), alignment
+        )
+        required[line_index] = max(required.get(line_index, 0.0), need)
+    if not required:
+        return None
+
+    def _cap(line_index: int, alignment: str) -> float:
+        bounds = bounds_by_line.get(line_index)
+        if bounds is None:  # pragma: no cover - a rendered line always has bounds
+            return 0.0
+        return _max_edge_shift(
+            bounds,
+            alignment,
+            circles,
+            collision_threshold(label, line_index),
+            left_edge,
+            right_edge,
+        )
+
+    # Each colliding line's own slide: what it needs, capped by its own slack.
+    own_shift: Dict[int, float] = {
+        line_index: min(need, _cap(line_index, label.content[line_index].text_h_alignment))
+        for line_index, need in required.items()
+    }
+    own_shift = {index: shift for index, shift in own_shift.items() if shift > 0.0}
+    if not own_shift:
+        return None
+
+    per_line_margin: Dict[int, float] = {}
+    shift_by_alignment: Dict[str, float] = {}
+    if label.align_margin_adjust_global:
+        # Sharing: one shift per alignment (the tightest among the lines that
+        # must move, so every receiver keeps its own cap honoured), applied to
+        # every line of that alignment -- the anchored edges stay flush.
+        for line_index, shift in own_shift.items():
+            alignment = label.content[line_index].text_h_alignment
+            shift_by_alignment[alignment] = min(shift_by_alignment.get(alignment, shift), shift)
+        for line_index, line in enumerate(label.content):
+            shared = shift_by_alignment.get(line.text_h_alignment)
+            if shared is None:
+                continue
+            shift = min(shared, _cap(line_index, line.text_h_alignment))
+            if shift > 0.0:
+                per_line_margin[line_index] = shift
+    else:
+        # Surgical: each colliding line slides by exactly its own amount.
+        per_line_margin = dict(own_shift)
+        for line_index, shift in own_shift.items():
+            alignment = label.content[line_index].text_h_alignment
+            shift_by_alignment[alignment] = max(shift_by_alignment.get(alignment, 0.0), shift)
+    if not per_line_margin:  # pragma: no cover - own_shift is non-empty here
+        return None
+
+    merged = dict(label.collision_edge_margin_by_line)
+    for line_index, shift in per_line_margin.items():
+        merged[line_index] = merged.get(line_index, 0.0) + shift
+    for alignment, shift in sorted(shift_by_alignment.items()):
+        moved = [
+            index for index in per_line_margin if label.content[index].text_h_alignment == alignment
+        ]
+        logger.warning(
+            "Label %s: increased the %s-aligned text edge margin by %.4fin on %d line(s) "
+            "(%s) to avoid text-hole collision on %s.",
+            label.id,
+            alignment,
+            shift,
+            len(moved),
+            ", ".join(f"line {index}" for index in sorted(moved)),
+            line_desc or "colliding text",
+        )
+    return replace(label, collision_edge_margin_by_line=merged)
+
+
+def switch_edge_aligned_to_center(
+    label: ResolvedLabel,
+    collisions: Sequence[CollisionResult],
+) -> ResolvedLabel:
+    """Switch every colliding edge-aligned line's alignment to ``center``.
+
+    A ``left``/``right``-aligned line whose edge-margin slide is exhausted
+    collides with holes on both sides (or has no slack): centering it is the
+    only remaining way to make the horizontal compression act symmetrically
+    on both ends. Shared by :func:`resolve_via_compression` (the Phase-4
+    sweep) and the renderer's unresolvable-diagnostics path so both measure
+    the same label state.
+
+    Args:
+        label: The label to clone.
+        collisions: The collisions whose lines should be switched.
+
+    Returns:
+        A clone with ``collision_center_by_line`` extended (the same label
+        when no line qualifies).
+    """
+    switched = frozenset(
+        line_index
+        for line_index in {collision.line_index for collision in collisions}
+        if 0 <= line_index < len(label.content)
+        and label.content[line_index].text_h_alignment in ("left", "right")
+        and line_index not in label.collision_center_by_line
+    )
+    if not switched:
+        return label
+    return replace(
+        label, collision_center_by_line=frozenset(label.collision_center_by_line) | switched
+    )
+
+
 def resolve_via_compression(
     label: ResolvedLabel,
     budget: float,
@@ -295,13 +594,20 @@ def resolve_via_compression(
     line_desc: str = "",
     band_center_offset_inches: float = 0.0,
 ) -> Optional[ResolvedLabel]:
-    """Phase 3: compress text horizontally until collisions clear.
+    """Phase 4: switch edge-aligned collisions to center, then compress.
 
     Calculates the minimum compression needed for each line that is
     colliding with a hole, and applies per-line compression. Non-colliding
-    lines remain at full width. Returns a label with
-    ``collision_compress_by_line`` set to the per-line scales when one
-    clears all collisions, otherwise ``None``.
+    lines remain at full width. A line that is still edge-aligned
+    (``left``/``right``) when this phase runs has already exhausted its
+    edge-margin budget in Phase 3, so its alignment is switched to
+    ``center`` first (``collision_center_by_line``): compression then acts
+    symmetrically and pulls BOTH ends away from the side holes, which an
+    edge-anchored line cannot do (its anchored end stays pinned).
+
+    Returns a label with ``collision_compress_by_line`` (and, when lines
+    were switched, ``collision_center_by_line``) set when one clears all
+    collisions, otherwise ``None``.
 
     Args:
         label: The label whose collision should be resolved (may already
@@ -318,7 +624,9 @@ def resolve_via_compression(
 
     Returns:
         A clone of ``label`` with ``collision_compress_by_line`` set to
-        per-line scales when one clears all collisions, otherwise ``None``.
+        per-line scales (plus ``collision_center_by_line`` when edge-aligned
+        lines had to be switched) when one clears all collisions, otherwise
+        ``None``.
     """
     floor = max(0.0, 1.0 - min(budget, 1.0))
 
@@ -332,6 +640,30 @@ def resolve_via_compression(
 
     # Build a set of colliding line indices
     colliding_lines = {collision.line_index for collision in sweep_collisions}
+
+    # Edge-aligned colliding lines have exhausted the Phase-3 edge margin (this
+    # phase runs after it), so switch them to center: an anchored edge pins the
+    # near end, and only a centered line compresses symmetrically.
+    switched_label = switch_edge_aligned_to_center(label, sweep_collisions)
+    switched = switched_label.collision_center_by_line - label.collision_center_by_line
+    if switched:
+        label = switched_label
+        _candidate_lc, candidate_entries = render(label)
+        sweep_collisions = detect_text_hole_collisions(
+            label, candidate_entries, band_center_offset_inches
+        )
+        if not sweep_collisions:
+            # The switch alone cleared every collision (centering a line whose
+            # near end was pinned pulls it off the hole); no compression needed.
+            logger.warning(
+                "Label %s: switched %d text line(s) to center alignment to avoid "
+                "text-hole collision on %s (edge margin exhausted).",
+                label.id,
+                len(switched),
+                line_desc or "colliding text",
+            )
+            return label
+        colliding_lines = {collision.line_index for collision in sweep_collisions}
 
     # Sweep over compression levels and track per-line success
     steps = max(1, _COMPRESSION_RESOLVE_STEPS)
@@ -350,14 +682,20 @@ def resolve_via_compression(
         )
 
         if not sweep_collisions:
+            switch_text = (
+                f" (after switching {len(switched)} line(s) to center alignment)"
+                if switched
+                else ""
+            )
             logger.warning(
                 "Label %s: compressed %d text line(s) horizontally to %.1f%% width to "
-                "avoid text-hole collision on %s (max_h_compress budget %.2f).",
+                "avoid text-hole collision on %s (max_h_compress budget %.2f)%s.",
                 label.id,
                 len(colliding_lines),
                 scale * 100.0,
                 line_desc or "colliding text",
                 budget,
+                switch_text,
             )
             logger.debug(
                 "Label %s: Compression sweep iteration %d/%d found successful scale %.3f "
@@ -383,10 +721,11 @@ def format_unresolvable_collision(
 
     Args:
         label: The label state after all resolution phases ran (may carry
-            a reduced ``hole_margin``).
+            a reduced ``hole_margin``, per-line edge margins, and the
+            compression state at the most aggressive scale tried).
         collisions: The collisions still present after all phases ran.
         attempted_scale: Most aggressive collision-compression scale tried
-            (Phase 3 floor), or ``None`` when compression was not attempted.
+            (Phase 4 floor), or ``None`` when compression was not attempted.
 
     Returns:
         A multi-line diagnostic string naming each colliding pair plus the
@@ -421,11 +760,24 @@ def format_unresolvable_collision(
             "increase label width, reduce text height, lower "
             "min_hole_margin, or increase max_h_compress."
         )
+    edge_lines = [
+        f"line {line_index} (+{shift:.4f}in)"
+        for line_index, shift in sorted(label.collision_edge_margin_by_line.items())
+        if shift > 0.0
+    ]
+    edge_text = "\n- Edge-margin slide: " + ", ".join(edge_lines) if edge_lines else ""
+    center_text = (
+        "\n- Alignment switched to center: "
+        + ", ".join(str(index) for index in sorted(label.collision_center_by_line))
+        if label.collision_center_by_line
+        else ""
+    )
     return (
         f"Label {label.id}: text-hole collision cannot be resolved.\n"
         f"- Collisions: {details}\n"
         f"- Hole margin: {label.hole_margin:.4f}in "
-        f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})\n"
+        f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})"
+        f"{edge_text}{center_text}\n"
         f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
         f"(most aggressive text scale {scale_text})\n"
         f"- Worst clearance shortfall: {worst_shortfall:.4f}in\n"

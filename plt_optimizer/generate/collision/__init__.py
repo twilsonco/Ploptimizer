@@ -12,8 +12,9 @@ The whole collision system lives here:
   in the label frame (shared by the emitted ``AA`` arcs and the checks) and
   the native four-arc HPGL emission.
 - :mod:`plt_optimizer.generate.collision.detection` - the stroke-aware
-  threshold, detection, the two opt-in avoidance phases (hole-margin
-  reduction, horizontal compression), diagnostics, and the job-level
+  threshold, detection, the opt-in avoidance phases (hole-margin
+  reduction, edge-margin slide, alignment switch + horizontal compression),
+  diagnostics, and the job-level
   :func:`assert_no_collisions` gate.
 
 The contract is ``AGENTS.md`` beside this file. The renderer
@@ -32,6 +33,7 @@ from plt_optimizer.generate.collision.detection import (
     format_unresolvable_collision,
     log_collisions,
     resolve_via_compression,
+    resolve_via_edge_margin,
     resolve_via_margin_adjustment,
 )
 from plt_optimizer.generate.collision.geometry import (
@@ -76,6 +78,7 @@ __all__ = [
     "point_ellipse_signed_distance",
     "render_holes_hpgl",
     "resolve_via_compression",
+    "resolve_via_edge_margin",
     "resolve_via_margin_adjustment",
     "rounded_rect_corner",
     "rounded_rect_corner_hole",

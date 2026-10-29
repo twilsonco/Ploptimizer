@@ -51,7 +51,9 @@ from plt_optimizer.generate.collision.detection import (
     format_unresolvable_collision,
     log_collisions,
     resolve_via_compression,
+    resolve_via_edge_margin,
     resolve_via_margin_adjustment,
+    switch_edge_aligned_to_center,
 )
 from plt_optimizer.generate.collision.holes import render_holes_hpgl
 from plt_optimizer.generate.collision.shapes import (
@@ -484,7 +486,7 @@ def render_label_to_plt(
     correct and expressed in integer plotter units
     (``HPGL_UNITS_PER_INCH`` units = 1 inch).
 
-    Text-hole collision avoidance runs in three phases. A (line, hole)
+    Text-hole collision avoidance runs in four phases. A (line, hole)
     pair collides when its geometric gap falls below the stroke-aware
     threshold ``0.5 * (hole_cutter + text_cutter) +
     hole_text_collision_distance`` (see :func:`collision_threshold`), so
@@ -498,9 +500,19 @@ def render_label_to_plt(
     2. **Hole-margin reduction** (opt-in via ``min_hole_margin``): holes
        are moved toward the label edge (margin reduced toward the floor)
        until the text clears them.
-    3. **Horizontal compression** (opt-in via ``max_h_compress``): text is
-       uniformly compressed horizontally (stacked on top of any Phase 2
-       margin reduction) until the collisions clear.
+    3. **Edge-margin slide** (opt-in via ``max_h_compress``): a
+       ``left``/``right``-aligned line colliding with a hole on its
+       anchored side slides off that margin (its edge margin increases,
+       capped by the far margin and by a far-side hole starting to
+       collide; ``align_margin_adjust_global`` makes same-alignment
+       siblings match the increase). Compression cannot free such a line
+       -- its anchored end stays pinned -- so the slide is tried first.
+    4. **Alignment switch + horizontal compression** (opt-in via
+       ``max_h_compress``): a colliding line that is still edge-aligned
+       (its slide budget is exhausted, i.e. holes collide on both sides)
+       switches to ``center``, then text is compressed horizontally
+       (stacked on top of any Phase 2/3 adjustment) until the collisions
+       clear.
 
     Severity follows the outcome. A collision that an enabled phase
     resolves logs its detections at WARNING and the render proceeds
@@ -604,10 +616,42 @@ def render_label_to_plt(
                 len(collisions),
             )
 
-    # ---- Phase 3: compress text horizontally within max_h_compress ----
+    # ---- Phase 3: slide edge-aligned lines off their near-side holes ----
+    # Compression cannot free a left/right-aligned line from a hole on its
+    # anchored side (the anchored edge stays pinned at the margin), so an
+    # edge-aligned collision first increases that line's edge margin. Gated on
+    # the same max_h_compress budget as Phase 4: a job with compression
+    # disabled behaves exactly as before this phase existed.
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     attempted_scale: Optional[float] = None
     if budget > 0.0:
+        edge_label = resolve_via_edge_margin(
+            base_label,
+            line_entries,
+            band_center_offset_inches=band_offset,
+            line_desc=line_desc,
+        )
+        if edge_label is not None:
+            edge_rendered, edge_entries = _render_label_once(
+                edge_label,
+                pen_map=pen_map,
+                check_glyph_coverage=check_glyph_coverage,
+                line_block_cache=line_block_cache,
+            )
+            edge_collisions = detect_text_hole_collisions(
+                edge_label, edge_entries, edge_rendered.band_center_offset_inches
+            )
+            if not edge_collisions:
+                log_collisions(label, detected_collisions, level=logging.WARNING)
+                return replace(edge_rendered, collision_detected=True)
+            # The slide only partially cleared the collisions (its cap stops at
+            # the far margin / a far-side hole); Phase 4 stacks on top of it.
+            base_label = edge_label
+            line_entries = edge_entries
+            band_offset = edge_rendered.band_center_offset_inches
+            collisions = edge_collisions
+
+        # ---- Phase 4: switch edge-aligned lines to center + compress ----
         compressed_label = resolve_via_compression(
             base_label,
             budget,
@@ -653,8 +697,13 @@ def render_label_to_plt(
         # measured gaps match what the sweep actually evaluated.
         attempted_scale = max(0.0, 1.0 - min(budget, 1.0))
         # For diagnostics, create per-line compression map with the floor scale
+        # (on top of the same alignment switch the sweep applied, so the
+        # measured gaps match what the sweep actually evaluated).
         per_line_floor_compress = dict.fromkeys(range(len(base_label.content)), attempted_scale)
-        final_label = replace(base_label, collision_compress_by_line=per_line_floor_compress)
+        final_label = replace(
+            switch_edge_aligned_to_center(base_label, collisions),
+            collision_compress_by_line=per_line_floor_compress,
+        )
         final_band: List[float] = []
         _, final_entries = _render_text_local_with_bounds(
             final_label,
@@ -5788,16 +5837,31 @@ def _render_positioned_lines(
     # widest total extent among its lines (marker column + text), so the
     # marker column stays flush under center alignment and every continuation
     # line hangs at the item's text column.
+    #
+    # Collision avoidance can override a line's declared alignment (the
+    # Phase-4 switch to center) and add margin on its anchored edge (the
+    # Phase-3 slide); both are per-line label state resolved here so Pass C
+    # stays a pure placement pass.
+    def _effective_alignment(line_index: int, declared: str) -> str:
+        return "center" if line_index in label.collision_center_by_line else declared
+
     group_widths: Dict[int, float] = {}
     group_alignment: Dict[int, str] = {}
+    group_edge_margin: Dict[int, float] = {}
     for rendered, _block, rendered_width, offset in compressed_lines:
         group = rendered.align_group_id
         if group < 0:
             continue
         total_width = rendered_width + offset
+        group_edge_margin[group] = max(
+            group_edge_margin.get(group, 0.0),
+            label.collision_edge_margin_by_line.get(rendered.line_index, 0.0),
+        )
         if group not in group_widths or total_width > group_widths[group]:
             group_widths[group] = total_width
-            group_alignment[group] = rendered.text_h_alignment
+            group_alignment[group] = _effective_alignment(
+                rendered.line_index, rendered.text_h_alignment
+            )
 
     # ---- Pass C: horizontal alignment + translate ----
     alignment_available_full = inner_width - (2 * h_margin)
@@ -5816,6 +5880,7 @@ def _render_positioned_lines(
                 h_margin,
                 group_alignment[group],
                 hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
+                edge_margin=group_edge_margin.get(group, 0.0),
             )
             target_left_x = group_left + offset
         else:
@@ -5823,8 +5888,9 @@ def _render_positioned_lines(
                 rendered_width,
                 alignment_available_full - offset,
                 h_margin,
-                rendered.text_h_alignment,
+                _effective_alignment(rendered.line_index, rendered.text_h_alignment),
                 hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
+                edge_margin=label.collision_edge_margin_by_line.get(rendered.line_index, 0.0),
             )
         x_blocks.append(block.translate(target_left_x - min_x, 0.0))
         x_line_indices.append(rendered.line_index)

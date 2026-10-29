@@ -5,7 +5,8 @@ circle-vs-AABB gap, the circle-vs-ellipse primitives, `CollisionResult`),
 `shapes.py` (the label-shape predicates shared by renderer + holes + checks),
 `holes.py` (drill-hole circle placement in the label frame + the native
 four-arc `AA` emission), `detection.py` (the stroke-aware threshold,
-detection, the two opt-in avoidance phases, diagnostics, and the
+detection, the opt-in avoidance phases (hole-margin reduction, edge-margin
+slide, alignment switch + compression), diagnostics, and the
 `assert_no_collisions` job gate). The renderer
 (`../label_renderer.py`) orchestrates the phases inside `render_label_to_plt`
 and injects its text renderer into the compression sweep (the `render`
@@ -48,13 +49,43 @@ intersection-invariant.
   floor (analytical — hole positions are pure functions of `hole_margin`);
   on success re-render from the adjusted label clone and log WARNING with
   before/after margins and the offending text line. (Any geometry-altering
-  avoidance action — margin reduction or collision compression — always logs
-  at WARNING and names the label id plus the affected text line.)
-- **Phase 3 (opt-in via `max_h_compress`):** if margins cannot clear the
-  overlap, sweep a uniform horizontal compression
-  (`collision_compress_by_line` on `ResolvedLabel`, applied before
-  margin-driven compression) up to the line budget floor
-  `1 - max_h_compress`. Stacks on top of the Phase 2 floor.
+  avoidance action — margin reduction, edge-margin slide, or collision
+  compression — always logs at WARNING and names the label id plus the
+  affected text line.)
+- **Phase 3 (opt-in via `max_h_compress`): the edge-margin slide.**
+  Horizontal compression cannot free a `left`/`right`-aligned line from a
+  hole on its *anchored* side: the anchored edge stays pinned at the margin,
+  so compressing only shortens the far end. `resolve_via_edge_margin()`
+  therefore increases the colliding line's edge margin (slides it off the
+  near-side hole) by the closed-form shift that clears the collision — a
+  line translate is a rigid AABB move, so `circle_aabb_gap` is monotonic in
+  the shift and the shift solving the threshold is algebraic (no sweep, no
+  re-render; the caller verifies with one render). The shift is capped by
+  the line's slack to the far content-area margin and, per far-side hole,
+  by the shift at which that hole *starts* colliding (slide until a hole
+  collides on the far side, never past it). The state rides
+  `collision_edge_margin_by_line` on `ResolvedLabel` and lands in
+  `resolution.compute_horizontal_offset(edge_margin=...)` (`left` →
+  `margin + shift`, `right` → right margin − `shift`; inert on `center`,
+  which has no anchored edge). When `align_margin_adjust_global` (cascade
+  label → job → `job-config.json`, default **false**) is enabled, every
+  other line of the label sharing the colliding line's exact
+  `text_h_alignment` matches the increased margin (the group's anchored
+  edges stay flush); the shared shift is the tightest (required × cap)
+  product among the lines that must move, so no receiver is ever pushed out
+  of the content area. The phase is gated on the same `max_h_compress > 0`
+  budget as Phase 4: a job with compression disabled behaves exactly as
+  before this phase existed.
+- **Phase 4 (opt-in via `max_h_compress`): alignment switch + compression.**
+  A colliding line that is still edge-aligned when this phase runs has
+  exhausted its slide (holes collide on both sides, or there is no slack
+  left), so `switch_edge_aligned_to_center()` flips it to `center`
+  (`collision_center_by_line` on `ResolvedLabel`) — centering makes the
+  compression act symmetrically on *both* ends. The switch alone is checked
+  first; if collisions remain, sweep a uniform horizontal compression
+  (`collision_compress_by_line`, applied before margin-driven compression)
+  up to the line budget floor `1 - max_h_compress`, per colliding line.
+  Stacks on top of the Phase 2 floor and the Phase 3 slide.
 - **Failure semantics (only unavoidable collisions fail the job):** a
   collision that an enabled phase resolves logs its detections at WARNING
   (plus the avoidance action's own WARNING) and the render proceeds —
