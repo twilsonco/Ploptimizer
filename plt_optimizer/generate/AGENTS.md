@@ -49,7 +49,11 @@ generated JSON schemas carry the structural contract as
 `additionalProperties: false` (drift-pinned by `tests/test_job_spec_docs.py`);
 unknown spec keys are pinned by `tests/test_schema.py::TestStrictUnknownFields`.
 Pre-flight CLIs for both gates: `scripts/validate_job_config.py` and
-`scripts/validate_job_spec.py` (see the `validating-jobs` skill).
+`scripts/validate_job_spec.py` (see the `validating-jobs` skill, which mirrors
+both into its own `scripts/` byte-for-byte). They locate `plt_optimizer`
+themselves (importable -> checkout-root walk -> exit 2 with install hints) and
+default `--job-config`/`--tools` to the CWD, exactly like `generate`, so the
+mirrored copies run from an installed skill directory.
 
 **Attributes in schema model docstrings not typically necessary:** Because schema.py is Pydantic models (classes), and each attribute already has a `description` field, it is redundant to repeat the same information in the docstring. The docstring should focus on the overall purpose and usage of the model rather than individual attribute details.
 

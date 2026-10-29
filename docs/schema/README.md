@@ -47,11 +47,16 @@ skills:
 - **`generate-engraving-job/`** — the main skill (hand-written): the
   production workflow, invariants, and the auto-generated table of contents
   (between `AUTO-TOC` markers) listing every sub-skill.
-- **`validating-jobs/`** — hand-written: the pre-flight validation helpers
-  (`scripts/validate_job_config.py`, `scripts/validate_job_spec.py`), their
-  advisory warnings and the exit-code contract. Not a theme: it documents
-  tooling, not schema fields, so it is exempt from the field-partition
-  requirement (its `references/semantics.md` is curated like a theme's).
+- **`validating-jobs/`** — hand-written `SKILL.md` + curated
+  `references/semantics.md`: the pre-flight validation helpers, their advisory
+  warnings and the exit-code contract. Not a theme: it documents tooling, not
+  schema fields, so it is exempt from the field-partition requirement. Its
+  `scripts/` directory is **generator-mirrored**: `generate_skills.py` copies
+  the repo's `scripts/validate_job_config.py` / `scripts/validate_job_spec.py`
+  in byte-for-byte (executable), so the installed skill carries the very
+  executables its `SKILL.md` documents; `--check` fails on drift. The repo
+  `scripts/` files stay the source of truth (the helpers locate
+  `plt_optimizer` themselves, so one file runs from any directory).
 - **17 thematic sub-skills** — generated: `job-forms`,
   `replacement-text`, `cascade-and-config`, `label-geometry`,
   `fonts-and-capline`, `glyph-spacing-and-kerning`,
@@ -75,6 +80,7 @@ Each sub-skill folder contains:
 | `SKILL.md` | generated (frontmatter, when-to-use, live field/enum/default tables, example, pitfalls, explicit Read-next) |
 | `references/semantics.md` | **curated prose** — the rules/mechanisms a schema cannot express; edited in place (generator seeds a stub only when missing, never overwrites) |
 | `references/snippets.yaml` | generated theme YAML fragments |
+| `scripts/validate_job_*.py` | **generator-mirrored** (`validating-jobs/` only): byte-identical executable copies of the repo `scripts/` helpers, drift-pinned by `--check` |
 
 The 17 themes are an **exact partition of every field in
 `job_spec.schema.json`** (the copy in the complete-reference skill's
@@ -101,12 +107,18 @@ Validation entry point for tooling:
 ## Validating YAML against these artifacts
 
 **Recommended (no dependencies, all cross-field rules):** the CLI helpers,
-documented by the `validating-jobs` skill:
+documented by the `validating-jobs` skill (which ships executable copies in
+its own `scripts/`):
 
 ```bash
 uv run python scripts/validate_job_config.py           # shop defaults (job-config.json)
 uv run python scripts/validate_job_spec.py my_job.yaml # spec + data files + tools.json
 ```
+
+From an installed skill (outside a checkout), run the mirrored copies with any
+interpreter that can import `plt_optimizer` — `python scripts/validate_job_spec.py
+my_job.yaml` — beside the files being validated: the `--job-config` / `--tools`
+defaults are cwd-relative, exactly like `plt-optimizer generate`.
 
 Or in-process:
 

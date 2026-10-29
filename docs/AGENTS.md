@@ -36,7 +36,13 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   field - `generate_skills.py` hard-fails on a gap/duplicate), the
   hand-written `validating-jobs/` helper skill (documents
   `scripts/validate_job_config.py` / `scripts/validate_job_spec.py`; tooling,
-  not schema fields, so it is NOT a theme and is exempt from the partition),
+  not schema fields, so it is NOT a theme and is exempt from the partition.
+  Its `scripts/` dir is GENERATOR-MIRRORED: `generate_skills.py` copies both
+  repo scripts byte-for-byte + executable, `--check` fails on drift, and the
+  repo `scripts/` stays the source of truth - the helpers locate
+  `plt_optimizer` themselves (importable -> checkout walk -> exit 2 with
+  install hints) and their `--job-config`/`--tools`/`--config` defaults are
+  CWD-relative like `generate`, so the skill's copies run from an install dir),
   generated
   `recipes/` (complete runnable specs from `examples/job_specs/`,
   `parse_yaml`-validated), and `engraving-job-complete-reference/` - the
@@ -49,7 +55,12 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   seeds a stub). A hand-written non-theme skill (like `validating-jobs/`)
   needs: its folder + curated `references/semantics.md`, one bullet in
   `render_toc_lines()`, and re-running the generator (the TOC must list every
-  skill dir on disk).
+  skill dir on disk). A skill that documents repo executables must ALSO list
+  their basenames in `generate_skills.SKILL_SCRIPT_SOURCES` so the generator
+  mirrors them into the skill's own `scripts/` (Hermes installs only files
+  inside the skill dir, so a skill pointing outside itself ships commands the
+  agent cannot run); mirrored scripts are named in backticks in their
+  `SKILL.md` (the install-referencability test requires it).
 - Hermes progressive disclosure is explicit: `references/` files load only
   when NAMED in their `SKILL.md` ("Read next"), and installs copy only
   referenced files - never unlink a generated file from its skill.
