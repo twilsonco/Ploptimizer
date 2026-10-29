@@ -17,6 +17,9 @@ unreachable, or field-lying reference:
 - curated prose (``references/semantics.md``, the main skill, registry
   strings) may only backtick real schema fields, tool options, job-config
   keys, and allowlisted runtime identifiers;
+- the inline-markup docs must track ``TAG_REGISTRY`` (every tag documented,
+  the documented registry order and tag count live, mandatory-argument tags
+  shown with their argument);
 - every embedded YAML fragment is valid + field-real; every recipe parses
   through ``parse_yaml``.
 
@@ -36,6 +39,8 @@ from typing import Any, Dict, List, Set
 
 import pytest
 import yaml
+
+from plt_optimizer.generate.markup import TAG_REGISTRY
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = REPO_ROOT / "docs" / "schema"
@@ -149,6 +154,11 @@ _EXTRA_ALLOWED = {
     "cutter_diameter",  # resolved-line attribute (bold-font mechanism)
     "borders_holes",  # tool-option dual-default layer name
     "label_1",  # example label id
+    "cutter_buffer",  # resolved-line attribute (kerf buffer)
+    "per_char_buffers",  # resolved-line property (<cb:D> per-character buffers)
+    "effective_per_char_cutters",  # resolved-line property (engraved widths)
+    "effective_used_cutters",  # resolved-line property (widest engraved strokes)
+    "toolpath_text_height",  # resolved-line field (rendered cap height)
 }
 
 #: `badge_0000`-style synthesized label ids are legal prose tokens.
@@ -375,6 +385,108 @@ class TestProseTokens:
                     continue
                 bad.append(f"{where}: `{token}`")
         assert not bad, f"prose names unknown fields/identifiers: {bad}"
+
+
+# ---------------------------------------------------------------------------
+# Markup tag docs <-> TAG_REGISTRY drift
+# ---------------------------------------------------------------------------
+
+#: Spelled cardinals accepted in a theme's ``core`` tag count.
+_CARDINALS = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "twenty-one": 21,
+    "twenty-two": 22,
+    "twenty-three": 23,
+    "twenty-four": 24,
+    "twenty-five": 25,
+}
+
+#: The curated semantics file that enumerates the shipped markup tags.
+_MARKUP_SEMANTICS = CATEGORY_DIR / "inline-markup" / "references" / "semantics.md"
+
+_REGISTRY_ORDER_RE = re.compile(r"Registry order: `([^`]*)`")
+
+
+def _theme(name: str) -> Any:
+    """Look up a theme registry entry by name.
+
+    Args:
+        name: The theme (skill directory) name.
+
+    Returns:
+        The :class:`Theme` entry.
+    """
+    return next(t for t in gen.THEMES if t.name == name)
+
+
+class TestMarkupTagDocs:
+    """The inline-markup docs must track ``TAG_REGISTRY`` exactly.
+
+    Schema fields are pinned to the theme registry by
+    :class:`TestRegistry`; tags have no schema field, so without this pin a
+    newly registered tag can ship undocumented (the ``<cb:D>`` gap).
+    """
+
+    def test_every_registry_tag_is_documented(self) -> None:
+        """Each shipped tag appears as an open/close pair in the semantics."""
+        text = _MARKUP_SEMANTICS.read_text(encoding="utf-8")
+        missing = [name for name in TAG_REGISTRY if f"</{name}>" not in text]
+        assert not missing, f"markup tags undocumented in {_MARKUP_SEMANTICS.name}: {missing}"
+
+    def test_registry_order_line_matches_registry(self) -> None:
+        """The documented serialization order is the live registry order."""
+        text = _MARKUP_SEMANTICS.read_text(encoding="utf-8")
+        match = _REGISTRY_ORDER_RE.search(text)
+        assert match, "semantics.md lost its 'Registry order: `...`' line"
+        documented = [name.strip() for name in match.group(1).split(",")]
+        assert documented == list(TAG_REGISTRY), (
+            f"documented tag order {documented} != registry order {list(TAG_REGISTRY)}"
+        )
+
+    def test_documented_tag_count_matches_registry(self) -> None:
+        """The theme ``core`` and the semantics heading count the shipped tags."""
+        core = _theme("inline-markup").core
+        heading = _MARKUP_SEMANTICS.read_text(encoding="utf-8")
+        found = re.findall(r"([A-Za-z-]+) in-text tags", core) + re.findall(
+            r"^## The ([a-z-]+) tags$", heading, re.MULTILINE
+        )
+        assert found, "no spelled tag count found in the inline-markup docs"
+        for spelled in found:
+            key = spelled.lower()
+            assert key in _CARDINALS, f"unknown cardinal {spelled!r} in the markup docs"
+            assert _CARDINALS[key] == len(TAG_REGISTRY), (
+                f"docs say {spelled} tags, TAG_REGISTRY ships {len(TAG_REGISTRY)}"
+            )
+
+    def test_mandatory_argument_tags_documented_with_argument(self) -> None:
+        """Tags whose argument is mandatory are shown in their ``<name:arg>`` form."""
+        text = _MARKUP_SEMANTICS.read_text(encoding="utf-8")
+        missing = [
+            spec.name
+            for spec in TAG_REGISTRY.values()
+            if spec.accepts_args and not spec.args_optional and f"<{spec.name}:" not in text
+        ]
+        assert not missing, f"args tags documented without their argument: {missing}"
 
 
 # ---------------------------------------------------------------------------

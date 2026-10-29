@@ -125,7 +125,7 @@ specs to copy; `../engraving-job-complete-reference/references/JOB_SPEC.md` is t
 - [Glyph Spacing and Kerning](../glyph-spacing-and-kerning/SKILL.md) — Per-character advance, space width, auto-kerning tuning.
 - [Line Spacing, Baseline Stacking and Reflow](../line-stacking-and-reflow/SKILL.md) — Stack lines evenly and reflow long text to fit the label width.
 - [Centering and Descending-Character Relief](../centering-and-descender-relief/SKILL.md) — Horizontal/vertical centering and per-glyph descender clearance.
-- [Inline Markup Tags](../inline-markup/SKILL.md) — Thirteen in-text tags: style, scale, font, cutter, color, center.
+- [Inline Markup Tags](../inline-markup/SKILL.md) — Fourteen in-text tags: style, scale, font, cutter, color, center, kerf buffer.
 - [Bullet and Enumerated Lists](../lists/SKILL.md) — itemize/enumerate content blocks with markers and hanging indent.
 - [Cutter Selection](../cutters/SKILL.md) — Auto cutter ladder, explicit cutter_size, kerf buffers, per-cutter PLT files.
 - [Multi-Stroke (Bold) Fonts](../bold-multistroke/SKILL.md) — Stroke-count PLT fonts, target boldness, and <b> behavior.

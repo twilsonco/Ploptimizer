@@ -20,7 +20,12 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 - **Drift is pinned by `tests/test_job_spec_docs.py`** (models -> artifacts)
   and **`tests/test_job_spec_skills.py`** (registry -> skill tree: `--check`
   byte-match, TOC <-> skill dirs, exact field-partition coverage, prose
-  token audit, link integrity / install-referencability, YAML validity).
+  token audit, link integrity / install-referencability, YAML validity, and
+  the inline-markup docs <-> `markup.TAG_REGISTRY` pin: every shipped tag
+  documented, the documented registry order + spelled tag count live,
+  mandatory-argument tags shown as `<name:arg>` - a new tag with NO schema
+  field is invisible to the field-partition check, so registering it without
+  documenting it fails here).
   Regenerate after ANY schema/job-config field change - `generate_ai_docs.py`
   FIRST (the reference skill's files), then `generate_skills.py` (it reads
   the committed `job_spec.schema.json` for its coverage check).
@@ -51,6 +56,10 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 - **Config-value immunity:** the live `job-config.json` tool-options tables
   (`JOB_SPEC.md` section; the tool-options skill's marked region) are
   excluded from the byte-pins - retuning the shop config never breaks tests.
+  Generator prose (field descriptions, `_FALLBACK_NOTES`, theme pitfalls)
+  must therefore NEVER hardcode a `job-config.json` VALUE - say "job-config
+  ships the shop value" (a retune like `a30be3e`'s cutter buffers silently
+  turns such a number into a lie; the drift pins cannot catch it).
 - New `str`-Enums must be added to `_ENUM_ORDER` in `generate_ai_docs.py`.
 - `generate_schema_docs.py` - tool-options / font-list documentation generator
   (`--show-fonts` lists every valid font name; the skills cite it for the

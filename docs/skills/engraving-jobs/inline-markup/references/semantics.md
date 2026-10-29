@@ -26,9 +26,9 @@ cross a content-line boundary, and nest.
 - Parsing runs at resolution time, so markup errors surface with the other
   spec-level validation errors.
 
-## The thirteen tags
+## The fourteen tags
 
-Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc`.
+Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb`.
 
 | Tag | Effect | Tuning fields |
 |---|---|---|
@@ -44,6 +44,7 @@ Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc`.
 | `<oc>…</oc>` | Original cutter: return to the line's ladder cutter after a `<c:>` | — |
 | `<vc>…</vc>` | Vertical centering of the run's characters against the line's `v_center_chars` set (e.g. center a serial against digits) | `v_center_chars` |
 | `<tc:color>…</tc>` | Stroke color for the run: the run splits into a SEPARATE per-color toolpath (and its own PLT file). `none` = the default stroke. Line-level whole-line color is the `text_color` field (same enum) | `text_color` |
+| `<cb:D>…</cb>` | Kerf buffer for the run: `D` inches REPLACES the line's cascaded `cutter_buffer_text` for the wrapped characters (the width the tool actually engraves, `cutter + buffer`). `D` is a mandatory float in `[0.0, 1.0]` — a bare `<cb>` engraves literally (the `<c:>` rule) and `0.0` explicitly zeroes the buffer for the span. Pure width modifier: no inventory snap, no new pen, no extra PLT file | `cutter_buffer_text` |
 
 ## Interactions that bite
 
@@ -55,6 +56,26 @@ Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc`.
   split across per-cutter files.
 - **`<tc:>` splits strokes by color** — one tag, one toolpath; combined with
   cutter splits, each (cutter, color) pair is its own path.
+- **`<cb:D>` widens ink, never the tool:** unlike `<c:>`, `<scale:>`, `<b>`
+  and `<f:>` it changes no pen map and writes no extra file. It composes with
+  the cutter-bearing tags — the run's physical tool is whatever `<c:>`,
+  `<scale:>`, `<b>` or the ladder chose, and `<cb:D>` adds `D` to that tool
+  for the span. Glyph advance and
+  per-pair kerning clearance use each character's own buffer
+  (`effective_per_char_cutters`); the collision stroke floor, the descender
+  relief and the `all_*.pdf` proof widths use the **widest** stroke, so per
+  physical tool the **maximum** buffer among its characters wins
+  (`effective_used_cutters`).
+- **`<cb:D>` does NOT re-scale the text:** `toolpath_text_height` is resolved
+  once from the line's cascaded `cutter_buffer_text` scalar
+  (`text_height - effective`), so an inline override widens the stroke inside
+  the line's existing cap height; only the line-level field preserves the
+  engraved silhouette height. Nesting is set-to-value and idempotent —
+  `<cb:0.02>` inside `<cb:0.01>` restores `0.01` for the trailing text.
+- **Decorations follow the buffer:** underline/strikethrough runs split at
+  buffer boundaries, so each run's centerline offset and break cuts use that
+  run's own engraved width (the ink gap under the text stays exactly
+  `underline_offset_fraction` of cap height at any buffer).
 - **Reflow respects styles:** `optimize_line_content` keeps each word's tag
   spans intact (it re-serializes runs), and underline/strike spans follow
   the reflowed lines.
@@ -69,4 +90,5 @@ job:
     - text: "Area 12<sup>2</sup> ft"
     - text: "<u>SHUT POWER</u> <s>THEN</s> PROCEED"
     - text: "Model <f:Dino>X900</f> <tc:red>HAZARD</tc>"
+    - text: "Pocket <cb:0.020>deep cut</cb> <cb:0>surface score</cb>"
 ```

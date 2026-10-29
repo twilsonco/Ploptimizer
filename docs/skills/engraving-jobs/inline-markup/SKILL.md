@@ -1,6 +1,6 @@
 ---
 name: inline-markup
-description: 'Thirteen in-text tags: style, scale, font, cutter, color, center. Use when: styling part of a line; mixing fonts or cutters inside one line; splitting strokes by color; superscripts, units, serial prefixes. Keywords: markup, italic, bold, underline, superscript, scale, small caps, text_color.'
+description: 'Fourteen in-text tags: style, scale, font, cutter, color, center, kerf buffer. Use when: styling part of a line; mixing fonts or cutters inside one line; splitting strokes by color; superscripts, units, serial prefixes; widening the kerf buffer on part of a line. Keywords: markup, italic, bold, underline, superscript, scale, small caps, text_color, cb, cutter_buffer_text, kerf, buffer.'
 version: 1.0.0
 metadata:
   hermes:
@@ -16,6 +16,7 @@ metadata:
 - mixing fonts or cutters inside one line
 - splitting strokes by color
 - superscripts, units, serial prefixes
+- widening the kerf buffer on part of a line
 
 ## Fields
 
@@ -113,6 +114,9 @@ job:
 - `<f:...>` uses `+` as the canonical space in the font name (e.g. `<f:Dino+SC>`); the run engraves with the cutter its own font's ladder gives that text height.
 - `<c:D>` forces cutter diameter D for the run (snapped to the inventory); `<oc>` returns to the line's original cutter.
 - `<tc:color>` splits the run into a separate per-color toolpath (and a separate PLT file); the `text_color` field colors a whole line.
+- `<cb:D>` sets the kerf buffer (inches) for the run, replacing the line's cascaded `cutter_buffer_text` per character; `0.0` explicitly zeroes the buffer for the span. The argument is mandatory (a bare `<cb>` engraves literally, the `<c:>` rule) and must be a float in [0.0, 1.0].
+- Unlike `<c:D>`, `<cb:D>` is a PURE width modifier: no inventory snap, no new pen, no extra PLT file — the physical tool stays whatever the ladder/`<c:>`/`<b>`/`<scale:>` chose and only the effective engraved width (`cutter + buffer`) widens. There is no inline form of `cutter_buffer_routing` (hole geometry is per label).
+- `cb` is registered LAST in the tag registry so every existing tag's serialization order stays bit-identical.
 - `html_brackets` is the delimiter pair itself (an even-length string whose first half opens and second half closes: `<>`, `<<>>`, `«»`); set it to a pair your data never contains. A bracketed body that is not a registered tag engraves verbatim, so `3 < 5` is safe, but a real tag name in chevrons is consumed as markup.
 
 ## Read next

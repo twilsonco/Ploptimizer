@@ -832,8 +832,15 @@ class TextAttributes(BaseModel):
             "`text_height` tall. The TOOL itself stays physical: pen map, "
             "per-cutter PLT file names, inventory snapping, the `<b>` bold rung "
             "and the compression-driven downsize ladder all use the nominal "
-            "diameter. Cascades line -> label -> job (fallback 0.0 = legacy "
-            "behaviour; `job-config.json` ships the shop value)."
+            "diameter. The inline `<cb:D>...</cb>` markup tag replaces this "
+            "value for the wrapped characters (per character; `0.0` explicitly "
+            "zeroes the buffer for the span) - a pure width modifier that "
+            "widens whatever tool the run already engraves with, so unlike "
+            "`<c:D>` it snaps to no inventory, adds no pen and writes no extra "
+            "PLT file. There is no inline form of `cutter_buffer_routing` "
+            "(hole geometry is a per-label property). Cascades line -> label -> "
+            "job (fallback 0.0 = legacy behaviour; `job-config.json` ships the "
+            "shop value)."
         ),
     )
     cutter_buffer_routing: Optional[float] = Field(

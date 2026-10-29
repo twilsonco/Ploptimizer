@@ -631,12 +631,13 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="inline-markup",
         title="Inline Markup Tags",
-        core="Thirteen in-text tags: style, scale, font, cutter, color, center.",
+        core="Fourteen in-text tags: style, scale, font, cutter, color, center, kerf buffer.",
         use_when=(
             "styling part of a line",
             "mixing fonts or cutters inside one line",
             "splitting strokes by color",
             "superscripts, units, serial prefixes",
+            "widening the kerf buffer on part of a line",
         ),
         keywords=(
             "markup",
@@ -647,6 +648,10 @@ THEMES: Tuple[Theme, ...] = (
             "scale",
             "small caps",
             "text_color",
+            "cb",
+            "cutter_buffer_text",
+            "kerf",
+            "buffer",
         ),
         fields=(
             "html_brackets",
@@ -673,6 +678,18 @@ THEMES: Tuple[Theme, ...] = (
             "`<oc>` returns to the line's original cutter.",
             "`<tc:color>` splits the run into a separate per-color toolpath (and a "
             "separate PLT file); the `text_color` field colors a whole line.",
+            "`<cb:D>` sets the kerf buffer (inches) for the run, replacing the "
+            "line's cascaded `cutter_buffer_text` per character; `0.0` explicitly "
+            "zeroes the buffer for the span. The argument is mandatory (a bare "
+            "`<cb>` engraves literally, the `<c:>` rule) and must be a float in "
+            "[0.0, 1.0].",
+            "Unlike `<c:D>`, `<cb:D>` is a PURE width modifier: no inventory snap, "
+            "no new pen, no extra PLT file — the physical tool stays whatever the "
+            "ladder/`<c:>`/`<b>`/`<scale:>` chose and only the effective engraved "
+            "width (`cutter + buffer`) widens. There is no inline form of "
+            "`cutter_buffer_routing` (hole geometry is per label).",
+            "`cb` is registered LAST in the tag registry so every existing tag's "
+            "serialization order stays bit-identical.",
             "`html_brackets` is the delimiter pair itself (an even-length string whose "
             "first half opens and second half closes: `<>`, `<<>>`, `«»`); set it to a "
             "pair your data never contains. A bracketed body that is not a registered "
@@ -701,6 +718,18 @@ THEMES: Tuple[Theme, ...] = (
                     "  content:\n"
                     '    - text: "Model <f:Dino>X900</f> rev <c:0.030>fine</c>"\n'
                     '    - text: "DANGER <tc:red>high voltage</tc>"\n'
+                ),
+            ),
+            Fragment(
+                slug="cutter-buffer",
+                comment="Per-span kerf buffer: deep cut engraves wider, no tool change.",
+                yaml_text=(
+                    "job:\n"
+                    '  job_name: "Kerf buffer markup demo"\n'
+                    "  cutter_buffer_text: 0.008\n"
+                    "  content:\n"
+                    '    - text: "Shallow <cb:0.020>deep pocket</cb> shallow"\n'
+                    '    - text: "No kerf here <cb:0>zeroed span</cb> normal"\n'
                 ),
             ),
         ),
@@ -792,6 +821,7 @@ THEMES: Tuple[Theme, ...] = (
             "ladder",
             "cutter_buffer_text",
             "cutter_buffer_routing",
+            "cb",
             "kerf",
             "buffer",
             "effective",
@@ -813,7 +843,7 @@ THEMES: Tuple[Theme, ...] = (
             "ADDED to a cutter diameter to get the width it engraves (a roughly "
             "45-degree-flank V-bit cuts wider than nominal, the deeper the cut the wider "
             "the stroke). They cascade line -> label -> job; code fallback 0.0 = engraved "
-            "= nominal, and `job-config.json` ships the shop values (0.005 / 0.045).",
+            "= nominal, and `job-config.json` ships the shop value.",
             "The buffer produces the EFFECTIVE width, used for every ink measurement "
             "(kerning clearance, text/hole collision floor, hole cutter compensation, "
             "compression margin, packing kerf) and for the `all_*.pdf` proof stroke "
@@ -821,6 +851,11 @@ THEMES: Tuple[Theme, ...] = (
             "inventory snapping, the `<b>` bold rung and the compression-driven downsize "
             "ladder all use the nominal diameter, so a 0.030in cutter still writes "
             "`30_txt_*.plt`.",
+            "Inline `<cb:D>` overrides `cutter_buffer_text` for the wrapped characters "
+            "only (per-character kerf buffer). It names no tool: unlike `<c:D>` it snaps "
+            "to no inventory, adds no pen and writes no extra PLT file — it widens "
+            "whatever tool the run already engraves with. `cutter_buffer_routing` has no "
+            "inline form.",
             "Set a buffer to `0.0` to reproduce the pre-buffer output byte-for-byte "
             "(useful when bisecting an unexpected geometry change).",
         ),

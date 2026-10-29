@@ -48,6 +48,14 @@ A job mixing a 0.060in body and a 0.030in serial produces two files.
 `cutter_size`); `<oc>` returns to the line's ladder cutter. The forced run
 lands in its own per-cutter file.
 
+`<cb:D>` is the kerf-buffer sibling and names **no tool**: it overrides
+`cutter_buffer_text` for the wrapped characters, widening the EFFECTIVE
+engraved width (`cutter + buffer`) of whatever tool the run already engraves
+with. It therefore snaps to no inventory, adds no pen and produces no extra
+PLT file — the per-cutter split above is unaffected. Use it when one span of
+a line cuts deeper (and so engraves wider) than the rest; `cutter_buffer_routing`
+has no inline form because hole geometry is a per-label property.
+
 ## Boundary/hole cutter
 
 Borders and drill holes engrave with the **boundary/hole tool**
