@@ -1,6 +1,6 @@
 ---
 name: holes-and-collision
-description: 'Mounting-hole placement, sizes, and text/hole clearance rules. Use when: adding mounting holes; holes overlap text; choosing hole margins and collision distances. Keywords: holes, location, corners, sides, hole_margin, min_hole_margin, collision, drill.'
+description: 'Mounting-hole placement, sizes, and text/hole clearance rules. Use when: adding mounting holes; holes overlap text; choosing hole margins and collision distances. Keywords: holes, location, corners, sides, hole_margin, min_hole_margin, collision, drill, align_margin_adjust_global.'
 version: 1.0.0
 metadata:
   hermes:
@@ -25,10 +25,12 @@ metadata:
 | `hole_margin` | float \| null | null (unset) | >=0 | job / label | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | job / label | Drill holes; a label value replaces the job-level list entirely (an empty list suppresses holes). `corners`/`sides` expand to members. |
 | `hole_adjust_for_cutter` | bool \| null | null (unset) | — | job / label | Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`. Accepted on plates for schema parity only. |
+| `align_margin_adjust_global` | bool \| null | null (unset) | — | job / label | Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored. Accepted on plates for schema parity only. |
 | `hole_margin` | float \| null | null (unset) | >=0 | plate | Hole margin in inches (must be >= 0). |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | plate | Minimum hole margin in inches (schema parity; not applied at plate level). |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | plate | Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level). |
 | `hole_adjust_for_cutter` | bool \| null | null (unset) | — | plate | Cutter-compensated drill-hole diameter (schema parity; not applied at plate level -- labels render before packing). |
+| `align_margin_adjust_global` | bool \| null | null (unset) | — | plate | Per-label sharing of the collision-avoidance edge-margin increase (schema parity; not applied at plate level -- labels render before packing). |
 | `location` | HoleLocation | **required** | — | hole | Hole position on the label edge. Group shorthands `corners` (all four corners) and `sides` (left + right) expand into their atomic members at validation time. |
 | `diameter` | float | `0.125` | >0 | hole | Hole diameter in inches (default 0.125). A job-config.json `hole_diameter` fills entries that omit this field. |
 
@@ -64,6 +66,7 @@ Applied when unset at every tier (including `job-config.json`):
 
 | Constant | Value | Note |
 |---|---|---|
+| `DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL` | `False` | — |
 | `DEFAULT_BOUNDARY_HOLE_CUTTER` | `0.015` | Boundary/hole cutter diameter feeding the collision stroke floor; `tools.json` `boundary_hole_cutter_size` overrides it. |
 | `DEFAULT_HOLE_ADJUST_FOR_CUTTER` | `True` | `True` = the emitted drill-hole circle shrinks by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is placed from the specified diameter and never moves; a hole at or below the cutter diameter clamps to the smallest emittable circle (one plotter unit radius) with a WARNING. Cascades label/job (accepted on plates for schema parity only, never text lines); job-config supplies the shop default. |
 | `DEFAULT_HOLE_DIAMETER` | `0.125` | Drill-hole diameter when a hole entry omits 'diameter' (a job-config hole_diameter fills hole entries too). |
@@ -92,7 +95,7 @@ job:
 
 - `location: corners` / `sides` are group shorthands expanded AT VALIDATION time into the atomic locations; downstream only ever sees the 8 atomic values.
 - Label `holes` REPLACES the job's list entirely; `holes: []` suppresses the job's holes on that label.
-- Collision handling is 3 phases: always-on detection -> opt-in `min_hole_margin` sweep -> opt-in `max_h_compress` squeeze. Unresolved collisions abort the job (`LabelRenderError`).
+- Collision handling is 4 phases: always-on detection -> opt-in `min_hole_margin` sweep -> opt-in `max_h_compress` edge-margin slide (left/right-aligned text slides off its anchored margin; `align_margin_adjust_global: true` makes same-alignment siblings match the increased margin) -> alignment switch to `center` + `max_h_compress` squeeze. Unresolved collisions abort the job (`LabelRenderError`).
 - The stroke floor is `0.5 * (hole_cutter + text_cutter) + hole_text_collision_distance` — raise the distance for more air, not the hole diameter.
 - `hole_adjust_for_cutter: true` shrinks the EMITTED circle by the boundary cutter diameter so the ENGRAVED hole measures `diameter`; the centre never moves.
 

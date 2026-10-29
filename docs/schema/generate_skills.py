@@ -1031,6 +1031,7 @@ THEMES: Tuple[Theme, ...] = (
             "min_hole_margin",
             "collision",
             "drill",
+            "align_margin_adjust_global",
         ),
         fields=(
             "holes",
@@ -1040,6 +1041,7 @@ THEMES: Tuple[Theme, ...] = (
             "hole_adjust_for_cutter",
             "min_hole_margin",
             "hole_text_collision_distance",
+            "align_margin_adjust_global",
         ),
         enums=("HoleLocation",),
         pitfalls=(
@@ -1047,9 +1049,12 @@ THEMES: Tuple[Theme, ...] = (
             "time into the atomic locations; downstream only ever sees the 8 atomic values.",
             "Label `holes` REPLACES the job's list entirely; `holes: []` suppresses the "
             "job's holes on that label.",
-            "Collision handling is 3 phases: always-on detection -> opt-in "
-            "`min_hole_margin` sweep -> opt-in `max_h_compress` squeeze. Unresolved "
-            "collisions abort the job (`LabelRenderError`).",
+            "Collision handling is 4 phases: always-on detection -> opt-in "
+            "`min_hole_margin` sweep -> opt-in `max_h_compress` edge-margin slide "
+            "(left/right-aligned text slides off its anchored margin; "
+            "`align_margin_adjust_global: true` makes same-alignment siblings match "
+            "the increased margin) -> alignment switch to `center` + `max_h_compress` "
+            "squeeze. Unresolved collisions abort the job (`LabelRenderError`).",
             "The stroke floor is `0.5 * (hole_cutter + text_cutter) + "
             "hole_text_collision_distance` — raise the distance for more air, not the "
             "hole diameter.",

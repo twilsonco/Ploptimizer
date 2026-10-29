@@ -4,6 +4,71 @@
 
 ### Features
 
+* **generate:** text/hole collision avoidance now understands **left/right alignment**.
+  Horizontal compression only ever helped `center`-aligned text: it narrows the line so
+  BOTH ends pull away from the side holes. A `left`-aligned line is anchored at its left
+  margin, so compressing it shortens the far end and leaves the near end exactly where it
+  collides - edge-aligned text therefore escalated straight to "unresolvable" (a
+  `LabelRenderError` job abort) in cases that are trivially fixable by sliding the anchored
+  edge inward. Collision handling grows from 3 phases to 4: detection -> `min_hole_margin`
+  sweep -> **edge-margin slide** -> **alignment switch to `center` + `max_h_compress`
+  squeeze**
+  - **Phase 3, the edge-margin slide** (`collision.resolve_via_edge_margin`): a colliding
+    `left`/`right`-aligned line increases its anchored margin (slides off the near-side
+    hole). The shift is **closed-form, not swept** - a line translate is a rigid AABB move,
+    so `circle_aabb_gap` is monotonic in the shift and the shift reaching the stroke-aware
+    threshold solves algebraically (`dx = sqrt((threshold + r)^2 - dy^2)`); the phase costs
+    one verification render. Near/far is decided **geometrically** (the hole centre vs. the
+    line's mid-X), so corner holes classify correctly. The slide is capped by the line's
+    slack to the FAR content-area margin (a fitting line is never pushed out of the box)
+    and, per far-side hole, by the shift at which that hole *starts* colliding - i.e. slide
+    until a hole collides on the far side, never past it. The state rides the renderer-set
+    `ResolvedLabel.collision_edge_margin_by_line` and lands in
+    `resolution.compute_horizontal_offset(edge_margin=...)`
+  - **Phase 4, the alignment switch:** a colliding line that is still edge-aligned when the
+    compression sweep runs has exhausted its slide (holes collide on BOTH sides, or no slack
+    remains), so `switch_edge_aligned_to_center` flips it to `center`
+    (`collision_center_by_line`) and the existing per-line compression sweep finishes the
+    job - on a centered line compression acts symmetrically, so widening the margin and
+    compressing both fight the far hole at once. The switch is verified before compressing
+    (a centered line often clears without any squeeze)
+  - **New cascading field `align_margin_adjust_global`** (label -> job -> `job-config.json`,
+    plate parity, code fallback **`false`**, shipped config `false`) behaves like
+    `h_compress_global` for this automatic margin adjustment: `true` makes every other line
+    of the label sharing the colliding line's exact `text_h_alignment` match the increased
+    edge margin (the group's anchored edges stay flush), `false` moves only the colliding
+    line. The shared shift is the tightest (required x cap) product among the lines that
+    must move, so no sibling is ever pushed out of the content area. Declared margins are
+    never touched - only the automatic slide is shared
+  - **Gating + zero impact on existing output:** the whole addition is gated on the same
+    `max_h_compress > 0` budget as the compression phase, and the slide fires only on an
+    edge-aligned line with a near-side hole, so `center`-aligned jobs (the default) and jobs
+    with compression disabled are **bit-identical**. `hole_aware_horizontal_shift_inches`
+    stays center-only, and a switched line starts receiving it - the desired behaviour for
+    asymmetric side holes
+  - **Reporting:** both actions surface in the LAYOUT REPORT and `generation_report.json`
+    as new typed findings - `edge_margin` (`side` + `shift`, printed as
+    `left edge margin +0.352in (hole avoidance)`) and `alignment_switch` (`from`/`to`,
+    printed as `alignment left -> center (hole avoidance)`) - and the unresolvable-collision
+    ERROR diagnostic now lists the spent edge margins and the switched lines, so the
+    recommendation matches what the avoidance actually tried
+  - **Pins:** `TestEdgeMarginSlide` (the left/right mirror cases with the exact closed-form
+    shift, the rigid-slide proof (moved, never resized), the WARNING text, the
+    `max_h_compress=0` gate, the center-aligned no-op, the content-area cap, stacking on
+    top of the Phase-2 `min_hole_margin` floor, the resolver's no-edge-collision `None`),
+    `TestAlignMarginAdjustGlobal` (flag off moves only the colliding line, flag on keeps the
+    edges flush, the tightest-sibling cap, sharing never crosses alignment values),
+    `TestAlignmentSwitchToCenter` (both-side holes -> switch -> compression, the switch
+    WARNING, the budget floor, and both unresolvable diagnostics),
+    `TestComputeHorizontalOffsetWithEdgeMargin` (`tests/test_resolution.py` - the pure math:
+    both directions, the zero-margin identity, center inertness, the far-margin clamp, the
+    over-wide line), the cascade/tier pins (`TestAlignMarginAdjustGlobalCascade`,
+    `TestAlignMarginAdjustGlobalField`, the `job-config` fill/YAML-wins pair), the report
+    pins (`tests/test_layout_report.py`, `tests/test_generation_report.py`), and
+    `TestEdgeMarginCollisionAvoidanceExport` (`tests/test_phase3_export.py` - a production
+    job spec that previously ABORTED now exports clean, the flag cascades to the label, and
+    the emitted text's left edge moves by exactly the recorded slide)
+
 * **generate:** cutters now carry a **kerf buffer**, so the toolpath geometry and the
   `all_*.pdf` proofs model the stroke the engraver actually leaves. A V-bit with roughly
   45-degree flanks cuts a groove **wider** than its nominal diameter (the deeper the cut,

@@ -3234,6 +3234,19 @@
           "description": "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`. Accepted on plates for schema parity only.",
           "title": "Hole Adjust For Cutter"
         },
+        "align_margin_adjust_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored. Accepted on plates for schema parity only.",
+          "title": "Align Margin Adjust Global"
+        },
         "id": {
           "description": "Unique identifier for this label specification.",
           "title": "Id",
@@ -4122,6 +4135,19 @@
           "default": null,
           "description": "Cutter-compensated drill-hole diameter (schema parity; not applied at plate level -- labels render before packing).",
           "title": "Hole Adjust For Cutter"
+        },
+        "align_margin_adjust_global": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-label sharing of the collision-avoidance edge-margin increase (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "Align Margin Adjust Global"
         },
         "bullet_string": {
           "anyOf": [
@@ -6010,6 +6036,19 @@
       "default": null,
       "description": "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`. Accepted on plates for schema parity only.",
       "title": "Hole Adjust For Cutter"
+    },
+    "align_margin_adjust_global": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored. Accepted on plates for schema parity only.",
+      "title": "Align Margin Adjust Global"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

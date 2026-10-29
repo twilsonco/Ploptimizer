@@ -34,7 +34,7 @@ emits a `0.085` circle.
 - The text–hole collision check measures the ENGRAVED circle, so near misses
   relax by the same half cutter.
 
-## Text–hole collision avoidance (3 phases)
+## Text–hole collision avoidance (4 phases)
 
 1. **Detection (always on).** A text stroke collides with a hole when the
    gap between the ink and the engraved circle falls below the stroke floor:
@@ -43,14 +43,29 @@ emits a `0.085` circle.
    the edge (shrinking their margin down to `min_hole_margin`) to clear the
    text. `min_hole_margin: null` (the default) allows the sweep all the way
    to `0.0`.
-3. **`max_h_compress` squeeze (opt-in).** Text that still collides
-   compresses horizontally (per its budget) to slide away from the hole.
+3. **Edge-margin slide (opt-in via `max_h_compress`).** Horizontal
+   compression cannot free a `left`/`right`-aligned line from a hole on its
+   *anchored* side — the anchored edge stays pinned at the margin, so
+   compressing only shortens the far end. The slide increases that line's
+   edge margin (moves it away from the near-side hole), capped by the line's
+   slack to the far margin and by the point where a far-side hole starts
+   colliding. With `align_margin_adjust_global: true`, every other line of
+   the label sharing that exact `text_h_alignment` matches the increased
+   margin, so the group's anchored edges stay flush; the default (`false`)
+   moves only the colliding line.
+4. **`max_h_compress` squeeze (opt-in).** A colliding line whose slide budget
+   is exhausted (holes collide on both sides, or there is no slack left)
+   switches to `center` alignment, and text that still collides compresses
+   horizontally (per its budget) — on a centered line compression acts
+   symmetrically and pulls both ends away from the side holes.
 
 **Unresolved collisions fail the job** (`LabelRenderError`, non-zero exit) —
 the tool never engraves ink through a hole. Fixes, in order of preference:
 raise `hole_text_collision_distance` shop-wide only if the machine needs it;
 per job, move the holes (bigger `hole_margin`, fewer locations), shorten the
-text, allow `max_h_compress`, or grow the label.
+text, allow `max_h_compress`, or grow the label. Every applied avoidance
+(edge-margin slide, alignment switch, compression) is logged at WARNING and
+listed in the layout report.
 
 ## Single-side hole centering
 
