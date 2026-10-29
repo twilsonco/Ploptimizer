@@ -1,0 +1,10 @@
+job:
+  job_name: Coolsys Safeway 1504
+  material: bw
+  width: 3
+  height: 1
+  text_height: 0.75
+  holes:
+    - location: sides
+  font: helv1
+  replacement_text_file: 2026-10-28 coolsys safeway 1504.txt
