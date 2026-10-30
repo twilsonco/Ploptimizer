@@ -40,6 +40,20 @@
     line. The shared shift is the tightest (required x cap) product among the lines that
     must move, so no sibling is ever pushed out of the content area. Declared margins are
     never touched - only the automatic slide is shared
+  - **The sibling flush (Phase-4 tail, `align_margin_adjust_global` only):** when the
+    avoidance switches a line to `center`, the switch + compression repositioned that
+    line's anchored edge, so the unswitched same-alignment siblings (which matched the
+    Phase-3 *margin*, not the switched line's *final edge*) are no longer flush.
+    `flush_siblings_to_switched_edge` sets each unswitched edge-aligned line's edge margin
+    to the switched lines' final anchored edge - the LEFTMOST final left edge for `left`
+    groups (mirrored for `right`); the switched lines are left to their auto-adjustment.
+    Sliding inward shrinks the room left for a sibling's far end, so the flush sweeps
+    compression on the flushed lines (floored at their own `max_h_compress` budget) until
+    the flush is collision-free; a flush the budget cannot clear is dropped whole. The
+    renderer re-applies the flush on EVERY collision-free return path (including the
+    initial clean render) and verifies it with a full re-render, because a later pipeline
+    pass (e.g. the cutter-downsize re-measure) moves the switched lines' final edges - the
+    flush must track the geometry that is actually emitted
   - **Gating + zero impact on existing output:** the whole addition is gated on the same
     `max_h_compress > 0` budget as the compression phase, and the slide fires only on an
     edge-aligned line with a near-side hole, so `center`-aligned jobs (the default) and jobs
@@ -58,6 +72,11 @@
     top of the Phase-2 `min_hole_margin` floor, the resolver's no-edge-collision `None`),
     `TestAlignMarginAdjustGlobal` (flag off moves only the colliding line, flag on keeps the
     edges flush, the tightest-sibling cap, sharing never crosses alignment values),
+    `TestFlushSiblingsToSwitchedEdge` (the left/right flush onto the switched edge, the
+    flush-compression of a sibling that no longer fits, the budget-cannot-clear drop, the
+    leftmost-of-multiple-switches target, mixed-alignment groups, the already-flush and
+    flag-off/no-switch/center-sibling no-ops, the end-to-end flush, and the
+    verification-rejects-flush path),
     `TestAlignmentSwitchToCenter` (both-side holes -> switch -> compression, the switch
     WARNING, the budget floor, and both unresolvable diagnostics),
     `TestComputeHorizontalOffsetWithEdgeMargin` (`tests/test_resolution.py` - the pure math:
@@ -67,7 +86,10 @@
     pins (`tests/test_layout_report.py`, `tests/test_generation_report.py`), and
     `TestEdgeMarginCollisionAvoidanceExport` (`tests/test_phase3_export.py` - a production
     job spec that previously ABORTED now exports clean, the flag cascades to the label, and
-    the emitted text's left edge moves by exactly the recorded slide)
+    the emitted text's left edge moves by exactly the recorded slide) and
+    `TestEdgeMarginFlushExport` (the switched label exports clean with every emitted text
+    stroke starting at one flush left edge, and the flag-off export leaves the sibling at
+    its declared margin)
 
 * **generate:** cutters now carry a **kerf buffer**, so the toolpath geometry and the
   `all_*.pdf` proofs model the stroke the engraver actually leaves. A V-bit with roughly

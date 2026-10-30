@@ -17,7 +17,7 @@ corner-holes:
       content:
         - text: "MOUNT HERE"
 edge-aligned-clearance:
-  # Left-aligned text under a left hole: it slides off its anchored margin, and its sibling matches so the left edges stay flush.
+  # Left-aligned text under a left hole: it slides off its anchored margin, and its sibling matches so the left edges stay flush; if the line switches to center, the sibling flushes onto its final edge.
   yaml: |
     job:
       job_name: "Edge-aligned collision demo"

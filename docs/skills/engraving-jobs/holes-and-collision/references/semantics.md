@@ -57,7 +57,12 @@ emits a `0.085` circle.
    is exhausted (holes collide on both sides, or there is no slack left)
    switches to `center` alignment, and text that still collides compresses
    horizontally (per its budget) — on a centered line compression acts
-   symmetrically and pulls both ends away from the side holes.
+   symmetrically and pulls both ends away from the side holes. With
+   `align_margin_adjust_global: true`, the unswitched same-alignment lines are
+   then **flushed** onto the switched lines' final anchored edge (the leftmost
+   final left edge for `left` groups, mirrored for `right`), compressing a
+   flushed line whose far end no longer fits; the switched lines keep their
+   auto-adjustment. With the flag off, a switch moves only the colliding line.
 
 **Unresolved collisions fail the job** (`LabelRenderError`, non-zero exit) —
 the tool never engraves ink through a hole. Fixes, in order of preference:

@@ -86,6 +86,26 @@ intersection-invariant.
   (`collision_compress_by_line`, applied before margin-driven compression)
   up to the line budget floor `1 - max_h_compress`, per colliding line.
   Stacks on top of the Phase 2 floor and the Phase 3 slide.
+- **Phase 4 tail (opt-in via `align_margin_adjust_global`): the sibling
+  flush.** A switched line's centering + compression repositioned its
+  anchored edge, so the unswitched same-alignment siblings (which matched
+  the Phase-3 *margin*, not the switched line's *final edge*) are no longer
+  flush. `flush_siblings_to_switched_edge()` sets each unswitched
+  edge-aligned line's edge margin to the switched lines' final anchored
+  edge — the LEFTMOST final left edge for `left` groups (mirrored: the
+  rightmost final right edge for `right`), the tightest so no sibling moves
+  further than it must. The switched lines are left to their
+  auto-adjustment. Sliding inward shrinks the room left for a sibling's far
+  end, so the flush sweeps compression on the flushed lines (multiplicative
+  on any scale they carry, floored at their own `max_h_compress` budget)
+  until the flush is collision-free; a flush the budget cannot clear is
+  dropped whole and the unflushed resolved layout is kept. The renderer
+  (`_apply_edge_flush` in `render_label_to_plt`) runs the flush on EVERY
+  collision-free return path — including the initial clean render — because
+  a later pipeline pass (e.g. the cutter-downsize re-measure) moves the
+  switched lines' final edges, so the flush must be re-applied to the
+  geometry that is actually emitted. The flush is verified with a full
+  re-render + re-detection; only a collision-free flush is kept.
 - **Failure semantics (only unavoidable collisions fail the job):** a
   collision that an enabled phase resolves logs its detections at WARNING
   (plus the avoidance action's own WARNING) and the render proceeds —

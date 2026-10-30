@@ -261,7 +261,11 @@ JobSpec (job-level defaults)
   hole (collision Phase 3, gated on `max_h_compress > 0`), `true` makes every
   other line of the label sharing that exact `text_h_alignment` match the
   increased margin (the group's anchored edges stay flush); `false` moves only
-  the colliding line. Cascades label → job (accepted on plates for schema
+  the colliding line. Sharing also drives the Phase-4 *sibling flush*: when
+  the avoidance switches a line to `center`, the unswitched same-alignment
+  lines slide onto the switched lines' final anchored edge (the leftmost for
+  `left`, the rightmost for `right`), compressing a flushed line whose far
+  end no longer fits. Cascades label → job (accepted on plates for schema
   parity only); explicit `true` is honored, only `None` means unset.
 - `hole_text_collision_distance`: Minimum air gap in inches (`ge=0.0`,
   default `None` → resolved to **0.15**, or the `job-config.json` value when a

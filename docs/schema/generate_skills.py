@@ -1054,7 +1054,9 @@ THEMES: Tuple[Theme, ...] = (
             "(left/right-aligned text slides off its anchored margin; "
             "`align_margin_adjust_global: true` makes same-alignment siblings match "
             "the increased margin) -> alignment switch to `center` + `max_h_compress` "
-            "squeeze. Unresolved collisions abort the job (`LabelRenderError`).",
+            "squeeze (with the flag on, unswitched siblings then FLUSH onto the "
+            "switched lines' final anchored edge, compressing any that no longer "
+            "fit). Unresolved collisions abort the job (`LabelRenderError`).",
             "The stroke floor is `0.5 * (hole_cutter + text_cutter) + "
             "hole_text_collision_distance` — raise the distance for more air, not the "
             "hole diameter.",
@@ -1089,7 +1091,9 @@ THEMES: Tuple[Theme, ...] = (
                 slug="edge-aligned-clearance",
                 comment=(
                     "Left-aligned text under a left hole: it slides off its anchored "
-                    "margin, and its sibling matches so the left edges stay flush."
+                    "margin, and its sibling matches so the left edges stay flush; "
+                    "if the line switches to center, the sibling flushes onto its "
+                    "final edge."
                 ),
                 yaml_text=(
                     "job:\n"
