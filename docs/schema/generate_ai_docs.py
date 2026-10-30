@@ -97,6 +97,13 @@ _FALLBACK_NOTES: dict[str, str] = {
     "hole at or below the cutter diameter clamps to the smallest emittable circle (one plotter "
     "unit radius) with a WARNING. Cascades label/job (accepted on plates for schema parity only, "
     "never text lines); job-config supplies the shop default.",
+    "DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL": "`False` = the collision-avoidance edge-margin slide "
+    "moves only the colliding `left`/`right`-aligned line. `True` = every other line of the label "
+    "sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored "
+    "edges stay flush (the shared shift is capped by the tightest slack in the group). Only the "
+    "automatic slide is shared - declared margins are never touched, and the phase never fires "
+    "when `max_h_compress` is 0.0. Cascades label/job (accepted on plates for schema parity only, "
+    "never text lines); job-config supplies the shop default.",
     "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from text_height "
     "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "

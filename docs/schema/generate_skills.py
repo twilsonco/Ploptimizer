@@ -1085,6 +1085,31 @@ THEMES: Tuple[Theme, ...] = (
                     '    - text: "MOUNT HERE"\n'
                 ),
             ),
+            Fragment(
+                slug="edge-aligned-clearance",
+                comment=(
+                    "Left-aligned text under a left hole: it slides off its anchored "
+                    "margin, and its sibling matches so the left edges stay flush."
+                ),
+                yaml_text=(
+                    "job:\n"
+                    '  job_name: "Edge-aligned collision demo"\n'
+                    "  width: 4.0\n"
+                    "  height: 1.0\n"
+                    "  margin: 0.1\n"
+                    "  hole_margin: 0.1875\n"
+                    "  min_hole_margin: 0.1875\n"
+                    "  max_h_compress: 0.3\n"
+                    "  text_h_alignment: left\n"
+                    "  align_margin_adjust_global: true\n"
+                    "  holes:\n"
+                    "    - location: left\n"
+                    "      diameter: 0.25\n"
+                    "  content:\n"
+                    '    - text: "SERIAL 42"\n'
+                    '    - text: "REV A"\n'
+                ),
+            ),
         ),
     ),
     Theme(

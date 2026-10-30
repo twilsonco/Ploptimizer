@@ -9,6 +9,16 @@ width. A list block aligns as ONE unit (its marker column stays flush under
 config) shifts the centering when a label has a hole on ONE side only, so
 the text optically centers in the free space rather than the full width.
 
+The declared alignment is a placement rule, not a promise: text-hole collision
+avoidance can override it per line. A `left`/`right` line colliding with a hole
+on its ANCHORED side first slides off that margin (compression cannot free it —
+the anchored end stays pinned), and a line whose slide budget is exhausted
+(holes collide on both sides) switches to `center` so compression acts
+symmetrically. `align_margin_adjust_global` (cascade label → job → config,
+fallback `false`) makes same-alignment siblings match an automatic slide so the
+anchored edges stay flush. Both actions log at WARNING and appear in the layout
+report; see the holes-and-collision skill.
+
 `v_center_chars` is the per-line set of characters that define the vertical
 center band for the inline `<vc>` tag (see the inline-markup skill).
 

@@ -127,6 +127,26 @@ class TestGeneratedArtifacts:
         assert constants["DEFAULT_PLATE_WIDTH"] == repr(layout.DEFAULT_PLATE_WIDTH)
         assert constants["DEFAULT_PLATE_HEIGHT"] == repr(layout.DEFAULT_PLATE_HEIGHT)
 
+    def test_every_fallback_constant_has_a_curated_note(self) -> None:
+        """Every scraped constant carries a curated explanation.
+
+        The fallback tables render ``_FALLBACK_NOTES[name]`` (the values are
+        scraped live, the prose is curated), so a new cascade constant with no
+        note silently degrades to an em-dash in ``JOB_SPEC.md`` and every
+        sub-skill's Defaults table -- exactly the gap a field addition leaves
+        behind. A new constant must be documented, not just added.
+        """
+        constants = generator._scrape_constants()
+
+        missing = sorted(name for name in constants if name not in generator._FALLBACK_NOTES)
+        assert not missing, (
+            "add curated notes to generate_ai_docs._FALLBACK_NOTES for: " + ", ".join(missing)
+        )
+        # And no note may outlive its constant (a renamed constant would
+        # otherwise leave stale prose behind, invisible to the render).
+        stale = sorted(name for name in generator._FALLBACK_NOTES if name not in constants)
+        assert not stale, f"remove stale _FALLBACK_NOTES entries for: {', '.join(stale)}"
+
 
 class TestSchemaSelfDescribing:
     """The JSON schema must stay self-describing for AI consumers."""

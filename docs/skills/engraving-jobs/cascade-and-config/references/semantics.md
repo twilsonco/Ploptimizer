@@ -32,6 +32,7 @@ render once, before packing).
 | `hole_margin` | label → job → config | `0.1875` |
 | `min_hole_margin`, `hole_text_collision_distance` | label → job → config | see the fallback table |
 | `hole_adjust_for_cutter` | label → job → config (never lines; plate parity) | `true` |
+| `align_margin_adjust_global` | label → job → config (never lines; plate parity) | `false` |
 | `holes` | label (replaces the job list entirely; `[]` suppresses) → job → config | none |
 | `layout`, `allow_rotation`, `text_chunk_mode` | job → config | `columns` / `true` / `line` |
 | `layout` (per plate) | plate → job → config | — |

@@ -16,3 +16,22 @@ corner-holes:
           diameter: 0.125
       content:
         - text: "MOUNT HERE"
+edge-aligned-clearance:
+  # Left-aligned text under a left hole: it slides off its anchored margin, and its sibling matches so the left edges stay flush.
+  yaml: |
+    job:
+      job_name: "Edge-aligned collision demo"
+      width: 4.0
+      height: 1.0
+      margin: 0.1
+      hole_margin: 0.1875
+      min_hole_margin: 0.1875
+      max_h_compress: 0.3
+      text_h_alignment: left
+      align_margin_adjust_global: true
+      holes:
+        - location: left
+          diameter: 0.25
+      content:
+        - text: "SERIAL 42"
+        - text: "REV A"
