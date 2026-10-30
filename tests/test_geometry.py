@@ -485,12 +485,16 @@ class TestFractureLinearPaths:
         assert result.stroke_paths[0].segments == (seg,)
 
     def test_fracture_multi_segment_rectangle(self) -> None:
-        """Test that a closed rectangle is preserved as a single path (not fractured)."""
+        """Test that a closed rectangle is fractured into 4 individual segments.
+
+        Purely linear closed paths (rectangles) are fractured so that
+        simplify_overlapping_strokes can deduplicate shared edges between adjacent
+        labels without introducing coordinate gaps that cause diagonal cuts.
+        """
         from plt_optimizer.core.models import PLTDocument, StrokePath
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
         # Rectangle: (0,0) -> (100,0) -> (100,50) -> (0,50) -> (0,0)
-        # This is a closed path, so it should be preserved as one block
         seg1 = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=100.0, y=0.0),
@@ -516,9 +520,13 @@ class TestFractureLinearPaths:
 
         result = fracture_linear_paths(doc)
 
-        # Closed path should be preserved as a single path with all 4 segments
-        assert len(result.stroke_paths) == 1
-        assert len(result.stroke_paths[0].segments) == 4
+        # Purely linear closed paths are fractured into individual segments so
+        # that deduplication of shared edges between adjacent labels is safe.
+        assert len(result.stroke_paths) == 4
+        for sp, expected_seg in zip(result.stroke_paths, (seg1, seg2, seg3, seg4)):
+            assert len(sp.segments) == 1
+            assert sp.segments[0] is expected_seg
+            assert sp.pen_up_position == expected_seg.start
 
     def test_fracture_preserves_arc_paths(self) -> None:
         """Test that paths containing arcs are preserved intact."""
@@ -585,12 +593,15 @@ class TestFractureLinearPaths:
         assert len(result.stroke_paths) == 2
 
     def test_fracture_polygon(self) -> None:
-        """Test that a closed polygon is preserved as a single path (not fractured)."""
+        """Test that a closed polygon is fractured into individual segments.
+
+        Purely linear closed paths (including non-rectangular polygons) are
+        fractured, since only arc-containing paths are preserved intact.
+        """
         from plt_optimizer.core.models import PLTDocument, StrokePath
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
         # Triangle: (0,0) -> (50,100) -> (100,0) -> (0,0)
-        # This is a closed path, so it should be preserved as one block
         seg1 = StrokeSegment(
             start=Coordinate(x=0.0, y=0.0),
             end=Coordinate(x=50.0, y=100.0),
@@ -611,9 +622,12 @@ class TestFractureLinearPaths:
 
         result = fracture_linear_paths(doc)
 
-        # Closed path should be preserved as a single path with all 3 segments
-        assert len(result.stroke_paths) == 1
-        assert len(result.stroke_paths[0].segments) == 3
+        # Purely linear closed polygon is fractured into individual segments.
+        assert len(result.stroke_paths) == 3
+        for sp, expected_seg in zip(result.stroke_paths, (seg1, seg2, seg3)):
+            assert len(sp.segments) == 1
+            assert sp.segments[0] is expected_seg
+            assert sp.pen_up_position == expected_seg.start
 
 
 class TestSegmentToCoords:
@@ -873,10 +887,15 @@ class TestIsClosedPath:
 
 
 class TestFractureLinearPathsPreservesClosedPaths:
-    """Tests for fracture_linear_paths preserving closed paths (updated behavior)."""
+    """Tests for fracture_linear_paths: only arc-containing paths are preserved."""
 
-    def test_closed_rectangle_preserved(self) -> None:
-        """Test that a closed rectangular path is preserved as-is (not fractured)."""
+    def test_closed_rectangle_fractured(self) -> None:
+        """Test that a closed rectangular path is fractured into individual segments.
+
+        Purely linear closed paths are fractured so that deduplication of shared
+        edges between adjacent labels cannot introduce coordinate gaps that
+        result in diagonal cuts when the optimizer reverses the path.
+        """
         from plt_optimizer.core.models import PLTDocument
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
@@ -906,12 +925,15 @@ class TestFractureLinearPathsPreservesClosedPaths:
 
         result = fracture_linear_paths(doc)
 
-        # Closed path should NOT be fractured, should stay as one path
-        assert len(result.stroke_paths) == 1
-        assert len(result.stroke_paths[0].segments) == 4  # All 4 segments preserved
+        # Purely linear closed rectangle is fractured into 4 individual segments.
+        assert len(result.stroke_paths) == 4
+        for sp, expected_seg in zip(result.stroke_paths, (seg1, seg2, seg3, seg4)):
+            assert len(sp.segments) == 1
+            assert sp.segments[0] is expected_seg
+            assert sp.pen_up_position == expected_seg.start
 
-    def test_closed_ellipse_preserved(self) -> None:
-        """Test that a closed ellipse polygon is preserved (not fractured)."""
+    def test_closed_ellipse_polygon_fractured(self) -> None:
+        """Test that a closed ellipse polygon (no arcs) is fractured."""
         from plt_optimizer.core.models import PLTDocument
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
@@ -944,9 +966,10 @@ class TestFractureLinearPathsPreservesClosedPaths:
 
         result = fracture_linear_paths(doc)
 
-        # Closed ellipse should NOT be fractured, should stay as one path with 64 segments
-        assert len(result.stroke_paths) == 1
-        assert len(result.stroke_paths[0].segments) == 64
+        # Purely linear polygon is fractured into 64 individual segment paths.
+        assert len(result.stroke_paths) == 64
+        for sp in result.stroke_paths:
+            assert len(sp.segments) == 1
 
     def test_open_path_still_fractured(self) -> None:
         """Test that open paths are still fractured into individual segments."""
@@ -975,7 +998,7 @@ class TestFractureLinearPathsPreservesClosedPaths:
         assert len(result.stroke_paths[1].segments) == 1
 
     def test_mixed_closed_and_open_paths(self) -> None:
-        """Test that closed paths are preserved while open paths are fractured."""
+        """Test that both closed and open purely-linear paths are fractured."""
         from plt_optimizer.core.models import PLTDocument
         from plt_optimizer.utils.geometry import fracture_linear_paths
 
@@ -1025,10 +1048,8 @@ class TestFractureLinearPathsPreservesClosedPaths:
 
         result = fracture_linear_paths(doc)
 
-        # Should have 1 closed path (4 segments) + 2 fractured open segments = 3 total paths
-        assert len(result.stroke_paths) == 3
-        # First path is the closed rectangle (unchanged)
-        assert len(result.stroke_paths[0].segments) == 4
-        # Second and third are the fractured open segments
-        assert len(result.stroke_paths[1].segments) == 1
-        assert len(result.stroke_paths[2].segments) == 1
+        # Both closed (4-segment rect) and open (2-segment) paths are fractured:
+        # 4 + 2 = 6 individual single-segment paths.
+        assert len(result.stroke_paths) == 6
+        for sp in result.stroke_paths:
+            assert len(sp.segments) == 1

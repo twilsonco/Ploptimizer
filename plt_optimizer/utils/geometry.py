@@ -286,24 +286,35 @@ def fracture_linear_paths(
 
     This function decomposes continuous linear paths (rectangles, polygons, grids)
     into separate StrokePath objects so the optimizer can route between each
-    segment independently. Arc-containing paths (EngraveLab 4-arc drill holes)
-    and closed paths (ellipse boundaries, polygons) are preserved intact to
-    maintain their macro structure.
+    segment independently. Only arc-containing paths (EngraveLab 4-arc drill
+    holes, ellipse and rounded-rectangle boundaries) are preserved intact —
+    their circular/elliptical geometry must stay as one contiguous AA-arc chain.
+
+    Purely linear closed paths such as rectangular borders are **also fractured**
+    into individual segments. This is essential for correctness: when adjacent
+    labels share a border edge, ``simplify_overlapping_strokes`` deduplicates
+    the shared sub-interval by removing it from one of the closed-path segments.
+    Without fracturing, the resulting multi-segment path has a coordinate gap
+    that, after the optimizer reverses the path for routing, causes the emitter
+    to emit the wrong end-point and the plotter to cut diagonally across the
+    label face. Fracturing the border into individual segments gives each one a
+    correct ``pen_up_position`` so deduplication and reversal are both safe.
 
     Args:
         doc: The input PLTDocument containing stroke paths to fracture.
 
     Returns:
         A new PLTDocument with purely linear multi-segment paths broken apart.
-        Paths containing arcs (e.g., drill holes) and closed paths (e.g.,
-        ellipse boundaries) are passed through unchanged.
+        Paths containing arcs (e.g., drill holes, ellipse boundaries) are
+        passed through unchanged.
 
     Example:
         >>> from plt_optimizer.core.parser import PLTParser
         >>> parser = PLTParser()
         >>> doc = parser.parse_string("IN;PU0,0;PD100,0;PD100,50;PD0,50;PD0,0;SP;")
         >>> fractured = fracture_linear_paths(doc)
-        >>> # Result: 1 path (closed rectangle) instead of fracturing into segments
+        >>> len(fractured.stroke_paths)
+        4
     """
     from plt_optimizer.core.models import PLTDocument, StrokePath
 
@@ -313,23 +324,20 @@ def fracture_linear_paths(
         if not path.segments:
             continue
 
-        # Check if this path contains any arcs (drill holes)
-        has_arcs = any(isinstance(seg, ArcSegment) for seg in path.segments)
-
-        # Check if this path is a closed loop (e.g., ellipse boundary, polygon)
-        is_closed = is_closed_path(path)
-
-        if has_arcs or is_closed:
-            # Preserve arc-containing and closed paths intact
-            # - Arc-containing: EngraveLab 4-arc macro (drill holes)
-            # - Closed: perimeter paths like ellipse boundaries, rectangles
+        # Preserve arc-containing paths intact: EngraveLab drill holes and
+        # arc-native ellipse/rounded-rect boundaries must stay as one contiguous
+        # AA-arc chain.  Purely linear paths — open OR closed (rectangles) —
+        # are fractured into independent single-segment paths.
+        if any(isinstance(seg, ArcSegment) for seg in path.segments):
             fractured_paths.append(path)
         else:
-            # Fracture purely linear open paths into individual segments
+            # Fracture purely linear paths (open or closed) into individual
+            # segments. Each segment becomes its own independent StrokePath
+            # with pen_up_position set to segment.start so the optimizer can
+            # route directly to the start of each individual cut, and so that
+            # simplify_overlapping_strokes deduplication leaves no coordinate
+            # gaps in the surviving sub-paths.
             for segment in path.segments:
-                # Each segment becomes its own independent StrokePath
-                # pen_up_position is set to segment.start to allow the optimizer
-                # to route directly to the start of each individual cut
                 fractured_paths.append(
                     StrokePath(
                         pen_up_position=segment.start,
