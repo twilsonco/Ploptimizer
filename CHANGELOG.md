@@ -44,7 +44,13 @@
     must move, and every receiver takes that FULL shift: a line that no longer fits the
     content box is margin-fit compressed, and a receiver whose `max_h_compress` budget
     cannot absorb the overflow fails the job (`LabelRenderError`) - flushness is a
-    guarantee. Declared margins are never touched - only the automatic slide is shared
+    guarantee. Declared margins are never touched - only the automatic slide is shared.
+    The renderer re-runs the slide to a fixed point (bounded by the line count): the
+    shared shift is the tightest need among the colliding lines, so a line needing
+    marginally more is a hair under the threshold after the first slide, and the next
+    round lets it catch up (every line ends at the largest need) instead of escalating
+    to the center switch - which would move that line's anchored edge and drag the
+    whole flush group far inward
   - **The sibling flush (Phase-4 tail, `align_margin_adjust_global` only):** when the
     avoidance switches a line to `center`, the switch + compression repositioned that
     line's anchored edge, so the unswitched same-alignment siblings (which matched the
@@ -88,7 +94,8 @@
     and compresses to its budget floor),
     `TestAlignMarginAdjustGlobal` (flag off moves only the colliding line, flag on keeps the
     edges flush, the wide sibling taking the full shift and compressing to fit, the
-    budget-cannot-fit raise, sharing never crossing alignment values),
+    budget-cannot-fit raise, sharing never crossing alignment values, and the fixed-point
+    slide that clears a residual near-miss without the center switch),
     `TestCollisionAvoidanceProbeMode` (the avoidance-off probe fires no phase and reports
     pure margin-fit scales, a clean label renders identically, and `h_compress_global`
     never bakes a collision scale into the shared typography),

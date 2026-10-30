@@ -80,7 +80,14 @@ intersection-invariant.
   whose `max_h_compress` budget cannot absorb the resulting box overflow
   fails the job (`_check_shift_fits` raises `LabelRenderError`) — the flush
   the sharing guarantee demands is impossible, the same contract as an
-  unresolvable hole collision. The phase is gated on the same
+  unresolvable hole collision. The renderer **re-runs Phase 3 to a fixed
+  point** (bounded by the line count): the shared shift is the tightest need
+  among the colliding lines, so a line needing marginally more stays a hair
+  under the threshold after the first slide, and each round fully clears (or
+  caps out) the tightest colliding line. Re-running lets it catch up — every
+  line ends at the largest need — instead of escalating to the Phase-4
+  switch, which would move that line's anchored edge and drag the whole flush
+  group far inward. The phase is gated on the same
   `max_h_compress > 0` budget as Phase 4: a job with compression disabled
   behaves exactly as before this phase existed.
 - **Phase 4 (opt-in via `max_h_compress`): alignment switch + compression.**

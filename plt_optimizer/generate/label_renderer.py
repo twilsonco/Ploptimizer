@@ -517,7 +517,10 @@ def render_label_to_plt(
        margin-fit compression, Pass A reserving the slide's room;
        ``align_margin_adjust_global`` makes same-alignment siblings match
        the increase, and a receiver whose budget cannot absorb the
-       overflow fails the job). Compression cannot free such a line
+       overflow fails the job). The slide re-runs to a fixed point: the
+       shared shift is the tightest need among the colliding lines, so a
+       line needing marginally more is cleared by the next round instead of
+       escalating to the switch below. Compression cannot free such a line
        -- its anchored end stays pinned -- so the slide is tried first.
     4. **Alignment switch + horizontal compression** (opt-in via
        ``max_h_compress``): a colliding line that is still edge-aligned
@@ -707,13 +710,23 @@ def render_label_to_plt(
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     attempted_scale: Optional[float] = None
     if budget > 0.0:
-        edge_label = resolve_via_edge_margin(
-            base_label,
-            line_entries,
-            band_center_offset_inches=band_offset,
-            line_desc=line_desc,
-        )
-        if edge_label is not None:
+        # Phase 3 iterates to a fixed point: with ``align_margin_adjust_global``
+        # the shared shift is the tightest need among the colliding lines, so a
+        # line needing MORE stays colliding after the first slide. Re-running
+        # the slide lets it catch up (every line ends at the largest need)
+        # instead of escalating to the Phase-4 center switch -- which would
+        # move that line's anchored edge and drag the whole flush group with
+        # it. Each round fully clears (or caps out) the tightest colliding
+        # line, so len(content) rounds suffice; the bound is a safety net.
+        for _ in range(len(base_label.content) + 1):
+            edge_label = resolve_via_edge_margin(
+                base_label,
+                line_entries,
+                band_center_offset_inches=band_offset,
+                line_desc=line_desc,
+            )
+            if edge_label is None:
+                break
             edge_rendered, edge_entries = _render_label_once(
                 edge_label,
                 pen_map=pen_map,
@@ -723,16 +736,16 @@ def render_label_to_plt(
             edge_collisions = detect_text_hole_collisions(
                 edge_label, edge_entries, edge_rendered.band_center_offset_inches
             )
-            if not edge_collisions:
-                log_collisions(label, detected_collisions, level=logging.WARNING)
-                flushed = _apply_edge_flush(edge_label, edge_rendered, edge_entries)
-                return flushed or replace(edge_rendered, collision_detected=True)
-            # The slide only partially cleared the collisions (its cap stops at
-            # the far margin / a far-side hole); Phase 4 stacks on top of it.
             base_label = edge_label
             line_entries = edge_entries
             band_offset = edge_rendered.band_center_offset_inches
             collisions = edge_collisions
+            if not edge_collisions:
+                log_collisions(label, detected_collisions, level=logging.WARNING)
+                flushed = _apply_edge_flush(edge_label, edge_rendered, edge_entries)
+                return flushed or replace(edge_rendered, collision_detected=True)
+        # The slide only partially cleared the collisions (a far-side hole
+        # caps the line that still collides); Phase 4 stacks on top of it.
 
         # ---- Phase 4: switch edge-aligned lines to center + compress ----
         compressed_label = resolve_via_compression(

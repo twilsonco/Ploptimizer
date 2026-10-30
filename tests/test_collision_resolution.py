@@ -651,6 +651,8 @@ class TestKerfBufferThreshold:
 LEFT_HOLE = [ResolvedHoleSpec(diameter=0.25, location="left")]
 RIGHT_HOLE = [ResolvedHoleSpec(diameter=0.25, location="right")]
 BOTTOM_HOLE_ONLY = [ResolvedHoleSpec(diameter=0.25, location="bottom")]
+TOP_LEFT_HOLE = [ResolvedHoleSpec(diameter=0.25, location="top-left")]
+BOTTOM_LEFT_HOLE = [ResolvedHoleSpec(diameter=0.25, location="bottom-left")]
 
 
 def _edge_line(
@@ -935,6 +937,38 @@ class TestAlignMarginAdjustGlobal:
         rendered = render_label_to_plt(label)
 
         assert set(rendered.source_label.collision_edge_margin_by_line) == {0}
+
+    def test_sharing_iterates_the_slide_to_clear_residual_near_misses(self) -> None:
+        """Phase 3 re-runs until the shared slide clears every collision.
+
+        With sharing on, the first slide uses the tightest need among the
+        colliding lines; a line that needs marginally more stays a hair under
+        the threshold. Re-running the slide lets it catch up (all lines end at
+        the largest need) instead of escalating to the Phase-4 center switch --
+        which would move that line's anchored edge and drag the whole flush
+        group far inward. Regression: a 3-line label with two corner holes
+        needed three slide rounds; the single-pass phase switched a line to
+        center and flushed the siblings to a 1.33in left margin.
+        """
+        label = _edge_label(
+            ["SERIAL 42", "ID 7", "SERIAL 4"],
+            ["left", "left", "left"],
+            [*TOP_LEFT_HOLE, *BOTTOM_LEFT_HOLE],
+            align_margin_adjust_global=True,
+        )
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        # No center switch, no flush: the shared slide resolved it.
+        assert adjusted.collision_center_by_line == frozenset()
+        assert rendered.compression_by_line == {}
+        assert rendered.has_collisions is False
+        # Every line ends flush at the same anchored edge.
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        left_edges = [entry.bounds[0] for entry in entries]
+        assert all(edge == pytest.approx(0.1 + 0.3525, abs=1e-3) for edge in left_edges)
+        assert max(left_edges) - min(left_edges) < 1e-6
+        assert detect_text_hole_collisions(adjusted, entries) == []
 
 
 class TestCollisionAvoidanceProbeMode:

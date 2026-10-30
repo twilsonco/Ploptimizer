@@ -56,6 +56,10 @@ emits a `0.085` circle.
    increased margin (taking the full shared shift), so the group's anchored
    edges stay flush; the default (`false`) moves only the colliding line. A
    shared slide a line's `max_h_compress` budget cannot absorb fails the job.
+   The slide re-runs to a fixed point: the shared shift is the tightest need
+   among the colliding lines, so a line needing marginally more is cleared by
+   the next round (every line ends at the largest need) instead of escalating
+   to the center switch below.
 4. **`max_h_compress` squeeze (opt-in).** A colliding line whose slide budget
    is exhausted (holes collide on both sides) switches to `center` alignment,
    and text that still collides compresses horizontally (per its budget) — on
