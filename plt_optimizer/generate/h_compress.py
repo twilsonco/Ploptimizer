@@ -90,7 +90,11 @@ def _default_probe(label: ResolvedLabel) -> Dict[int, float]:
     """
     from plt_optimizer.generate.label_renderer import render_label_to_plt
 
-    return dict(render_label_to_plt(label).compression_by_line)
+    # Probe mode: collision avoidance is re-derived by every pipeline pass, so
+    # its per-line compression must NOT be baked into the shared typography
+    # scale (the final pass would double-charge it). Measure margin-fit
+    # (typography) compression only.
+    return dict(render_label_to_plt(label, collision_avoidance=False).compression_by_line)
 
 
 def _is_eligible(line: ResolvedTextLine) -> bool:

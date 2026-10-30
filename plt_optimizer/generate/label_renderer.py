@@ -479,6 +479,7 @@ def render_label_to_plt(
     pen_map: Optional[dict[tuple[float, str], int]] = None,
     *,
     check_glyph_coverage: bool = True,
+    collision_avoidance: bool = True,
 ) -> RenderedLabel:
     """Render a label independently to HPGL format and extract bounds.
 
@@ -486,6 +487,13 @@ def render_label_to_plt(
     Exports to temporary file with postprocessing to ensure coordinates are
     correct and expressed in integer plotter units
     (``HPGL_UNITS_PER_INCH`` units = 1 inch).
+
+    ``collision_avoidance=False`` (the measurement-probe mode used by the
+    ``h_compress_global`` and cutter-downsize pre-passes) runs detection only:
+    the phases below never fire, so ``compression_by_line`` reports the label's
+    pure **typography** (margin-fit) scales. Collision-avoidance compression is
+    re-derived by every pipeline pass; baking it into a shared typography
+    decision double-charges it in the final render.
 
     Text-hole collision avoidance runs in four phases. A (line, hole)
     pair collides when its geometric gap falls below the stroke-aware
@@ -504,9 +512,12 @@ def render_label_to_plt(
     3. **Edge-margin slide** (opt-in via ``max_h_compress``): a
        ``left``/``right``-aligned line colliding with a hole on its
        anchored side slides off that margin (its edge margin increases,
-       capped by the far margin and by a far-side hole starting to
-       collide; ``align_margin_adjust_global`` makes same-alignment
-       siblings match the increase). Compression cannot free such a line
+       capped by a far-side hole starting to collide; the content-area box
+       is NOT a cap -- a slide that overflows the box is absorbed by
+       margin-fit compression, Pass A reserving the slide's room;
+       ``align_margin_adjust_global`` makes same-alignment siblings match
+       the increase, and a receiver whose budget cannot absorb the
+       overflow fails the job). Compression cannot free such a line
        -- its anchored end stays pinned -- so the slide is tried first.
     4. **Alignment switch + horizontal compression** (opt-in via
        ``max_h_compress``): a colliding line that is still edge-aligned
@@ -516,8 +527,8 @@ def render_label_to_plt(
        clear. When ``align_margin_adjust_global`` is enabled and a switch
        happened, the unswitched same-alignment lines are then flushed so
        their anchored edges line up with the switched lines' final edges
-       (a flushed line whose far end no longer fits is compressed; a flush
-       the budget cannot clear is dropped and the unflushed layout kept).
+       (a flushed line whose far end no longer fits is compressed; a
+       receiver whose budget cannot absorb the overflow fails the job).
 
     Severity follows the outcome. A collision that an enabled phase
     resolves logs its detections at WARNING and the render proceeds
@@ -548,6 +559,11 @@ def render_label_to_plt(
             :func:`plt_optimizer.generate.ftext_renderer.render_text_line_ftext`).
             The font-showcase tool sets it False: rendering the ``.notdef``
             box *is* the coverage information a showcase reports.
+        collision_avoidance: When True (the default), the avoidance phases below
+            run and resolve collisions. When False (the measurement-probe mode),
+            detection still marks ``collision_detected`` but no phase fires:
+            the render is pure typography, so the sharing pre-passes never bake
+            a collision-avoidance scale into a typography decision.
 
     Returns:
         RenderedLabel with rendered PLT content and measured bounds. When
@@ -637,6 +653,10 @@ def render_label_to_plt(
     collisions = detect_text_hole_collisions(label, line_entries, band_offset)
     if not collisions:
         return _apply_edge_flush(label, rendered, line_entries) or rendered
+    if not collision_avoidance:
+        # Probe mode: detection is observational only. No phase fires, so the
+        # render (and its compression_by_line) is pure typography.
+        return replace(rendered, collision_detected=True)
 
     # ---- Phase 1: collision detected -- attempt resolution ----
     # Per-collision logging is deferred until the outcome is known:
@@ -5861,6 +5881,19 @@ def _render_positioned_lines(
         compression_available_width = inner_width - (2 * cutter_margin_h)
         offset = 0.0 if line.marker_text else rendered.indent_left
         compression_available_width -= offset
+        # A collision-avoidance edge margin consumes anchored-edge width: the
+        # alignment box leaves ``inner_width - 2*h_margin - offset - margin``
+        # for the line's body, and Pass C clamps a fitting line to that box.
+        # Reserve the margin here so the margin-fit compression shortens the
+        # line to the room its slide left: the anchored edge stays flush and
+        # the far edge lands on the far margin (the sharing/flush guarantee -
+        # the box is a compression constraint, never an alignment-stopping
+        # one). The Phase-3 slide caps itself by the far-side holes, so a
+        # slide that overflows the box is compressed, not escalated. Center
+        # lines (incl. the switched ones) ignore the edge margin, so it must
+        # not shrink their budget.
+        if line_index not in label.collision_center_by_line:
+            compression_available_width -= label.collision_edge_margin_by_line.get(line_index, 0.0)
 
         # Per-label shared compression (``h_compress_global``): the export
         # pre-pass measured this line's group scale. The effective scale is
