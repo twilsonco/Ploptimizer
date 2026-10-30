@@ -1,0 +1,18 @@
+job:
+  job_name: coolsys target 2164
+  material: bw(uv)
+  width: 6
+  height: 3
+  text_height: 0.25
+  font: helv1
+  text_h_alignment: left
+  align_margin_adjust_global: true
+  holes:
+    - location: corners
+  
+  labels:
+    - id: "1"
+      content:
+        - text: MT RACK 600 LBS OF R513A
+        - text: MT RACK 9.5 GALLONS OF OIL
+        - text: BITZER 85K OIL

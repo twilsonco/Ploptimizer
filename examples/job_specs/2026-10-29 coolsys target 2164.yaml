@@ -5,7 +5,8 @@ job:
   height: 3
   text_height: 0.25
   font: helv1
-  text_h_alignment: center
+  text_h_alignment: left
+  align_margin_adjust_global: false
   holes:
     - location: corners
   
@@ -18,6 +19,7 @@ job:
         - text: MT RACK 8 GALLONS OF OIL
         - text: BITZER 85K OIL
     - id : "2"
+      # line_spacing: 1.0
       content:
         - text: MT RACK 600 LBS OF R513A
         - text: MT RACK 9.5 GALLONS OF OIL
