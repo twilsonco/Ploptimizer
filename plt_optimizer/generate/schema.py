@@ -1515,12 +1515,16 @@ class LabelAttributes(TextAttributes):
             "to slide off its anchored margin to clear a drill hole, every "
             "other line of the label sharing that exact `text_h_alignment` "
             "matches the increased margin, so the group's anchored edges stay "
-            "flush. False (the default) moves only the colliding line. Only "
-            "the automatic collision-avoidance slide is shared - declared "
-            "margins are never touched. Setting the option at the job level "
-            "enables it for every label; sharing is always per-label. "
-            "Cascades label -> job (fallback false); explicit true is honored. "
-            "Accepted on plates for schema parity only."
+            "flush. When the avoidance switches a colliding line to `center`, "
+            "the unswitched same-alignment lines are additionally flushed "
+            "onto the switched lines' final anchored edge (compressing a "
+            "flushed line whose far end no longer fits). False (the default) "
+            "moves only the colliding line. Only the automatic "
+            "collision-avoidance slide is shared - declared margins are never "
+            "touched. Setting the option at the job level enables it for "
+            "every label; sharing is always per-label. Cascades label -> job "
+            "(fallback false); explicit true is honored. Accepted on plates "
+            "for schema parity only."
         ),
     )
 

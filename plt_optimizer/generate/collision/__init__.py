@@ -30,6 +30,7 @@ from plt_optimizer.generate.collision.detection import (
     collision_line_desc,
     collision_threshold,
     detect_text_hole_collisions,
+    flush_siblings_to_switched_edge,
     format_unresolvable_collision,
     log_collisions,
     resolve_via_compression,

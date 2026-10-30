@@ -48,6 +48,7 @@ from plt_optimizer.generate.collision.detection import (
     LabelRenderError,
     collision_line_desc,
     detect_text_hole_collisions,
+    flush_siblings_to_switched_edge,
     format_unresolvable_collision,
     log_collisions,
     resolve_via_compression,
@@ -512,7 +513,11 @@ def render_label_to_plt(
        (its slide budget is exhausted, i.e. holes collide on both sides)
        switches to ``center``, then text is compressed horizontally
        (stacked on top of any Phase 2/3 adjustment) until the collisions
-       clear.
+       clear. When ``align_margin_adjust_global`` is enabled and a switch
+       happened, the unswitched same-alignment lines are then flushed so
+       their anchored edges line up with the switched lines' final edges
+       (a flushed line whose far end no longer fits is compressed; a flush
+       the budget cannot clear is dropped and the unflushed layout kept).
 
     Severity follows the outcome. A collision that an enabled phase
     resolves logs its detections at WARNING and the render proceeds
@@ -573,9 +578,65 @@ def render_label_to_plt(
     # places them in the label lowers its target by this offset, so every
     # collision check against these bounds must subtract it too.
     band_offset = rendered.band_center_offset_inches
+
+    # Phase-4 tail helper, shared by every successful (collision-free) return.
+    # With ``align_margin_adjust_global`` enabled, a line whose alignment the
+    # avoidance switched to ``center`` (in this pass or an earlier pipeline
+    # pass) leaves its unswitched same-alignment siblings at the old shared
+    # margin, so the anchored edges are no longer flush. Runs the flush sweep,
+    # verifies it with a full re-render, and returns the flushed render;
+    # ``None`` when there is nothing to flush or the flush cannot clear (the
+    # caller keeps the unflushed layout). It runs on the CLEAN path too: a
+    # later pipeline pass (e.g. the cutter-downsize re-measure) moves the
+    # switched lines' final edges, so the flush must be re-applied to the
+    # geometry that is actually emitted.
+    def _apply_edge_flush(
+        resolved_label: ResolvedLabel,
+        resolved_rendered: RenderedLabel,
+        resolved_entries: Sequence[_LineEntry],
+        flush_line_desc: str = "",
+    ) -> Optional[RenderedLabel]:
+        if not (
+            resolved_label.align_margin_adjust_global and resolved_label.collision_center_by_line
+        ):
+            return None
+        flushed_label = flush_siblings_to_switched_edge(
+            resolved_label,
+            resolved_entries,
+            render=lambda sweep_label: _render_text_local_with_bounds(
+                sweep_label, line_block_cache=line_block_cache
+            ),
+            band_center_offset_inches=resolved_rendered.band_center_offset_inches,
+            line_desc=flush_line_desc,
+        )
+        if flushed_label is None:
+            return None
+        flushed_rendered, flushed_entries = _render_label_once(
+            flushed_label,
+            pen_map=pen_map,
+            check_glyph_coverage=check_glyph_coverage,
+            line_block_cache=line_block_cache,
+        )
+        flush_collisions = detect_text_hole_collisions(
+            flushed_label, flushed_entries, flushed_rendered.band_center_offset_inches
+        )
+        if flush_collisions:
+            logger.debug(
+                "Label %s: edge-margin flush onto the center-switched line(s) "
+                "would collide (%s) on lines %s; keeping the unflushed layout.",
+                resolved_label.id,
+                "; ".join(
+                    f"line {c.line_index} vs {c.hole_location} gap={c.gap:.4f}"
+                    for c in flush_collisions
+                ),
+                sorted({c.line_index for c in flush_collisions}),
+            )
+            return None
+        return replace(flushed_rendered, collision_detected=True)
+
     collisions = detect_text_hole_collisions(label, line_entries, band_offset)
     if not collisions:
-        return rendered
+        return _apply_edge_flush(label, rendered, line_entries) or rendered
 
     # ---- Phase 1: collision detected -- attempt resolution ----
     # Per-collision logging is deferred until the outcome is known:
@@ -592,13 +653,14 @@ def render_label_to_plt(
         )
         if margin_label is not None:
             log_collisions(label, detected_collisions, level=logging.WARNING)
-            resolved_rendered, _ = _render_label_once(
+            resolved_rendered, resolved_entries = _render_label_once(
                 margin_label,
                 pen_map=pen_map,
                 check_glyph_coverage=check_glyph_coverage,
                 line_block_cache=line_block_cache,
             )
-            return replace(resolved_rendered, collision_detected=True)
+            flushed = _apply_edge_flush(margin_label, resolved_rendered, resolved_entries)
+            return flushed or replace(resolved_rendered, collision_detected=True)
         # Margin alone cannot clear the collision; continue from the floor
         # margin so Phase 3 compression stacks on top of the maximum
         # allowed margin reduction.
@@ -643,7 +705,8 @@ def render_label_to_plt(
             )
             if not edge_collisions:
                 log_collisions(label, detected_collisions, level=logging.WARNING)
-                return replace(edge_rendered, collision_detected=True)
+                flushed = _apply_edge_flush(edge_label, edge_rendered, edge_entries)
+                return flushed or replace(edge_rendered, collision_detected=True)
             # The slide only partially cleared the collisions (its cap stops at
             # the far margin / a far-side hole); Phase 4 stacks on top of it.
             base_label = edge_label
@@ -677,7 +740,13 @@ def render_label_to_plt(
             )
             if not final_collisions:
                 log_collisions(label, detected_collisions, level=logging.WARNING)
-                return replace(resolved_rendered, collision_detected=True)
+                # Phase-4 tail: flush the unswitched same-alignment siblings
+                # onto the switched lines' final anchored edges (no-op unless
+                # sharing is on and a switch is present).
+                flushed = _apply_edge_flush(
+                    compressed_label, resolved_rendered, resolved_line_entries
+                )
+                return flushed or replace(resolved_rendered, collision_detected=True)
             # Compression found a scale that cleared collisions in the sweep,
             # but the final render still has collisions. Log at DEBUG level
             # since we'll report the full error diagnostics below.

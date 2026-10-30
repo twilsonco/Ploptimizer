@@ -3,7 +3,8 @@
 The collision system in one place: the stroke-aware threshold, detection
 of (text line, drill hole) pairs below it, the opt-in avoidance phases
 (hole-margin reduction, edge-margin slide for edge-aligned text, the
-alignment switch to center plus horizontal compression), the
+alignment switch to center plus horizontal compression, and the
+sibling flush onto the switched lines' final edge), the
 unresolvable-collision diagnostics, and the job-level
 :func:`assert_no_collisions` gate.
 
@@ -584,6 +585,165 @@ def switch_edge_aligned_to_center(
     return replace(
         label, collision_center_by_line=frozenset(label.collision_center_by_line) | switched
     )
+
+
+def flush_siblings_to_switched_edge(
+    label: ResolvedLabel,
+    line_entries: Sequence[_LineEntry],
+    *,
+    render: LineBoundsRender,
+    band_center_offset_inches: float = 0.0,
+    line_desc: str = "",
+) -> Optional[ResolvedLabel]:
+    """Phase 4 tail: flush unswitched siblings to the switched lines' final edge.
+
+    When ``align_margin_adjust_global`` is enabled and the Phase-4 switch moved
+    edge-aligned lines to ``center`` (centering + compression repositioned
+    them), the same-alignment lines that were NOT switched still carry the
+    Phase-3 shared margin, so their anchored edges no longer line up with the
+    switched lines. This slides each unswitched edge-aligned line so its
+    anchored edge is flush with the LEFTMOST switched line's final left edge
+    (mirrored: the rightmost final right edge for ``right``-aligned groups) --
+    the switched lines are left to their auto-adjustment.
+
+    The flush sets each sibling's edge margin to the ABSOLUTE target (it may
+    move a sibling inward for a new collision). Sliding the anchored edge
+    inward shrinks the room left for the line's far end, so a flushed sibling
+    that no longer fits gets compressed (a ``collision_compress_by_line``
+    sweep, multiplicative on any scale it already carries and floored at its
+    own ``max_h_compress`` budget) until the flush is collision-free. When the
+    budget cannot clear the flush, the whole flush is dropped (``None``) and
+    the caller keeps the unflushed resolved layout.
+
+    Args:
+        label: The resolved label (post Phase-4 switch/compression, or any
+            label carrying a previous pass's switch state).
+        line_entries: Rendered text bounds of ``label`` (the collision frame;
+            its X axis is identical to the alignment frame).
+        render: Callback re-rendering a label's text and reporting the
+            per-line bounds records (injected
+            ``label_renderer._render_text_local_with_bounds``; the flush
+            sweep's seam, same pattern as :func:`resolve_via_compression`).
+        band_center_offset_inches: The band-center offset of ``line_entries``.
+        line_desc: Optional description of the offending lines for the
+            resolution WARNING.
+
+    Returns:
+        A clone with ``collision_edge_margin_by_line`` (and, when a flushed
+        sibling no longer fits, ``collision_compress_by_line``) updated to a
+        collision-free flush, otherwise ``None`` (flag off, nothing switched,
+        no qualifying sibling, already flush, or the flush cannot clear).
+    """
+    if not label.align_margin_adjust_global or not label.collision_center_by_line:
+        return None
+    shift_y = (
+        label.height / 2.0 - band_center_offset_inches - label.hole_aware_vertical_shift_inches
+    )
+    bounds_by_line = {
+        entry.line_index: (
+            entry.bounds[0],
+            entry.bounds[1] + shift_y,
+            entry.bounds[2],
+            entry.bounds[3] + shift_y,
+        )
+        for entry in line_entries
+    }
+    left_edge, right_edge = _content_edges(label)
+
+    # Flush target per alignment: the tightest (leftmost/rightmost) final
+    # anchored edge among the switched lines of that declared alignment.
+    target_by_alignment: Dict[str, float] = {}
+    for line_index in sorted(label.collision_center_by_line):
+        if not 0 <= line_index < len(label.content):  # pragma: no cover - defensive
+            continue
+        alignment = label.content[line_index].text_h_alignment
+        if alignment not in ("left", "right"):  # pragma: no cover - switch is edge-only
+            continue
+        bounds = bounds_by_line.get(line_index)
+        if bounds is None:  # pragma: no cover - a rendered line always has bounds
+            continue
+        if alignment == "left":
+            target = max(0.0, bounds[0] - left_edge)
+        else:
+            target = max(0.0, right_edge - bounds[2])
+        if alignment in target_by_alignment:
+            target_by_alignment[alignment] = min(target_by_alignment[alignment], target)
+        else:
+            target_by_alignment[alignment] = target
+    if not target_by_alignment:  # pragma: no cover - a switch always yields a target
+        return None
+
+    flush: Dict[int, float] = {}
+    for line_index, line in enumerate(label.content):
+        flush_target = target_by_alignment.get(line.text_h_alignment)
+        if flush_target is None or line_index in label.collision_center_by_line:
+            continue
+        current = label.collision_edge_margin_by_line.get(line_index, 0.0)
+        if abs(flush_target - current) > 1e-9:
+            flush[line_index] = flush_target
+    if not flush:
+        return None
+
+    merged = dict(label.collision_edge_margin_by_line)
+    merged.update(flush)
+    candidate: ResolvedLabel = replace(label, collision_edge_margin_by_line=merged)
+
+    # Sweep: the flush shrinks the room left for each moved line's far end, so
+    # compress the flushed lines (multiplicative on their existing scale,
+    # floored at their own budget) until the flush is collision-free.
+    steps = max(1, _COMPRESSION_RESOLVE_STEPS)
+    scale_text = ""
+    for i in range(0, steps + 1):
+        if i > 0:
+            frac = i / steps
+            per_line = dict(candidate.collision_compress_by_line)
+            for line_index in flush:
+                line = label.content[line_index]
+                budget = max(0.0, min(1.0, line.max_h_compress))
+                base_scale = label.collision_compress_by_line.get(line_index, 1.0)
+                scale = max(base_scale * (1.0 - frac * budget), 1.0 - budget)
+                per_line[line_index] = min(per_line.get(line_index, 1.0), scale)
+            candidate = replace(candidate, collision_compress_by_line=per_line)
+        _lc, entries = render(candidate)
+        if not detect_text_hole_collisions(candidate, entries, band_center_offset_inches):
+            if i > 0:
+                scale_text = "; compressed " + ", ".join(
+                    f"line {index} to {candidate.collision_compress_by_line[index] * 100.0:.1f}% width"
+                    for index in sorted(flush)
+                    if index in candidate.collision_compress_by_line
+                )
+            break
+    else:
+        logger.debug(
+            "Label %s: flushing the %s-aligned sibling(s) to the center-switched "
+            "line(s) stays colliding within the max_h_compress budget; keeping "
+            "the unflushed layout.",
+            label.id,
+            "/".join(sorted(target_by_alignment)),
+        )
+        return None
+
+    for alignment, target in sorted(target_by_alignment.items()):
+        moved = [
+            index
+            for index, shift in flush.items()
+            if label.content[index].text_h_alignment == alignment
+        ]
+        if not moved:
+            continue
+        logger.warning(
+            "Label %s: flushed %d %s-aligned text line(s) (%s) to the %s edge of the "
+            "center-switched line(s) at %.4fin margin to avoid text-hole collision%s%s.",
+            label.id,
+            len(moved),
+            alignment,
+            ", ".join(f"line {index}" for index in sorted(moved)),
+            "left" if alignment == "left" else "right",
+            target,
+            scale_text,
+            f" on {line_desc}" if line_desc else "",
+        )
+    return candidate
 
 
 def resolve_via_compression(
