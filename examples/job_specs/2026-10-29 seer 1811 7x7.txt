@@ -1,0 +1,5 @@
+Rack A;Mfg. 1977;555lbs R-448a
+Rack B;Mfg. 1977;550lbs R-448a
+Rack C;Mfg. 1982;834lbs R-448a
+Prot D;Mfg. 2011;465lbs R-507
+RTU2;Mfg. 1985;14.75lbs R-22
