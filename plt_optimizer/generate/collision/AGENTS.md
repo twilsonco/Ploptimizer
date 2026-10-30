@@ -60,26 +60,33 @@ intersection-invariant.
   near-side hole) by the closed-form shift that clears the collision — a
   line translate is a rigid AABB move, so `circle_aabb_gap` is monotonic in
   the shift and the shift solving the threshold is algebraic (no sweep, no
-  re-render; the caller verifies with one render). The shift is capped by
-  the line's slack to the far content-area margin and, per far-side hole,
-  by the shift at which that hole *starts* colliding (slide until a hole
-  collides on the far side, never past it). The state rides
-  `collision_edge_margin_by_line` on `ResolvedLabel` and lands in
-  `resolution.compute_horizontal_offset(edge_margin=...)` (`left` →
+  re-render; the caller verifies with one render). The shift is capped, per
+  far-side hole, by the shift at which that hole *starts* colliding (slide
+  until a hole collides on the far side, never past it). **The content-area
+  box is NOT a cap**: a slide that pushes the line's far end past the far
+  margin is absorbed by the renderer's margin-fit compression (Pass A
+  reserves each slid line's edge margin in its compression budget), so the
+  box is a compression constraint, never an alignment-stopping one. The
+  state rides `collision_edge_margin_by_line` on `ResolvedLabel` and lands
+  in `resolution.compute_horizontal_offset(edge_margin=...)` (`left` →
   `margin + shift`, `right` → right margin − `shift`; inert on `center`,
   which has no anchored edge). When `align_margin_adjust_global` (cascade
   label → job → `job-config.json`, default **false**) is enabled, every
   other line of the label sharing the colliding line's exact
   `text_h_alignment` matches the increased margin (the group's anchored
-  edges stay flush); the shared shift is the tightest (required × cap)
-  product among the lines that must move, so no receiver is ever pushed out
-  of the content area. The phase is gated on the same `max_h_compress > 0`
-  budget as Phase 4: a job with compression disabled behaves exactly as
-  before this phase existed.
+  edges stay flush); the shared shift is the tightest (required × far-hole
+  cap) product among the lines that must move, and **every receiver takes
+  that full shift** (each capped only by its own far-hole limit). A receiver
+  whose `max_h_compress` budget cannot absorb the resulting box overflow
+  fails the job (`_check_shift_fits` raises `LabelRenderError`) — the flush
+  the sharing guarantee demands is impossible, the same contract as an
+  unresolvable hole collision. The phase is gated on the same
+  `max_h_compress > 0` budget as Phase 4: a job with compression disabled
+  behaves exactly as before this phase existed.
 - **Phase 4 (opt-in via `max_h_compress`): alignment switch + compression.**
   A colliding line that is still edge-aligned when this phase runs has
-  exhausted its slide (holes collide on both sides, or there is no slack
-  left), so `switch_edge_aligned_to_center()` flips it to `center`
+  exhausted its slide (a hole collides on BOTH sides), so
+  `switch_edge_aligned_to_center()` flips it to `center`
   (`collision_center_by_line` on `ResolvedLabel`) — centering makes the
   compression act symmetrically on *both* ends. The switch alone is checked
   first; if collisions remain, sweep a uniform horizontal compression
@@ -96,16 +103,27 @@ intersection-invariant.
   rightmost final right edge for `right`), the tightest so no sibling moves
   further than it must. The switched lines are left to their
   auto-adjustment. Sliding inward shrinks the room left for a sibling's far
-  end, so the flush sweeps compression on the flushed lines (multiplicative
-  on any scale they carry, floored at their own `max_h_compress` budget)
-  until the flush is collision-free; a flush the budget cannot clear is
-  dropped whole and the unflushed resolved layout is kept. The renderer
+  end: the box overflow is absorbed by Pass A's margin-fit compression (the
+  flush reserves each receiver's slide room in its compression budget), and a
+  receiver whose `max_h_compress` budget cannot absorb it fails the job
+  (`_check_shift_fits` raises, the same contract as Phase 3 sharing). A flush
+  that lands a sibling on a far-side HOLE sweeps compression
+  (`collision_compress_by_line`) to clear it. The renderer
   (`_apply_edge_flush` in `render_label_to_plt`) runs the flush on EVERY
   collision-free return path — including the initial clean render — because
   a later pipeline pass (e.g. the cutter-downsize re-measure) moves the
   switched lines' final edges, so the flush must be re-applied to the
   geometry that is actually emitted. The flush is verified with a full
   re-render + re-detection; only a collision-free flush is kept.
+- **Measurement probes run with avoidance OFF.** The `h_compress_global` and
+  cutter-downsize pre-passes measure a label's per-line scales by rendering
+  it, and the final pass re-derives its own avoidance — so a probe that
+  baked a *collision* scale into a shared *typography* decision (or a
+  downsize ladder) double-charged it: the final render paid compression its
+  own geometry never asked for. Both probes therefore call
+  `render_label_to_plt(label, collision_avoidance=False)`, a mode that runs
+  detection only (so `collision_detected` still marks the render) and fires
+  no phase, leaving `compression_by_line` as pure margin-fit typography.
 - **Failure semantics (only unavoidable collisions fail the job):** a
   collision that an enabled phase resolves logs its detections at WARNING
   (plus the avoidance action's own WARNING) and the render proceeds —

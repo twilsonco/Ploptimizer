@@ -261,12 +261,17 @@ JobSpec (job-level defaults)
   hole (collision Phase 3, gated on `max_h_compress > 0`), `true` makes every
   other line of the label sharing that exact `text_h_alignment` match the
   increased margin (the group's anchored edges stay flush); `false` moves only
-  the colliding line. Sharing also drives the Phase-4 *sibling flush*: when
-  the avoidance switches a line to `center`, the unswitched same-alignment
-  lines slide onto the switched lines' final anchored edge (the leftmost for
-  `left`, the rightmost for `right`), compressing a flushed line whose far
-  end no longer fits. Cascades label → job (accepted on plates for schema
-  parity only); explicit `true` is honored, only `None` means unset.
+  the colliding line. Receivers take the **full** shared shift: a line that
+  no longer fits the content box is margin-fit compressed (Pass A reserves
+  the slide's room), and a receiver whose `max_h_compress` budget cannot
+  absorb the overflow fails the job (`LabelRenderError`) — flushness is a
+  guarantee, the box is a compression constraint. Sharing also drives the
+  Phase-4 *sibling flush*: when the avoidance switches a line to `center`,
+  the unswitched same-alignment lines slide onto the switched lines' final
+  anchored edge (the leftmost for `left`, the rightmost for `right`),
+  compressing a flushed line whose far end no longer fits. Cascades label →
+  job (accepted on plates for schema parity only); explicit `true` is honored,
+  only `None` means unset.
 - `hole_text_collision_distance`: Minimum air gap in inches (`ge=0.0`,
   default `None` → resolved to **0.15**, or the `job-config.json` value when a
   config is in play — currently **0.1**) kept between the *engraved* text
@@ -1107,6 +1112,15 @@ receives a sibling's).
   `RenderedLabel.compression_by_line`) and emits `ResolvedLabel` clones
   (`dataclasses.replace`) carrying `global_compress_by_line` (line index →
   shared scale).
+- **The probe measures typography, never collision avoidance.** The probe
+  renders with `collision_avoidance=False` (detection only, no phase fires),
+  so `compression_by_line` carries the label's pure **margin-fit** scales.
+  Collision-avoidance compression (the Phase-4 squeeze, the Phase-4-tail
+  flush) is re-derived by every pipeline pass, and the final pass's own
+  avoidance is usually milder than the probe's — baking a collision scale
+  into a shared typography decision double-charges it (a line ends up
+  squeezed for a hole it no longer sits near). The cutter-downsize probe
+  shares the same rule for the same reason.
 - **The pre-pass order matters:** the shared compression runs FIRST, so the
   cutter reduction's midpoint trigger measures the **shared** scale — the
   scale the label is actually engraved at. The same nominal height therefore
@@ -1839,6 +1853,16 @@ parity only). Enum `TextHAlignment` (`left`, `center`, `right`).
   `collision_edge_margin_by_line` carries its Phase-3 slide; both feed
   `compute_horizontal_offset` in Pass C (a list group takes the maximum
   slide among its lines, so the shared marker column stays flush).
+- **Pass A reserves the slide's room in the compression budget.** For a
+  non-center line, `compression_available_width` is reduced by the line's
+  `collision_edge_margin_by_line`, so the margin-fit compression shortens a
+  slid line to the space its slide left inside the content box: the anchored
+  edge stays flush (the Pass C clamp no longer pulls it back) and the far
+  edge lands on the far margin. This is what makes the sharing/flush
+  guarantee ("the anchored edges stay flush") hold when a slide overflows the
+  box — the box is a compression constraint, not an alignment-stopping one.
+  Center lines (incl. the switched ones) ignore the edge margin, so it must
+  not shrink their budget.
 - When a line is wider than the inner area (e.g. compression disabled),
   `center` overflows symmetrically while `left`/`right` keep their aligned
   margin edge anchored and spill out the opposite side.

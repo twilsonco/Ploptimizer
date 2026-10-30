@@ -19,10 +19,13 @@
     so `circle_aabb_gap` is monotonic in the shift and the shift reaching the stroke-aware
     threshold solves algebraically (`dx = sqrt((threshold + r)^2 - dy^2)`); the phase costs
     one verification render. Near/far is decided **geometrically** (the hole centre vs. the
-    line's mid-X), so corner holes classify correctly. The slide is capped by the line's
-    slack to the FAR content-area margin (a fitting line is never pushed out of the box)
-    and, per far-side hole, by the shift at which that hole *starts* colliding - i.e. slide
-    until a hole collides on the far side, never past it. The state rides the renderer-set
+    line's mid-X), so corner holes classify correctly. The slide is capped, per far-side
+    hole, by the shift at which that hole *starts* colliding - i.e. slide until a hole
+    collides on the far side, never past it. **The content-area box is NOT a cap:** a
+    slide that pushes a line's far end past the far margin is absorbed by the renderer's
+    margin-fit compression (Pass A reserves each slid line's edge margin in its
+    compression budget), so the box is a compression constraint, never an
+    alignment-stopping one. The state rides the renderer-set
     `ResolvedLabel.collision_edge_margin_by_line` and lands in
     `resolution.compute_horizontal_offset(edge_margin=...)`
   - **Phase 4, the alignment switch:** a colliding line that is still edge-aligned when the
@@ -37,9 +40,11 @@
     `h_compress_global` for this automatic margin adjustment: `true` makes every other line
     of the label sharing the colliding line's exact `text_h_alignment` match the increased
     edge margin (the group's anchored edges stay flush), `false` moves only the colliding
-    line. The shared shift is the tightest (required x cap) product among the lines that
-    must move, so no sibling is ever pushed out of the content area. Declared margins are
-    never touched - only the automatic slide is shared
+    line. The shared shift is the tightest (required x far-hole cap) among the lines that
+    must move, and every receiver takes that FULL shift: a line that no longer fits the
+    content box is margin-fit compressed, and a receiver whose `max_h_compress` budget
+    cannot absorb the overflow fails the job (`LabelRenderError`) - flushness is a
+    guarantee. Declared margins are never touched - only the automatic slide is shared
   - **The sibling flush (Phase-4 tail, `align_margin_adjust_global` only):** when the
     avoidance switches a line to `center`, the switch + compression repositioned that
     line's anchored edge, so the unswitched same-alignment siblings (which matched the
@@ -47,13 +52,22 @@
     `flush_siblings_to_switched_edge` sets each unswitched edge-aligned line's edge margin
     to the switched lines' final anchored edge - the LEFTMOST final left edge for `left`
     groups (mirrored for `right`); the switched lines are left to their auto-adjustment.
-    Sliding inward shrinks the room left for a sibling's far end, so the flush sweeps
-    compression on the flushed lines (floored at their own `max_h_compress` budget) until
-    the flush is collision-free; a flush the budget cannot clear is dropped whole. The
+    Sliding inward shrinks the room left for a sibling's far end: the box overflow is
+    absorbed by Pass A's margin-fit compression (and a receiver whose budget cannot
+    absorb it fails the job, like the Phase-3 sharing rule), while a flush that lands a
+    sibling on a far-side HOLE sweeps compression to clear it. The
     renderer re-applies the flush on EVERY collision-free return path (including the
     initial clean render) and verifies it with a full re-render, because a later pipeline
     pass (e.g. the cutter-downsize re-measure) moves the switched lines' final edges - the
     flush must track the geometry that is actually emitted
+  - **Measurement probes run with avoidance OFF (`collision_avoidance=False`):** the
+    `h_compress_global` and cutter-downsize pre-passes measure a label by rendering it,
+    and the final pass re-derives its own collision avoidance. When the probe's render
+    hit the switch + flush (compressing two lines to 78%), that *collision* scale was
+    baked into the shared *typography* scale - the final render then paid 21.9%
+    compression on lines its own (milder) avoidance never squeezed, visibly shrinking
+    text far from any hole. Both probes now render in a detection-only mode (no phase
+    fires), so the shared scale is the label's pure margin-fit typography
   - **Gating + zero impact on existing output:** the whole addition is gated on the same
     `max_h_compress > 0` budget as the compression phase, and the slide fires only on an
     edge-aligned line with a near-side hole, so `center`-aligned jobs (the default) and jobs
@@ -69,11 +83,17 @@
   - **Pins:** `TestEdgeMarginSlide` (the left/right mirror cases with the exact closed-form
     shift, the rigid-slide proof (moved, never resized), the WARNING text, the
     `max_h_compress=0` gate, the center-aligned no-op, the content-area cap, stacking on
-    top of the Phase-2 `min_hole_margin` floor, the resolver's no-edge-collision `None`),
+    top of the Phase-2 `min_hole_margin` floor, the resolver's no-edge-collision `None`,
+    the `_max_edge_shift` box-is-not-a-cap unit cases, and the over-wide line that slides
+    and compresses to its budget floor),
     `TestAlignMarginAdjustGlobal` (flag off moves only the colliding line, flag on keeps the
-    edges flush, the tightest-sibling cap, sharing never crosses alignment values),
+    edges flush, the wide sibling taking the full shift and compressing to fit, the
+    budget-cannot-fit raise, sharing never crossing alignment values),
+    `TestCollisionAvoidanceProbeMode` (the avoidance-off probe fires no phase and reports
+    pure margin-fit scales, a clean label renders identically, and `h_compress_global`
+    never bakes a collision scale into the shared typography),
     `TestFlushSiblingsToSwitchedEdge` (the left/right flush onto the switched edge, the
-    flush-compression of a sibling that no longer fits, the budget-cannot-clear drop, the
+    flush-compression of a sibling that no longer fits, the budget-cannot-fit raise, the
     leftmost-of-multiple-switches target, mixed-alignment groups, the already-flush and
     flag-off/no-switch/center-sibling no-ops, the end-to-end flush, and the
     verification-rejects-flush path),
@@ -89,7 +109,11 @@
     the emitted text's left edge moves by exactly the recorded slide) and
     `TestEdgeMarginFlushExport` (the switched label exports clean with every emitted text
     stroke starting at one flush left edge, and the flag-off export leaves the sibling at
-    its declared margin)
+    its declared margin), `TestSharedShiftFlushCompressExport` (`tests/test_phase3_export.py`
+    - the wide sibling takes the full shared shift and compresses to stay flush, every
+    emitted stroke starting at one left edge), and `TestDefaultProbeExcludesCollision`
+    (`tests/test_cutter_downsize.py` - the downsize probe measures typography, not the
+    collision-avoidance scale)
 
 * **generate:** cutters now carry a **kerf buffer**, so the toolpath geometry and the
   `all_*.pdf` proofs model the stroke the engraver actually leaves. A V-bit with roughly

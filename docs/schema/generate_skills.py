@@ -1052,11 +1052,13 @@ THEMES: Tuple[Theme, ...] = (
             "Collision handling is 4 phases: always-on detection -> opt-in "
             "`min_hole_margin` sweep -> opt-in `max_h_compress` edge-margin slide "
             "(left/right-aligned text slides off its anchored margin; "
-            "`align_margin_adjust_global: true` makes same-alignment siblings match "
-            "the increased margin) -> alignment switch to `center` + `max_h_compress` "
-            "squeeze (with the flag on, unswitched siblings then FLUSH onto the "
-            "switched lines' final anchored edge, compressing any that no longer "
-            "fit). Unresolved collisions abort the job (`LabelRenderError`).",
+            "`align_margin_adjust_global: true` makes same-alignment siblings take "
+            "the full increased margin) -> alignment switch to `center` + "
+            "`max_h_compress` squeeze (with the flag on, unswitched siblings then "
+            "FLUSH onto the switched lines' final anchored edge). The content box "
+            "is a compression constraint, never an alignment-stopping one: a "
+            "shared slide a line's budget cannot compress into the box fails the "
+            "job. Unresolved collisions abort the job (`LabelRenderError`).",
             "The stroke floor is `0.5 * (hole_cutter + text_cutter) + "
             "hole_text_collision_distance` — raise the distance for more air, not the "
             "hole diameter.",

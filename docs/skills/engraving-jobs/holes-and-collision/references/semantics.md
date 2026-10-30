@@ -47,22 +47,25 @@ emits a `0.085` circle.
    compression cannot free a `left`/`right`-aligned line from a hole on its
    *anchored* side — the anchored edge stays pinned at the margin, so
    compressing only shortens the far end. The slide increases that line's
-   edge margin (moves it away from the near-side hole), capped by the line's
-   slack to the far margin and by the point where a far-side hole starts
-   colliding. With `align_margin_adjust_global: true`, every other line of
-   the label sharing that exact `text_h_alignment` matches the increased
-   margin, so the group's anchored edges stay flush; the default (`false`)
-   moves only the colliding line.
+   edge margin (moves it away from the near-side hole), capped by the point
+   where a far-side hole starts colliding. The content-area box is **not** a
+   cap: a slide that pushes a line's far end past the far margin is absorbed
+   by horizontal compression, so the box is a compression constraint, never
+   an alignment-stopping one. With `align_margin_adjust_global: true`, every
+   other line of the label sharing that exact `text_h_alignment` matches the
+   increased margin (taking the full shared shift), so the group's anchored
+   edges stay flush; the default (`false`) moves only the colliding line. A
+   shared slide a line's `max_h_compress` budget cannot absorb fails the job.
 4. **`max_h_compress` squeeze (opt-in).** A colliding line whose slide budget
-   is exhausted (holes collide on both sides, or there is no slack left)
-   switches to `center` alignment, and text that still collides compresses
-   horizontally (per its budget) — on a centered line compression acts
-   symmetrically and pulls both ends away from the side holes. With
-   `align_margin_adjust_global: true`, the unswitched same-alignment lines are
-   then **flushed** onto the switched lines' final anchored edge (the leftmost
-   final left edge for `left` groups, mirrored for `right`), compressing a
-   flushed line whose far end no longer fits; the switched lines keep their
-   auto-adjustment. With the flag off, a switch moves only the colliding line.
+   is exhausted (holes collide on both sides) switches to `center` alignment,
+   and text that still collides compresses horizontally (per its budget) — on
+   a centered line compression acts symmetrically and pulls both ends away
+   from the side holes. With `align_margin_adjust_global: true`, the
+   unswitched same-alignment lines are then **flushed** onto the switched
+   lines' final anchored edge (the leftmost final left edge for `left`
+   groups, mirrored for `right`), compressing a flushed line whose far end no
+   longer fits; the switched lines keep their auto-adjustment. With the flag
+   off, a switch moves only the colliding line.
 
 **Unresolved collisions fail the job** (`LabelRenderError`, non-zero exit) —
 the tool never engraves ink through a hole. Fixes, in order of preference:
