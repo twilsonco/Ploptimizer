@@ -13,3 +13,4 @@
     - parentheses () should always descend and ascend by 5% of the line height
     - brackets [] should always descend and ascend by 2% of the line height
   - We want to do this in an abstracted manner, e.g. by defining a class for this type of modification in `extract_plt_fonts.py` so that we can easily construct a list of such transformation for extracted characters. Or better would be to do so in a new json file that lives in the `fonts/` directory.
+  - Only applies to non-symbol fonts.
