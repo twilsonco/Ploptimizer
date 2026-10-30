@@ -30,6 +30,7 @@ from plt_optimizer.generate.collision.detection import (
     assert_no_collisions,
     collision_threshold,
     detect_text_hole_collisions,
+    flush_siblings_to_switched_edge,
     format_unresolvable_collision,
     resolve_via_compression,
     resolve_via_edge_margin,
@@ -899,6 +900,374 @@ class TestAlignMarginAdjustGlobal:
         rendered = render_label_to_plt(label)
 
         assert set(rendered.source_label.collision_edge_margin_by_line) == {0}
+
+
+class TestFlushSiblingsToSwitchedEdge:
+    """Phase-4 tail: flush unswitched siblings onto the switched line's edge.
+
+    With ``align_margin_adjust_global`` on, a line the avoidance switched to
+    ``center`` (centering + compression repositioned it) leaves its
+    same-alignment siblings at the old shared margin, so the anchored edges
+    are no longer flush. The flush slides each sibling to the switched lines'
+    final anchored edge (the leftmost for ``left``, the rightmost for
+    ``right``), compressing a sibling whose far end no longer fits.
+    """
+
+    @staticmethod
+    def _switched(label: ResolvedLabel) -> ResolvedLabel:
+        """The label state right after Phase 4 switched line 0 to center.
+
+        Line 0 (``SERIAL 42`` on the 2.9in label) compresses to 0.8125 and
+        centers at x ~= [0.4611, 2.4389]; the sibling sits at its declared
+        margin (0.1), so the flush target is 0.4611 - 0.1 = 0.3611in.
+        """
+        return replace(
+            label,
+            collision_center_by_line=frozenset({0}),
+            collision_compress_by_line={0: 0.8125},
+        )
+
+    def test_left_aligned_sibling_flushes_to_the_switched_edge(self) -> None:
+        """The non-colliding sibling slides to the switched line's left edge."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        state = self._switched(label)
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        flushed = flush_siblings_to_switched_edge(
+            state, entries, render=_render_text_local_with_bounds
+        )
+
+        assert flushed is not None
+        # The sibling's margin equals the switched line's final left edge.
+        assert flushed.collision_edge_margin_by_line == {1: pytest.approx(0.3611, abs=1e-3)}
+        # It fits at the flush edge: no compression needed.
+        assert flushed.collision_compress_by_line == {0: 0.8125}
+        _lc, final = _render_text_local_with_bounds(flushed)
+        by_index = {entry.line_index: entry.bounds for entry in final}
+        assert by_index[1][0] == pytest.approx(by_index[0][0])
+        assert detect_text_hole_collisions(flushed, final) == []
+
+    def test_right_aligned_group_flushes_to_the_rightmost_edge(self) -> None:
+        """The mirror case: a right-aligned sibling flushes on its right edge."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["right", "right"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        state = self._switched(label)
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        flushed = flush_siblings_to_switched_edge(
+            state, entries, render=_render_text_local_with_bounds
+        )
+
+        assert flushed is not None
+        _lc, final = _render_text_local_with_bounds(flushed)
+        by_index = {entry.line_index: entry.bounds for entry in final}
+        # Anchored on the right: the right edges line up.
+        assert by_index[1][2] == pytest.approx(by_index[0][2])
+        assert detect_text_hole_collisions(flushed, final) == []
+
+    def test_flush_compresses_a_sibling_that_no_longer_fits(self) -> None:
+        """Sliding inward shrinks the far-end room: the flush compresses it."""
+        # The 2.149in sibling ends at 2.249; at the flush edge it would reach
+        # 2.610, past the right hole, so the sweep compresses it.
+        label = _edge_label(
+            ["SERIAL 42", "SERIAL 4"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.4],
+            align_margin_adjust_global=True,
+        )
+        state = self._switched(label)
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        flushed = flush_siblings_to_switched_edge(
+            state, entries, render=_render_text_local_with_bounds
+        )
+
+        assert flushed is not None
+        assert flushed.collision_edge_margin_by_line == {1: pytest.approx(0.3611, abs=1e-3)}
+        # The sibling carries a compression scale on top of the flush.
+        assert flushed.collision_compress_by_line[1] < 1.0
+        _lc, final = _render_text_local_with_bounds(flushed)
+        by_index = {entry.line_index: entry.bounds for entry in final}
+        assert by_index[1][0] == pytest.approx(by_index[0][0])
+        assert detect_text_hole_collisions(flushed, final) == []
+
+    def test_flush_dropped_when_the_budget_cannot_clear_it(self) -> None:
+        """A sibling too wide to compress into the flush room is left alone."""
+        # The 2.67in sibling needs scale ~0.74 at the flush edge; a 0.05 budget
+        # floors it at 0.95, so no flush scale clears the right hole.
+        label = _edge_label(
+            ["SERIAL 42", "WIDE LABEL TEXT"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.4],
+            max_h_compress=0.05,
+            align_margin_adjust_global=True,
+        )
+        state = replace(label, collision_center_by_line=frozenset({0}))
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        assert (
+            flush_siblings_to_switched_edge(state, entries, render=_render_text_local_with_bounds)
+            is None
+        )
+
+    def test_disabled_flag_flushes_nothing(self) -> None:
+        """align_margin_adjust_global=false keeps the surgical per-line state."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+        )
+        state = self._switched(label)
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        assert (
+            flush_siblings_to_switched_edge(state, entries, render=_render_text_local_with_bounds)
+            is None
+        )
+
+    def test_no_switch_flushes_nothing(self) -> None:
+        """Without a switched line there is no flush edge to align to."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+
+        assert (
+            flush_siblings_to_switched_edge(label, entries, render=_render_text_local_with_bounds)
+            is None
+        )
+
+    def test_multiple_switches_flush_to_the_leftmost_edge(self) -> None:
+        """With two switched lines, the sibling flushes to the leftmost edge."""
+        # Line 2 (the short one) centers at x ~= 1.344; line 0 centers at
+        # 0.4611. The leftmost (0.4611) is the flush target.
+        label = _edge_label(
+            ["SERIAL 42", "SERIAL 4", "ID 7"],
+            ["left", "left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        state = replace(
+            label,
+            collision_center_by_line=frozenset({0, 2}),
+            collision_compress_by_line={0: 0.8125},
+        )
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        flushed = flush_siblings_to_switched_edge(
+            state, entries, render=_render_text_local_with_bounds
+        )
+
+        assert flushed is not None
+        assert flushed.collision_edge_margin_by_line == {1: pytest.approx(0.3611, abs=1e-3)}
+        _lc, final = _render_text_local_with_bounds(flushed)
+        by_index = {entry.line_index: entry.bounds for entry in final}
+        # Flush with line 0 (the leftmost switched), NOT line 2.
+        assert by_index[1][0] == pytest.approx(by_index[0][0], abs=1e-3)
+        assert by_index[1][0] < by_index[2][0]
+        assert detect_text_hole_collisions(flushed, final) == []
+
+    def test_mixed_alignment_groups_flush_independently(self) -> None:
+        """A switched group with no unswitched siblings contributes no moves."""
+        # Lines 0 (left) and 1 (right) are switched; the only unswitched
+        # edge-aligned line is left, so the right group has no receivers.
+        label = _edge_label(
+            ["SERIAL 42", "SERIAL 4", "ID 7"],
+            ["left", "right", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        state = replace(
+            label,
+            collision_center_by_line=frozenset({0, 1}),
+            collision_compress_by_line={0: 0.8125, 1: 0.8125},
+        )
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        flushed = flush_siblings_to_switched_edge(
+            state, entries, render=_render_text_local_with_bounds
+        )
+
+        assert flushed is not None
+        # Only the left group moves (to line 0's edge); line 2 is the receiver.
+        assert flushed.collision_edge_margin_by_line == {2: pytest.approx(0.3611, abs=1e-3)}
+        _lc, final = _render_text_local_with_bounds(flushed)
+        by_index = {entry.line_index: entry.bounds for entry in final}
+        assert by_index[2][0] == pytest.approx(by_index[0][0], abs=1e-3)
+        assert detect_text_hole_collisions(flushed, final) == []
+
+    def test_already_flush_sibling_is_skipped(self) -> None:
+        """A sibling already sitting on the flush edge needs no move."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        # The sibling carries exactly the flush target (0.4611 - 0.1 margin).
+        state = replace(
+            label,
+            collision_center_by_line=frozenset({0}),
+            collision_compress_by_line={0: 0.8125},
+            collision_edge_margin_by_line={1: 0.3610528923483456},
+        )
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        assert (
+            flush_siblings_to_switched_edge(state, entries, render=_render_text_local_with_bounds)
+            is None
+        )
+
+    def test_center_aligned_sibling_never_flushes(self) -> None:
+        """A center-aligned sibling has no anchored edge to move."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "center"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        state = self._switched(label)
+        _lc, entries = _render_text_local_with_bounds(state)
+
+        assert (
+            flush_siblings_to_switched_edge(state, entries, render=_render_text_local_with_bounds)
+            is None
+        )
+
+    def test_end_to_end_switch_flushes_the_sibling(self) -> None:
+        """The full render: the switched line and its sibling end up flush."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
+        # Line 0 switched to center (compression finished it); the sibling
+        # kept its declared alignment and flushed onto line 0's final edge.
+        assert adjusted.collision_center_by_line == frozenset({0})
+        assert adjusted.collision_compress_by_line[0] < 1.0
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        by_index = {entry.line_index: entry.bounds for entry in entries}
+        assert by_index[1][0] == pytest.approx(by_index[0][0], abs=1e-3)
+        assert detect_text_hole_collisions(adjusted, entries) == []
+
+    def test_flag_off_switch_leaves_the_sibling_at_its_margin(
+        self,
+    ) -> None:
+        """With sharing off, a switch does not move the sibling at all."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+        )
+        rendered = render_label_to_plt(label)
+        adjusted = rendered.source_label
+
+        assert rendered.has_collisions is False
+        assert adjusted.collision_center_by_line == frozenset({0})
+        # No flush: the sibling keeps its declared margin (no edge margin set).
+        assert adjusted.collision_edge_margin_by_line == {}
+        _lc, entries = _render_text_local_with_bounds(adjusted)
+        by_index = {entry.line_index: entry.bounds for entry in entries}
+        assert by_index[1][0] == pytest.approx(0.1)
+
+    def test_flush_dropped_when_the_final_render_disagrees(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A flush the verification render rejects keeps the unflushed layout.
+
+        The flush sweep measures with the cheap text seam; the renderer
+        verifies with the full label render. When the verification finds a
+        collision the flush is dropped and the resolved (unflushed) render is
+        returned unchanged.
+        """
+        label = _edge_label(
+            ["SERIAL 42", "SERIAL 4"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.4],
+            align_margin_adjust_global=True,
+        )
+        # Force the flush helper to hand back a label that collides: line 1
+        # stays unswitched and gets a margin shoving its far end under the
+        # right hole, so the verification render rejects the flush.
+        monkeypatch.setattr(
+            "plt_optimizer.generate.label_renderer.flush_siblings_to_switched_edge",
+            lambda resolved_label, entries, **_kw: replace(
+                resolved_label,
+                collision_center_by_line=frozenset({0}),
+                collision_compress_by_line={0: 0.8125},
+                collision_edge_margin_by_line={1: 2.5},
+            ),
+        )
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        # The rejected flush never reached the emitted label.
+        assert rendered.source_label.collision_edge_margin_by_line.get(1) != 2.5
+
+    def test_flush_logs_warning_naming_the_target(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The flush action logs at WARNING with the alignment and margin."""
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            render_label_to_plt(label)
+
+        messages = [r.getMessage() for r in caplog.records if "flushed" in r.getMessage()]
+        assert messages
+        assert "left-aligned" in messages[0]
+        assert "center-switched" in messages[0]
+        assert "line 1" in messages[0]
+        assert "0.3611in" in messages[0]
 
 
 class TestAlignmentSwitchToCenter:

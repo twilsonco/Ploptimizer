@@ -7683,3 +7683,98 @@ class TestEdgeMarginCollisionAvoidanceExport:
 
         assert slide > 0.0
         assert avoided - baseline == pytest.approx(slide, abs=1e-3)
+
+
+class TestEdgeMarginFlushExport:
+    """End-to-end: the align_margin_adjust_global flush reaches the PLT.
+
+    With sharing on and a line switched to center, the unswitched
+    same-alignment sibling must end up flush with the switched line's final
+    anchored edge in the EMITTED geometry (the switch is re-derived per
+    pipeline pass, so the flush has to survive the full export).
+    """
+
+    @staticmethod
+    def _job(**overrides: object) -> object:
+        from plt_optimizer.generate.schema import JobSpec, PlateSpec
+
+        kwargs: dict[str, object] = {
+            "job_name": "Flush Avoid",
+            "width": 2.9,
+            "height": 1.0,
+            "text_height": 0.4,
+            "font": "helv1",
+            "margin": 0.1,
+            "hole_margin": 0.1875,
+            "max_h_compress": 0.3,
+            "hole_text_collision_distance": 0.0,
+            "text_h_alignment": "left",
+            "align_margin_adjust_global": True,
+            "holes": [
+                {"location": "left", "diameter": 0.25},
+                {"location": "right", "diameter": 0.25},
+            ],
+            "plates": [PlateSpec(id="p1", width=12.0, height=12.0)],
+            "content": [
+                TextLine(text="SERIAL 42"),
+                TextLine(text="ID 7", text_height=0.12),
+            ],
+        }
+        kwargs.update(overrides)
+        return JobSpec(**kwargs)
+
+    def test_switched_label_exports_with_flushed_edges(self, tmp_path: Path) -> None:
+        """The job exports clean and every text file starts at one X."""
+        labels = resolve_job_spec(self._job())
+        assert labels[0].align_margin_adjust_global is True
+
+        result = export_per_cutter_plts(
+            labels,
+            output_dir=tmp_path,
+            job_id="flush",
+            optimize=False,
+            plots=False,
+        )
+
+        (rendered,) = result.rendered_labels.values()
+        assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
+        src = rendered.source_label
+        # Line 0 switched to center; the sibling carries the flush margin.
+        assert src.collision_center_by_line == frozenset({0})
+        assert list(src.collision_edge_margin_by_line) == [1]
+        flush = src.collision_edge_margin_by_line[1]
+        assert flush > 0.0
+
+        # Every emitted text stroke starts at the same left edge (margin
+        # 0.1 + the flush): the switched line and its sibling are flush.
+        from plt_optimizer.core.units import units_to_inches
+
+        pair_xy = re.compile(r"(-?\d+),(-?\d+)")
+        left_edges: list[float] = []
+        for path in result.plt_paths:
+            if "_txt_" not in path.name:
+                continue
+            xs = [units_to_inches(int(x)) for x, _y in pair_xy.findall(path.read_text())]
+            assert xs
+            left_edges.append(min(xs))
+        assert left_edges
+        assert max(left_edges) - min(left_edges) < 1e-3
+        assert min(left_edges) == pytest.approx(0.1 + flush, abs=1e-3)
+
+    def test_sharing_off_export_leaves_sibling_at_margin(self, tmp_path: Path) -> None:
+        """With sharing off the sibling stays at its declared margin."""
+        labels = resolve_job_spec(self._job(align_margin_adjust_global=False))
+        result = export_per_cutter_plts(
+            labels,
+            output_dir=tmp_path,
+            job_id="noflush",
+            optimize=False,
+            plots=False,
+        )
+        (rendered,) = result.rendered_labels.values()
+        assert rendered.has_collisions is False
+        src = rendered.source_label
+        assert src.collision_center_by_line == frozenset({0})
+        # No flush: the sibling keeps its declared margin (no edge margin set).
+        assert src.collision_edge_margin_by_line == {}
