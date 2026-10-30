@@ -325,30 +325,29 @@ def _max_edge_shift(
     alignment: str,
     circles: Sequence[Tuple[float, float, float]],
     threshold: float,
-    left_edge: float,
-    right_edge: float,
 ) -> float:
     """How far an edge-aligned line may slide off its anchored margin.
 
-    The cap is the smallest of:
-    - the line's slack to the FAR content-area margin (a fitting line is
-      never pushed out of the box; an overflowing line has no slack);
-    - per far-side hole, the shift at which that hole STARTS colliding
-      (the user's rule: slide until a hole collides on the far side).
+    The cap is, per far-side hole, the shift at which that hole STARTS
+    colliding (the user's rule: slide until a hole collides on the far side,
+    never past it -- beyond that cap the line collides on BOTH sides, which
+    is where the Phase-4 alignment switch takes over). The content-area box
+    is NOT a cap: a slide that pushes the line's far end past the far margin
+    is absorbed by the renderer's margin-fit compression (Pass A reserves the
+    slide's room in the compression budget), so the anchored edge stays
+    flush. The box only stops a slide through a hole.
 
     Args:
         bounds: The line's collision-frame AABB ``(x_min, y_min, x_max, y_max)``.
         alignment: ``"left"`` or ``"right"`` (the anchored side).
         circles: All hole circles (label-local, collision frame).
         threshold: The line's stroke-aware collision threshold, inches.
-        left_edge: Content box left edge, inches.
-        right_edge: Content box right edge, inches.
 
     Returns:
         The maximum non-negative slide in inches.
     """
     x_min, y_min, x_max, y_max = bounds
-    cap = (right_edge - x_max) if alignment == "left" else (x_min - left_edge)
+    cap = math.inf
     for center_x, center_y, radius in circles:
         dy = max(y_min - center_y, 0.0, center_y - y_max)
         root_sq = (threshold + radius) ** 2 - dy * dy
@@ -398,6 +397,61 @@ def _required_edge_shift(
     return max(0.0, x_max - center_x + root)
 
 
+def _check_shift_fits(
+    label: ResolvedLabel,
+    line_index: int,
+    bounds: Tuple[float, float, float, float],
+    alignment: str,
+    shift: float,
+    left_edge: float,
+    right_edge: float,
+) -> None:
+    """Raise when a shifted line cannot compress into the room left by its slide.
+
+    The content box is a compression constraint, not an alignment-stopping
+    one: the renderer's margin-fit compression shortens a slid line so its far
+    edge lands on the far margin (Pass A reserves the slide's room in the
+    compression budget), which keeps the anchored edge flush. When the line's
+    own ``max_h_compress`` budget cannot absorb the overflow, the flush the
+    sharing/flush guarantee demands is impossible -- an unresolvable collision
+    condition, and it fails the job like every other one.
+
+    Args:
+        label: The label owning the line (for the message and the budget).
+        line_index: The slid line's content index.
+        bounds: The line's collision-frame AABB.
+        alignment: ``"left"`` / ``"right"`` (the anchored side).
+        shift: The slide to check, inches.
+        left_edge: Content box left edge, inches.
+        right_edge: Content box right edge, inches.
+
+    Raises:
+        LabelRenderError: The slide's box overflow exceeds the line's budget.
+    """
+    x_min, _y_min, x_max, _y_max = bounds
+    width = x_max - x_min
+    if width <= 0.0:
+        return
+    overflow = (
+        (x_max + shift - right_edge) if alignment == "left" else (left_edge - (x_min - shift))
+    )
+    if overflow <= 1e-9:
+        return
+    line = label.content[line_index]
+    budget = max(0.0, min(1.0, line.max_h_compress))
+    required_scale = (width - overflow) / width
+    if required_scale < 1.0 - budget - 1e-9:
+        raise LabelRenderError(
+            f"Label {label.id}: text line {line_index} ({line.plain_text!r}) "
+            f"cannot keep its alignment-locked edge margin: sliding it "
+            f"{shift:.4f}in pushes its far end {overflow:.4f}in past the "
+            f"content area, which needs a horizontal scale of "
+            f"{required_scale:.3f} (max_h_compress budget floor "
+            f"{1.0 - budget:.3f}). Increase max_h_compress, widen the label, "
+            f"or shorten the text."
+        )
+
+
 def resolve_via_edge_margin(
     label: ResolvedLabel,
     line_entries: Sequence[_LineEntry],
@@ -410,16 +464,22 @@ def resolve_via_edge_margin(
     a hole on its anchored side: the anchored edge stays pinned at the
     margin, so compressing only shortens the far end. This phase increases
     that line's edge margin (slides it away from the near-side hole) by the
-    closed-form shift that clears the collision, capped by the line's slack
-    to the far margin and by the shift at which a far-side hole starts
-    colliding (beyond that cap the line collides with holes on BOTH sides,
-    which is where the Phase-4 alignment switch to center takes over).
+    closed-form shift that clears the collision, capped by the shift at which
+    a far-side hole starts colliding (beyond that cap the line collides with
+    holes on BOTH sides, which is where the Phase-4 alignment switch to center
+    takes over). The content-area box is NOT a cap: a slide that overflows the
+    far margin is absorbed by the renderer's margin-fit compression (Pass A
+    reserves the slide's room), so the box is a compression constraint, never
+    an alignment-stopping one.
 
     When ``label.align_margin_adjust_global`` is enabled, every other line
     sharing the colliding line's exact ``text_h_alignment`` matches the
     increased edge margin (the group's anchored edges stay flush); the shared
-    shift is capped by the tightest cap among all lines receiving it. When
-    disabled (the default), only the colliding line moves.
+    shift is the tightest (required x far-hole cap) among the colliding lines,
+    and every receiver takes that FULL shift (each capped only by its own
+    far-hole limit). A receiver whose ``max_h_compress`` budget cannot absorb
+    the resulting box overflow raises :class:`LabelRenderError` (flushness is
+    a guarantee). When disabled (the default), only the colliding line moves.
 
     The slide is analytical (a rigid AABB translate), so this phase costs no
     sweep renders; the caller re-renders to verify.
@@ -437,8 +497,13 @@ def resolve_via_edge_margin(
         A clone of ``label`` with ``collision_edge_margin_by_line`` set when
         at least one line can slide, otherwise ``None`` (no edge-aligned
         near-side collision, or no slide budget). The clone may only
-        PARTIALLY resolve the collisions (the cap stops the slide); the
-        caller re-detects and escalates.
+        PARTIALLY resolve the collisions (the far-hole cap stops the slide);
+        the caller re-detects and escalates.
+
+    Raises:
+        LabelRenderError: ``align_margin_adjust_global`` sharing slid a
+            receiver past the content area by more than its ``max_h_compress``
+            budget can compress away.
     """
     if not label.holes:
         return None
@@ -494,8 +559,6 @@ def resolve_via_edge_margin(
             alignment,
             circles,
             collision_threshold(label, line_index),
-            left_edge,
-            right_edge,
         )
 
     # Each colliding line's own slide: what it needs, capped by its own slack.
@@ -511,8 +574,11 @@ def resolve_via_edge_margin(
     shift_by_alignment: Dict[str, float] = {}
     if label.align_margin_adjust_global:
         # Sharing: one shift per alignment (the tightest among the lines that
-        # must move, so every receiver keeps its own cap honoured), applied to
-        # every line of that alignment -- the anchored edges stay flush.
+        # must move, so every receiver keeps its own far-hole cap honoured),
+        # applied to every line of that alignment -- the anchored edges stay
+        # flush. A receiver that no longer fits after the full shift is
+        # compressed by the renderer (Pass A); a receiver whose budget cannot
+        # absorb the overflow fails the job.
         for line_index, shift in own_shift.items():
             alignment = label.content[line_index].text_h_alignment
             shift_by_alignment[alignment] = min(shift_by_alignment.get(alignment, shift), shift)
@@ -522,6 +588,22 @@ def resolve_via_edge_margin(
                 continue
             shift = min(shared, _cap(line_index, line.text_h_alignment))
             if shift > 0.0:
+                bounds = bounds_by_line.get(line_index)
+                # The fit check guards the FLUSH guarantee, which only binds a
+                # line moved purely by sharing. A colliding line's slide clears
+                # a hole: when it overflows the box beyond its budget the line
+                # spills (collision-free, exactly the flag-off behaviour) and
+                # the far-side holes -- not the box -- decide escalation.
+                if bounds is not None and line_index not in required:
+                    _check_shift_fits(
+                        label,
+                        line_index,
+                        bounds,
+                        line.text_h_alignment,
+                        shift,
+                        left_edge,
+                        right_edge,
+                    )
                 per_line_margin[line_index] = shift
     else:
         # Surgical: each colliding line slides by exactly its own amount.
@@ -608,12 +690,15 @@ def flush_siblings_to_switched_edge(
 
     The flush sets each sibling's edge margin to the ABSOLUTE target (it may
     move a sibling inward for a new collision). Sliding the anchored edge
-    inward shrinks the room left for the line's far end, so a flushed sibling
-    that no longer fits gets compressed (a ``collision_compress_by_line``
-    sweep, multiplicative on any scale it already carries and floored at its
-    own ``max_h_compress`` budget) until the flush is collision-free. When the
-    budget cannot clear the flush, the whole flush is dropped (``None``) and
-    the caller keeps the unflushed resolved layout.
+    inward shrinks the room left for the line's far end: a flushed sibling
+    whose far end overflows the content box is compressed by the renderer's
+    margin-fit pass (Pass A reserves the slide's room), and a sibling whose
+    ``max_h_compress`` budget cannot absorb the overflow raises
+    :class:`LabelRenderError` (flushness is a guarantee). A flush that lands a
+    sibling on a far-side HOLE sweeps ``collision_compress_by_line``
+    (multiplicative on any scale it carries, floored at its budget) to clear
+    it; a flush that stays colliding within the budget is dropped (``None``)
+    and the caller keeps the unflushed resolved layout.
 
     Args:
         label: The resolved label (post Phase-4 switch/compression, or any
@@ -633,6 +718,10 @@ def flush_siblings_to_switched_edge(
         sibling no longer fits, ``collision_compress_by_line``) updated to a
         collision-free flush, otherwise ``None`` (flag off, nothing switched,
         no qualifying sibling, already flush, or the flush cannot clear).
+
+    Raises:
+        LabelRenderError: A flushed sibling's box overflow exceeds its
+            ``max_h_compress`` budget (the flush guarantee is impossible).
     """
     if not label.align_margin_adjust_global or not label.collision_center_by_line:
         return None
@@ -679,7 +768,22 @@ def flush_siblings_to_switched_edge(
         if flush_target is None or line_index in label.collision_center_by_line:
             continue
         current = label.collision_edge_margin_by_line.get(line_index, 0.0)
-        if abs(flush_target - current) > 1e-9:
+        delta = flush_target - current
+        if abs(delta) > 1e-9:
+            bounds = bounds_by_line.get(line_index)
+            if bounds is not None and delta > 0.0:
+                # A flush that slides the anchored edge inward shrinks the
+                # room left for the far end; Pass A's margin-fit compression
+                # absorbs the overflow, and a budget that cannot fails the job.
+                _check_shift_fits(
+                    label,
+                    line_index,
+                    bounds,
+                    line.text_h_alignment,
+                    delta,
+                    left_edge,
+                    right_edge,
+                )
             flush[line_index] = flush_target
     if not flush:
         return None
@@ -713,7 +817,10 @@ def flush_siblings_to_switched_edge(
                     if index in candidate.collision_compress_by_line
                 )
             break
-    else:
+    else:  # pragma: no cover - defensive: box overflow raises in _check_shift_fits
+        # Reachable only when a flush that FITS the box lands a sibling on a
+        # far-side hole the budget cannot compress clear; the sharing/flush
+        # fit check already fails the job on the (common) box-overflow case.
         logger.debug(
             "Label %s: flushing the %s-aligned sibling(s) to the center-switched "
             "line(s) stays colliding within the max_h_compress budget; keeping "

@@ -2433,12 +2433,16 @@ class ResolvedLabel:
             increase (see :attr:`collision_edge_margin_by_line`) is matched by
             every other line of the label sharing the colliding line's exact
             `text_h_alignment` (so the group's anchored edges stay flush).
-            Also enables the Phase-4 sibling flush: when a line is switched to
-            `center` (see :attr:`collision_center_by_line`), the unswitched
-            same-alignment lines slide onto the switched lines' final anchored
-            edge. `False` (the default, from the `align_margin_adjust_global`
-            cascade, label -> job -> `job-config.json`) moves only the
-            colliding line. Set by the resolution engine.
+            Receivers take the full shared shift: a line that no longer fits
+            the content box is margin-fit compressed by the renderer, and a
+            line whose `max_h_compress` budget cannot absorb the overflow
+            fails the job. Also enables the Phase-4 sibling flush: when a line
+            is switched to `center` (see :attr:`collision_center_by_line`),
+            the unswitched same-alignment lines slide onto the switched lines'
+            final anchored edge. `False` (the default, from the
+            `align_margin_adjust_global` cascade, label -> job ->
+            `job-config.json`) moves only the colliding line. Set by the
+            resolution engine.
         cutter_downsize_by_line: Mapping of line index to the `(original,
             final)` cutter diameters in inches for lines whose *automatic*
             cutter was reduced by the compression-driven cutter reduction
