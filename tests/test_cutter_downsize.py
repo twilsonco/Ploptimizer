@@ -20,7 +20,11 @@ from plt_optimizer.generate.cutter_downsize import (
     _reduce_line,
     apply_compression_cutter_downsize,
 )
-from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.resolution import (
+    ResolvedHoleSpec,
+    ResolvedLabel,
+    ResolvedTextLine,
+)
 
 _INVENTORY = [0.03, 0.045, 0.06, 0.09, 0.125]
 
@@ -1267,3 +1271,47 @@ class TestKerfBufferedDownsize:
         )
         assert out[0].content[0].cutter_diameter == pytest.approx(0.09)
         assert out[0].cutter_downsize_by_line == {}
+
+
+class TestDefaultProbeExcludesCollision:
+    """The default probe measures typography, not collision-avoidance scales."""
+
+    def test_default_probe_skips_collision_compression(self) -> None:
+        """A line the avoidance compresses reports no scale to the probe.
+
+        Regression: the probe render's flush compressed a line to 78%, and
+        that collision scale drove the cutter-downsize ladder -- the final
+        pass re-derives its own (milder) avoidance, so baking the collision
+        scale in double-charged it. The probe runs in avoidance-off mode.
+        """
+        from plt_optimizer.generate.cutter_downsize import _default_probe
+
+        label = ResolvedLabel(
+            id="probe_label",
+            count=1,
+            width=2.9,
+            height=1.0,
+            margin=0.1,
+            h_margin=0.1,
+            v_margin=0.1,
+            hole_margin=0.1875,
+            holes=[ResolvedHoleSpec(diameter=0.25, location="left")],
+            content=[
+                ResolvedTextLine(
+                    text="SERIAL 42",
+                    nominal_text_height=0.4,
+                    toolpath_text_height=0.37,
+                    cutter_diameter=0.03,
+                    character_spacing=0.0,
+                    line_spacing=0.0,
+                    max_h_compress=0.3,
+                    text_h_alignment="left",
+                )
+            ],
+            hole_text_collision_distance=0.0,
+            hole_cutter_diameter=0.0,
+        )
+        # The full render's collision avoidance compresses the line; the probe
+        # (avoidance off) reports the natural (margin-fit) scale only.
+        scales = _default_probe(label)
+        assert scales.get(0, 1.0) >= 0.95

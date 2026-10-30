@@ -7778,3 +7778,76 @@ class TestEdgeMarginFlushExport:
         assert src.collision_center_by_line == frozenset({0})
         # No flush: the sibling keeps its declared margin (no edge margin set).
         assert src.collision_edge_margin_by_line == {}
+
+
+class TestSharedShiftFlushCompressExport:
+    """End-to-end: sharing flush-compresses a wide sibling (box is not a cap).
+
+    The content box is a compression constraint, not an alignment-stopping
+    one: with ``align_margin_adjust_global: true`` every same-alignment line
+    takes the FULL shared slide, and a sibling that no longer fits is
+    margin-fit compressed so its anchored edge stays flush with the
+    hole-adjusted lines.
+    """
+
+    @staticmethod
+    def _job(**overrides: object) -> object:
+        from plt_optimizer.generate.schema import JobSpec, PlateSpec
+
+        kwargs: dict[str, object] = {
+            "job_name": "Flush Compress",
+            "width": 4.0,
+            "height": 1.0,
+            "text_height": 0.4,
+            "font": "helv1",
+            "margin": 0.1,
+            "hole_margin": 0.1875,
+            "min_hole_margin": 0.1875,
+            "max_h_compress": 0.3,
+            "hole_text_collision_distance": 0.0,
+            "text_h_alignment": "left",
+            "align_margin_adjust_global": True,
+            "holes": [{"location": "left", "diameter": 0.25}],
+            "plates": [PlateSpec(id="p1", width=12.0, height=12.0)],
+            # The wide sibling leaves only ~0.05in of box slack at the shift
+            # the colliding line needs: the old box cap stopped it short.
+            "content": [TextLine(text="SERIAL 42"), TextLine(text="WIDE LABEL TE")],
+        }
+        kwargs.update(overrides)
+        return JobSpec(**kwargs)
+
+    def test_wide_sibling_flushes_by_compressing(self, tmp_path: Path) -> None:
+        """Both lines take the full shift; the wide one compresses to fit."""
+        result = export_per_cutter_plts(
+            resolve_job_spec(self._job()),
+            output_dir=tmp_path,
+            job_id="flushcompress",
+            optimize=False,
+            plots=False,
+        )
+        (rendered,) = result.rendered_labels.values()
+        src = rendered.source_label
+        assert rendered.has_collisions is False
+        # Both lines take the colliding line's full required shift (the wide
+        # sibling is NOT capped by its box slack any more).
+        assert sorted(src.collision_edge_margin_by_line) == [0, 1]
+        shift = src.collision_edge_margin_by_line[0]
+        assert shift == pytest.approx(src.collision_edge_margin_by_line[1])
+        assert shift > 0.3
+        # The wide sibling paid a margin-fit compression for the flush.
+        assert rendered.compression_by_line[1] < 1.0
+
+        # The emitted text strokes all start at one flush left edge.
+        from plt_optimizer.core.units import units_to_inches
+
+        pair_xy = re.compile(r"(-?\d+),(-?\d+)")
+        left_edges: list[float] = []
+        for path in result.plt_paths:
+            if "_txt_" not in path.name:
+                continue
+            xs = [units_to_inches(int(x)) for x, _y in pair_xy.findall(path.read_text())]
+            assert xs
+            left_edges.append(min(xs))
+        assert left_edges
+        assert max(left_edges) - min(left_edges) < 1e-3
+        assert min(left_edges) == pytest.approx(0.1 + shift, abs=2e-3)

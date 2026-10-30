@@ -867,8 +867,14 @@ class TestAlignMarginAdjustGlobal:
         left_edges = [round(entry.bounds[0], 6) for entry in entries]
         assert left_edges == [pytest.approx(0.4525, abs=1e-6)] * 2
 
-    def test_shared_shift_respects_the_tightest_sibling_cap(self) -> None:
-        """A sibling with less slack caps the shared shift for the whole group."""
+    def test_shared_shift_flushes_the_wide_sibling_by_compressing_it(self) -> None:
+        """A sibling with less slack takes the full shift and compresses to fit.
+
+        The content box is a compression constraint, not an alignment-stopping
+        one: the wide sibling slides the full shared shift and the margin-fit
+        compression shortens it so its far edge lands on the far margin, which
+        keeps the anchored edges flush.
+        """
         # The wide second line leaves only ~0.05in of slack on the right.
         label = _edge_label(
             ["SERIAL 42", "WIDE LABEL TE"],
@@ -879,14 +885,43 @@ class TestAlignMarginAdjustGlobal:
         rendered = render_label_to_plt(label)
         adjusted = rendered.source_label
 
-        # The shared shift is the sibling's cap, not the colliding line's need.
-        shift = adjusted.collision_edge_margin_by_line[0]
-        assert 0.0 < shift < 0.3525
-        assert adjusted.collision_edge_margin_by_line[1] == pytest.approx(shift)
+        # Both lines take the colliding line's full required shift.
+        assert adjusted.collision_edge_margin_by_line == {
+            0: pytest.approx(0.3525),
+            1: pytest.approx(0.3525),
+        }
         _lc, entries = _render_text_local_with_bounds(adjusted)
+        by_index = {entry.line_index: entry.bounds for entry in entries}
+        # Flush anchored edges, and the wide sibling's far edge respects the box.
+        assert by_index[0][0] == pytest.approx(by_index[1][0], abs=1e-3)
+        assert by_index[1][2] <= label.width - label.h_margin + 1e-9
+        # The flush cost the wide sibling a margin-fit compression.
+        assert rendered.compression_by_line[1] < 1.0
         assert detect_text_hole_collisions(adjusted, entries) == []
-        for entry in entries:
-            assert entry.bounds[2] <= label.width - label.h_margin + 1e-9
+
+    def test_shared_shift_raises_when_a_receiver_budget_cannot_fit(self) -> None:
+        """A non-colliding receiver whose budget cannot absorb the overflow fails.
+
+        The flush guarantee binds a line moved purely by sharing: it must end
+        flush, so a box overflow beyond its ``max_h_compress`` budget is
+        unresolvable. (A *colliding* line's slide clears a hole and is allowed
+        to spill -- the far-side holes, not the box, decide its escalation.)
+        """
+        # Line 0 (0.4in) collides with the left hole and needs +0.3525; the
+        # 0.25in wide sibling does NOT collide, overflows the box by ~0.22in at
+        # the shared shift, needing scale 0.940 -- below its 0.95 budget floor.
+        label = _edge_label(
+            ["SERIAL 42", "WIDE LABEL TEXT XXXXX"],
+            ["left", "left"],
+            LEFT_HOLE,
+            heights=[0.4, 0.25],
+            max_h_compress=0.05,
+            align_margin_adjust_global=True,
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+
+        with pytest.raises(LabelRenderError, match="cannot keep its alignment-locked"):
+            resolve_via_edge_margin(label, entries)
 
     def test_sharing_never_crosses_alignment_values(self) -> None:
         """A center-aligned sibling is never given the left-aligned slide."""
@@ -900,6 +935,66 @@ class TestAlignMarginAdjustGlobal:
         rendered = render_label_to_plt(label)
 
         assert set(rendered.source_label.collision_edge_margin_by_line) == {0}
+
+
+class TestCollisionAvoidanceProbeMode:
+    """``collision_avoidance=False``: detection only, no phase fires."""
+
+    def test_probe_mode_skips_every_phase(self) -> None:
+        """A label the phases would fix renders untouched (typography only)."""
+        # Both-side holes: the full render switches line 0 to center and
+        # compresses it; the probe render must do neither.
+        label = _edge_label(["SERIAL 42"], ["left"], SIDE_HOLES, width=2.9)
+        full = render_label_to_plt(label)
+        probe = render_label_to_plt(label, collision_avoidance=False)
+
+        assert full.has_collisions is False
+        assert sorted(full.source_label.collision_center_by_line) == [0]
+        # The probe detects (observational) but never acts.
+        assert probe.collision_detected is True
+        assert probe.source_label is label
+        assert probe.source_label.collision_center_by_line == frozenset()
+        assert probe.source_label.collision_edge_margin_by_line == {}
+        assert probe.source_label.collision_compress_by_line == {}
+        assert probe.source_label.hole_margin == label.hole_margin
+        # The probe's scales are pure margin-fit typography (no collision squeeze).
+        assert probe.compression_by_line.get(0, 1.0) >= full.compression_by_line.get(0, 1.0)
+
+    def test_probe_mode_clean_label_is_unchanged(self) -> None:
+        """A label with no collision renders identically in probe mode."""
+        label = _edge_label(["SHORT"], ["left"], [])
+        full = render_label_to_plt(label)
+        probe = render_label_to_plt(label, collision_avoidance=False)
+
+        assert probe.collision_detected is False
+        assert probe.plt_content == full.plt_content
+
+    def test_sharing_probe_excludes_collision_compression(self) -> None:
+        """The h_compress_global probe never bakes a collision scale in.
+
+        Regression: the measurement render's flush compressed two lines to
+        78%, and that collision scale was shared to every same-height line as
+        if it were typography -- the final render (needing no flush) then paid
+        21.9% compression the geometry never asked for.
+        """
+        from plt_optimizer.generate.h_compress import apply_global_h_compress
+
+        label = _edge_label(
+            ["SERIAL 42", "ID 7"],
+            ["left", "left"],
+            SIDE_HOLES,
+            width=2.9,
+            heights=[0.4, 0.12],
+            align_margin_adjust_global=True,
+        )
+        # The full render switches line 0 to center and compresses it to 81%.
+        full = render_label_to_plt(label)
+        assert full.compression_by_line[0] < 0.9
+
+        shared = apply_global_h_compress([label])
+        # The probe (avoidance off) sees no compressed line, so nothing is
+        # shared -- the collision scale never leaks into typography.
+        assert shared[0].global_compress_by_line == {}
 
 
 class TestFlushSiblingsToSwitchedEdge:
@@ -1006,10 +1101,11 @@ class TestFlushSiblingsToSwitchedEdge:
         assert by_index[1][0] == pytest.approx(by_index[0][0])
         assert detect_text_hole_collisions(flushed, final) == []
 
-    def test_flush_dropped_when_the_budget_cannot_clear_it(self) -> None:
-        """A sibling too wide to compress into the flush room is left alone."""
-        # The 2.67in sibling needs scale ~0.74 at the flush edge; a 0.05 budget
-        # floors it at 0.95, so no flush scale clears the right hole.
+    def test_flush_raises_when_the_budget_cannot_clear_it(self) -> None:
+        """A sibling too wide to compress into the flush room fails the job."""
+        # The 2.67in sibling needs scale ~0.62 at the flush edge; a 0.05 budget
+        # floors it at 0.95, so no flush scale fits -- the flush guarantee
+        # (edges must align) cannot be met, so the collision fails the job.
         label = _edge_label(
             ["SERIAL 42", "WIDE LABEL TEXT"],
             ["left", "left"],
@@ -1022,10 +1118,8 @@ class TestFlushSiblingsToSwitchedEdge:
         state = replace(label, collision_center_by_line=frozenset({0}))
         _lc, entries = _render_text_local_with_bounds(state)
 
-        assert (
+        with pytest.raises(LabelRenderError, match="cannot keep its alignment-locked"):
             flush_siblings_to_switched_edge(state, entries, render=_render_text_local_with_bounds)
-            is None
-        )
 
     def test_disabled_flag_flushes_nothing(self) -> None:
         """align_margin_adjust_global=false keeps the surgical per-line state."""
@@ -1361,18 +1455,46 @@ class TestAlignmentSwitchToCenter:
 class TestEdgeMarginSlideUnitCases:
     """Direct unit coverage for the Phase-3 helper branches."""
 
+    def test_max_edge_shift_ignores_the_far_margin(self) -> None:
+        """The content box is not a slide cap: only a far-side hole caps it."""
+        from plt_optimizer.generate.collision.detection import _max_edge_shift
+
+        # A line whose far end already sits at the far margin: the old box cap
+        # returned 0; with no far-side hole the slide is uncapped.
+        bounds = (0.1, 0.4, 3.9, 0.6)
+        uncapped = _max_edge_shift(bounds, "left", [], 0.0)
+        assert uncapped > 100.0  # math.inf in practice
+        # A far-side hole on the line's band caps the slide at its near edge.
+        capped = _max_edge_shift(bounds, "left", [(4.5, 0.5, 0.1)], 0.1)
+        assert 0.0 < capped < 0.6
+        # A vertically unreachable hole never caps a horizontal slide.
+        assert _max_edge_shift(bounds, "left", [(4.5, 3.0, 0.1)], 0.1) == uncapped
+
     def test_no_holes_returns_none(self) -> None:
         """A label without holes has nothing to slide away from."""
         label = _edge_label(["SERIAL 42"], ["left"], [])
         _lc, entries = _render_text_local_with_bounds(label)
         assert resolve_via_edge_margin(label, entries) is None
 
-    def test_no_slack_returns_none(self) -> None:
-        """A line already filling the content area has no slide budget."""
-        # 4.34in of text inside a 3.8in content box: the far-margin cap is 0.
+    def test_over_wide_line_slides_and_compresses_to_its_floor(self) -> None:
+        """The content box is not a slide cap: an over-wide line slides anyway.
+
+        Only a far-side HOLE stops the slide. A line wider than the content
+        box overflows before and after; the renderer's margin-fit compression
+        absorbs as much of the slide as the line's ``max_h_compress`` budget
+        allows, and the slide clears the near-side hole collision-free.
+        """
+        # 4.34in of text inside a 3.8in content box, no far-side hole.
         label = _edge_label(["WIDE LABEL TEXT"], ["left"], LEFT_HOLE, width=3.0)
         _lc, entries = _render_text_local_with_bounds(label)
-        assert resolve_via_edge_margin(label, entries) is None
+        slid = resolve_via_edge_margin(label, entries)
+
+        assert slid is not None
+        assert slid.collision_edge_margin_by_line[0] == pytest.approx(0.3525)
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is False
+        # The slide cost the over-wide line its full compression budget.
+        assert rendered.compression_by_line[0] == pytest.approx(0.7, rel=1e-3)
 
     def test_rounded_rectangle_uses_the_inset_content_box(self) -> None:
         """A rounded label's slide cap follows the inset, not the raw margin."""
@@ -1438,11 +1560,15 @@ class TestUnresolvableDiagnosticsState:
         assert "Edge-margin slide: line 0 (+0.2500in)" in message
         assert "Alignment switched to center: 0" in message
 
-    def test_zero_slack_sibling_is_skipped_by_the_shared_shift(self) -> None:
-        """A sibling with no slide budget (it overflows) receives nothing."""
-        # The second line is wider than the content box: its far-margin cap is
-        # 0, so the shared shift (min of the group) collapses to 0 for it and
-        # only the colliding line slides.
+    def test_over_wide_sibling_still_takes_the_shared_shift(self) -> None:
+        """A sibling with no box slack is not skipped: it slides and compresses.
+
+        The box is a compression constraint, so the over-wide sibling receives
+        the full shared shift; the renderer's margin-fit compression absorbs the
+        overflow up to its ``max_h_compress`` floor, and the anchored edges
+        stay flush.
+        """
+        # The second line is wider than the content box.
         label = _edge_label(
             ["SERIAL 42", "WIDE LABEL TEXT XXXXX"],
             ["left", "left"],
@@ -1453,4 +1579,13 @@ class TestUnresolvableDiagnosticsState:
         slid = resolve_via_edge_margin(label, entries)
 
         assert slid is not None
-        assert set(slid.collision_edge_margin_by_line) == {0}
+        assert slid.collision_edge_margin_by_line == {
+            0: pytest.approx(0.3525),
+            1: pytest.approx(0.3525),
+        }
+        rendered = render_label_to_plt(label)
+        assert rendered.has_collisions is False
+        assert rendered.compression_by_line[1] < 1.0
+        _lc, final = _render_text_local_with_bounds(rendered.source_label)
+        by_index = {entry.line_index: entry.bounds for entry in final}
+        assert by_index[0][0] == pytest.approx(by_index[1][0], abs=1e-3)
