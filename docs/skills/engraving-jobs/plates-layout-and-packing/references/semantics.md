@@ -23,6 +23,14 @@
 - `layout: columns` (default) fills each plate's **height** before extending
   rightward — the scrap-friendly single rectangular block.
 - `layout: rows` is the historical width-first fill.
+- `layout: columns-simple` / `rows-simple` bypass bin packing: labels place
+  one at a time in strict content order on a flush grid (top-to-bottom then
+  right, resp. left-to-right then down), never rotated — the VisionPro
+  "Multiples" (EngraveLab "Badges") behavior. Each column spans the widest
+  label it received (each row the tallest), fixed for its whole length, so a
+  3"-wide column mixed with 4"-wide labels starts the next column at x=4.
+  An explicit `allow_rotation: true` is rejected with a simple layout
+  (omitting `allow_rotation` is fine); round labels keep ellipse packing.
 - Cascade job → config, with a **per-plate override** (`plate → job →
   config`): mixed modes split packing into sequential same-mode groups.
 

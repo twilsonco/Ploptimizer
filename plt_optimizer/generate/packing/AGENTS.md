@@ -2,7 +2,9 @@
 
 The packing engines live in this package: `packing/layout.py` (the `rectpack`
 bounds-aware multi-heuristic engine for rectangular labels - rotation, fill
-order, plate clearances, material partitioning) and `packing/ellipse_packer.py` (the
+order, plate clearances, material partitioning), `packing/simple_grid.py` (the
+rectpack-free flush content-order grid fill behind the `columns-simple` /
+`rows-simple` fill-order modes) and `packing/ellipse_packer.py` (the
 pure-shapely grid-search engine for `type: round` labels). Plate-frame TSP
 *routing* is not packing and stays in `../plate_optimizer.py`; assembly/export
 in `../vectorize.py`; the shared routing pipeline in `../core/` (see
@@ -187,7 +189,9 @@ packer test both orientations (0°/90°) for every label instance.
 preferential plate fill order. `columns` fills each plate's **height** before
 extending rightward (so the used area grows up the engraving area first and
 the unused material stays one clean rectangular block for scrap reuse);
-`rows` fills width before extending downward (the historical behavior). It
+`rows` fills width before extending downward (the historical behavior).
+`columns-simple` / `rows-simple` skip bin packing for a flush content-order
+grid fill (see below). It
 cascades job → plate: `PlateSpec.layout` (`None` = inherit) overrides per
 plate. Threading mirrors `allow_rotation` (read from `JobSpec` at the CLI /
 integration-test call sites, passed as a keyword into
@@ -242,6 +246,49 @@ it is a global packing concern and never enters `ResolvedLabel`.
 - Example fixture: `tests_deps/columns_demo_job.yaml` (pinned by
   `tests/test_layout.py::TestColumnsDemoExample`) — 16 3x1 labels on a 24x16
   sheet pack into one full-height column (bounding box 3x16).
+
+#### Simple Grid Fill (`columns-simple` / `rows-simple`)
+
+`LayoutMode.COLUMNS_SIMPLE` / `LayoutMode.ROWS_SIMPLE` bypass `rectpack`
+entirely (VisionPro "Multiples" / EngraveLab "Badges" parity): labels are
+placed one at a time in **strict content order** on a flush grid, never
+rotated. `columns-simple` fills each column **top-to-bottom** (device frame,
+y-down — no transposition) before extending rightward; `rows-simple` fills
+each row left-to-right before extending downward. The engine lives in
+`packing/simple_grid.py::pack_simple_grid`; `_pack_group` dispatches to it
+before `_pack_best` is ever reached, so pinning, material partitioning,
+per-plate overrides, unbounded auto-bins, clearance shifting and the
+leftover → `LayoutFitError` paths are all reused untouched.
+
+- **Fixed band size (the only "optimization"):** a column spans the widest
+  label placed in it (a row the tallest), fixed for the band's whole length.
+  A column mixing 1x3 and 1x4 labels starts the next column at x=4 for
+  *every* label in it (the flush x=3 ragged variant is deliberately NOT
+  implemented — the simpler fixed width was chosen).
+- **Band/plate advance:** the first label that no longer fits the current
+  column (resp. row) closes it and opens the next; a label that would push
+  the next band past the plate's cross limit ends the plate, and the
+  remainder cascades to the next plate (then to leftover →
+  `LayoutFitError`). A label larger than the usable area stops the plate at
+  it: content order is sacred, later labels never jump the queue.
+- **No rotation, enforced at the schema:** `JobSpec._reject_rotation_with_simple_layout`
+  raises when a simple mode (job-level or any plate-level override) is
+  combined with an *explicit* `allow_rotation: true` (a `job-config.json`
+  injection counts — it lands as an explicit job-layer value). Omitting
+  `allow_rotation` is fine: the simple engine ignores it and emits
+  `rotated=False` placements.
+- **Round labels are exempt:** `_split_shape_entries` routes `round` labels
+  to the ellipse pipeline regardless of mode; `_scrap_direction` maps
+  `columns-simple` → PREFER_WIDTH and `rows-simple` → PREFER_HEIGHT (the
+  simple modes' non-simple counterparts).
+- **Reader order is free:** placements are emitted in content order, which
+  is already the reader's fill order in the device frame — the
+  `_reorder_ids_for_reader_order` pass (transposed rectpack only) never
+  applies.
+- Example fixture: `tests_deps/simple_layout_job.yaml` (pinned by
+  `tests/test_layout.py::TestSimpleLayout::test_simple_fixture_job_pins_the_mixed_size_grid`)
+  — 10 3x1 + 10 4x1 labels on a 24x16 sheet: column 1 stacks 16 labels
+  (y=0..15) and fixes its width to 4", so the 17th opens column 2 at x=4.
 
 ### Plate Edge Clearances (`left_clearance` / `top_clearance`)
 

@@ -313,18 +313,51 @@ class LayoutMode(str, Enum):
     bottom-row fill algorithm and mapping every placement back into plate
     space (see `plt_optimizer.generate.packing.layout`).
 
+    The `*-simple` modes bypass `rectpack` entirely: labels are placed
+    one at a time in strict content order on a flush grid, never rotated
+    (this mirrors the VisionPro "Multiples" / EngraveLab "Badges"
+    behavior). `columns-simple` fills each column top-to-bottom before
+    extending rightward; `rows-simple` fills each row left-to-right
+    before extending downward. A column (resp. row) spans the widest
+    (resp. tallest) label placed in it, fixed for its whole length, so a
+    1x3/1x4 mix starts the second column at x=4 for the entire column.
+    Round labels are exempt: they always keep the ellipse-packer layout
+    optimization regardless of mode.
+
     Attributes:
-        ROWS: Fill the plate row by row.
-        COLUMNS: Fill the plate column by column.
+        ROWS: Fill the plate row by row (rectpack).
+        COLUMNS: Fill the plate column by column (rectpack).
+        ROWS_SIMPLE: Grid-fill each row left-to-right, then down.
+        COLUMNS_SIMPLE: Grid-fill each column top-to-bottom, then right.
     """
 
     ROWS = "rows"
     COLUMNS = "columns"
+    ROWS_SIMPLE = "rows-simple"
+    COLUMNS_SIMPLE = "columns-simple"
 
 
 # Default plate fill order: column-major, so labels stack up the plate
 # height and only extend rightward as far as necessary.
 DEFAULT_LAYOUT_MODE: LayoutMode = LayoutMode.COLUMNS
+
+#: Layout modes that use the simple grid-fill engine instead of `rectpack`.
+SIMPLE_LAYOUT_MODES: frozenset[LayoutMode] = frozenset(
+    {LayoutMode.ROWS_SIMPLE, LayoutMode.COLUMNS_SIMPLE}
+)
+
+
+def is_simple_layout(layout: LayoutMode) -> bool:
+    """Return True when the fill-order mode uses the simple grid engine.
+
+    Args:
+        layout: The plate/job fill-order mode.
+
+    Returns:
+        True for `rows-simple` / `columns-simple` (no rectpack, no
+        rotation), False for the bin-packed modes.
+    """
+    return layout in SIMPLE_LAYOUT_MODES
 
 
 def normalize_material(value: Optional[str]) -> Optional[str]:
@@ -2484,7 +2517,11 @@ class PlateSpec(BaseModel):
     )
     layout: Optional[LayoutMode] = Field(
         default=None,
-        description="Per-plate fill-order override (None = inherit the job layout).",
+        description=(
+            "Per-plate fill-order override (None = inherit the job layout). "
+            "Simple modes ('columns-simple'/'rows-simple') grid-fill this "
+            "plate without bin packing and never rotate labels."
+        ),
     )
     material: Optional[str] = Field(
         default=None,
@@ -2840,7 +2877,10 @@ class JobSpec(LabelAttributes):
         description=(
             "Preferential plate fill order: 'columns' (default) fills the "
             "plate height before extending rightward; 'rows' fills width "
-            "before extending downward."
+            "before extending downward. 'columns-simple'/'rows-simple' "
+            "bypass bin packing with a flush grid fill in content order "
+            "(no rotation; incompatible with an explicit "
+            "`allow_rotation: true`)."
         ),
     )
     left_clearance: Optional[float] = Field(
@@ -2981,6 +3021,41 @@ class JobSpec(LabelAttributes):
             else:
                 updated_plates.append(plate)
         self.plates = updated_plates
+        return self
+
+    @model_validator(mode="after")
+    def _reject_rotation_with_simple_layout(self) -> JobSpec:
+        """Reject an explicit `allow_rotation: true` with a simple layout.
+
+        The simple grid-fill modes (`columns-simple` / `rows-simple`) place
+        every label unrotated by definition (VisionPro "Multiples" parity),
+        so declaring rotation alongside one is a contradiction. Only an
+        *explicit* value counts (job layer, incl. a `job-config.json`
+        injection, which lands as an explicit job-layer value): omitting
+        `allow_rotation` is fine — the simple engine forces rotation off.
+        A simple mode set on any plate triggers the rule too, since the job
+        packs one rotation policy.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If a simple layout (job-level or any plate-level
+                override) is combined with an explicit
+                `allow_rotation: true`.
+        """
+        declared = [self.layout, *(plate.layout for plate in self.plates or [])]
+        layouts = {mode for mode in declared if mode is not None and mode in SIMPLE_LAYOUT_MODES}
+        if not layouts:
+            return self
+        if "allow_rotation" in self.model_fields_set and self.allow_rotation:
+            simple = ", ".join(sorted(mode.value for mode in layouts))
+            raise ValueError(
+                f"layout '{simple}' never rotates labels (simple grid fill), "
+                "so it cannot be combined with an explicit `allow_rotation: "
+                "true`. Remove the `allow_rotation` declaration (the simple "
+                "layout keeps every label horizontal) or set it to false."
+            )
         return self
 
     @model_validator(mode="after")

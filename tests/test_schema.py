@@ -624,7 +624,7 @@ class TestLayoutMode:
         assert job.layout is LayoutMode.COLUMNS
 
     def test_invalid_mode_rejected(self, tmp_path: Path) -> None:
-        """Only 'rows' and 'columns' are valid fill orders."""
+        """Only the four LayoutMode values are valid fill orders."""
         spec_path = tmp_path / "bad_layout.yaml"
         spec_path.write_text(
             "job:\n"
@@ -666,6 +666,127 @@ class TestLayoutMode:
         assert job.layout is LayoutMode.COLUMNS
         assert job.plates is not None
         assert job.plates[0].layout is LayoutMode.ROWS
+
+    def test_simple_modes_parsed(self, tmp_path: Path) -> None:
+        """layout: columns-simple / rows-simple parse to the simple modes."""
+        for value, mode in (
+            ("columns-simple", LayoutMode.COLUMNS_SIMPLE),
+            ("rows-simple", LayoutMode.ROWS_SIMPLE),
+        ):
+            spec_path = tmp_path / f"simple_{mode.name}.yaml"
+            spec_path.write_text(
+                "job:\n"
+                f"  job_name: 'Simple {value}'\n"
+                "  width: 2.0\n"
+                "  height: 1.0\n"
+                f"  layout: {value}\n"
+                "  count: 1\n"
+                "  content:\n"
+                "    - text: 'X'\n",
+                encoding="utf-8",
+            )
+            job = parse_yaml(spec_path)
+            assert job.layout is mode
+
+    def test_plate_simple_layout_override_parsed(self, tmp_path: Path) -> None:
+        """A per-plate simple layout override must be honored from YAML."""
+        spec_path = tmp_path / "plate_simple.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'PlateSimple'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      layout: rows-simple\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.COLUMNS
+        assert job.plates is not None
+        assert job.plates[0].layout is LayoutMode.ROWS_SIMPLE
+
+    def test_simple_layout_rejects_explicit_rotation(self, tmp_path: Path) -> None:
+        """A simple layout with an explicit allow_rotation: true is a contradiction."""
+        spec_path = tmp_path / "simple_rotate.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'SimpleRotate'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  allow_rotation: true\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises((ValidationError, ValueError), match="never rotates"):
+            parse_yaml(spec_path)
+
+    def test_plate_simple_layout_rejects_explicit_rotation(self, tmp_path: Path) -> None:
+        """A plate-level simple override also rejects explicit rotation."""
+        spec_path = tmp_path / "plate_simple_rotate.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'PlateSimpleRotate'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  allow_rotation: true\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      layout: rows-simple\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises((ValidationError, ValueError), match="never rotates"):
+            parse_yaml(spec_path)
+
+    def test_simple_layout_allows_omitted_rotation(self, tmp_path: Path) -> None:
+        """Omitting allow_rotation is fine: the simple engine forces it off."""
+        spec_path = tmp_path / "simple_omit.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'SimpleOmit'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: rows-simple\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.ROWS_SIMPLE
+
+    def test_simple_layout_allows_explicit_rotation_false(self, tmp_path: Path) -> None:
+        """An explicit allow_rotation: false is compatible with simple modes."""
+        spec_path = tmp_path / "simple_norotate.yaml"
+        spec_path.write_text(
+            "job:\n"
+            "  job_name: 'SimpleNoRotate'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  allow_rotation: false\n"
+            "  count: 1\n"
+            "  content:\n"
+            "    - text: 'X'\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec_path)
+        assert job.layout is LayoutMode.COLUMNS_SIMPLE
+        assert job.allow_rotation is False
 
 
 class TestLabelSpecValidation:

@@ -25,12 +25,12 @@ metadata:
 | `plates` | list[PlateSpec] \| null | null (unset) | — | job | Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated `default_plate_{i}` sheets (24x16 unless job-config plate_width/plate_height override). |
 | `allow_rotation` | bool | `true` | — | job | Allow the bin packer to rotate labels 90 degrees (clockwise at assembly) for tighter layouts. Set false to keep every label horizontal. |
 | `text_chunk_mode` | `line` \| `word` | `"line"` | — | job | Plate-space text optimization granularity: 'line' routes each text line as one node (default); 'word' routes each whitespace-delimited word separately. |
-| `layout` | LayoutMode | `"columns"` | — | job | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. |
+| `layout` | LayoutMode | `"columns"` | — | job | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. 'columns-simple'/'rows-simple' bypass bin packing with a flush grid fill in content order (no rotation; incompatible with an explicit `allow_rotation: true`). |
 | `left_clearance` | float \| null | null (unset) | >=0 | job | Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `top_clearance` | float \| null | null (unset) | >=0 | job | Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `left_clearance` | float | `0.0` | >=0 | plate | Unused material width along the plate's left edge in inches (shifts the usable area rightward; must be >= 0). |
 | `top_clearance` | float | `0.0` | >=0 | plate | Unused material height along the plate's top edge in inches (shifts the usable area downward; must be >= 0). |
-| `layout` | LayoutMode \| null | null (unset) | — | plate | Per-plate fill-order override (None = inherit the job layout). |
+| `layout` | LayoutMode \| null | null (unset) | — | plate | Per-plate fill-order override (None = inherit the job layout). Simple modes ('columns-simple'/'rows-simple') grid-fill this plate without bin packing and never rotate labels. |
 | `material` | str \| null | null (unset) | — | plate | Stock material this plate is cut from (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `plate_id` | str \| null | null (unset) | — | label | Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion. |
 
@@ -46,10 +46,23 @@ emergent order is a side effect of placement tie-breaking), so
 bottom-row fill algorithm and mapping every placement back into plate
 space (see `plt_optimizer.generate.packing.layout`).
 
+The `*-simple` modes bypass `rectpack` entirely: labels are placed
+one at a time in strict content order on a flush grid, never rotated
+(this mirrors the VisionPro "Multiples" / EngraveLab "Badges"
+behavior). `columns-simple` fills each column top-to-bottom before
+extending rightward; `rows-simple` fills each row left-to-right
+before extending downward. A column (resp. row) spans the widest
+(resp. tallest) label placed in it, fixed for its whole length, so a
+1x3/1x4 mix starts the second column at x=4 for the entire column.
+Round labels are exempt: they always keep the ellipse-packer layout
+optimization regardless of mode.
+
 | Value | Description |
 |---|---|
-| `rows` | Fill the plate row by row. |
-| `columns` | Fill the plate column by column. |
+| `rows` | Fill the plate row by row (rectpack). |
+| `columns` | Fill the plate column by column (rectpack). |
+| `rows-simple` | Grid-fill each row left-to-right, then down. |
+| `columns-simple` | Grid-fill each column top-to-bottom, then right. |
 
 ## Defaults
 

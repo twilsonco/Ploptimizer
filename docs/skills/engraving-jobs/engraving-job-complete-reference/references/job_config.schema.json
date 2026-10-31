@@ -61,10 +61,12 @@
       "type": "string"
     },
     "LayoutMode": {
-      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n`rectpack` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n`columns` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see `plt_optimizer.generate.packing.layout`).\n\nAttributes:\n    ROWS: Fill the plate row by row.\n    COLUMNS: Fill the plate column by column.",
+      "description": "Enumeration of plate fill-order preferences for bin packing.\n\n`rectpack` has no sort option that controls fill order directly (the\nemergent order is a side effect of placement tie-breaking), so\n`columns` is realized by packing in a transposed frame with a\nbottom-row fill algorithm and mapping every placement back into plate\nspace (see `plt_optimizer.generate.packing.layout`).\n\nThe `*-simple` modes bypass `rectpack` entirely: labels are placed\none at a time in strict content order on a flush grid, never rotated\n(this mirrors the VisionPro \"Multiples\" / EngraveLab \"Badges\"\nbehavior). `columns-simple` fills each column top-to-bottom before\nextending rightward; `rows-simple` fills each row left-to-right\nbefore extending downward. A column (resp. row) spans the widest\n(resp. tallest) label placed in it, fixed for its whole length, so a\n1x3/1x4 mix starts the second column at x=4 for the entire column.\nRound labels are exempt: they always keep the ellipse-packer layout\noptimization regardless of mode.\n\nAttributes:\n    ROWS: Fill the plate row by row (rectpack).\n    COLUMNS: Fill the plate column by column (rectpack).\n    ROWS_SIMPLE: Grid-fill each row left-to-right, then down.\n    COLUMNS_SIMPLE: Grid-fill each column top-to-bottom, then right.",
       "enum": [
         "rows",
-        "columns"
+        "columns",
+        "rows-simple",
+        "columns-simple"
       ],
       "title": "LayoutMode",
       "type": "string"

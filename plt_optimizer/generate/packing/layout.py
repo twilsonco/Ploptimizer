@@ -43,6 +43,7 @@ from plt_optimizer.generate.schema import (
     LabelShape,
     LayoutMode,
     PlateSpec,
+    is_simple_layout,
     material_key,
 )
 
@@ -587,7 +588,10 @@ def _pack_best(
     footprints the all-horizontal layout always wins, keeping output stable
     for jobs that pack just as well without rotation.
 
-    ``layout`` selects the fill-order frame:
+    ``layout`` selects the fill-order frame (the simple grid modes never
+    reach this function -- :func:`_pack_group` routes them to
+    :mod:`plt_optimizer.generate.packing.simple_grid` before any packer is
+    created):
 
     - :attr:`LayoutMode.ROWS` (historical behavior): pack in the real frame
       with :data:`PACK_CONFIGS`; the Guillotine/MaxRects heuristics fill the
@@ -695,13 +699,19 @@ def _pack_group(
 
     Runs :func:`_pack_best` with the group's fill-order mode and maps the
     packer result back into real plate space (transposing back for column
-    major groups).
+    major groups). Simple modes (``columns-simple`` / ``rows-simple``)
+    bypass ``rectpack`` entirely and grid-fill through
+    :func:`plt_optimizer.generate.packing.simple_grid.pack_simple_grid`
+    (no rotation -- ``allow_rotation`` is ignored on that path, which the
+    schema validator guarantees is never explicitly true for a simple
+    layout).
 
     Args:
         rectangles_with_rid: Remaining ``(pack_width, pack_height, rid)``
             tuples to pack.
         bin_specs: ``(width, height, bid)`` plates sharing one fill mode.
-        allow_rotation: Whether rotated candidates are considered.
+        allow_rotation: Whether rotated candidates are considered (ignored
+            by the simple grid-fill modes).
         layout: The group's fill-order mode.
         clearances: Optional bin-id to ``(left_clearance, top_clearance)``
             mapping applied to placements (see
@@ -716,6 +726,20 @@ def _pack_group(
     Returns:
         The non-empty ``PackedPlate`` objects produced by this packing pass.
     """
+    if is_simple_layout(layout):
+        # Lazy import keeps rectpack-free startup (Win7 watch path) and
+        # avoids the simple_grid -> layout type-import cycle.
+        from plt_optimizer.generate.packing.simple_grid import pack_simple_grid
+
+        return pack_simple_grid(
+            rectangles_with_rid,
+            bin_specs,
+            layout,
+            clearances=clearances,
+            material=material,
+            materials=materials,
+        )
+
     packer = _pack_best(
         rectangles_with_rid,
         bin_specs,
@@ -1513,7 +1537,9 @@ def _scrap_direction(layout: LayoutMode) -> ScrapDirectionValue:
     ``columns`` (column-major, the default) grows up the plate first and
     minimizes used width -- PREFER_WIDTH, leaving a clean vertical scrap
     strip. ``rows`` minimizes used height -- PREFER_HEIGHT, leaving a clean
-    horizontal strip.
+    horizontal strip. The simple grid modes map to their bin-packed
+    counterparts (round labels always keep the ellipse optimization
+    regardless of the fill-order mode).
 
     Args:
         layout: The plate/job fill-order mode.
@@ -1522,7 +1548,7 @@ def _scrap_direction(layout: LayoutMode) -> ScrapDirectionValue:
         The matching :class:`~plt_optimizer.generate.packing.ellipse_packer.ScrapDirection`
         value.
     """
-    if layout == LayoutMode.ROWS:
+    if layout in (LayoutMode.ROWS, LayoutMode.ROWS_SIMPLE):
         return ScrapDirectionValue.PREFER_HEIGHT
     return ScrapDirectionValue.PREFER_WIDTH
 
@@ -1778,6 +1804,9 @@ def generate_layout(
         layout: Preferential fill order. ``columns`` (the default) fills
             each plate's height before extending rightward; ``rows`` fills
             width before extending downward (the historical behavior).
+            ``columns-simple`` / ``rows-simple`` bypass ``rectpack`` with a
+            flush content-order grid fill (never rotated; see
+            :mod:`plt_optimizer.generate.packing.simple_grid`).
             A plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
         default_plate_size: ``(width, height)`` override (inches) for the
@@ -1886,7 +1915,10 @@ def generate_layout_with_bounds(
             can rotate their content clockwise accordingly.
         layout: Preferential fill order. ``columns`` (the default) fills
             each plate's height before extending rightward; ``rows`` fills
-            width before extending downward (the historical behavior). A
+            width before extending downward (the historical behavior).
+            ``columns-simple`` / ``rows-simple`` bypass ``rectpack`` with a
+            flush content-order grid fill (never rotated; see
+            :mod:`plt_optimizer.generate.packing.simple_grid`). A
             plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
         default_plate_size: ``(width, height)`` override (inches) for the

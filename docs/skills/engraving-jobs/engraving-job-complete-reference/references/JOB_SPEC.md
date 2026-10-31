@@ -131,7 +131,7 @@ they are no longer auto-sized from rendered content.
 | `replacement_text_file_allow_blank_lines` | bool \| null | null (unset) | — | Allow whitespace-only lines in a replacement text file to produce blank labels with no drill holes. When enabled (true), such lines produce instances with empty content and no holes (even if the label definition specifies holes). When disabled (false), blank lines are dropped with a warning. Cascades job -> plate -> label; unset (`null`) falls back to `job-config.json` then `true`. Requires a replacement file at some tier (job, plate, or label). |
 | `allow_rotation` | bool | `true` | — | Allow the bin packer to rotate labels 90 degrees (clockwise at assembly) for tighter layouts. Set false to keep every label horizontal. |
 | `text_chunk_mode` | `line` \| `word` | `"line"` | — | Plate-space text optimization granularity: 'line' routes each text line as one node (default); 'word' routes each whitespace-delimited word separately. |
-| `layout` | LayoutMode | `"columns"` | — | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. |
+| `layout` | LayoutMode | `"columns"` | — | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. 'columns-simple'/'rows-simple' bypass bin packing with a flush grid fill in content order (no rotation; incompatible with an explicit `allow_rotation: true`). |
 | `left_clearance` | float \| null | null (unset) | >=0 | Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `top_clearance` | float \| null | null (unset) | >=0 | Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | null (unset) | >0 | Ratio controlling inter-line spacing relative to top/bottom margins when auto line spacing is enabled. Default 1.0 makes all gaps equal. Values > 1.0 increase inter-line spacing at the expense of top/bottom margins. |
@@ -212,7 +212,7 @@ Specification for a plate (material sheet) to cut labels from.
 | `counter_prefix` | str \| null | null (unset) | — | Enumerated-list counter prefix (schema parity; not applied at plate level). |
 | `counter_suffix` | str \| null | null (unset) | — | Enumerated-list counter suffix (schema parity; not applied at plate level). |
 | `list_marker_gap_fraction` | float \| null | null (unset) | >=0 | List marker-to-text gap as a fraction of cap height (schema parity; not applied at plate level). |
-| `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). |
+| `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). Simple modes ('columns-simple'/'rows-simple') grid-fill this plate without bin packing and never rotate labels. |
 | `material` | str \| null | null (unset) | — | Stock material this plate is cut from (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only. |
 | `replacement_text_delimiter` | str \| null | null (unset) | — | Single-character delimiter separating text items within a replacement file line (default ';'). Requires a replacement file for this plate (its own, or a label-level file on a label pinned to it); cascades plate -> pinned label. |
@@ -650,10 +650,23 @@ emergent order is a side effect of placement tie-breaking), so
 bottom-row fill algorithm and mapping every placement back into plate
 space (see `plt_optimizer.generate.packing.layout`).
 
+The `*-simple` modes bypass `rectpack` entirely: labels are placed
+one at a time in strict content order on a flush grid, never rotated
+(this mirrors the VisionPro "Multiples" / EngraveLab "Badges"
+behavior). `columns-simple` fills each column top-to-bottom before
+extending rightward; `rows-simple` fills each row left-to-right
+before extending downward. A column (resp. row) spans the widest
+(resp. tallest) label placed in it, fixed for its whole length, so a
+1x3/1x4 mix starts the second column at x=4 for the entire column.
+Round labels are exempt: they always keep the ellipse-packer layout
+optimization regardless of mode.
+
 | Value | Description |
 |---|---|
-| `rows` | Fill the plate row by row. |
-| `columns` | Fill the plate column by column. |
+| `rows` | Fill the plate row by row (rectpack). |
+| `columns` | Fill the plate column by column (rectpack). |
+| `rows-simple` | Grid-fill each row left-to-right, then down. |
+| `columns-simple` | Grid-fill each column top-to-bottom, then right. |
 
 ### `TextColor`
 

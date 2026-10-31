@@ -26,6 +26,11 @@ cascade) should any knob be exposed later.
 | `layout: rows` | `MaxRectsBssf/SORT_AREA`, `GuillotineBlsfLas/SORT_NONE`, `GuillotineBlsfLas/SORT_AREA`, `GuillotineBafLas/SORT_NONE` | real plate frame |
 | `layout: columns` | `SkylineBl/SORT_NONE`, `SkylineBl/SORT_AREA` | transposed frame, placements mapped back |
 
+`layout: columns-simple` / `rows-simple` are not rectpack modes at all:
+`_pack_group` routes them to the rectpack-free grid engine
+(`packing/simple_grid.py`) before this ensemble runs, so no knob below
+affects them.
+
 All runs use `mode=Offline`, `bin_algo=BFF`, and the `rotation` knob is
 already user-facing as `allow_rotation` (ranked *below* footprint, so labels
 rotate only when rotation strictly improves the used area).

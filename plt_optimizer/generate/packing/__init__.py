@@ -1,15 +1,18 @@
 """Plate-space packing package for the label generation pipeline.
 
-Two adjacent bin-packing engines share this package:
+Three adjacent layout engines share this package:
 
 - :mod:`plt_optimizer.generate.packing.layout` - the ``rectpack``-based
   engine for rectangular labels (bounds-aware multi-heuristic packing,
   rotation, fill order, plate clearances, material partitioning).
+- :mod:`plt_optimizer.generate.packing.simple_grid` - the rectpack-free
+  grid-fill engine for the ``columns-simple`` / ``rows-simple`` fill-order
+  modes (strict content order, flush, never rotated).
 - :mod:`plt_optimizer.generate.packing.ellipse_packer` - the shapely-based
   grid-search engine for ``type: round`` labels (the ellipse boundary, not
   its bounding box, is the collision object).
 
-The contract for both lives in ``AGENTS.md`` beside this file. Plate-frame
+The contract for all of them lives in ``AGENTS.md`` beside this file. Plate-frame
 TSP *routing* is not packing - it stays in
 :mod:`plt_optimizer.generate.plate_optimizer`.
 """
@@ -35,6 +38,7 @@ from plt_optimizer.generate.packing.layout import (
     generate_layout_with_bounds,
     unroll_labels,
 )
+from plt_optimizer.generate.packing.simple_grid import pack_simple_grid
 
 __all__ = [
     "DEFAULT_CLEARANCE_IN",
@@ -53,5 +57,6 @@ __all__ = [
     "generate_layout",
     "generate_layout_with_bounds",
     "pack_ellipses",
+    "pack_simple_grid",
     "unroll_labels",
 ]

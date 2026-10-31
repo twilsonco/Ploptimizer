@@ -1,0 +1,45 @@
+# Simple grid-fill layout demo job for the PLT-Optimizer generate pipeline.
+#
+# Pins ``layout: columns-simple`` (JobSpec.layout): labels are placed one at
+# a time in strict content order, top-to-bottom then left-to-right, with no
+# rectpack optimization and no rotation (VisionPro "Multiples" / EngraveLab
+# "Badges" parity) on a 24" x 16" sheet.
+#
+# The ten 3" x 1" labels fill the first column (y = 0..9); the first six
+# 4" x 1" labels finish it (y = 10..15). The column's width is fixed to the
+# widest label it received (4"), so the remaining four 4" x 1" labels open
+# the second column at x = 4 for the WHOLE column (the simple flush x = 3
+# ragged variant is deliberately not implemented).
+#
+# Run with: python run_integration_test.py tests_deps/simple_layout_job.yaml
+job:
+  job_name: "Simple Columns Demo - Mixed Sizes"
+
+  # Simple column-major grid fill; set explicitly so this fixture reads as
+  # a deliberate pin of the fill order. allow_rotation stays undeclared:
+  # the simple engine never rotates, and an explicit true is rejected.
+  layout: columns-simple
+
+  # Shared label dimensions and typography (cascade to every label). The
+  # text must fit the narrowest label's inner content area (3.0" - 2 x
+  # 0.15" margin = 2.7") so glyph strokes never pass a label edge.
+  width: 3.0
+  height: 1.0
+  margin: 0.15
+  text_height: 0.3
+
+  plates:
+    - id: scrap_24x16
+      width: 24.0
+      height: 16.0
+
+  labels:
+    - id: small
+      count: 10
+      content:
+        - text: "A1"
+    - id: large
+      count: 10
+      width: 4.0
+      content:
+        - text: "B1"

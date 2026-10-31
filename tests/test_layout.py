@@ -2113,3 +2113,338 @@ class TestKerfBufferedRoundPacking:
         assert _round_clearance(entries[:1]) == pytest.approx(0.015)
         assert _round_clearance(entries) == pytest.approx(0.06)
         assert _round_clearance([]) == pytest.approx(DEFAULT_ROUND_CLEARANCE_IN)
+
+
+class TestSimpleLayout:
+    """The ``columns-simple`` / ``rows-simple`` grid-fill engines.
+
+    Simple modes bypass ``rectpack``: labels are placed one at a time in
+    strict content order (top-to-bottom then rightward, resp.
+    left-to-right then downward), flush, never rotated. A column spans the
+    widest label it received (a row the tallest), fixed for its whole
+    length. Round labels are exempt (they keep the ellipse pipeline).
+    """
+
+    @staticmethod
+    def _scrap(width: float = 24.0, height: float = 16.0) -> list[PlateSpec]:
+        """A zero-clearance plate of the given size."""
+        return [PlateSpec(id="scrap", width=width, height=height)]
+
+    def test_columns_simple_fills_top_to_bottom_then_right(self) -> None:
+        """20 3x1 labels: 16 stack down the first column, 4 open the second."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=20)]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert len(plates) == 1
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["lbl_0"] == pytest.approx((0.0, 0.0))
+        assert positions["lbl_15"] == pytest.approx((0.0, 15.0))
+        # Second column starts at x=3 (the first column's fixed width).
+        assert positions["lbl_16"] == pytest.approx((3.0, 0.0))
+        assert positions["lbl_19"] == pytest.approx((3.0, 3.0))
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_w, 6.0)
+        assert math.isclose(bbox_h, 16.0)
+
+    def test_rows_simple_fills_left_to_right_then_down(self) -> None:
+        """Mirror image: 3-wide labels fill each row, then extend downward."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=10)]
+        plates = generate_layout(
+            labels,
+            self._scrap(width=10.0),
+            allow_rotation=False,
+            layout=LayoutMode.ROWS_SIMPLE,
+        )
+
+        assert len(plates) == 1
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["lbl_0"] == pytest.approx((0.0, 0.0))
+        assert positions["lbl_2"] == pytest.approx((6.0, 0.0))
+        # Second row starts at y=1 (the first row's fixed height).
+        assert positions["lbl_3"] == pytest.approx((0.0, 1.0))
+        assert positions["lbl_9"] == pytest.approx((0.0, 3.0))
+
+    def test_columns_simple_fixes_column_width_to_widest_label(self) -> None:
+        """The TODO scenario: a 3-wide + 4-wide column starts the next at x=4.
+
+        Six labels (three 3x1, three 4x1) stack in one column of a 24x6
+        plate; the column's width is fixed to the widest label it received
+        (4"), so a seventh label opens the second column at x=4 for the
+        whole column (the flush x=3 ragged variant is deliberately not
+        implemented).
+        """
+        labels = [
+            _make_label(label_id="s", width=3.0, height=1.0, count=3),
+            _make_label(label_id="l", width=4.0, height=1.0, count=4),
+        ]
+        plates = generate_layout(
+            labels,
+            self._scrap(width=24.0, height=6.0),
+            allow_rotation=False,
+            layout=LayoutMode.COLUMNS_SIMPLE,
+        )
+
+        assert len(plates) == 1
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["s_0"] == pytest.approx((0.0, 0.0))
+        assert positions["l_0"] == pytest.approx((0.0, 3.0))
+        assert positions["l_2"] == pytest.approx((0.0, 5.0))
+        # The column overflowed: the last 4x1 opens column 2 at x=4.
+        assert positions["l_3"] == pytest.approx((4.0, 0.0))
+
+    def test_rows_simple_fixes_row_height_to_tallest_label(self) -> None:
+        """Mirror: a 1-tall + 2-tall row fixes the next row at y=2."""
+        labels = [
+            _make_label(label_id="s", width=1.0, height=1.0, count=3),
+            _make_label(label_id="t", width=1.0, height=2.0, count=4),
+        ]
+        plates = generate_layout(
+            labels,
+            self._scrap(width=6.0, height=16.0),
+            allow_rotation=False,
+            layout=LayoutMode.ROWS_SIMPLE,
+        )
+
+        assert len(plates) == 1
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["s_0"] == pytest.approx((0.0, 0.0))
+        assert positions["t_0"] == pytest.approx((3.0, 0.0))
+        assert positions["t_1"] == pytest.approx((4.0, 0.0))
+        assert positions["t_2"] == pytest.approx((5.0, 0.0))
+        # Row 1 is full (width 6); the next label opens row 2 at y=2, the
+        # tallest label of row 1 (the row height stays fixed at 2).
+        assert positions["t_3"] == pytest.approx((0.0, 2.0))
+
+    def test_simple_never_rotates(self) -> None:
+        """allow_rotation=True at the API level is ignored by simple modes."""
+        # 1x4 labels on a 4x3 plate: only rotated would they fit the height.
+        labels = [_make_label(label_id="tall", width=1.0, height=4.0, count=3)]
+        with pytest.raises(LayoutFitError):
+            generate_layout(
+                labels,
+                self._scrap(width=4.0, height=3.0),
+                allow_rotation=True,
+                layout=LayoutMode.COLUMNS_SIMPLE,
+            )
+        # On a plate they DO fit, placements stay unrotated.
+        plates = generate_layout(
+            labels,
+            self._scrap(width=4.0, height=4.0),
+            allow_rotation=True,
+            layout=LayoutMode.COLUMNS_SIMPLE,
+        )
+        assert len(plates) == 1
+        assert all(not p.rotated for p in plates[0].labels)
+        assert all(math.isclose(p.width, 1.0) for p in plates[0].labels)
+
+    def test_simple_labels_are_flush_and_in_content_order(self) -> None:
+        """Zero gaps between labels; plate.labels follows content order."""
+        labels = [_make_label(label_id="lbl", width=2.0, height=3.0, count=4)]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        placed = plates[0].labels
+        assert [p.label_id for p in placed] == [f"lbl_{i}" for i in range(4)]
+        for first, second in zip(placed, placed[1:]):
+            assert second.y == pytest.approx(first.y + first.height)
+            assert second.x == pytest.approx(first.x)
+
+    def test_simple_overflows_to_next_plate(self) -> None:
+        """Labels that no longer fit the plate cascade to the next one."""
+        # Each 1x10 label takes a whole column of a 24x16 plate (10+10>16):
+        # plate 1 hosts 24 columns, plate 2 the remaining 6.
+        labels = [_make_label(label_id="lbl", width=1.0, height=10.0, count=30)]
+        plates_spec = [
+            PlateSpec(id="p1", width=24.0, height=16.0),
+            PlateSpec(id="p2", width=24.0, height=16.0),
+        ]
+        plates = generate_layout(
+            labels, plates_spec, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert [p.plate_id for p in plates] == ["p1", "p2"]
+        assert len(plates[0].labels) == 24
+        assert len(plates[1].labels) == 6
+        assert plates[1].labels[0].label_id == "lbl_24"
+        assert (plates[1].labels[0].x, plates[1].labels[0].y) == pytest.approx((0.0, 0.0))
+
+    def test_simple_overflow_beyond_plates_raises(self) -> None:
+        """Leftovers after the last plate abort with the fit error."""
+        # Each 1x10 label consumes a whole column of the 24x16 plate (two
+        # per column would need 20" of height): 24 columns, the 25th label
+        # has nowhere to go.
+        labels = [_make_label(label_id="lbl", width=1.0, height=10.0, count=25)]
+        with pytest.raises(LayoutFitError, match="Could only fit 24 of 25"):
+            generate_layout(
+                labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+            )
+
+    def test_simple_unbounded_mode(self) -> None:
+        """Unbounded mode auto-allocates default sheets in content order."""
+        # 128 3x1 labels fill one 24x16 sheet (8 columns x 16); the 129th
+        # opens the second auto-allocated sheet.
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=129)]
+        plates = generate_layout(labels, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE)
+
+        assert [p.plate_id for p in plates] == ["default_plate_1", "default_plate_2"]
+        assert len(plates[0].labels) == 128
+        assert plates[1].labels[0].label_id == "lbl_128"
+
+    def test_simple_unbounded_oversized_label_raises(self) -> None:
+        """A label wider than the default plate aborts with the fit error."""
+        labels = [_make_label(label_id="big", width=30.0, height=10.0)]
+        with pytest.raises(LayoutFitError, match="exceed the maximum plate size"):
+            generate_layout(labels, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE)
+
+    def test_simple_plate_override_mixes_with_rectpack_plates(self) -> None:
+        """A per-plate simple override grid-fills just that plate."""
+        labels = [_make_label(label_id="lbl", width=3.0, height=1.0, count=52)]
+        plates_spec = [
+            PlateSpec(id="grid", width=24.0, height=6.0, layout=LayoutMode.COLUMNS_SIMPLE),
+            PlateSpec(id="bin", width=24.0, height=16.0),
+        ]
+        plates = generate_layout(
+            labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS
+        )
+
+        assert [p.plate_id for p in plates] == ["grid", "bin"]
+        # The simple plate fills exactly: 6 per column x 8 columns = 48.
+        assert len(plates[0].labels) == 48
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_w, 24.0)
+        assert math.isclose(bbox_h, 6.0)
+        # The rectpack plate takes the 4 leftovers.
+        assert len(plates[1].labels) == 4
+
+    def test_simple_plate_applies_edge_clearances(self) -> None:
+        """Clearances shift simple placements exactly like rectpack ones."""
+        labels = [_make_label(label_id="lbl", width=2.0, height=2.0, count=3)]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=0.5, top_clearance=0.25)]
+        plates = generate_layout(
+            labels, plates_spec, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        positions = [(p.x, p.y) for p in plates[0].labels]
+        assert positions[0] == pytest.approx((0.5, 0.25))
+        assert positions[1] == pytest.approx((0.5, 2.25))
+        assert positions[2] == pytest.approx((0.5, 4.25))
+
+    def test_simple_pinned_label_packs_on_its_plate(self) -> None:
+        """Pinning flows through the simple engine unchanged."""
+        labels = [
+            _make_pinned_label(label_id="pa", plate_id="p1", width=2.0, height=2.0, count=3),
+            _make_label(label_id="free", width=2.0, height=2.0, count=1),
+        ]
+        plates_spec = [
+            PlateSpec(id="p1", width=24.0, height=5.0, layout=LayoutMode.COLUMNS_SIMPLE),
+            PlateSpec(id="p2", width=24.0, height=16.0),
+        ]
+        plates = generate_layout(
+            labels, plates_spec, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        by_id = {p.plate_id: p for p in plates}
+        # p1 is pinned-exclusive: its 3 labels grid-fill (2 per column of
+        # the 5"-tall plate; the third opens column 2) and the free label
+        # lands on p2.
+        assert [pl.label_id for pl in by_id["p1"].labels] == ["pa_0", "pa_1", "pa_2"]
+        assert by_id["p1"].labels[2].x == pytest.approx(2.0)
+        assert [pl.label_id for pl in by_id["p2"].labels] == ["free_0"]
+
+    def test_simple_pinned_overflow_raises(self) -> None:
+        """Pinned simple labels that do not fit their plate abort."""
+        labels = [
+            _make_pinned_label(label_id="pa", plate_id="p1", width=2.0, height=2.0, count=3),
+        ]
+        plates_spec = [
+            PlateSpec(id="p1", width=2.0, height=5.0, layout=LayoutMode.COLUMNS_SIMPLE),
+            PlateSpec(id="p2", width=24.0, height=16.0),
+        ]
+        with pytest.raises(LayoutFitError, match="pinned to plate 'p1'"):
+            generate_layout(
+                labels, plates_spec, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+            )
+
+    def test_simple_round_labels_keep_the_ellipse_pipeline(self) -> None:
+        """Round labels are exempt: they pack through the ellipse engine."""
+        labels = [_make_round_label("c0", 3.0, 3.0, count=4)]
+        plates = generate_layout(
+            labels, self._scrap(), layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert len(plates) == 1
+        assert len(plates[0].labels) == 4
+        # PREFER_WIDTH scrap (the columns mapping): one clean column, the
+        # ellipse kerf spacing (not a flush grid) proves the ellipse engine.
+        xs = {round(p.x, 6) for p in plates[0].labels}
+        assert len(xs) == 1
+        ys = sorted(round(p.y, 6) for p in plates[0].labels)
+        assert ys[1] - ys[0] > 3.0  # kerf-separated, unlike the flush grid
+
+    def test_simple_fixture_job_pins_the_mixed_size_grid(self) -> None:
+        """tests_deps/simple_layout_job.yaml packs the pinned 4"-column grid."""
+        from plt_optimizer.generate.resolution import resolve_job_spec
+        from plt_optimizer.generate.schema import parse_yaml
+
+        job = parse_yaml(Path("tests_deps/simple_layout_job.yaml"))
+        assert job.layout is LayoutMode.COLUMNS_SIMPLE
+        labels = resolve_job_spec(job)
+        plates = generate_layout(
+            labels,
+            job.plates,
+            allow_rotation=job.allow_rotation,
+            layout=job.layout,
+        )
+
+        assert len(plates) == 1
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        # Ten 3x1 small labels stack down column 1 (y = 0..9).
+        assert positions["small_0"] == pytest.approx((0.0, 0.0))
+        assert positions["small_9"] == pytest.approx((0.0, 9.0))
+        # Six 4x1 large labels finish column 1 (y = 10..15).
+        assert positions["large_0"] == pytest.approx((0.0, 10.0))
+        assert positions["large_5"] == pytest.approx((0.0, 15.0))
+        # The column's width is fixed to the widest label (4"): the four
+        # remaining large labels open column 2 at x = 4.
+        assert positions["large_6"] == pytest.approx((4.0, 0.0))
+        assert positions["large_9"] == pytest.approx((4.0, 3.0))
+        bbox_w, bbox_h = _plate_bbox(plates[0])
+        assert math.isclose(bbox_w, 8.0)
+        assert math.isclose(bbox_h, 16.0)
+
+
+class TestPackSimpleGridUnit:
+    """Direct unit coverage of the simple grid engine's edges."""
+
+    @staticmethod
+    def _entry(index: int, width: float, height: float) -> tuple[float, float, tuple[str, object, float, int]]:
+        return (width, height, (f"e{index}", None, width, index))
+
+    def test_rejects_non_simple_mode(self) -> None:
+        from plt_optimizer.generate.packing.simple_grid import pack_simple_grid
+
+        with pytest.raises(ValueError, match="not a simple layout mode"):
+            pack_simple_grid([], [(24.0, 16.0, "p1")], LayoutMode.COLUMNS)
+
+    def test_empty_entries_yields_no_plates(self) -> None:
+        from plt_optimizer.generate.packing.simple_grid import pack_simple_grid
+
+        assert pack_simple_grid([], [(24.0, 16.0, "p1")], LayoutMode.COLUMNS_SIMPLE) == []
+
+    def test_oversized_label_stops_the_plate(self) -> None:
+        """Content order is sacred: a too-large label cascades everything after it."""
+        from plt_optimizer.generate.packing.simple_grid import pack_simple_grid
+
+        entries = [self._entry(0, 1.0, 1.0), self._entry(1, 30.0, 1.0), self._entry(2, 1.0, 1.0)]
+        plates = pack_simple_grid(
+            entries,
+            [(24.0, 16.0, "p1"), (24.0, 16.0, "p2")],
+            LayoutMode.COLUMNS_SIMPLE,
+        )
+        # p1 hosts e0, stops at oversized e1; p2 also stops at e1 (later
+        # labels never jump the queue), so e1 and e2 stay unpacked and the
+        # caller surfaces them through its LayoutFitError path.
+        assert [[pl.label_id for pl in p.labels] for p in plates] == [["e0"]]
