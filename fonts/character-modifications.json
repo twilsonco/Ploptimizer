@@ -3,9 +3,9 @@
   "modifications": [
     { "mode": "midline_center", "characters": "S" },
     { "mode": "height", "characters": "/\\", "ascent_percent": 5, "descent_percent": 5 },
-    { "mode": "height", "characters": "|", "ascent_percent": 0, "descent_percent": 10 },
-    { "mode": "height", "characters": "{}", "ascent_percent": 10, "descent_percent": 10 },
-    { "mode": "height", "characters": "()", "ascent_percent": 5, "descent_percent": 5 },
-    { "mode": "height", "characters": "[]", "ascent_percent": 2, "descent_percent": 2 }
+    { "mode": "height", "characters": "|", "ascent_percent": 14, "descent_percent": 15 },
+    { "mode": "height", "characters": "{}", "ascent_percent": 17, "descent_percent": 17 },
+    { "mode": "height", "characters": "()", "ascent_percent": 10, "descent_percent": 10 },
+    { "mode": "height", "characters": "[]", "ascent_percent": 4, "descent_percent": 4 }
   ]
 }
