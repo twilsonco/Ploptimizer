@@ -47,7 +47,7 @@
   "counter_start_index": 1,
   "counter_style": "decimal",
   "counter_prefix": "",
-  "counter_suffix": "",
+  "counter_suffix": ".",
   "list_marker_gap_fraction": 1.0,
   "rounded_rectangle_fraction": 0.0,
   "rounded_rectangle_proportional": false,
