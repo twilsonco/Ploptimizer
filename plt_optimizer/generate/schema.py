@@ -1885,6 +1885,17 @@ class LabelSpec(LabelAttributes):
             "blank lines are still dropped). Requires `replacement_text_file`."
         ),
     )
+    replacement_text_file_allow_blank_lines: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Allow whitespace-only lines in a replacement text file to produce "
+            "blank labels with no drill holes. When enabled (true), such lines "
+            "produce instances with empty content and no holes (even if the "
+            "label definition specifies holes). When disabled (false), blank lines "
+            "are dropped with a warning. Cascades label -> job; unset (`null`) falls "
+            "back to `job-config.json` then `true`. Requires `replacement_text_file`."
+        ),
+    )
     plate_id: Optional[str] = Field(
         default=None,
         description=(
@@ -2515,6 +2526,17 @@ class PlateSpec(BaseModel):
             "`replacement_text_delimiter`; cascades plate -> pinned label."
         ),
     )
+    replacement_text_file_allow_blank_lines: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Allow whitespace-only lines in a replacement text file to produce "
+            "blank labels with no drill holes. When enabled (true), such lines "
+            "produce instances with empty content and no holes (even if the "
+            "label definition specifies holes). When disabled (false), blank lines "
+            "are dropped with a warning. Cascades job -> plate; unset (`null`) falls "
+            "back to `job-config.json` then `true`. Requires a replacement file."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod
@@ -2782,6 +2804,18 @@ class JobSpec(LabelAttributes):
             "non-blank line is raw data; blank lines are still dropped). "
             "Requires a replacement file at some tier (job, plate, or "
             "label); cascades job -> plate -> label."
+        ),
+    )
+    replacement_text_file_allow_blank_lines: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Allow whitespace-only lines in a replacement text file to produce "
+            "blank labels with no drill holes. When enabled (true), such lines "
+            "produce instances with empty content and no holes (even if the "
+            "label definition specifies holes). When disabled (false), blank lines "
+            "are dropped with a warning. Cascades job -> plate -> label; unset "
+            "(`null`) falls back to `job-config.json` then `true`. Requires a "
+            "replacement file at some tier (job, plate, or label)."
         ),
     )
 
@@ -3088,7 +3122,11 @@ class JobSpec(LabelAttributes):
             or any(plate.replacement_text_file is not None for plate in self.plates or [])
             or bool(label_file_ids)
         )
-        for field_name in ("replacement_text_delimiter", "replacement_text_file_comment_string"):
+        for field_name in (
+            "replacement_text_delimiter",
+            "replacement_text_file_comment_string",
+            "replacement_text_file_allow_blank_lines",
+        ):
             if getattr(self, field_name) is None:
                 continue
             if self.replacement_text_file is None and not has_any_file:
@@ -3101,6 +3139,7 @@ class JobSpec(LabelAttributes):
             for field_name in (
                 "replacement_text_delimiter",
                 "replacement_text_file_comment_string",
+                "replacement_text_file_allow_blank_lines",
             ):
                 # Only a plate-DECLARED value needs a plate file; a value
                 # the plate inherits from the job cascades further down.

@@ -121,19 +121,27 @@ def load_replacement_file(
     file_path: Path,
     delimiter: str,
     comment_string: Optional[str] = None,
-) -> list[list[str]]:
+    allow_blank_lines: bool = True,
+) -> tuple[list[list[str]], set[int]]:
     """Load a replacement text file and split it into per-instance item lists.
 
     Each data line of the file produces one list of text items, split on
     ``delimiter``. Items are used verbatim (no whitespace stripping),
-    matching EngraveLab/Vision Pro semantics. Two kinds of line produce no
-    instance and are reported together in a single WARNING per file:
+    matching EngraveLab/Vision Pro semantics.
 
-    - **Blank lines** (empty or whitespace-only) are always dropped.
+    When ``allow_blank_lines=True``, whitespace-only lines are treated as
+    data lines and included in the instances; the returned set tracks which
+    instance indices correspond to blanks. When ``allow_blank_lines=False``,
+    whitespace-only lines are dropped and reported in a warning.
+
+    Two kinds of line produce no instance (and are reported):
+
+    - **Blank lines** (empty or whitespace-only): treated per ``allow_blank_lines``
+      parameter.
     - **Comment lines** -- a line whose whitespace-stripped text starts with
-      ``comment_string`` (default ``"# "``) -- are dropped. ``comment_string``
+      ``comment_string`` (default ``"# "``) -- are always dropped. ``comment_string``
       ``""`` disables comment handling: every line is raw data (blank lines
-      are still dropped).
+      are still treated per ``allow_blank_lines``).
 
     A trailing newline at end of file does *not* produce an extra instance.
 
@@ -142,10 +150,16 @@ def load_replacement_file(
         delimiter: Single-character item delimiter.
         comment_string: Comment marker; ``None`` applies
             :data:`DEFAULT_REPLACEMENT_COMMENT_STRING`, ``""`` disables.
+        allow_blank_lines: When ``True``, whitespace-only lines produce
+            blank instances (included in returned instances and tracked in
+            blank_indices). When ``False``, blanks are dropped (current behavior).
 
     Returns:
-        A list with one entry per data line; each entry is the list of
-        delimited text items on that line.
+        A tuple of (instances, blank_indices) where instances is a list with
+        one entry per data line; each entry is the list of delimited text
+        items on that line. blank_indices is a set of indices into instances
+        that correspond to whitespace-only lines (empty when
+        allow_blank_lines=False).
 
     Raises:
         SubstitutionError: If the file does not exist, is not a regular
@@ -175,12 +189,20 @@ def load_replacement_file(
     comment = _effective_comment_string(comment_string)
     lines = normalized.split("\n")
     instances: list[list[str]] = []
+    blank_indices: set[int] = set()
     dropped: list[str] = []
     for line_no, line in enumerate(lines, start=1):
         stripped = line.strip()
         if stripped == "":
-            dropped.append(f"line {line_no}: (blank)")
-            continue
+            if allow_blank_lines:
+                # Blank line becomes an empty instance (produces a blank label).
+                blank_indices.add(len(instances))
+                instances.append([])
+                continue
+            else:
+                # Blank line is dropped and warned about.
+                dropped.append(f"line {line_no}: (blank)")
+                continue
         if comment and stripped.startswith(comment):
             dropped.append(f"line {line_no}: {line!r} (comment)")
             continue
@@ -211,16 +233,18 @@ def load_replacement_file(
             f"lines were found): {file_path}"
         )
 
+    blank_msg = f" ({len(blank_indices)} blank line(s))" if blank_indices else ""
     logger.info(
-        "Loaded replacement text file %s: %d instance line(s), delimiter %r, "
+        "Loaded replacement text file %s: %d instance line(s)%s, delimiter %r, "
         "comment marker %r, %d line(s) ignored.",
         file_path,
         len(instances),
+        blank_msg,
         delimiter,
         comment,
         len(dropped),
     )
-    return instances
+    return instances, blank_indices
 
 
 def _resolve_file_path(replacement_text_file: str, base_dir: Path) -> Path:
@@ -245,6 +269,7 @@ def _synthesize_content(
     items: list[str],
     label_id: str = "",
     instance_index: int = -1,
+    is_blank: bool = False,
 ) -> list[ContentEntry]:
     """Build the concrete text lines for one replacement instance.
 
@@ -264,6 +289,10 @@ def _synthesize_content(
     :class:`ContentEntry` objects. Fewer items than placeholder lines raises
     :class:`SubstitutionError`.
 
+    **Blank mode** (``is_blank=True``): all content lines are created with
+    empty text, regardless of the template or items. Used for whitespace-only
+    replacement file lines that produce blank labels.
+
     Args:
         template_content: The label's declared ``content`` lines, or
             ``None`` when the label omitted ``content``.
@@ -271,6 +300,8 @@ def _synthesize_content(
         label_id: Label id for error messages (optional).
         instance_index: 0-based file line index for error messages
             (optional; -1 = unknown).
+        is_blank: When ``True``, produce content lines with empty text
+            (blanks override items and template; no validation is performed).
 
     Returns:
         One :class:`ContentEntry` per output line.
@@ -280,6 +311,11 @@ def _synthesize_content(
             less than the number of placeholder lines.
     """
     template = template_content or []
+
+    # Blank mode: all lines become empty text entries, keeping template attrs.
+    if is_blank:
+        return [line.model_copy(update={"text": ""}) for line in template]
+
     has_placeholders = any(line.placeholder for line in template)
 
     if not has_placeholders:
@@ -333,7 +369,9 @@ def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[Lab
         ``replacement_text_file`` is configured; otherwise one new
         :class:`LabelSpec` per replacement file line, each with ``count=1``,
         a unique ``id`` suffix (``base_0000`` ...), synthesized ``content``,
-        and the replacement fields cleared.
+        and the replacement fields cleared. Blank labels (from whitespace-only
+        lines when enabled) suppress the ``holes`` field, setting it to an
+        empty list.
 
     Raises:
         SubstitutionError: If the replacement file is missing, unreadable,
@@ -344,31 +382,38 @@ def expand_label_with_replacements(label: LabelSpec, base_dir: Path) -> list[Lab
 
     delimiter = label.replacement_text_delimiter or DEFAULT_REPLACEMENT_DELIMITER
     comment = _effective_comment_string(label.replacement_text_file_comment_string)
+    allow_blanks = label.replacement_text_file_allow_blank_lines
+    if allow_blanks is None:
+        allow_blanks = True  # Default to True if unset (job-config.json override)
     file_path = _resolve_file_path(label.replacement_text_file, base_dir)
-    instances = load_replacement_file(file_path, delimiter, comment)
+    instances, blank_indices = load_replacement_file(file_path, delimiter, comment, allow_blanks)
 
     expanded: list[LabelSpec] = []
     for index, items in enumerate(instances):
-        content = _synthesize_content(label.content, items, label.id, index)
+        is_blank = index in blank_indices
+        content = _synthesize_content(label.content, items, label.id, index, is_blank=is_blank)
         instance_id = f"{label.id}_{index:0{_INSTANCE_SUFFIX_WIDTH}d}"
-        expanded.append(
-            label.model_copy(
-                update={
-                    "id": instance_id,
-                    "count": 1,
-                    "content": content,
-                    "replacement_text_file": None,
-                    "replacement_text_delimiter": None,
-                    "replacement_text_file_comment_string": None,
-                }
-            )
-        )
+        update_dict = {
+            "id": instance_id,
+            "count": 1,
+            "content": content,
+            "replacement_text_file": None,
+            "replacement_text_delimiter": None,
+            "replacement_text_file_comment_string": None,
+            "replacement_text_file_allow_blank_lines": None,
+        }
+        # Blank labels don't get holes, even if the template specifies them.
+        if is_blank:
+            update_dict["holes"] = []
+        expanded.append(label.model_copy(update=update_dict))
 
     logger.info(
-        "Expanded label '%s' from replacement file %s: %d instance(s), %d template line(s).",
+        "Expanded label '%s' from replacement file %s: %d instance(s) (%d blank), "
+        "%d template line(s).",
         label.id,
         file_path,
         len(expanded),
+        len(blank_indices),
         len(label.content) if label.content is not None else 0,
     )
     return expanded
@@ -402,6 +447,7 @@ def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
         replacement_text_file=job.replacement_text_file,
         replacement_text_delimiter=job.replacement_text_delimiter,
         replacement_text_file_comment_string=job.replacement_text_file_comment_string,
+        replacement_text_file_allow_blank_lines=job.replacement_text_file_allow_blank_lines,
     )
     instances = expand_label_with_replacements(template, base_dir)
     logger.info(
@@ -416,6 +462,7 @@ def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             "replacement_text_file": None,
             "replacement_text_delimiter": None,
             "replacement_text_file_comment_string": None,
+            "replacement_text_file_allow_blank_lines": None,
         }
     )
 
@@ -470,6 +517,7 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             replacement_text_file=plate.replacement_text_file,
             replacement_text_delimiter=plate.replacement_text_delimiter,
             replacement_text_file_comment_string=plate.replacement_text_file_comment_string,
+            replacement_text_file_allow_blank_lines=plate.replacement_text_file_allow_blank_lines,
         )
         instances = expand_label_with_replacements(template, base_dir)
         # Pinned labels inherit the declaring plate's material (the one true
@@ -492,6 +540,7 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
                     "replacement_text_file": None,
                     "replacement_text_delimiter": None,
                     "replacement_text_file_comment_string": None,
+                    "replacement_text_file_allow_blank_lines": None,
                 }
             )
         )
@@ -504,6 +553,7 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             "count": None,
             "replacement_text_delimiter": None,
             "replacement_text_file_comment_string": None,
+            "replacement_text_file_allow_blank_lines": None,
         }
     )
 

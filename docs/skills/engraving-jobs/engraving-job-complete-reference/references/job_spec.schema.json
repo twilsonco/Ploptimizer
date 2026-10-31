@@ -3314,6 +3314,19 @@
           "description": "Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset inherits the plate/job cascade (fallback '# '; job-config.json supplies the shop default); an explicit '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Requires `replacement_text_file`.",
           "title": "Replacement Text File Comment String"
         },
+        "replacement_text_file_allow_blank_lines": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow whitespace-only lines in a replacement text file to produce blank labels with no drill holes. When enabled (true), such lines produce instances with empty content and no holes (even if the label definition specifies holes). When disabled (false), blank lines are dropped with a warning. Cascades label -> job; unset (`null`) falls back to `job-config.json` then `true`. Requires `replacement_text_file`.",
+          "title": "Replacement Text File Allow Blank Lines"
+        },
         "plate_id": {
           "anyOf": [
             {
@@ -4291,6 +4304,19 @@
           "default": null,
           "description": "Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset inherits the job cascade (fallback '# '; `job-config.json` supplies the shop default); an explicit '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Same file requirement as `replacement_text_delimiter`; cascades plate -> pinned label.",
           "title": "Replacement Text File Comment String"
+        },
+        "replacement_text_file_allow_blank_lines": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Allow whitespace-only lines in a replacement text file to produce blank labels with no drill holes. When enabled (true), such lines produce instances with empty content and no holes (even if the label definition specifies holes). When disabled (false), blank lines are dropped with a warning. Cascades job -> plate; unset (`null`) falls back to `job-config.json` then `true`. Requires a replacement file.",
+          "title": "Replacement Text File Allow Blank Lines"
         }
       },
       "required": [
@@ -6155,6 +6181,19 @@
       "default": null,
       "description": "Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset falls back to '# ' (`job-config.json` supplies the shop default); an explicit '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Requires a replacement file at some tier (job, plate, or label); cascades job -> plate -> label.",
       "title": "Replacement Text File Comment String"
+    },
+    "replacement_text_file_allow_blank_lines": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Allow whitespace-only lines in a replacement text file to produce blank labels with no drill holes. When enabled (true), such lines produce instances with empty content and no holes (even if the label definition specifies holes). When disabled (false), blank lines are dropped with a warning. Cascades job -> plate -> label; unset (`null`) falls back to `job-config.json` then `true`. Requires a replacement file at some tier (job, plate, or label).",
+      "title": "Replacement Text File Allow Blank Lines"
     },
     "allow_rotation": {
       "default": true,

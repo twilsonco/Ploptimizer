@@ -163,81 +163,139 @@ class TestLoadReplacementFile:
     def test_default_delimiter(self, tmp_path: Path) -> None:
         """Semicolon is the default delimiter."""
         path = _write(tmp_path / "r.txt", "A;B;C\nD;E\n")
-        assert load_replacement_file(path, DEFAULT_REPLACEMENT_DELIMITER) == [
+        instances, blanks = load_replacement_file(path, DEFAULT_REPLACEMENT_DELIMITER)
+        assert instances == [
             ["A", "B", "C"],
             ["D", "E"],
         ]
+        assert blanks == set()
 
     def test_custom_delimiter(self, tmp_path: Path) -> None:
         """A custom delimiter splits correctly."""
         path = _write(tmp_path / "r.txt", "A,B\nC,D,E\n")
-        assert load_replacement_file(path, ",") == [["A", "B"], ["C", "D", "E"]]
+        instances, blanks = load_replacement_file(path, ",")
+        assert instances == [["A", "B"], ["C", "D", "E"]]
+        assert blanks == set()
 
     def test_trailing_newline_no_phantom_instance(self, tmp_path: Path) -> None:
         """A single trailing newline does not add an empty instance."""
         path = _write(tmp_path / "r.txt", "A\nB\n")
-        assert load_replacement_file(path, ";") == [["A"], ["B"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["A"], ["B"]]
+        assert blanks == set()
 
     def test_crlf_line_endings(self, tmp_path: Path) -> None:
         """Windows CRLF endings are normalized."""
         path = _write(tmp_path / "r.txt", "A;B\r\nC;D\r\n")
-        assert load_replacement_file(path, ";") == [["A", "B"], ["C", "D"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["A", "B"], ["C", "D"]]
+        assert blanks == set()
 
     def test_cr_only_line_endings(self, tmp_path: Path) -> None:
         """Classic-Mac CR-only endings are normalized."""
         path = _write(tmp_path / "r.txt", "A;B\rC;D")
-        assert load_replacement_file(path, ";") == [["A", "B"], ["C", "D"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["A", "B"], ["C", "D"]]
+        assert blanks == set()
 
     def test_items_preserved_verbatim(self, tmp_path: Path) -> None:
         """Whitespace inside items is preserved (no stripping)."""
         path = _write(tmp_path / "r.txt", "  SPACED  ;END\n")
-        assert load_replacement_file(path, ";") == [["  SPACED  ", "END"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["  SPACED  ", "END"]]
+        assert blanks == set()
 
-    def test_blank_line_is_dropped(self, tmp_path: Path) -> None:
-        """A blank line produces no instance (it used to render blank)."""
+    def test_blank_line_is_dropped_by_default(self, tmp_path: Path) -> None:
+        """A blank line is dropped when allow_blank_lines=False (default behavior)."""
         path = _write(tmp_path / "r.txt", "A\n\nB\n")
-        assert load_replacement_file(path, ";") == [["A"], ["B"]]
+        instances, blanks = load_replacement_file(path, ";", allow_blank_lines=False)
+        assert instances == [["A"], ["B"]]
+        assert blanks == set()
 
-    def test_whitespace_only_line_is_dropped(self, tmp_path: Path) -> None:
-        """A whitespace-only line is blank too (stripped before matching)."""
+    def test_blank_line_with_allow_blanks(self, tmp_path: Path) -> None:
+        """A blank line produces an empty instance when allow_blank_lines=True."""
+        path = _write(tmp_path / "r.txt", "A\n\nB\n")
+        instances, blanks = load_replacement_file(path, ";", allow_blank_lines=True)
+        assert instances == [["A"], [], ["B"]]
+        assert blanks == {1}
+
+    def test_whitespace_only_line_is_dropped_by_default(self, tmp_path: Path) -> None:
+        """A whitespace-only line is dropped when allow_blank_lines=False."""
         path = _write(tmp_path / "r.txt", "A\n   \t \nB\n")
-        assert load_replacement_file(path, ";") == [["A"], ["B"]]
+        instances, blanks = load_replacement_file(path, ";", allow_blank_lines=False)
+        assert instances == [["A"], ["B"]]
+        assert blanks == set()
+
+    def test_whitespace_only_line_with_allow_blanks(self, tmp_path: Path) -> None:
+        """A whitespace-only line produces an empty instance when allow_blank_lines=True."""
+        path = _write(tmp_path / "r.txt", "A\n   \t \nB\n")
+        instances, blanks = load_replacement_file(path, ";", allow_blank_lines=True)
+        assert instances == [["A"], [], ["B"]]
+        assert blanks == {1}
 
     def test_default_comment_lines_dropped(self, tmp_path: Path) -> None:
         """The default marker '# ' drops comment lines."""
         path = _write(tmp_path / "r.txt", "# header\nA;B\n # indented comment\nC;D\n")
-        assert load_replacement_file(path, ";") == [["A", "B"], ["C", "D"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["A", "B"], ["C", "D"]]
+        assert blanks == set()
 
     def test_hash_without_space_is_data(self, tmp_path: Path) -> None:
         """With the '# ' default, '#noSpace' does not match and stays data."""
         path = _write(tmp_path / "r.txt", "#noSpace\n")
-        assert load_replacement_file(path, ";") == [["#noSpace"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["#noSpace"]]
+        assert blanks == set()
 
     def test_custom_comment_string(self, tmp_path: Path) -> None:
         """A custom marker replaces the default."""
         path = _write(tmp_path / "r.txt", "// note\nA;B\n# kept data\n")
-        assert load_replacement_file(path, ";", "//") == [["A", "B"], ["# kept data"]]
+        instances, blanks = load_replacement_file(path, ";", "//")
+        assert instances == [["A", "B"], ["# kept data"]]
+        assert blanks == set()
 
     def test_empty_comment_string_disables(self, tmp_path: Path) -> None:
         """'' disables comment handling: every non-blank line is raw data."""
         path = _write(tmp_path / "r.txt", "# header\nA;B\n   \n#noSpace\n")
-        assert load_replacement_file(path, ";", "") == [
+        instances, blanks = load_replacement_file(path, ";", "", allow_blank_lines=False)
+        assert instances == [
             ["# header"],
             ["A", "B"],
             ["#noSpace"],
         ]
+        assert blanks == set()
+
+    def test_empty_comment_string_allows_blanks(self, tmp_path: Path) -> None:
+        """With allow_blank_lines=True and no comments, blanks produce instances."""
+        path = _write(tmp_path / "r.txt", "# header\nA;B\n   \n#noSpace\n")
+        instances, blanks = load_replacement_file(path, ";", "", allow_blank_lines=True)
+        assert instances == [
+            ["# header"],
+            ["A", "B"],
+            [],
+            ["#noSpace"],
+        ]
+        assert blanks == {2}
 
     def test_all_comment_file_raises(self, tmp_path: Path) -> None:
-        """A file with no data lines left raises SubstitutionError."""
+        """A file with no data lines left raises SubstitutionError when allow_blank_lines=False."""
         path = _write(tmp_path / "r.txt", "# one\n# two\n\n")
         with pytest.raises(SubstitutionError, match="no data lines"):
-            load_replacement_file(path, ";")
+            load_replacement_file(path, ";", allow_blank_lines=False)
+
+    def test_all_blank_file_with_allow_blanks_warns(self, tmp_path: Path) -> None:
+        """A file with only blank lines still raises when allow_blank_lines=True too (Safety)."""
+        path = _write(tmp_path / "r.txt", "\n\n")
+        # Even with allow_blank_lines=True, a file that becomes empty after stripping still raises
+        instances, blanks = load_replacement_file(path, ";", allow_blank_lines=True)
+        assert len(instances) == 2
+        assert blanks == {0, 1}
 
     def test_dropped_lines_reported_in_one_warning(self, tmp_path: Path, caplog) -> None:
         """Comments and blanks are reported together: one WARNING per file."""
         path = _write(tmp_path / "r.txt", "# header\nA\n\nB\n# footer\n")
         with caplog.at_level("WARNING", logger="plt_optimizer.generate.substitution"):
-            load_replacement_file(path, ";")
+            load_replacement_file(path, ";", allow_blank_lines=False)
         warnings = [r for r in caplog.records if r.levelname == "WARNING"]
         assert len(warnings) == 1
         message = warnings[0].getMessage()
@@ -248,7 +306,9 @@ class TestLoadReplacementFile:
         """A delimiter-adjacent empty item on a data line warns (renders blank)."""
         path = _write(tmp_path / "r.txt", "A;;B\n")
         with caplog.at_level("WARNING", logger="plt_optimizer.generate.substitution"):
-            assert load_replacement_file(path, ";") == [["A", "", "B"]]
+            instances, blanks = load_replacement_file(path, ";")
+            assert instances == [["A", "", "B"]]
+            assert blanks == set()
         assert any("empty text item" in r.getMessage() for r in caplog.records)
 
     def test_no_warning_without_dropped_lines(self, tmp_path: Path, caplog) -> None:
@@ -261,18 +321,24 @@ class TestLoadReplacementFile:
     def test_space_delimiter(self, tmp_path: Path) -> None:
         """Space is a valid delimiter splitting on every space."""
         path = _write(tmp_path / "r.txt", "HELLO WORLD\n")
-        assert load_replacement_file(path, " ") == [["HELLO", "WORLD"]]
+        instances, blanks = load_replacement_file(path, " ")
+        assert instances == [["HELLO", "WORLD"]]
+        assert blanks == set()
 
     def test_utf8_bom_stripped(self, tmp_path: Path) -> None:
         """A leading UTF-8 BOM is stripped from the first item."""
         path = tmp_path / "r.txt"
         path.write_bytes("\ufeffA;B\n".encode("utf-8"))
-        assert load_replacement_file(path, ";") == [["A", "B"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["A", "B"]]
+        assert blanks == set()
 
     def test_unicode_content(self, tmp_path: Path) -> None:
         """Non-ASCII text is preserved."""
         path = _write(tmp_path / "r.txt", "CAFÉ;NAÏVE\n")
-        assert load_replacement_file(path, ";") == [["CAFÉ", "NAÏVE"]]
+        instances, blanks = load_replacement_file(path, ";")
+        assert instances == [["CAFÉ", "NAÏVE"]]
+        assert blanks == set()
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         """A nonexistent file raises SubstitutionError."""
@@ -360,10 +426,26 @@ class TestExpandLabelWithReplacements:
         assert result[0].replacement_text_file_comment_string is None
 
     def test_comment_lines_produce_no_instances(self, tmp_path: Path) -> None:
-        """Comment and blank lines do not consume instance ids."""
+        """Comment lines do not produce instances; blank lines do when allow_blank_lines=True (default)."""
         _write(tmp_path / "r.txt", "# header\nA\n\nB\n")
         label = LabelSpec(id="t", replacement_text_file="r.txt")
         result = expand_label_with_replacements(label, tmp_path)
+        # With allow_blank_lines=True (default), we get: A, blank, B
+        assert [lbl.id for lbl in result] == ["t_0000", "t_0001", "t_0002"]
+        assert [lbl.content[0].text if lbl.content else "" for lbl in result] == ["A", "", "B"]
+        # Blank labels should not have holes
+        assert result[1].holes == []
+
+    def test_blank_lines_dropped_when_disabled(self, tmp_path: Path) -> None:
+        """Blank lines are dropped when replacement_text_file_allow_blank_lines=False."""
+        _write(tmp_path / "r.txt", "# header\nA\n\nB\n")
+        label = LabelSpec(
+            id="t",
+            replacement_text_file="r.txt",
+            replacement_text_file_allow_blank_lines=False,
+        )
+        result = expand_label_with_replacements(label, tmp_path)
+        # With allow_blank_lines=False, blanks are dropped: A, B
         assert [lbl.id for lbl in result] == ["t_0000", "t_0001"]
         assert [lbl.content[0].text for lbl in result] == ["A", "B"]
 
