@@ -1056,6 +1056,19 @@
       "description": "Default replacement-file comment marker (job layer; cascades job -> plate -> label): a replacement text file line whose whitespace-stripped text starts with this string produces no label copy and is reported in a per-file WARNING. Unset falls back to the code default '# '; '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Injected only when the job spec declares a replacement_text_file at the job, plate, or label level.",
       "title": "Replacement Text File Comment String"
     },
+    "replacement_text_file_allow_blank_lines": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default allow-blank-lines mode for replacement text files (job layer; cascades job -> plate -> label). When true, whitespace-only lines in a replacement file produce blank labels with no drill holes (even if the label template specifies holes). When false, blank lines are dropped with a warning. Unset falls back to true. Injected only when the job spec declares a replacement_text_file at the job, plate, or label level.",
+      "title": "Replacement Text File Allow Blank Lines"
+    },
     "type": {
       "anyOf": [
         {

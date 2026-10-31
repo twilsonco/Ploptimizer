@@ -263,6 +263,7 @@ THEMES: Tuple[Theme, ...] = (
             "replacement_text_file",
             "replacement_text_delimiter",
             "replacement_text_file_comment_string",
+            "replacement_text_file_allow_blank_lines",
             "placeholder",
         ),
         pitfalls=(
@@ -275,6 +276,10 @@ THEMES: Tuple[Theme, ...] = (
             '`replacement_text_file_comment_string: ""` is raw-data mode (every '
             'non-blank line engraves); the default `"# "` drops comment lines, '
             "reported as one WARNING per file.",
+            "Whitespace-only lines in the file produce blank labels (no content) when "
+            "`replacement_text_file_allow_blank_lines: true` (default); set `false` to "
+            "drop blanks instead. Blank labels never get holes, even if the template "
+            "specifies them.",
             "The delimiter must not appear inside the data itself; every data line is "
             "exactly one label copy.",
         ),
