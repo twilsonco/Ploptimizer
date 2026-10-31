@@ -54,7 +54,12 @@ position, so:
 - **non-uniform scale** (``scale_x != scale_y``): an ellipse is not a
   circular arc, so :func:`scale_glyph` refuses it
   (:class:`GlyphTransformError`) rather than silently distorting the glyph.
-  Line-only glyphs (``-`` -> en dash) are unaffected.
+  Line-only glyphs (``-`` -> en dash) are unaffected. The one place a
+  non-uniform Y scale IS applied to arc-carrying glyphs is
+  :func:`scale_geometry_y` (the extraction-time height-prescription pass),
+  which refits each arc's ellipse image with a chain of circular arcs via
+  ``plt_optimizer.generate.arc_fit`` - the library-side twin of the render
+  pipeline's ``TextBlock.scaled_y(preserve_arcs=True)``.
 
 Envelope sampling
 -----------------
@@ -69,13 +74,22 @@ paths share one implementation, and the extractor imports it back.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from plt_optimizer.core.models import ArcSegment, Segment, StrokePath
+from plt_optimizer.core.models import (
+    ArcSegment,
+    Coordinate,
+    Segment,
+    StrokePath,
+    StrokeSegment,
+)
 from plt_optimizer.core.parser import ParseError, PLTParser
+from plt_optimizer.generate.arc_fit import fit_arc
 
 logger = logging.getLogger("glyph_transforms")
 
@@ -737,6 +751,326 @@ def glyph_bounds(text: str) -> Optional[Bounds]:
         The swept bounds in plotter units, ``None`` for geometry-less input.
     """
     return parse_glyph(text).bounds
+
+
+# ---------------------------------------------------------------------------
+# Vertical (Y-only) scaling with native arc refitting
+# ---------------------------------------------------------------------------
+
+# Design units per design inch in the storage frame (mirrors
+# ``extract_plt_fonts.LIBRARY_UNITS_PER_INCH``; duplicated here so this module
+# stays importable without the extractor).
+_DESIGN_UNITS_PER_INCH: float = 1000.0
+
+# Chord-error bound (inches) for the polyline fallback of an arc the refit
+# cannot fit within tolerance. Mirrors ``text_geometry.ARC_FLATTEN_CHORD_TOL_INCHES``
+# so a declined arc matches the render pipeline's flattening exactly.
+_ARC_FLATTEN_CHORD_TOL_INCHES: float = 0.0002
+
+# Upper bound on the chord count of one flattened arc.
+_MAX_ARC_SEGMENTS: int = 4096
+
+
+def _flatten_arc_units(
+    start: Tuple[float, float],
+    center: Tuple[float, float],
+    sweep_deg: float,
+) -> List[Tuple[float, float]]:
+    """Flatten one stored-frame arc into tip-to-tail chord points (units).
+
+    Port of ``text_geometry.flatten_arc_to_polyline`` for this module's
+    unit-space tuples: the chord count is chosen so each chord's sagitta
+    stays within :data:`_ARC_FLATTEN_CHORD_TOL_INCHES` (converted to design
+    units), with the same per-segment angular caps as the render pipeline, so
+    the fallback geometry is identical on both sides.
+
+    Args:
+        start: Arc start ``(x, y)`` in design units.
+        center: Arc centre ``(x, y)`` in design units.
+        sweep_deg: Signed sweep in degrees.
+
+    Returns:
+        Points including ``start`` and the exact arc end.
+    """
+    radius = math.hypot(start[0] - center[0], start[1] - center[1])
+    theta_start = math.atan2(start[1] - center[1], start[0] - center[0])
+    theta_end = theta_start + math.radians(sweep_deg)
+    end = (center[0] + radius * math.cos(theta_end), center[1] + radius * math.sin(theta_end))
+    if radius <= _EPS or abs(sweep_deg) <= 0.0:
+        return [start, end]
+    tol = _ARC_FLATTEN_CHORD_TOL_INCHES * _DESIGN_UNITS_PER_INCH
+    abs_sweep = abs(sweep_deg)
+    if tol >= radius:  # pragma: no cover - the fit handles tiny arcs before flatten
+        count = max(2, math.ceil(abs_sweep / 5.0))
+    else:
+        max_half = math.acos(1.0 - tol / radius)
+        count = max(1, math.ceil(math.radians(abs_sweep) / (2.0 * max_half)))
+    count = max(count, max(2, math.ceil(abs_sweep / 90.0)))
+    count = max(1, min(_MAX_ARC_SEGMENTS, count))
+    points: List[Tuple[float, float]] = [start]
+    for index in range(1, count):
+        theta = theta_start + math.radians(sweep_deg) * index / count
+        points.append((center[0] + radius * math.cos(theta), center[1] + radius * math.sin(theta)))
+    points.append(end)
+    return points
+
+
+def scale_geometry_y(geometry: GlyphGeometry, factor: float, shift: float) -> GlyphGeometry:
+    """Apply the stored-frame map ``y' = factor * y + shift`` (X untouched).
+
+    This is the glyph-library counterpart of the render pipeline's
+    ``TextBlock.scaled_y(..., preserve_arcs=True)`` + translate, and it uses
+    the same :mod:`plt_optimizer.generate.arc_fit` engine: a circular arc does
+    not survive a non-uniform Y scale as a circle, so each arc's ellipse image
+    (scaled about the baseline ``y = 0``, in inches) is refit with a
+    tangent-continuous chain of circular ``AA`` arcs. When the refit cannot
+    guarantee the tolerance, the arc falls back to the pipeline's
+    chord-bounded polyline flattening. Line segments map exactly.
+
+    Args:
+        geometry: The glyph to scale.
+        factor: Vertical scale factor (``1.0`` = no stretch).
+        shift: Vertical translation (design units) applied *after* scaling.
+
+    Returns:
+        The transformed geometry (``bounds`` recomputed from the mapped
+        geometry, so it reflects the refit chain, not an idealised ellipse).
+    """
+    if geometry.is_empty:
+        return geometry
+
+    def map_y(y: float) -> float:
+        """The full map for coordinates the fit has not scaled yet."""
+        return factor * y + shift
+
+    scaled_paths: List[StrokePath] = []
+    for path in geometry.paths:
+        segments: List[Segment] = []
+        for segment in path.segments:
+            is_cutting = segment.is_cutting
+            start = segment.start
+            if isinstance(segment, ArcSegment):
+                center = segment.center
+                if factor == 1.0:
+                    # Pure translation: the circle stays a circle, the sweep
+                    # rides verbatim (positive determinant).
+                    segments.append(
+                        ArcSegment(
+                            Coordinate(start.x, start.y + shift),
+                            Coordinate(segment.end.x, segment.end.y + shift),
+                            Coordinate(center.x, center.y + shift),
+                            segment.sweep_angle,
+                            is_cutting,
+                        )
+                    )
+                    continue
+                radius = math.hypot(start.x - center.x, start.y - center.y)
+                sweep = segment.sweep_angle
+                chain = None
+                if radius > _EPS:
+                    # arc_fit works in inches; the design frame is 1000 units
+                    # per design inch, and the shift is applied afterwards.
+                    chain = fit_arc(
+                        complex(center.x, center.y) / _DESIGN_UNITS_PER_INCH,
+                        radius / _DESIGN_UNITS_PER_INCH,
+                        math.degrees(math.atan2(start.y - center.y, start.x - center.x)),
+                        sweep,
+                        scale_y=factor,
+                    )
+                if chain is not None:
+                    # The fit already applied the Y scale; translate only.
+                    for piece in chain:
+                        ps = piece.start * _DESIGN_UNITS_PER_INCH
+                        pe = piece.end * _DESIGN_UNITS_PER_INCH
+                        if piece.center is None:
+                            segments.append(
+                                StrokeSegment(
+                                    Coordinate(ps.real, ps.imag + shift),
+                                    Coordinate(pe.real, pe.imag + shift),
+                                    is_cutting,
+                                )
+                            )
+                        else:
+                            pc = piece.center * _DESIGN_UNITS_PER_INCH
+                            segments.append(
+                                ArcSegment(
+                                    Coordinate(ps.real, ps.imag + shift),
+                                    Coordinate(pe.real, pe.imag + shift),
+                                    Coordinate(pc.real, pc.imag + shift),
+                                    piece.sweep_deg,
+                                    is_cutting,
+                                )
+                            )
+                    continue
+                # Refit declined: flatten (units), then apply the full map.
+                points = _flatten_arc_units((start.x, start.y), (center.x, center.y), sweep)
+                for (x0, y0), (x1, y1) in zip(points[:-1], points[1:]):
+                    segments.append(
+                        StrokeSegment(
+                            Coordinate(x0, map_y(y0)),
+                            Coordinate(x1, map_y(y1)),
+                            is_cutting,
+                        )
+                    )
+                continue
+            end = segment.end
+            segments.append(
+                StrokeSegment(
+                    Coordinate(start.x, map_y(start.y)),
+                    Coordinate(end.x, map_y(end.y)),
+                    is_cutting,
+                )
+            )
+        if not segments:  # pragma: no cover - parse_glyph drops segment-less paths
+            continue
+        pen_up = path.pen_up_position
+        if pen_up is not None:
+            pen_up = Coordinate(pen_up.x, map_y(pen_up.y))
+        scaled_paths.append(StrokePath(pen_up_position=pen_up, segments=tuple(segments)))
+    if not scaled_paths:  # pragma: no cover - geometry.is_empty is checked by the caller
+        return GlyphGeometry()
+    return GlyphGeometry(
+        paths=tuple(scaled_paths),
+        bounds=union_bounds([path_bounds(path) for path in scaled_paths]),
+    )
+
+
+def scale_glyph_y_arc_native(text: str, factor: float, shift: float) -> str:
+    """Apply ``y' = factor * y + shift`` to a stored glyph, keeping arcs native.
+
+    Convenience wrapper over :func:`scale_geometry_y` +
+    :func:`emit_glyph_geometry` for glyph strings (see that function for the
+    arc-refit contract). The identity map (``factor == 1``, ``shift == 0``)
+    returns ``text`` unchanged.
+
+    Args:
+        text: The source HPGL glyph in the storage frame.
+        factor: Vertical scale factor about the baseline ``y = 0``.
+        shift: Vertical translation (design units) applied after scaling.
+
+    Returns:
+        The transformed HPGL glyph (``""`` for empty input).
+
+    Raises:
+        GlyphTransformError: If ``text`` is unparseable.
+    """
+    geometry = parse_glyph(text)
+    if geometry.is_empty:
+        return ""
+    if factor == 1.0 and shift == 0.0:
+        return text
+    return emit_glyph_geometry(scale_geometry_y(geometry, factor, shift))
+
+
+# ---------------------------------------------------------------------------
+# Character height prescriptions (extraction-time normalization)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HeightPrescription:
+    """One prescribed vertical extent, as percentages of the line height.
+
+    ``line height`` is the cap line minus the baseline, i.e.
+    ``LIBRARY_UNITS_PER_INCH`` (1000) design units in the storage frame. A
+    prescription maps a glyph's ink box exactly onto
+    ``[-descent_percent% , 100% + ascent_percent%]`` of that height, so
+    ``ascent_percent=5, descent_percent=5`` forces ``min_y = -50`` and
+    ``max_y = 1050``.
+
+    Attributes:
+        ascent_percent: Overshoot above the cap line, percent of line height
+            (``>= 0``; ``0`` means the ink tops out exactly at the cap line).
+        descent_percent: Overshoot below the baseline, percent of line height
+            (``>= 0``; ``0`` means the glyph sits on the baseline).
+    """
+
+    ascent_percent: float
+    descent_percent: float
+
+    def target_bounds(self, line_height: float) -> Tuple[float, float]:
+        """Return the ``(min_y, max_y)`` the glyph's ink box is mapped onto.
+
+        Args:
+            line_height: The font's line height in design units (cap line -
+                baseline; 1000 for every v2 font).
+
+        Returns:
+            ``(target_min_y, target_max_y)`` in design units.
+        """
+        return (
+            -self.descent_percent / 100.0 * line_height,
+            (1.0 + self.ascent_percent / 100.0) * line_height,
+        )
+
+
+def load_height_prescriptions(path: Path) -> Dict[str, HeightPrescription]:
+    """Load the per-character height prescriptions from a JSON file.
+
+    The file maps character groups to their extents::
+
+        {
+          "prescriptions": [
+            { "characters": "/\\\\", "ascent_percent": 5, "descent_percent": 5 }
+          ]
+        }
+
+    Validation is strict: every character key must be a single non-whitespace
+    codepoint, both percentages must be finite numbers in ``[0, 100]``, and a
+    character may appear in only one prescription (last-write-wins would make
+    the catalog non-deterministic under reordering).
+
+    Args:
+        path: The prescriptions JSON file.
+
+    Returns:
+        ``{character: HeightPrescription}`` in file order.
+
+    Raises:
+        GlyphTransformError: If the file is unreadable, is not valid JSON of
+            the expected shape, or fails validation.
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise GlyphTransformError(f"Failed to read prescriptions file {path}: {e}") from e
+    except json.JSONDecodeError as e:
+        raise GlyphTransformError(f"Prescriptions file {path} is not valid JSON: {e}") from e
+    if not isinstance(raw, dict) or not isinstance(raw.get("prescriptions"), list):
+        raise GlyphTransformError(
+            f"Prescriptions file {path} must be an object with a 'prescriptions' list"
+        )
+    prescriptions: Dict[str, HeightPrescription] = {}
+    for index, item in enumerate(raw["prescriptions"]):
+        where = f"prescriptions[{index}]"
+        if not isinstance(item, dict):
+            raise GlyphTransformError(f"{where} in {path} must be an object")
+        characters = item.get("characters")
+        if not isinstance(characters, str) or not characters:
+            raise GlyphTransformError(f"{where} in {path} needs a non-empty 'characters' string")
+        values = []
+        for key in ("ascent_percent", "descent_percent"):
+            value = item.get(key)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise GlyphTransformError(f"{where}.{key} in {path} must be a number")
+            number = float(value)
+            if not math.isfinite(number) or not 0.0 <= number <= 100.0:
+                raise GlyphTransformError(
+                    f"{where}.{key} in {path} must lie in [0, 100]; got {value!r}"
+                )
+            values.append(number)
+        for character in characters:
+            if character.isspace():
+                raise GlyphTransformError(
+                    f"{where} in {path} lists a whitespace character; prescriptions key on "
+                    "printed glyphs"
+                )
+            if character in prescriptions:
+                raise GlyphTransformError(
+                    f"Character {character!r} in {where} of {path} is prescribed more than once"
+                )
+            prescriptions[character] = HeightPrescription(values[0], values[1])
+    return prescriptions
 
 
 # ---------------------------------------------------------------------------

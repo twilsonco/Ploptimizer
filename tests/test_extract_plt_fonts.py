@@ -1818,3 +1818,301 @@ class TestDerivedGlyphs:
         assert script.main(args) == 0
         merged = json.loads(dino_file.read_text(encoding="utf-8"))
         assert merged["characters"]["\u2013"]["glyph"] != "SENTINEL"
+
+
+class TestHeightPrescriptions:
+    """The extraction-time per-character height-normalisation pass."""
+
+    # The synthetic default box is 250x500 -> normalized y in [0, 1000]
+    # (scale = 1000/REF_HEIGHT = 2). Prescribing 5%/5% moves it to [-50, 1050].
+    PRESCRIPTIONS = {
+        "/": gt.HeightPrescription(5.0, 5.0),
+        "C": gt.HeightPrescription(10.0, 10.0),
+        "A": gt.HeightPrescription(2.0, 2.0),
+    }
+
+    @staticmethod
+    def _extract(
+        chars: Sequence[str] = ("E", "C", "A", "T"),
+        prescriptions: Optional[Dict[str, Any]] = None,
+        reference_char: str = "E",
+    ) -> Dict[str, Any]:
+        """Extract a one-row sheet and return its (prescription-normalised) characters."""
+        doc = PLTParser().parse_string(make_framed_sheet([list(chars)], reference_char))
+        entry, _, _, _ = script.extract_font_from_document(
+            doc, list(chars), reference_char, declared_height=0.5
+        )
+        script.apply_height_prescriptions(
+            entry["characters"],
+            prescriptions if prescriptions is not None else TestHeightPrescriptions.PRESCRIPTIONS,
+            reference_char,
+            script.ENVELOPE_SAMPLES,
+        )
+        return entry["characters"]
+
+    def test_prescribed_glyph_lands_on_exact_extents(self) -> None:
+        box = self._extract()["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(-100.0, abs=1e-3)
+        assert box["max_y"] == pytest.approx(1100.0, abs=1e-3)
+
+    def test_width_and_left_edge_untouched(self) -> None:
+        """A prescription is vertical-only: X is never scaled."""
+        raw = self._extract(prescriptions={})["C"]["bounding_box"]
+        box = self._extract()["C"]["bounding_box"]
+        assert box["min_x"] == pytest.approx(raw["min_x"], abs=1e-6)
+        assert box["max_x"] == pytest.approx(raw["max_x"], abs=1e-6)
+
+    def test_arc_glyph_stays_native(self) -> None:
+        """The arc-carrying 'A' keeps AA commands after the Y stretch."""
+        glyph = self._extract()["A"]["glyph"]
+        assert "AA" in glyph
+        PLTParser().parse_string("IN;PA;" + glyph + "SP;")
+
+    def test_unprescribed_glyph_is_untouched(self) -> None:
+        raw = self._extract(prescriptions={})["T"]["bounding_box"]
+        box = self._extract()["T"]["bounding_box"]
+        assert box == raw
+
+    def test_envelopes_travel_with_the_glyph(self) -> None:
+        """Both envelopes span the normalised box, and keep their X profile."""
+        raw = self._extract(prescriptions={})["C"]
+        box = self._extract()["C"]
+        for key in ("left_envelope", "right_envelope"):
+            assert len(box[key]) == len(raw[key]) == script.ENVELOPE_SAMPLES
+            ys = [point[1] for point in box[key]]
+            assert min(ys) == pytest.approx(box["bounding_box"]["min_y"], abs=1e-3)
+            assert max(ys) == pytest.approx(box["bounding_box"]["max_y"], abs=1e-3)
+            for (cx, _cy), (rx, _ry) in zip(box[key], raw[key]):
+                assert cx == pytest.approx(rx, abs=1e-3)
+
+    def test_emitted_geometry_agrees_with_the_box(self) -> None:
+        glyph = self._extract()["C"]["glyph"]
+        ys = [float(y) for _x, y in re.findall(r"(-?\d+\.\d+),(-?\d+\.\d+)", glyph)]
+        assert ys
+        assert min(ys) == pytest.approx(-100.0, abs=1e-3)
+        assert max(ys) == pytest.approx(1100.0, abs=1e-3)
+
+    def test_reference_character_is_exempt(self) -> None:
+        """Prescribing the reference char would break the cap/baseline contract."""
+        characters = self._extract(
+            ("E", "C"), prescriptions={"E": gt.HeightPrescription(50.0, 50.0)}
+        )
+        box = characters["E"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(0.0, abs=1e-6)
+        assert box["max_y"] == pytest.approx(1000.0, abs=1e-3)
+
+    def test_absent_prescribed_character_is_skipped(self) -> None:
+        """A prescription for a character the font does not carry is ignored."""
+        characters = self._extract(("E", "C"))  # no '/' engraved
+        assert "/" not in characters
+        assert characters["C"]["bounding_box"]["min_y"] == pytest.approx(-100.0, abs=1e-3)
+
+    def test_empty_prescriptions_is_a_noop(self) -> None:
+        characters = self._extract(prescriptions={})
+        box = characters["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(0.0, abs=1e-6)
+        assert box["max_y"] == pytest.approx(600.0, abs=1e-6)
+
+    def test_zero_height_glyph_is_centred_and_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A hairline glyph cannot be scaled; it is translated and logged."""
+        # A 500-wide hairline at y = 500 (zero-height ink box).
+        characters = {
+            "-": {
+                "glyph": "PU0.0000,500.0000;PD500.0000,500.0000;",
+                "bounding_box": {"min_x": 0.0, "max_x": 500.0, "min_y": 500.0, "max_y": 500.0},
+                "left_envelope": [],
+                "right_envelope": [],
+            }
+        }
+        with caplog.at_level(logging.WARNING, logger="extract_plt_fonts"):
+            normalised = script.apply_height_prescriptions(
+                characters, {"-": gt.HeightPrescription(5.0, 5.0)}, "E", script.ENVELOPE_SAMPLES
+            )
+        assert normalised == ["-"]
+        assert any("zero-height" in record.getMessage() for record in caplog.records)
+        box = characters["-"]["bounding_box"]
+        # The target span [-50, 1050] has centre 500; the hairline stays there.
+        assert box["min_y"] == pytest.approx(500.0, abs=1e-3)
+        assert box["max_y"] == pytest.approx(500.0, abs=1e-3)
+
+    def test_geometry_less_glyph_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        characters = {"C": {"glyph": "", "bounding_box": {}}}
+        with caplog.at_level(logging.WARNING, logger="extract_plt_fonts"):
+            normalised = script.apply_height_prescriptions(
+                characters, {"C": gt.HeightPrescription(5.0, 5.0)}, "E", script.ENVELOPE_SAMPLES
+            )
+        assert normalised == []
+        assert any("no geometry" in record.getMessage() for record in caplog.records)
+
+
+class TestHeightPrescriptionsCli:
+    """main() wires the shipped prescriptions file, with an opt-out flag."""
+
+    def _sheet(self, tmp_path: Path) -> Tuple[List[str], List[str]]:
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "myfont_1_E.plt").write_text(
+            make_framed_sheet([["E", "C", "A"]]), encoding="utf-8"
+        )
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text("E C A", encoding="utf-8")
+        return (
+            ["--input-dir", str(fonts_dir), "--ascii-file", str(ascii_file)],
+            ["E", "C", "A"],
+        )
+
+    def _prescriptions_file(self, tmp_path: Path) -> Path:
+        path = tmp_path / "prescriptions.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "prescriptions": [
+                        {"characters": "CA", "ascent_percent": 10, "descent_percent": 10}
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_prescriptions_applied_by_default(self, tmp_path: Path) -> None:
+        base, _ = self._sheet(tmp_path)
+        out = tmp_path / "catalog"
+        assert (
+            script.main(
+                base
+                + [
+                    "--output-dir",
+                    str(out),
+                    "--prescriptions-file",
+                    str(self._prescriptions_file(tmp_path)),
+                ]
+            )
+            == 0
+        )
+        data = json.loads((out / "Myfont.json").read_text(encoding="utf-8"))
+        box = data["characters"]["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(-100.0, abs=1e-3)
+        assert box["max_y"] == pytest.approx(1100.0, abs=1e-3)
+
+    def test_no_flag_stores_the_raw_extent(self, tmp_path: Path) -> None:
+        base, _ = self._sheet(tmp_path)
+        out = tmp_path / "catalog"
+        assert (
+            script.main(
+                base
+                + [
+                    "--output-dir",
+                    str(out),
+                    "--no-height-prescriptions",
+                    "--prescriptions-file",
+                    str(self._prescriptions_file(tmp_path)),
+                ]
+            )
+            == 0
+        )
+        data = json.loads((out / "Myfont.json").read_text(encoding="utf-8"))
+        box = data["characters"]["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(0.0, abs=1e-6)
+        assert box["max_y"] == pytest.approx(600.0, abs=1e-6)
+
+    def test_symbol_font_is_exempt(self, tmp_path: Path) -> None:
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "myfont_1_^_sym.plt").write_text(
+            make_framed_sheet([["^", "C"]], reference_char="^"), encoding="utf-8"
+        )
+        ascii_file = tmp_path / "ascii.txt"
+        ascii_file.write_text("^ C", encoding="utf-8")
+        out = tmp_path / "catalog"
+        assert (
+            script.main(
+                [
+                    "--input-dir",
+                    str(fonts_dir),
+                    "--ascii-file",
+                    str(ascii_file),
+                    "--output-dir",
+                    str(out),
+                    "--prescriptions-file",
+                    str(self._prescriptions_file(tmp_path)),
+                ]
+            )
+            == 0
+        )
+        data = json.loads((out / "Myfont.json").read_text(encoding="utf-8"))
+        box = data["characters"]["C"]["bounding_box"]
+        assert box["min_y"] == pytest.approx(0.0, abs=1e-6)
+
+    def test_invalid_prescriptions_file_exits_nonzero(self, tmp_path: Path) -> None:
+        base, _ = self._sheet(tmp_path)
+        bad = tmp_path / "bad.json"
+        bad.write_text(
+            '{"prescriptions": [{"characters": "/", "ascent_percent": 999}]}', encoding="utf-8"
+        )
+        assert (
+            script.main(
+                base + ["--output-dir", str(tmp_path / "out"), "--prescriptions-file", str(bad)]
+            )
+            == 1
+        )
+
+    def test_derived_glyphs_inherit_normalised_bases(self, tmp_path: Path) -> None:
+        """The pass runs before derivation, so cent/dagger see the normalised |."""
+        fonts_dir = tmp_path / "fonts"
+        fonts_dir.mkdir()
+        shutil.copy(DINO_FRAMED_FIXTURE, fonts_dir / "dino_0.5_E.plt")
+        ascii_file = REPO_ROOT / "fonts" / "ascii.txt"
+        out = tmp_path / "catalog"
+        assert (
+            script.main(
+                [
+                    "--input-dir",
+                    str(fonts_dir),
+                    "--ascii-file",
+                    str(ascii_file),
+                    "--output-dir",
+                    str(out),
+                ]
+            )
+            == 0
+        )
+        data = json.loads((out / "Dino.json").read_text(encoding="utf-8"))
+        # The shipped prescriptions put the pipe on [-100, 1000]; the derived
+        # cent sign is built from that bar, so its box must reflect the
+        # normalised bar, not the raw engraved one.
+        bar = data["characters"]["|"]["bounding_box"]
+        assert bar["min_y"] == pytest.approx(-100.0, abs=1e-3)
+        assert bar["max_y"] == pytest.approx(1000.0, abs=1e-3)
+        assert "\u00a2" in data["characters"]
+
+
+class TestShippedCatalogPrescriptions:
+    """The regenerated catalog honours the shipped prescriptions file."""
+
+    # The refit chain tracks the ideal ellipse within the fit tolerance; the
+    # stored extremes may bulge a fraction of a plotter unit past the target
+    # (well below the plotter's 1-unit resolution). The tolerance is the
+    # arc-fit deviation bound, ARC_FIT_DEV_TOL_INCHES = 0.0002 in = 0.2 units.
+    TOLERANCE = 0.5
+
+    def test_every_non_symbol_font_matches_its_prescriptions(self) -> None:
+        prescriptions = gt.load_height_prescriptions(script.DEFAULT_PRESCRIPTIONS_FILE)
+        catalog_dir = REPO_ROOT / "fonts" / "VP-EL-fonts" / "catalog"
+        checked = 0
+        for path in sorted(catalog_dir.glob("*.json")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("symbol_font"):
+                continue
+            reference_char = data["reference_char"]
+            for character, prescription in prescriptions.items():
+                entry = data["characters"].get(character)
+                if entry is None or character == reference_char:
+                    continue
+                low, high = prescription.target_bounds(script.LIBRARY_UNITS_PER_INCH)
+                box = entry["bounding_box"]
+                assert box["min_y"] == pytest.approx(low, abs=self.TOLERANCE), (path, character)
+                assert box["max_y"] == pytest.approx(high, abs=self.TOLERANCE), (path, character)
+                assert box["min_x"] == pytest.approx(0.0, abs=self.TOLERANCE), (path, character)
+                checked += 1
+        assert checked >= 8 * 16, "expected most prescriptions in most fonts"

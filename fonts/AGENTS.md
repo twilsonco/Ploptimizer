@@ -26,7 +26,15 @@ font-registry bullets).
   Unicode glyphs (`–—•∞±¢≠≈≡¿¡†‡↑↓←→`) built from ASCII bases. Operates on the
   catalog's self-contained HPGL command strings at full float precision (the
   core `Coordinate` rounds to 3 decimals and would truncate the 4-decimal
-  storage format - use `GlyphGeometry`).
+  storage format - use `GlyphGeometry`). `scale_geometry_y` /
+  `scale_glyph_y_arc_native` apply a Y-only affine with native `AA` refitting
+  (via `../plt_optimizer/generate/arc_fit.py`) - the library-side twin of the
+  render pipeline's `TextBlock.scaled_y(preserve_arcs=True)`.
+- `character_height_prescriptions.json` - per-character vertical-extent
+  prescriptions (ascent/descent as % of the 1000-unit line height) applied to
+  non-symbol fonts at extraction time; loaded by
+  `glyph_transforms.load_height_prescriptions`, applied by
+  `extract_plt_fonts.apply_height_prescriptions`.
 - `ascii.txt` / `ascii_E.txt` / `ascii_2space*.txt` - character-order reference
   sheets the extractor verifies rows against (count + framing geometry ≤ 1e-3
   units).
@@ -56,6 +64,13 @@ font-registry bullets).
 - `VERTICALLY_CENTERED_CHARS` (currently `S`): extraction-time pure-Y shift
   centering the ink box on the midline; the reference char is ALWAYS exempt
   (it defines y=0/y=1000 and the framing verification).
+- Height prescriptions (`character_height_prescriptions.json`): extraction-time
+  Y-only affine mapping each prescribed char's ink box exactly onto
+  `[-descent%, 1000 + ascent%]` (percent of the line height). Non-symbol fonts
+  only; the reference char is ALWAYS exempt; `AA` arcs are refit natively and
+  bbox + both envelopes are rebuilt from the refit geometry. Runs BEFORE
+  `derive_glyph_entries`, so `¢`/`†`/`≠` inherit the normalised bases.
+  `--no-height-prescriptions` disables the pass.
 - Regeneration must stay reproducible: `--no-vertical-centering` is verified
   byte-identical to the pre-centering library.
 

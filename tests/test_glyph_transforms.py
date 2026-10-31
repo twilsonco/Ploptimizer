@@ -656,3 +656,168 @@ class _RecordingLogger:
 
     def info(self, message: str, *args: Any) -> None:
         self.records.append(("info", message % args if args else message))
+
+
+class TestScaleGeometryY:
+    """The arc-native vertical (Y-only) scale used by height prescriptions."""
+
+    def test_identity_is_a_noop_string(self) -> None:
+        assert gt.scale_glyph_y_arc_native(BASE_GLYPHS["/"], 1.0, 0.0) == BASE_GLYPHS["/"]
+
+    def test_empty_glyph_returns_empty(self) -> None:
+        assert gt.scale_glyph_y_arc_native("", 2.0, 5.0) == ""
+        assert gt.scale_geometry_y(gt.GlyphGeometry(), 2.0, 5.0).is_empty
+
+    def test_line_glyph_maps_exactly(self) -> None:
+        # Slash 0..1000 -> 1.1x about y=0 then shift -50: lands on [-50, 1050].
+        scaled = gt.scale_glyph_y_arc_native(BASE_GLYPHS["/"], 1.1, -50.0)
+        assert gt.glyph_bounds(scaled) == pytest.approx((0.0, -50.0, 600.0, 1050.0))
+
+    def test_arc_glyph_is_refit_native(self) -> None:
+        # Quarter arc (center origin, r=100, 0..90) stretched 2x in Y: the
+        # ellipse image must come back as circular AA arcs, not a polyline.
+        scaled = gt.scale_glyph_y_arc_native(ARC_GLYPH, 2.0, 0.0)
+        assert scaled.count("AA") >= 1
+        assert "PD;AA" in scaled
+        # Endpoints are preserved (scaled): start (100,0), end (0,200).
+        geometry = gt.parse_glyph(scaled)
+        assert geometry.bounds is not None
+        # The refit chain tracks the ellipse within the fit tolerance, so the
+        # extremes land on the ideal values up to a sub-unit bulge.
+        assert geometry.bounds[0] == pytest.approx(0.0, abs=0.01)
+        assert geometry.bounds[2] == pytest.approx(100.0, abs=0.01)
+        assert geometry.bounds[3] == pytest.approx(200.0, abs=0.01)
+
+    def test_arc_sweeps_keep_direction(self) -> None:
+        # A positive-determinant map (Y scale about baseline, no mirror) keeps
+        # every refit arc's sweep sign equal to the source's.
+        scaled = gt.scale_glyph_y_arc_native(ARC_GLYPH, 1.5, 0.0)
+        sweeps = [
+            seg.sweep_angle
+            for path in gt.parse_glyph(scaled).paths
+            for seg in path.segments
+            if isinstance(seg, ArcSegment)
+        ]
+        assert sweeps
+        assert all(sweep > 0.0 for sweep in sweeps)
+
+    def test_pure_translation_keeps_arc_single(self) -> None:
+        # factor 1.0, shift != 0: the circle stays a circle (one AA, verbatim
+        # sweep), just lifted.
+        scaled = gt.scale_glyph_y_arc_native(ARC_GLYPH, 1.0, 250.0)
+        arcs = [
+            seg
+            for path in gt.parse_glyph(scaled).paths
+            for seg in path.segments
+            if isinstance(seg, ArcSegment)
+        ]
+        assert len(arcs) == 1
+        assert arcs[0].sweep_angle == pytest.approx(90.0)
+        assert gt.glyph_bounds(scaled) == pytest.approx((0.0, 250.0, 100.0, 350.0))
+
+    def test_flattening_fallback_when_fit_declines(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Force the refit to decline; the arc must fall back to a polyline
+        # (no AA), Y-scaled, with the endpoints intact.
+        monkeypatch.setattr(gt, "fit_arc", lambda *a, **k: None)
+        scaled = gt.scale_glyph_y_arc_native(ARC_GLYPH, 2.0, 0.0)
+        assert "AA" not in scaled
+        geometry = gt.parse_glyph(scaled)
+        assert geometry.bounds is not None
+        assert geometry.bounds[3] == pytest.approx(200.0, abs=1e-3)
+
+
+class TestHeightPrescription:
+    """The prescription dataclass + strict JSON loader."""
+
+    def test_target_bounds(self) -> None:
+        prescription = gt.HeightPrescription(ascent_percent=5.0, descent_percent=5.0)
+        assert prescription.target_bounds(1000.0) == (-50.0, 1050.0)
+
+    def test_target_bounds_pipe_zero_ascent(self) -> None:
+        prescription = gt.HeightPrescription(ascent_percent=0.0, descent_percent=10.0)
+        assert prescription.target_bounds(1000.0) == (-100.0, 1000.0)
+
+    def test_shipped_file_loads_all_groups(self) -> None:
+        path = REPO_ROOT / "fonts" / "character_height_prescriptions.json"
+        loaded = gt.load_height_prescriptions(path)
+        assert set(loaded) == set("/\\|{}()[]")
+        assert loaded["/"] == gt.HeightPrescription(5.0, 5.0)
+        assert loaded["|"] == gt.HeightPrescription(0.0, 10.0)
+        assert loaded["{"] == gt.HeightPrescription(10.0, 10.0)
+        assert loaded["("] == gt.HeightPrescription(5.0, 5.0)
+        assert loaded["["] == gt.HeightPrescription(2.0, 2.0)
+
+    def _write(self, tmp_path: Path, payload: object) -> Path:
+        path = tmp_path / "prescriptions.json"
+        path.write_text(__import__("json").dumps(payload), encoding="utf-8")
+        return path
+
+    def test_missing_file_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(gt.GlyphTransformError, match="Failed to read"):
+            gt.load_height_prescriptions(tmp_path / "absent.json")
+
+    def test_invalid_json_raises(self, tmp_path: Path) -> None:
+        path = tmp_path / "bad.json"
+        path.write_text("{not json", encoding="utf-8")
+        with pytest.raises(gt.GlyphTransformError, match="not valid JSON"):
+            gt.load_height_prescriptions(path)
+
+    def test_wrong_shape_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(gt.GlyphTransformError, match="prescriptions.* list"):
+            gt.load_height_prescriptions(self._write(tmp_path, {"prescriptions": {}}))
+
+    def test_out_of_range_percent_raises(self, tmp_path: Path) -> None:
+        payload = {
+            "prescriptions": [{"characters": "/", "ascent_percent": 250, "descent_percent": 0}]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="must lie in"):
+            gt.load_height_prescriptions(self._write(tmp_path, payload))
+
+    def test_non_numeric_percent_raises(self, tmp_path: Path) -> None:
+        payload = {
+            "prescriptions": [{"characters": "/", "ascent_percent": "5", "descent_percent": 0}]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="must be a number"):
+            gt.load_height_prescriptions(self._write(tmp_path, payload))
+
+    def test_duplicate_character_raises(self, tmp_path: Path) -> None:
+        payload = {
+            "prescriptions": [
+                {"characters": "/", "ascent_percent": 5, "descent_percent": 5},
+                {"characters": "/", "ascent_percent": 2, "descent_percent": 2},
+            ]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="more than once"):
+            gt.load_height_prescriptions(self._write(tmp_path, payload))
+
+    def test_whitespace_character_raises(self, tmp_path: Path) -> None:
+        payload = {
+            "prescriptions": [{"characters": " ", "ascent_percent": 5, "descent_percent": 5}]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="whitespace"):
+            gt.load_height_prescriptions(self._write(tmp_path, payload))
+
+
+class TestScaleGeometryYEdges:
+    """Degenerate and fallback corners of the Y-scale transform."""
+
+    def test_degenerate_arc_flattens_to_a_line(self) -> None:
+        # Zero-radius arc (start == center): the fit is skipped, the flatten
+        # returns the two endpoints, and the segment maps as a line.
+        degenerate = "PU100.0000,0.0000;PD;AA100.0000,0.0000,90.0000;"
+        scaled = gt.scale_glyph_y_arc_native(degenerate, 2.0, 0.0)
+        assert "AA" not in scaled
+        assert gt.glyph_bounds(scaled) == pytest.approx((100.0, 0.0, 100.0, 0.0), abs=1e-3)
+
+    def test_tiny_radius_arc_uses_angular_flatten_cap(self) -> None:
+        # Radius (0.1) below the flatten tolerance (0.2 units): the chord count
+        # falls to the per-segment angular cap, not the sagitta formula.
+        tiny = "PU0.1000,0.0000;PD;AA0.0000,0.0000,90.0000;"
+        scaled = gt.scale_glyph_y_arc_native(tiny, 2.0, 0.0)
+        assert "AA" not in scaled
+        assert gt.glyph_bounds(scaled) == pytest.approx((0.0, 0.0, 0.1, 0.2), abs=1e-3)
+
+    def test_paths_without_segments_are_dropped(self) -> None:
+        # A glyph whose only path has no segments yields empty geometry.
+        empty = gt.GlyphGeometry(paths=(StrokePath(segments=()),), bounds=None)
+        assert gt.scale_geometry_y(empty, 2.0, 5.0).is_empty

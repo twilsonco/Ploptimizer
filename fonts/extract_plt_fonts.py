@@ -80,6 +80,18 @@ reference character is never centred - it *defines* the baseline (``y = 0``)
 and the cap line (``y = 1000``) - and ``--no-vertical-centering`` disables the
 pass entirely for A/B comparison against the raw engraved positions.
 
+A second post-normalisation pass (:func:`apply_height_prescriptions`) forces
+*prescribed* characters - the tall punctuation of
+``fonts/character_height_prescriptions.json`` (``/ \\ | { } ( ) [ ]``) - to an
+exact vertical extent: each glyph's ink box is mapped by a vertical-only
+affine onto ``[-descent%, 1000 + ascent%]``, percentages of the line height
+(cap line - baseline). X is never touched, ``AA`` arcs are refit natively
+(:func:`glyph_transforms.scale_geometry_y`), and the ``bounding_box`` plus
+both envelopes are rebuilt from the transformed geometry. It runs on
+non-symbol sheets only, exempts the reference character, and happens *before*
+the derived-Unicode pass, so ``¢``/``≠``/dagger glyphs inherit the normalised
+bases. ``--no-height-prescriptions`` disables the pass.
+
 The result is written as **one JSON file per font** into
 ``fonts/VP-EL-fonts/catalog/`` (file name = the font key with
 file-name-illegal characters replaced by ``_``, e.g. ``Dino.json``). The
@@ -146,7 +158,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
@@ -161,17 +173,24 @@ if str(SCRIPT_DIR) not in sys.path:  # sibling module, same reason
 from glyph_transforms import (  # noqa: E402
     MIDLINE_FRACTION,
     Bounds,
+    GlyphTransformError,
+    HeightPrescription,
     angle_in_sweep,
     arc_band_xs,
     arc_bounds,  # noqa: F401
     arc_xs_at,
     band_envelopes,
     derive_glyph_entries,
+    emit_glyph_geometry,
     format_number,
     interpolate_gaps,
     line_band_xs,
+    load_height_prescriptions,
+    normalized_geometry,
+    parse_glyph,
     path_bounds,
     round_unit,
+    scale_geometry_y,
     segment_bounds,  # noqa: F401
     union_bounds,
 )
@@ -195,6 +214,10 @@ DEFAULT_INPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "input-plt"
 FONT_SHOWCASE_SCRIPT = SCRIPT_DIR / "font_showcase.py"
 DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "catalog"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
+# Per-character vertical-extent prescriptions (ascent/descent percentages of
+# the line height) applied to non-symbol fonts at extraction time; see
+# :func:`apply_height_prescriptions`.
+DEFAULT_PRESCRIPTIONS_FILE = FONTS_DIR / "character_height_prescriptions.json"
 
 # Library design frame: the units per *design* inch that the catalog files
 # (``fonts/VP-EL-fonts/catalog/*.json``) store. This is NOT the device plotter scale -- HPGL's default step is
@@ -1252,6 +1275,103 @@ def build_character_entry(
     }
 
 
+def apply_height_prescriptions(
+    characters: Dict[str, CharacterEntry],
+    prescriptions: Mapping[str, HeightPrescription],
+    reference_char: str,
+    samples: int,
+) -> List[str]:
+    """Normalise prescribed characters to their exact vertical extents.
+
+    Each prescribed character's stored glyph is rewritten by the vertical-only
+    affine ``y' = factor * y + shift`` that maps its ink bounding box exactly
+    onto the prescription's target ``[min_y, max_y]`` (percentages of the line
+    height = cap line - baseline = :data:`LIBRARY_UNITS_PER_INCH`; see
+    :class:`glyph_transforms.HeightPrescription`). X is never touched, so the
+    left-edge-at-``x = 0`` contract holds; ``AA`` arcs are refit natively via
+    the shared arc-fit engine (see :func:`glyph_transforms.scale_geometry_y`),
+    and ``bounding_box`` plus both envelopes are rebuilt from the transformed
+    geometry so the whole entry describes the normalised glyph.
+
+    Runs on the *stored* (normalized) entries, after
+    :func:`build_character_entry` and before :func:`derive_glyph_entries`, so
+    derived glyphs (``¢`` from ``|``, ``≠`` from ``/``, ...) inherit the
+    normalised bases. The reference character is always exempt: it *defines*
+    the baseline and cap line. Prescribed characters absent from the font are
+    skipped. A prescribed glyph with a zero-height ink box cannot be scaled;
+    it is centred on the target span and the pass warns.
+
+    Args:
+        characters: The font's character entries, mutated in place.
+        prescriptions: ``{character: HeightPrescription}``; empty disables the
+            pass.
+        reference_char: The sheet's framing reference character (exempt).
+        samples: Envelope sample count per profile.
+
+    Returns:
+        The characters that were rewritten, in :data:`ascii.txt` order.
+    """
+    if not prescriptions:
+        return []
+    normalised: List[str] = []
+    line_height = LIBRARY_UNITS_PER_INCH
+    for character in list(characters):
+        prescription = prescriptions.get(character)
+        if prescription is None or character == reference_char:
+            continue
+        entry = characters[character]
+        glyph = entry.get("glyph", "")
+        geometry = parse_glyph(glyph)
+        bounds = geometry.bounds
+        if bounds is None:
+            logger.warning(
+                "Height prescription for %r skipped: stored glyph carries no geometry", character
+            )
+            continue
+        target_min, target_max = prescription.target_bounds(line_height)
+        height = bounds[3] - bounds[1]
+        if height <= _EPS:
+            centre = (target_min + target_max) / 2.0
+            factor, shift = 1.0, centre - bounds[1]
+            logger.warning(
+                "Height prescription for %r: zero-height glyph translated to y=%.3f",
+                character,
+                centre,
+            )
+        else:
+            factor = (target_max - target_min) / height
+            shift = target_min - factor * bounds[1]
+        scaled = scale_geometry_y(geometry, factor, shift)
+        scaled_bounds = scaled.bounds
+        if scaled_bounds is None:  # pragma: no cover - geometry was non-empty
+            continue
+        lines, arcs = normalized_geometry(scaled)
+        left_envelope, right_envelope = band_envelopes(lines, arcs, scaled_bounds, samples)
+        characters[character] = {
+            "bounding_box": {
+                "min_x": _round_unit(scaled_bounds[0]),
+                "max_x": _round_unit(scaled_bounds[2]),
+                "min_y": _round_unit(scaled_bounds[1]),
+                "max_y": _round_unit(scaled_bounds[3]),
+            },
+            "left_envelope": left_envelope,
+            "right_envelope": right_envelope,
+            "glyph": emit_glyph_geometry(scaled),
+        }
+        normalised.append(character)
+        logger.debug(
+            "Height-normalised %r: y [%.3f, %.3f] -> [%.3f, %.3f] (factor %.6f, shift %.3f)",
+            character,
+            bounds[1],
+            bounds[3],
+            scaled_bounds[1],
+            scaled_bounds[3],
+            factor,
+            shift,
+        )
+    return normalised
+
+
 def extract_font_from_document(
     document: PLTDocument,
     characters: Sequence[str],
@@ -1375,6 +1495,7 @@ def extract_font_file(
     cluster_threshold: Optional[float] = None,
     envelope_samples: int = ENVELOPE_SAMPLES,
     vertical_centering: bool = True,
+    height_prescriptions: Optional[Mapping[str, HeightPrescription]] = None,
 ) -> FontExtraction:
     """Extract one ``<font>_<height>_<ref>.plt`` sample sheet into a font entry.
 
@@ -1388,6 +1509,9 @@ def extract_font_file(
         envelope_samples: Envelope sample count per glyph.
         vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
             centring to the extracted glyphs.
+        height_prescriptions: Per-character vertical-extent prescriptions
+            (see :func:`apply_height_prescriptions`); ``None``/empty disables
+            the pass. Symbol-font sheets are exempt regardless.
 
     Returns:
         The extraction result.
@@ -1416,6 +1540,21 @@ def extract_font_file(
         envelope_samples,
         vertical_centering,
     )
+    if height_prescriptions and not symbol_font:
+        normalised = apply_height_prescriptions(
+            entry["characters"], height_prescriptions, reference_char, envelope_samples
+        )
+        if normalised:
+            logger.info(
+                "Height-normalised %d glyph(s) to their prescriptions: %s",
+                len(normalised),
+                " ".join(normalised),
+            )
+    elif height_prescriptions and symbol_font:
+        logger.info(
+            "Skipping height prescriptions for symbol font %r (sheet name carries the _sym suffix)",
+            name,
+        )
     check_height_drift(
         name,
         plt_path,
@@ -1689,6 +1828,20 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "(currently: " + " ".join(sorted(VERTICALLY_CENTERED_CHARS)) + ").",
     )
     parser.add_argument(
+        "--no-height-prescriptions",
+        action="store_true",
+        help="Disable the per-character height-normalisation pass "
+        "(fonts/character_height_prescriptions.json), storing every glyph at "
+        "its raw engraved vertical extent for A/B comparison.",
+    )
+    parser.add_argument(
+        "--prescriptions-file",
+        type=Path,
+        default=DEFAULT_PRESCRIPTIONS_FILE,
+        help="JSON file of per-character ascent/descent prescriptions applied "
+        "to non-symbol fonts (default: %(default)s).",
+    )
+    parser.add_argument(
         "--font-name",
         default=None,
         help="Explicit font key; only valid with a single input file. "
@@ -1761,6 +1914,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
     logger.debug("Expected characters (%d): %s", len(characters), "".join(characters))
 
+    prescriptions: Dict[str, HeightPrescription] = {}
+    if not args.no_height_prescriptions:
+        try:
+            prescriptions = load_height_prescriptions(args.prescriptions_file)
+        except GlyphTransformError as e:
+            logger.error("%s", e)
+            return 1
+        if not prescriptions:
+            logger.warning(
+                "No height prescriptions loaded from %s; the pass is a no-op",
+                args.prescriptions_file,
+            )
+        else:
+            logger.debug(
+                "Height prescriptions (%d character(s)): %s",
+                len(prescriptions),
+                "".join(sorted(prescriptions)),
+            )
+
     if not args.input_dir.is_dir():
         logger.error("Input directory not found: %s", args.input_dir)
         return 1
@@ -1784,6 +1956,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 cluster_threshold=args.cluster_threshold,
                 envelope_samples=args.envelope_samples,
                 vertical_centering=not args.no_vertical_centering,
+                height_prescriptions=prescriptions,
             )
         except FontExtractionError as e:
             logger.error("%s", e)
