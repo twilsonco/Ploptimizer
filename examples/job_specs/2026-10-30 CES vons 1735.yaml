@@ -3,21 +3,21 @@ job:
   material: bw
   font: helv1
 
-  plates:
-    - id: "default"
-      width: 24
-      height: 16
-    - id: "extra 1x3"
-      width: 4
-      height: 11.5
-    - id: "uv"
-      material: bw(uv)
-      width: 10
-      height: 16
-    - id: "uv1"
-      material: bw(uv)
-      width: 10
-      height: 16
+  # plates:
+  #   - id: "default"
+  #     width: 24
+  #     height: 16
+  #   - id: "extra 1x3"
+  #     width: 4
+  #     height: 11.5
+  #   - id: "uv"
+  #     material: bw(uv)
+  #     width: 10
+  #     height: 16
+  #   - id: "uv1"
+  #     material: bw(uv)
+  #     width: 10
+  #     height: 16
 
   labels:
     - id: "1x3"
@@ -27,18 +27,18 @@ job:
       holes:
         - location: sides
       replacement_text_file: 2026-10-30 CES vons 1735 1x3.txt
-    - id: "2x4"
-      width: 4
-      height: 2
-      text_height: 1.25
-      holes:
-        - location: sides
-      replacement_text_file: 2026-10-30 CES vons 1735 2x4.txt
-    - id: "aci labels"
-      material: bw(uv)
-      width: 7
-      height: 5.33
-      text_height: 1
-      holes:
-        - location: sides
-      replacement_text_file: 2026-10-30 CES vons 1735 7x7.txt
+    # - id: "2x4"
+    #   width: 4
+    #   height: 2
+    #   text_height: 1.25
+    #   holes:
+    #     - location: sides
+    #   replacement_text_file: 2026-10-30 CES vons 1735 2x4.txt
+    # - id: "aci labels"
+    #   material: bw(uv)
+    #   width: 7
+    #   height: 5.33
+    #   text_height: 1
+    #   holes:
+    #     - location: sides
+    #   replacement_text_file: 2026-10-30 CES vons 1735 7x7.txt

@@ -1080,6 +1080,18 @@ class JobDefaults(BaseModel):
             "replacement_text_file at the job, plate, or label level."
         ),
     )
+    replacement_text_file_allow_blank_lines: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default allow-blank-lines mode for replacement text files "
+            "(job layer; cascades job -> plate -> label). When true, "
+            "whitespace-only lines in a replacement file produce blank "
+            "labels with no drill holes (even if the label template specifies "
+            "holes). When false, blank lines are dropped with a warning. "
+            "Unset falls back to true. Injected only when the job spec "
+            "declares a replacement_text_file at the job, plate, or label level."
+        ),
+    )
     type: Optional[LabelShape] = Field(
         default=None,
         description=(
@@ -1331,6 +1343,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "layout",
     "replacement_text_delimiter",
     "replacement_text_file_comment_string",
+    "replacement_text_file_allow_blank_lines",
     "type",
     "rounded_rectangle_fraction",
     "rounded_rectangle_proportional",
@@ -1349,7 +1362,11 @@ _MARGIN_SUPPRESSED_FIELDS: frozenset[str] = frozenset({"h_margin", "v_margin"})
 # delimiter/comment marker with no file to apply it to, so both cascading
 # replacement fields are gated together.
 _REPLACEMENT_SUPPRESSED_FIELDS: frozenset[str] = frozenset(
-    {"replacement_text_delimiter", "replacement_text_file_comment_string"}
+    {
+        "replacement_text_delimiter",
+        "replacement_text_file_comment_string",
+        "replacement_text_file_allow_blank_lines",
+    }
 )
 
 
