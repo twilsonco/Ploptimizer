@@ -1,0 +1,5 @@
+Rack A;Mfg. 10<f:dino>/</f>1996;603lbs. R-448A
+Rack B;Mfg. 10<f:dino>/</f>1996;1212lbs. R-448A
+Rack C;Mfg. 10<f:dino>/</f>1996;706lbs. R-448A
+Rack D;Mfg. 10<f:dino>/</f>1996;1585lbs. R-448A
+Rack E;Mfg. 10<f:dino>/</f>1996;900lbs. R-407C

@@ -1,0 +1,6 @@
+088 RTU-01;M<f:dino>/</f>N 48GESN04A2M5A0A3C0;S<f:dino>/</f>N 3226C10421;CKT1: 11.5 lbs. R-454B;Mfg 08<f:dino>/</f>2026
+088 RTU-02;M<f:dino>/</f>N 48GESM04A2A3A0A3C0;S<f:dino>/</f>N 3126C09482;CKT1: 8.5 lbs. R-454B;Mfg 07<f:dino>/</f>2026
+088 RTU-03;M<f:dino>/</f>N 48GERN07A2M5A0A3C0;S<f:dino>/</f>N 3326P35173;CKT1: 15.8 lbs. R-454B;Mfg 08<f:dino>/</f>2026
+088 RTU-04;M<f:dino>/</f>N 48GERN07A2M5A0A3C0;S<f:dino>/</f>N 3326P35172;CKT1: 15.8 lbs. R-454B;Mfg 08<f:dino>/</f>2026
+088 RTU-05;M<f:dino>/</f>N 48GESN08A2M5A0A3C0;S<f:dino>/</f>N 3326P35444;CKT1: 21.8 lbs. R-454B;Mfg 08<f:dino>/</f>2026
+088 RTU-06;M<f:dino>/</f>N 48GESN07A2M5A0A3C0;S<f:dino>/</f>N 3326P35171;CKT1: 15.8 lbs. R-454B;Mfg 08<f:dino>/</f>2026

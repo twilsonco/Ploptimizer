@@ -1,0 +1,15 @@
+job:
+  job_name: RMS TJ 088
+  material: bw
+  height: 5
+  width: 7
+  text_height: 0.375
+  font: helv1
+  holes:
+    - location: sides
+  replacement_text_file: 2026-10-30 RMS.txt
+  content:
+    - text: a
+      text_height: 0.625
+      font: helv3
+      cutter_size: 0.03

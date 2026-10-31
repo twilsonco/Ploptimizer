@@ -4,20 +4,20 @@ job:
   font: helv1
 
   labels:
-    # - id: "1x3"
-    #   width: 3
-    #   height: 1
-    #   text_height: 0.75
-    #   holes:
-    #     - location: sides
-    #   replacement_text_file: 2026-10-29 seer 1811 1x3.txt
-    # - id: "2x4"
-    #   width: 4
-    #   height: 2
-    #   text_height: 1.25
-    #   holes:
-    #     - location: sides
-    #   replacement_text_file: 2026-10-29 seer 1811 2x4.txt
+    - id: "1x3"
+      width: 3
+      height: 1
+      text_height: 0.75
+      holes:
+        - location: sides
+      replacement_text_file: 2026-10-29 seer 1811 1x3.txt
+    - id: "2x4"
+      width: 4
+      height: 2
+      text_height: 1.25
+      holes:
+        - location: sides
+      replacement_text_file: 2026-10-29 seer 1811 2x4.txt
     - id: "refrigeration alarm"
       width: 10
       height: 2
@@ -25,11 +25,11 @@ job:
       content:
         - text: "REFRIGERATION ALARM"
         - text: "CONTACT STORE MANAGER"
-    # - id: "asi labels"
-    #   material: bw(uv)
-    #   width: 7
-    #   height: 5.33
-    #   text_height: 1
-    #   holes:
-    #     - location: sides
-    #   replacement_text_file: 2026-10-29 seer 1811 7x7.txt
+    - id: "aci labels"
+      material: bw(uv)
+      width: 7
+      height: 5.33
+      text_height: 1
+      holes:
+        - location: sides
+      replacement_text_file: 2026-10-29 seer 1811 7x7.txt
