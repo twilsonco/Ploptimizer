@@ -32,7 +32,8 @@ each glyph's left edge at ``x = 0``. The cap line is the reference
 character's stored ``bounding_box.max_y`` (design-unit 1000 for every v2
 font) and the midline is half of it. Derived entries re-establish the
 ``x = 0`` left edge, so they obey the same contract as engraved ones. A
-character listed in ``extract_plt_fonts.VERTICALLY_CENTERED_CHARS`` (``S``)
+character in the ``"mode": "midline_center"`` groups of
+``fonts/character-modifications.json`` (``S``)
 is midline-centred by the extractor, so its stored box straddles the
 baseline on purpose; a derived glyph inherits its base's stored position, and
 no recipe bases on ``S``.
@@ -79,7 +80,7 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from plt_optimizer.core.models import (
     ArcSegment,
@@ -963,8 +964,21 @@ def scale_glyph_y_arc_native(text: str, factor: float, shift: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Character height prescriptions (extraction-time normalization)
+# Character modifications (extraction-time normalization)
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MidlineCenter:
+    """Pure-Y translation of a glyph so its ink-box centre lands on the midline.
+
+    The extraction-time treatment for round-symmetric glyphs (``S``) that
+    EngraveLab engraves hanging below the baseline and short of the cap line.
+    Height, width and the ``x = 0`` left edge are untouched, and the shift is
+    folded into the glyph's normalization transform (so the emitted geometry,
+    bounding box and envelopes are all built at the centred position), which
+    is why the mode applies to symbol fonts too.
+    """
 
 
 @dataclass(frozen=True)
@@ -1004,27 +1018,34 @@ class HeightPrescription:
         )
 
 
-def load_height_prescriptions(path: Path) -> Dict[str, HeightPrescription]:
-    """Load the per-character height prescriptions from a JSON file.
+# The union one character may be assigned (see load_character_modifications).
+CharacterModification = Union[MidlineCenter, HeightPrescription]
 
-    The file maps character groups to their extents::
+
+def load_character_modifications(path: Path) -> Dict[str, CharacterModification]:
+    """Load the per-character extraction-time modifications from a JSON file.
+
+    The file lists character groups, each with a ``mode``::
 
         {
-          "prescriptions": [
-            { "characters": "/\\\\", "ascent_percent": 5, "descent_percent": 5 }
+          "modifications": [
+            { "mode": "midline_center", "characters": "S" },
+            { "mode": "height", "characters": "/\\\\",
+              "ascent_percent": 5, "descent_percent": 5 }
           ]
         }
 
     Validation is strict: every character key must be a single non-whitespace
-    codepoint, both percentages must be finite numbers in ``[0, 100]``, and a
-    character may appear in only one prescription (last-write-wins would make
-    the catalog non-deterministic under reordering).
+    codepoint, ``height`` groups carry finite percentages in ``[0, 100]`` and
+    ``midline_center`` groups carry neither percentage, and a character may
+    appear in only one group (last-write-wins would make the catalog
+    non-deterministic under reordering).
 
     Args:
-        path: The prescriptions JSON file.
+        path: The modifications JSON file.
 
     Returns:
-        ``{character: HeightPrescription}`` in file order.
+        ``{character: MidlineCenter | HeightPrescription}`` in file order.
 
     Raises:
         GlyphTransformError: If the file is unreadable, is not valid JSON of
@@ -1033,44 +1054,58 @@ def load_height_prescriptions(path: Path) -> Dict[str, HeightPrescription]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except OSError as e:
-        raise GlyphTransformError(f"Failed to read prescriptions file {path}: {e}") from e
+        raise GlyphTransformError(f"Failed to read modifications file {path}: {e}") from e
     except json.JSONDecodeError as e:
-        raise GlyphTransformError(f"Prescriptions file {path} is not valid JSON: {e}") from e
-    if not isinstance(raw, dict) or not isinstance(raw.get("prescriptions"), list):
+        raise GlyphTransformError(f"Modifications file {path} is not valid JSON: {e}") from e
+    if not isinstance(raw, dict) or not isinstance(raw.get("modifications"), list):
         raise GlyphTransformError(
-            f"Prescriptions file {path} must be an object with a 'prescriptions' list"
+            f"Modifications file {path} must be an object with a 'modifications' list"
         )
-    prescriptions: Dict[str, HeightPrescription] = {}
-    for index, item in enumerate(raw["prescriptions"]):
-        where = f"prescriptions[{index}]"
+    modifications: Dict[str, CharacterModification] = {}
+    for index, item in enumerate(raw["modifications"]):
+        where = f"modifications[{index}]"
         if not isinstance(item, dict):
             raise GlyphTransformError(f"{where} in {path} must be an object")
         characters = item.get("characters")
         if not isinstance(characters, str) or not characters:
             raise GlyphTransformError(f"{where} in {path} needs a non-empty 'characters' string")
-        values = []
-        for key in ("ascent_percent", "descent_percent"):
-            value = item.get(key)
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                raise GlyphTransformError(f"{where}.{key} in {path} must be a number")
-            number = float(value)
-            if not math.isfinite(number) or not 0.0 <= number <= 100.0:
-                raise GlyphTransformError(
-                    f"{where}.{key} in {path} must lie in [0, 100]; got {value!r}"
-                )
-            values.append(number)
+        mode = item.get("mode")
+        if mode == "midline_center":
+            for key in ("ascent_percent", "descent_percent"):
+                if key in item:
+                    raise GlyphTransformError(
+                        f"{where} in {path}: mode 'midline_center' takes no {key}"
+                    )
+            modification: CharacterModification = MidlineCenter()
+        elif mode == "height":
+            values = []
+            for key in ("ascent_percent", "descent_percent"):
+                value = item.get(key)
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise GlyphTransformError(f"{where}.{key} in {path} must be a number")
+                number = float(value)
+                if not math.isfinite(number) or not 0.0 <= number <= 100.0:
+                    raise GlyphTransformError(
+                        f"{where}.{key} in {path} must lie in [0, 100]; got {value!r}"
+                    )
+                values.append(number)
+            modification = HeightPrescription(values[0], values[1])
+        else:
+            raise GlyphTransformError(
+                f"{where}.mode in {path} must be 'midline_center' or 'height'; got {mode!r}"
+            )
         for character in characters:
             if character.isspace():
                 raise GlyphTransformError(
-                    f"{where} in {path} lists a whitespace character; prescriptions key on "
+                    f"{where} in {path} lists a whitespace character; modifications key on "
                     "printed glyphs"
                 )
-            if character in prescriptions:
+            if character in modifications:
                 raise GlyphTransformError(
-                    f"Character {character!r} in {where} of {path} is prescribed more than once"
+                    f"Character {character!r} in {where} of {path} is modified more than once"
                 )
-            prescriptions[character] = HeightPrescription(values[0], values[1])
-    return prescriptions
+            modifications[character] = modification
+    return modifications
 
 
 # ---------------------------------------------------------------------------

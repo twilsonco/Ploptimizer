@@ -67,8 +67,10 @@ angle. ``H_ref_raw`` is the median measured height across all framing copies;
 the file-name height is *never* used to correct it (see
 :func:`check_height_drift`).
 
-One exception: a character listed in :data:`VERTICALLY_CENTERED_CHARS` is
-additionally *translated* (never scaled, X is never touched) so the centre of
+One exception to the baseline rule: a character listed in the
+``"mode": "midline_center"`` groups
+of ``fonts/character-modifications.json`` (currently ``S``) is additionally
+*translated* (never scaled, X is never touched) so the centre of
 its own bounding box lands on the **midline** ``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``
 (half the cap height) instead of sitting on the baseline. Round-symmetric
 glyphs such as ``S`` are engraved by EngraveLab hanging slightly below the
@@ -81,8 +83,8 @@ and the cap line (``y = 1000``) - and ``--no-vertical-centering`` disables the
 pass entirely for A/B comparison against the raw engraved positions.
 
 A second post-normalisation pass (:func:`apply_height_prescriptions`) forces
-*prescribed* characters - the tall punctuation of
-``fonts/character_height_prescriptions.json`` (``/ \\ | { } ( ) [ ]``) - to an
+characters from the ``"mode": "height"`` groups of the same file - the tall
+punctuation ``/ \\ | { } ( ) [ ]`` - to an
 exact vertical extent: each glyph's ink box is mapped by a vertical-only
 affine onto ``[-descent%, 1000 + ascent%]``, percentages of the line height
 (cap line - baseline). X is never touched, ``AA`` arcs are refit natively
@@ -158,7 +160,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
@@ -173,8 +175,10 @@ if str(SCRIPT_DIR) not in sys.path:  # sibling module, same reason
 from glyph_transforms import (  # noqa: E402
     MIDLINE_FRACTION,
     Bounds,
+    CharacterModification,
     GlyphTransformError,
     HeightPrescription,
+    MidlineCenter,
     angle_in_sweep,
     arc_band_xs,
     arc_bounds,  # noqa: F401
@@ -185,7 +189,7 @@ from glyph_transforms import (  # noqa: E402
     format_number,
     interpolate_gaps,
     line_band_xs,
-    load_height_prescriptions,
+    load_character_modifications,
     normalized_geometry,
     parse_glyph,
     path_bounds,
@@ -214,10 +218,10 @@ DEFAULT_INPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "input-plt"
 FONT_SHOWCASE_SCRIPT = SCRIPT_DIR / "font_showcase.py"
 DEFAULT_OUTPUT_DIR = FONTS_DIR / "VP-EL-fonts" / "catalog"
 DEFAULT_ASCII_FILE = FONTS_DIR / "ascii.txt"
-# Per-character vertical-extent prescriptions (ascent/descent percentages of
-# the line height) applied to non-symbol fonts at extraction time; see
-# :func:`apply_height_prescriptions`.
-DEFAULT_PRESCRIPTIONS_FILE = FONTS_DIR / "character_height_prescriptions.json"
+# Extraction-time character geometry edits (midline centring + vertical-extent
+# prescriptions) applied to the built character entries; see
+# :func:`apply_height_prescriptions` and :func:`_should_vertically_center`.
+DEFAULT_MODIFICATIONS_FILE = FONTS_DIR / "character-modifications.json"
 
 # Library design frame: the units per *design* inch that the catalog files
 # (``fonts/VP-EL-fonts/catalog/*.json``) store. This is NOT the device plotter scale -- HPGL's default step is
@@ -256,17 +260,16 @@ REFERENCE_MATCH_TOLERANCE = 5e-3
 
 # Characters whose stored geometry is *translated* so the centre of their own
 # bounding box sits on the midline (``MIDLINE_FRACTION * LIBRARY_UNITS_PER_INCH``,
-# i.e.
-# half the cap height) instead of on the baseline. EngraveLab engraves
+# i.e. half the cap height) instead of on the baseline. EngraveLab engraves
 # round-symmetric glyphs like ``S`` hanging below the baseline and short of the
 # cap line, which reads as a low-sitting letter beside ``H``/``O``/``C``; the
 # shift is pure translation (height and X are untouched) and lands on the
 # emitted ``glyph``, the ``bounding_box`` and both envelopes together, so the
-# typesetter sees one consistent centred silhouette. Add characters here as
-# fonts reveal the same engraving bias. The reference character is always
-# exempt (it defines the baseline and cap line); --no-vertical-centering
-# disables the pass entirely.
-VERTICALLY_CENTERED_CHARS: Tuple[str, ...] = ("S",)
+# typesetter sees one consistent centred silhouette. The set is NOT hardcoded
+# here: it is the ``"mode": "midline_center"`` groups of
+# :data:`DEFAULT_MODIFICATIONS_FILE` (add characters there as fonts reveal the
+# same engraving bias). The reference character is always exempt (it defines
+# the baseline and cap line); --no-vertical-centering disables the pass.
 
 # Numerical slack (plotter units) for the geometric predicates (row/cluster
 # merging, envelope sampling).
@@ -1174,7 +1177,9 @@ def sample_envelopes(
     return band_envelopes(lines, arcs, bounds, samples)
 
 
-def _should_vertically_center(character: str, reference_char: str, enabled: bool) -> bool:
+def _should_vertically_center(
+    character: str, reference_char: str, centered_chars: Collection[str]
+) -> bool:
     """Return whether ``character``'s glyph is to be centred on the midline.
 
     The reference character is always exempt: it *defines* the baseline
@@ -1185,13 +1190,14 @@ def _should_vertically_center(character: str, reference_char: str, enabled: bool
     Args:
         character: The character the cluster maps to.
         reference_char: The sheet's framing reference character.
-        enabled: ``False`` disables the pass entirely
-            (``--no-vertical-centering``).
+        centered_chars: The midline-centred character set (the
+            ``"mode": "midline_center"`` groups of the modifications file;
+            empty = the pass is disabled, ``--no-vertical-centering``).
 
     Returns:
         ``True`` when the glyph's stored geometry is to be centred.
     """
-    return enabled and character in VERTICALLY_CENTERED_CHARS and character != reference_char
+    return character in centered_chars and character != reference_char
 
 
 def _midline_centered(
@@ -1243,7 +1249,8 @@ def build_character_entry(
         scale: Global scale factor ``S``.
         samples: Envelope sample count.
         vertical_center: Translate the glyph so its box centre sits on the
-            midline (see :data:`VERTICALLY_CENTERED_CHARS`).
+            midline (see the ``"mode": "midline_center"`` groups of
+            :data:`DEFAULT_MODIFICATIONS_FILE`).
 
     Returns:
         A ``{"bounding_box", "left_envelope", "right_envelope", "glyph"}``
@@ -1380,7 +1387,7 @@ def extract_font_from_document(
     row_threshold: Optional[float] = None,
     cluster_threshold: Optional[float] = None,
     envelope_samples: int = ENVELOPE_SAMPLES,
-    vertical_centering: bool = True,
+    centered_chars: Collection[str] = (),
 ) -> Tuple[FontEntry, int, float, float]:
     """Split one engraved sheet into a font entry.
 
@@ -1392,9 +1399,10 @@ def extract_font_from_document(
         row_threshold: Manual Y-gap row threshold; ``None`` searches.
         cluster_threshold: Manual X-gap glyph threshold; ``None`` searches.
         envelope_samples: Envelope sample count per glyph.
-        vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
-            centring (``False`` = ``--no-vertical-centering``, store the raw
-            engraved positions).
+        centered_chars: The midline-centred character set (the
+            ``"mode": "midline_center"`` groups of
+            :data:`DEFAULT_MODIFICATIONS_FILE`; empty = store the raw engraved
+            positions, ``--no-vertical-centering``).
 
     Returns:
         ``(font_entry, row_count, row_threshold, cluster_threshold)`` where
@@ -1434,7 +1442,7 @@ def extract_font_from_document(
         for cluster in row.content:
             character = characters[index]
             index += 1
-            center_this = _should_vertically_center(character, reference_char, vertical_centering)
+            center_this = _should_vertically_center(character, reference_char, centered_chars)
             characters_out[character] = build_character_entry(
                 cluster, row.baseline, scale, envelope_samples, center_this
             )
@@ -1494,8 +1502,7 @@ def extract_font_file(
     row_threshold: Optional[float] = None,
     cluster_threshold: Optional[float] = None,
     envelope_samples: int = ENVELOPE_SAMPLES,
-    vertical_centering: bool = True,
-    height_prescriptions: Optional[Mapping[str, HeightPrescription]] = None,
+    modifications: Optional[Mapping[str, CharacterModification]] = None,
 ) -> FontExtraction:
     """Extract one ``<font>_<height>_<ref>.plt`` sample sheet into a font entry.
 
@@ -1507,11 +1514,13 @@ def extract_font_file(
             :func:`extract_font_from_document`).
         cluster_threshold: Manual X-gap glyph threshold.
         envelope_samples: Envelope sample count per glyph.
-        vertical_centering: Apply :data:`VERTICALLY_CENTERED_CHARS` midline
-            centring to the extracted glyphs.
-        height_prescriptions: Per-character vertical-extent prescriptions
-            (see :func:`apply_height_prescriptions`); ``None``/empty disables
-            the pass. Symbol-font sheets are exempt regardless.
+        modifications: The per-character extraction-time edits (see
+            :func:`glyph_transforms.load_character_modifications`), split by
+            mode: :class:`~glyph_transforms.MidlineCenter` entries drive the
+            midline-centring pass (every font, incl. symbol fonts), and
+            :class:`~glyph_transforms.HeightPrescription` entries drive
+            :func:`apply_height_prescriptions` (non-symbol fonts only).
+            ``None``/empty disables both passes.
 
     Returns:
         The extraction result.
@@ -1530,6 +1539,9 @@ def extract_font_file(
     except ParseError as e:
         raise FontExtractionError(f"Failed to parse {plt_path}: {e}") from e
 
+    mods: Mapping[str, CharacterModification] = modifications or {}
+    centered_chars = [c for c, m in mods.items() if isinstance(m, MidlineCenter)]
+    height_prescriptions = {c: m for c, m in mods.items() if isinstance(m, HeightPrescription)}
     entry, row_count, used_row, used_cluster = extract_font_from_document(
         document,
         characters,
@@ -1538,7 +1550,7 @@ def extract_font_file(
         row_threshold,
         cluster_threshold,
         envelope_samples,
-        vertical_centering,
+        centered_chars,
     )
     if height_prescriptions and not symbol_font:
         normalised = apply_height_prescriptions(
@@ -1823,23 +1835,24 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-vertical-centering",
         action="store_true",
-        help="Store every glyph exactly where it was engraved, disabling the "
-        "midline centring of the characters listed in VERTICALLY_CENTERED_CHARS "
-        "(currently: " + " ".join(sorted(VERTICALLY_CENTERED_CHARS)) + ").",
+        help="Disable the midline-centring pass (the 'midline_center' groups "
+        "of the modifications file), storing every glyph exactly where it was "
+        "engraved.",
     )
     parser.add_argument(
         "--no-height-prescriptions",
         action="store_true",
-        help="Disable the per-character height-normalisation pass "
-        "(fonts/character_height_prescriptions.json), storing every glyph at "
+        help="Disable the per-character height-normalisation pass (the "
+        "'height' groups of the modifications file), storing every glyph at "
         "its raw engraved vertical extent for A/B comparison.",
     )
     parser.add_argument(
-        "--prescriptions-file",
+        "--modifications-file",
         type=Path,
-        default=DEFAULT_PRESCRIPTIONS_FILE,
-        help="JSON file of per-character ascent/descent prescriptions applied "
-        "to non-symbol fonts (default: %(default)s).",
+        default=DEFAULT_MODIFICATIONS_FILE,
+        help="JSON file of extraction-time character geometry edits "
+        "(midline centring + ascent/descent prescriptions; default: "
+        "%(default)s).",
     )
     parser.add_argument(
         "--font-name",
@@ -1914,23 +1927,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
     logger.debug("Expected characters (%d): %s", len(characters), "".join(characters))
 
-    prescriptions: Dict[str, HeightPrescription] = {}
-    if not args.no_height_prescriptions:
+    modifications: Dict[str, CharacterModification] = {}
+    if not (args.no_vertical_centering and args.no_height_prescriptions):
         try:
-            prescriptions = load_height_prescriptions(args.prescriptions_file)
+            loaded = load_character_modifications(args.modifications_file)
         except GlyphTransformError as e:
             logger.error("%s", e)
             return 1
-        if not prescriptions:
+        if args.no_vertical_centering:
+            loaded = {c: m for c, m in loaded.items() if not isinstance(m, MidlineCenter)}
+        if args.no_height_prescriptions:
+            loaded = {c: m for c, m in loaded.items() if not isinstance(m, HeightPrescription)}
+        if not loaded:
             logger.warning(
-                "No height prescriptions loaded from %s; the pass is a no-op",
-                args.prescriptions_file,
+                "No character modifications loaded from %s; the passes are no-ops",
+                args.modifications_file,
             )
         else:
+            modifications = loaded
             logger.debug(
-                "Height prescriptions (%d character(s)): %s",
-                len(prescriptions),
-                "".join(sorted(prescriptions)),
+                "Character modifications (%d character(s)): %s",
+                len(modifications),
+                "".join(sorted(modifications)),
             )
 
     if not args.input_dir.is_dir():
@@ -1955,8 +1973,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 row_threshold=args.row_threshold,
                 cluster_threshold=args.cluster_threshold,
                 envelope_samples=args.envelope_samples,
-                vertical_centering=not args.no_vertical_centering,
-                height_prescriptions=prescriptions,
+                modifications=modifications,
             )
         except FontExtractionError as e:
             logger.error("%s", e)

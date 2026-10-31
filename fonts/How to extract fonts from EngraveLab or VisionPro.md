@@ -154,17 +154,31 @@ The script processes every `fonts/VP-EL-fonts/input-plt/*.plt` and, per sheet:
    negative `y`. The raw sheets are engraved +Y-down, so this mirrors Y and
    negates every `AA` arc sweep.
 
-   One exception: a character listed in `VERTICALLY_CENTERED_CHARS`
-   (currently `S`) is additionally **translated** so the centre of its own
-   bounding box lands on the **midline** (half the cap height) instead of on
-   the baseline. EngraveLab engraves round-symmetric glyphs hanging below the
-   baseline and short of the cap line, which reads as a low-sitting letter
-   beside `H`/`O`/`C`. The shift is pure translation — height, width and the
-   `x = 0` left edge are untouched — and it lands on the emitted `glyph`, the
-   `bounding_box` and both envelopes together, so the typesetter places and
-   kerns one consistent centred silhouette. The reference character is always
-   exempt (it *defines* the baseline and cap line), and
-   `--no-vertical-centering` stores every glyph exactly where it was engraved.
+   Two extraction-time character edits are applied, both driven by
+   `fonts/character-modifications.json` (each entry is a `mode` + a character
+   group; the reference character is always exempt because it *defines* the
+   baseline and cap line):
+
+   - `mode: "midline_center"` (currently `S`): the glyph is additionally
+     **translated** so the centre of its own bounding box lands on the
+     **midline** (half the cap height) instead of on the baseline. EngraveLab
+     engraves round-symmetric glyphs hanging below the baseline and short of
+     the cap line, which reads as a low-sitting letter beside `H`/`O`/`C`. The
+     shift is pure translation — height, width and the `x = 0` left edge are
+     untouched — and it lands on the emitted `glyph`, the `bounding_box` and
+     both envelopes together, so the typesetter places and kerns one
+     consistent centred silhouette. Applies to every font, symbol fonts
+     included. `--no-vertical-centering` stores every glyph exactly where it
+     was engraved.
+   - `mode: "height"` (the tall punctuation `/ \ | { } ( ) [ ]`): the glyph's
+     ink box is mapped by a vertical-only affine onto
+     `[-descent_percent%, 1000 + ascent_percent%]` of the line height, so
+     these characters get a guaranteed overshoot above the cap line and below
+     the baseline. X is never touched, `AA` arcs are refit natively, and the
+     `bounding_box` plus both envelopes are rebuilt from the transformed
+     geometry. Non-symbol fonts only (symbol-font ASCII slots are pictographs,
+     not letters). Runs before the derived-Unicode pass, so `¢`/`†`/`≠` inherit
+     the normalised bases. `--no-height-prescriptions` disables the pass.
 4. **Aggregates the profile envelopes**: each glyph's left and right silhouette
    is recorded over 30 uniform vertical *bands* — every band covers half a
    sampling step above and below its height and takes the extreme X of *any*

@@ -4,6 +4,28 @@
 
 ### Features
 
+* **fonts:** extraction-time **character geometry modifications** driven by data, not code.
+  `fonts/character-modifications.json` lists `{mode, characters, ...}` groups; the extractor
+  applies them to every non-symbol font it regenerates (all 16 catalogs + showcases regenerated).
+  - `mode: "height"` (the tall punctuation `/ \ | { } ( ) [ ]`): each glyph's ink box is mapped by a
+    vertical-only affine exactly onto `[-descent_percent%, 1000 + ascent_percent%]` of the line
+    height (capline − baseline), so slashes overshoot 5%/5%, the bar 0%/10%, braces 10%/10%,
+    parentheses 5%/5%, brackets 2%/2%. X is never touched; `AA` arcs are refit natively by
+    `glyph_transforms.scale_geometry_y` (the library-side twin of `TextBlock.scaled_y(preserve_arcs=True)`,
+    sharing `generate/arc_fit.py`), falling back to the pipeline's chord-bounded polyline flattening.
+    `bounding_box` + both envelopes are rebuilt from the transformed geometry. Runs *before*
+    `derive_glyph_entries`, so `¢`/`†`/`‡`/`≠` inherit the normalised bases.
+  - `mode: "midline_center"` (currently `S`): the former hardcoded `VERTICALLY_CENTERED_CHARS`
+    tuple, now data (pure-Y translation of the ink box onto the midline; applies to symbol fonts
+    too, as before).
+  - The reference character is always exempt; a character in two groups is a loader error.
+    `--no-height-prescriptions` / `--no-vertical-centering` opt out of one mode each;
+    `--modifications-file` points at an alternate JSON.
+  - Pins: `TestCharacterModifications` + `TestScaleGeometryY`/`TestScaleGeometryYEdges`
+    (`test_glyph_transforms.py`), `TestHeightPrescriptions`/`TestHeightPrescriptionsCli`/
+    `TestShippedCatalogPrescriptions` + the rewritten `TestVerticallyCenteredChars`
+    (`test_extract_plt_fonts.py`).
+
 * **generate:** text/hole collision avoidance now understands **left/right alignment**.
   Horizontal compression only ever helped `center`-aligned text: it narrows the line so
   BOTH ends pull away from the side holes. A `left`-aligned line is anchored at its left

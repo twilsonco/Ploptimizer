@@ -935,7 +935,7 @@ class TestExtractFontFromDocument:
 
 
 class TestVerticallyCenteredChars:
-    """Midline centring of :data:`VERTICALLY_CENTERED_CHARS` glyphs.
+    """Midline centring of the modifications file's ``midline_center`` chars.
 
     The synthetic ``C`` is a 250x300 box sitting on the baseline, so it
     normalizes to ``y`` in ``[0, 600]`` (scale = 1000/500): its ink-box centre
@@ -953,28 +953,23 @@ class TestVerticallyCenteredChars:
         chars: Sequence[str] = ("E", "C", "A"),
         *,
         centered: Sequence[str] = ("C",),
-        vertical_centering: bool = True,
     ) -> Dict[str, Any]:
-        """Extract a one-row sheet with ``chars`` under the given centring list."""
-        original = script.VERTICALLY_CENTERED_CHARS
-        script.VERTICALLY_CENTERED_CHARS = tuple(centered)
-        try:
-            doc = PLTParser().parse_string(make_framed_sheet([list(chars)]))
-            entry, _, _, _ = script.extract_font_from_document(
-                doc,
-                list(chars),
-                "E",
-                declared_height=0.5,
-                vertical_centering=vertical_centering,
-            )
-        finally:
-            script.VERTICALLY_CENTERED_CHARS = original
+        """Extract a one-row sheet with ``chars`` under the given centring set."""
+        doc = PLTParser().parse_string(make_framed_sheet([list(chars)]))
+        entry, _, _, _ = script.extract_font_from_document(
+            doc,
+            list(chars),
+            "E",
+            declared_height=0.5,
+            centered_chars=list(centered),
+        )
         return entry["characters"]
 
-    def test_constant_is_a_tuple_of_single_characters_containing_S(self) -> None:
-        assert isinstance(script.VERTICALLY_CENTERED_CHARS, tuple)
-        assert all(len(char) == 1 for char in script.VERTICALLY_CENTERED_CHARS)
-        assert "S" in script.VERTICALLY_CENTERED_CHARS
+    def test_shipped_file_centres_S(self) -> None:
+        """The midline-centred set is data: the file's midline_center groups."""
+        modifications = gt.load_character_modifications(script.DEFAULT_MODIFICATIONS_FILE)
+        centred = [c for c, m in modifications.items() if isinstance(m, gt.MidlineCenter)]
+        assert centred == ["S"]
 
     def test_listed_glyph_is_centred_on_the_midline(self) -> None:
         box = self._extract()["C"]["bounding_box"]
@@ -986,15 +981,15 @@ class TestVerticallyCenteredChars:
         )
 
     def test_unlisted_glyph_is_untouched(self) -> None:
-        """A character absent from the list keeps its engraved position."""
+        """A character absent from the set keeps its engraved position."""
         centered = self._extract()["A"]["bounding_box"]
-        raw = self._extract(vertical_centering=False)["A"]["bounding_box"]
+        raw = self._extract(centered=())["A"]["bounding_box"]
         assert centered == raw
 
     def test_centring_is_pure_translation(self) -> None:
         """Height, width and the left edge are all preserved."""
         centered = self._extract()["C"]
-        raw = self._extract(vertical_centering=False)["C"]
+        raw = self._extract(centered=())["C"]
         c_box, raw_box = centered["bounding_box"], raw["bounding_box"]
         assert c_box["max_y"] - c_box["min_y"] == pytest.approx(
             raw_box["max_y"] - raw_box["min_y"], abs=1e-6
@@ -1005,7 +1000,7 @@ class TestVerticallyCenteredChars:
     def test_envelopes_travel_with_the_glyph(self) -> None:
         """Every envelope sample keeps its X and gains exactly the shift."""
         centered = self._extract()["C"]
-        raw = self._extract(vertical_centering=False)["C"]
+        raw = self._extract(centered=())["C"]
         shift = self.CENTERED_BOTTOM - self.RAW_BOTTOM
         for key in ("left_envelope", "right_envelope"):
             assert len(centered[key]) == len(raw[key]) == script.ENVELOPE_SAMPLES
@@ -1035,7 +1030,7 @@ class TestVerticallyCenteredChars:
         assert not any("Vertically centred" in record.getMessage() for record in caplog.records)
 
     def test_disabling_centring_is_the_baseline_behavior(self) -> None:
-        box = self._extract(vertical_centering=False)["C"]["bounding_box"]
+        box = self._extract(centered=())["C"]["bounding_box"]
         assert box["min_y"] == pytest.approx(self.RAW_BOTTOM, abs=1e-6)
         assert box["max_y"] == pytest.approx(self.RAW_TOP, abs=1e-6)
 
@@ -1053,18 +1048,23 @@ class TestVerticallyCenteredChars:
         )
         ascii_file = tmp_path / "ascii.txt"
         ascii_file.write_text("E C A", encoding="utf-8")
-        base = ["--input-dir", str(fonts_dir), "--ascii-file", str(ascii_file)]
+        modifications = tmp_path / "modifications.json"
+        modifications.write_text(
+            json.dumps({"modifications": [{"mode": "midline_center", "characters": "CA"}]}),
+            encoding="utf-8",
+        )
+        base = [
+            "--input-dir",
+            str(fonts_dir),
+            "--ascii-file",
+            str(ascii_file),
+            "--modifications-file",
+            str(modifications),
+        ]
         centered_out = tmp_path / "centered"
         raw_out = tmp_path / "raw"
-        original = script.VERTICALLY_CENTERED_CHARS
-        script.VERTICALLY_CENTERED_CHARS = ("C",)
-        try:
-            assert script.main(base + ["--output-dir", str(centered_out)]) == 0
-            assert (
-                script.main(base + ["--output-dir", str(raw_out), "--no-vertical-centering"]) == 0
-            )
-        finally:
-            script.VERTICALLY_CENTERED_CHARS = original
+        assert script.main(base + ["--output-dir", str(centered_out)]) == 0
+        assert script.main(base + ["--output-dir", str(raw_out), "--no-vertical-centering"]) == 0
         centered = json.loads((centered_out / "Myfont.json").read_text(encoding="utf-8"))
         raw = json.loads((raw_out / "Myfont.json").read_text(encoding="utf-8"))
         assert centered["characters"]["C"]["bounding_box"]["min_y"] == pytest.approx(
@@ -1607,10 +1607,13 @@ class TestRealSheetIntegration:
     def test_dino_S_is_centred_on_the_midline(self) -> None:
         """The engraved Dino ``S`` hangs low; extraction centres it on the midline."""
         characters = script.load_characters(REPO_ROOT / "fonts" / "ascii.txt")
-        centered = script.extract_font_file(DINO_FRAMED_FIXTURE, characters).entry["characters"]
-        raw = script.extract_font_file(
-            DINO_FRAMED_FIXTURE, characters, vertical_centering=False
+        modifications = gt.load_character_modifications(script.DEFAULT_MODIFICATIONS_FILE)
+        centered = script.extract_font_file(
+            DINO_FRAMED_FIXTURE, characters, modifications=modifications
         ).entry["characters"]
+        raw = script.extract_font_file(DINO_FRAMED_FIXTURE, characters, modifications=None).entry[
+            "characters"
+        ]
 
         box = centered["S"]["bounding_box"]
         centre = (box["min_y"] + box["max_y"]) / 2.0
@@ -1946,7 +1949,7 @@ class TestHeightPrescriptions:
 
 
 class TestHeightPrescriptionsCli:
-    """main() wires the shipped prescriptions file, with an opt-out flag."""
+    """main() wires the shipped modifications file, with per-mode opt-outs."""
 
     def _sheet(self, tmp_path: Path) -> Tuple[List[str], List[str]]:
         fonts_dir = tmp_path / "fonts"
@@ -1962,12 +1965,17 @@ class TestHeightPrescriptionsCli:
         )
 
     def _prescriptions_file(self, tmp_path: Path) -> Path:
-        path = tmp_path / "prescriptions.json"
+        path = tmp_path / "modifications.json"
         path.write_text(
             json.dumps(
                 {
-                    "prescriptions": [
-                        {"characters": "CA", "ascent_percent": 10, "descent_percent": 10}
+                    "modifications": [
+                        {
+                            "mode": "height",
+                            "characters": "CA",
+                            "ascent_percent": 10,
+                            "descent_percent": 10,
+                        }
                     ]
                 }
             ),
@@ -1984,7 +1992,7 @@ class TestHeightPrescriptionsCli:
                 + [
                     "--output-dir",
                     str(out),
-                    "--prescriptions-file",
+                    "--modifications-file",
                     str(self._prescriptions_file(tmp_path)),
                 ]
             )
@@ -2005,7 +2013,7 @@ class TestHeightPrescriptionsCli:
                     "--output-dir",
                     str(out),
                     "--no-height-prescriptions",
-                    "--prescriptions-file",
+                    "--modifications-file",
                     str(self._prescriptions_file(tmp_path)),
                 ]
             )
@@ -2034,7 +2042,7 @@ class TestHeightPrescriptionsCli:
                     str(ascii_file),
                     "--output-dir",
                     str(out),
-                    "--prescriptions-file",
+                    "--modifications-file",
                     str(self._prescriptions_file(tmp_path)),
                 ]
             )
@@ -2044,15 +2052,16 @@ class TestHeightPrescriptionsCli:
         box = data["characters"]["C"]["bounding_box"]
         assert box["min_y"] == pytest.approx(0.0, abs=1e-6)
 
-    def test_invalid_prescriptions_file_exits_nonzero(self, tmp_path: Path) -> None:
+    def test_invalid_modifications_file_exits_nonzero(self, tmp_path: Path) -> None:
         base, _ = self._sheet(tmp_path)
         bad = tmp_path / "bad.json"
         bad.write_text(
-            '{"prescriptions": [{"characters": "/", "ascent_percent": 999}]}', encoding="utf-8"
+            '{"modifications": [{"mode": "height", "characters": "/", "ascent_percent": 999}]}',
+            encoding="utf-8",
         )
         assert (
             script.main(
-                base + ["--output-dir", str(tmp_path / "out"), "--prescriptions-file", str(bad)]
+                base + ["--output-dir", str(tmp_path / "out"), "--modifications-file", str(bad)]
             )
             == 1
         )
@@ -2088,7 +2097,7 @@ class TestHeightPrescriptionsCli:
 
 
 class TestShippedCatalogPrescriptions:
-    """The regenerated catalog honours the shipped prescriptions file."""
+    """The regenerated catalog honours the shipped modifications file."""
 
     # The refit chain tracks the ideal ellipse within the fit tolerance; the
     # stored extremes may bulge a fraction of a plotter unit past the target
@@ -2097,7 +2106,10 @@ class TestShippedCatalogPrescriptions:
     TOLERANCE = 0.5
 
     def test_every_non_symbol_font_matches_its_prescriptions(self) -> None:
-        prescriptions = gt.load_height_prescriptions(script.DEFAULT_PRESCRIPTIONS_FILE)
+        modifications = gt.load_character_modifications(script.DEFAULT_MODIFICATIONS_FILE)
+        prescriptions = {
+            c: m for c, m in modifications.items() if isinstance(m, gt.HeightPrescription)
+        }
         catalog_dir = REPO_ROOT / "fonts" / "VP-EL-fonts" / "catalog"
         checked = 0
         for path in sorted(catalog_dir.glob("*.json")):
@@ -2116,3 +2128,21 @@ class TestShippedCatalogPrescriptions:
                 assert box["min_x"] == pytest.approx(0.0, abs=self.TOLERANCE), (path, character)
                 checked += 1
         assert checked >= 8 * 16, "expected most prescriptions in most fonts"
+
+    def test_every_font_centres_its_midline_chars(self) -> None:
+        """midline_center applies to symbol fonts too (Wingdings S included)."""
+        modifications = gt.load_character_modifications(script.DEFAULT_MODIFICATIONS_FILE)
+        centred = [c for c, m in modifications.items() if isinstance(m, gt.MidlineCenter)]
+        assert centred
+        catalog_dir = REPO_ROOT / "fonts" / "VP-EL-fonts" / "catalog"
+        for path in sorted(catalog_dir.glob("*.json")):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            reference_char = data["reference_char"]
+            for character in centred:
+                entry = data["characters"].get(character)
+                if entry is None or character == reference_char:
+                    continue
+                box = entry["bounding_box"]
+                centre = (box["min_y"] + box["max_y"]) / 2.0
+                midline = script.MIDLINE_FRACTION * script.LIBRARY_UNITS_PER_INCH
+                assert centre == pytest.approx(midline, abs=self.TOLERANCE), (path, character)

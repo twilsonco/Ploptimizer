@@ -30,10 +30,15 @@ font-registry bullets).
   `scale_glyph_y_arc_native` apply a Y-only affine with native `AA` refitting
   (via `../plt_optimizer/generate/arc_fit.py`) - the library-side twin of the
   render pipeline's `TextBlock.scaled_y(preserve_arcs=True)`.
-- `character_height_prescriptions.json` - per-character vertical-extent
-  prescriptions (ascent/descent as % of the 1000-unit line height) applied to
-  non-symbol fonts at extraction time; loaded by
-  `glyph_transforms.load_height_prescriptions`, applied by
+- `character-modifications.json` - the single source of truth for
+  extraction-time character geometry edits, as `{mode, characters, ...}`
+  groups. `mode: "midline_center"` (currently `S`) = pure-Y shift centring the
+  ink box on the midline, applied to EVERY font (symbol fonts included);
+  `mode: "height"` = Y-only affine mapping the ink box onto
+  `[-descent_percent%, 1000 + ascent_percent%]` of the line height, applied to
+  NON-symbol fonts only. Loaded by
+  `glyph_transforms.load_character_modifications`; the centering set feeds
+  `extract_font_from_document(centered_chars=...)` and the prescriptions feed
   `extract_plt_fonts.apply_height_prescriptions`.
 - `ascii.txt` / `ascii_E.txt` / `ascii_2space*.txt` - character-order reference
   sheets the extractor verifies rows against (count + framing geometry ≤ 1e-3
@@ -61,16 +66,21 @@ font-registry bullets).
   silhouettes in the shared baseline frame, so a geometry transform MUST move
   block + bbox + both envelopes together).
 - Drift: measured height stored unadjusted; >5% WARNING.
-- `VERTICALLY_CENTERED_CHARS` (currently `S`): extraction-time pure-Y shift
-  centering the ink box on the midline; the reference char is ALWAYS exempt
-  (it defines y=0/y=1000 and the framing verification).
-- Height prescriptions (`character_height_prescriptions.json`): extraction-time
-  Y-only affine mapping each prescribed char's ink box exactly onto
-  `[-descent%, 1000 + ascent%]` (percent of the line height). Non-symbol fonts
-  only; the reference char is ALWAYS exempt; `AA` arcs are refit natively and
-  bbox + both envelopes are rebuilt from the refit geometry. Runs BEFORE
-  `derive_glyph_entries`, so `¢`/`†`/`≠` inherit the normalised bases.
-  `--no-height-prescriptions` disables the pass.
+- Character modifications (`character-modifications.json`) - the extraction-time
+  edits are DATA, not code (there is no `VERTICALLY_CENTERED_CHARS` tuple any
+  more):
+  - `mode: "midline_center"` (currently `S`): pure-Y shift centering the ink
+    box on the midline; applies to EVERY font, symbol fonts included (the
+    Wingdings `S` slot is centred).
+  - `mode: "height"`: Y-only affine mapping each char's ink box exactly onto
+    `[-descent%, 1000 + ascent%]` (percent of the line height). Non-symbol
+    fonts only; `AA` arcs are refit natively and bbox + both envelopes are
+    rebuilt from the refit geometry. Runs BEFORE `derive_glyph_entries`, so
+    `¢`/`†`/`≠` inherit the normalised bases.
+  - Both modes: the reference char is ALWAYS exempt (it defines y=0/y=1000 and
+    the framing verification); a char in both modes is a loader error.
+  - Opt-outs: `--no-vertical-centering` / `--no-height-prescriptions` disable
+    one mode each; `--modifications-file` points at an alternate JSON.
 - Regeneration must stay reproducible: `--no-vertical-centering` is verified
   byte-identical to the pre-centering library.
 

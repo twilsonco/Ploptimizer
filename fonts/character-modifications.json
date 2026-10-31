@@ -1,0 +1,11 @@
+{
+  "_comment": "Extraction-time character geometry edits for PLT fonts (fonts/extract_plt_fonts.py). Each group lists characters and a mode. 'height' maps the glyph's ink box exactly onto [-descent_percent%, 1000 + ascent_percent%] of the line height (capline - baseline, in the library design frame) by a vertical-only affine; AA arcs are refit natively (fonts/glyph_transforms.py). 'midline_center' purely translates the glyph so its ink-box centre lands on the midline (500 units); X, width and height are untouched. Both modes exempt the reference character (it defines baseline/capline) and rebuild bounding_box + both envelopes with the glyph. 'height' applies to non-symbol fonts only; 'midline_center' applies to every font (round-symmetric symbol slots sit low too). Opt out per mode with --no-vertical-centering / --no-height-prescriptions. Loaded by fonts/glyph_transforms.load_character_modifications.",
+  "modifications": [
+    { "mode": "midline_center", "characters": "S" },
+    { "mode": "height", "characters": "/\\", "ascent_percent": 5, "descent_percent": 5 },
+    { "mode": "height", "characters": "|", "ascent_percent": 0, "descent_percent": 10 },
+    { "mode": "height", "characters": "{}", "ascent_percent": 10, "descent_percent": 10 },
+    { "mode": "height", "characters": "()", "ascent_percent": 5, "descent_percent": 5 },
+    { "mode": "height", "characters": "[]", "ascent_percent": 2, "descent_percent": 2 }
+  ]
+}

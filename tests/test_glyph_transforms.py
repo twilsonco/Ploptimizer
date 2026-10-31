@@ -726,8 +726,8 @@ class TestScaleGeometryY:
         assert geometry.bounds[3] == pytest.approx(200.0, abs=1e-3)
 
 
-class TestHeightPrescription:
-    """The prescription dataclass + strict JSON loader."""
+class TestCharacterModifications:
+    """The modification dataclasses + strict JSON loader."""
 
     def test_target_bounds(self) -> None:
         prescription = gt.HeightPrescription(ascent_percent=5.0, descent_percent=5.0)
@@ -737,10 +737,11 @@ class TestHeightPrescription:
         prescription = gt.HeightPrescription(ascent_percent=0.0, descent_percent=10.0)
         assert prescription.target_bounds(1000.0) == (-100.0, 1000.0)
 
-    def test_shipped_file_loads_all_groups(self) -> None:
-        path = REPO_ROOT / "fonts" / "character_height_prescriptions.json"
-        loaded = gt.load_height_prescriptions(path)
-        assert set(loaded) == set("/\\|{}()[]")
+    def test_shipped_file_loads_both_modes(self) -> None:
+        path = REPO_ROOT / "fonts" / "character-modifications.json"
+        loaded = gt.load_character_modifications(path)
+        assert set(loaded) == set("/\\|{}()[]S")
+        assert loaded["S"] == gt.MidlineCenter()
         assert loaded["/"] == gt.HeightPrescription(5.0, 5.0)
         assert loaded["|"] == gt.HeightPrescription(0.0, 10.0)
         assert loaded["{"] == gt.HeightPrescription(10.0, 10.0)
@@ -748,54 +749,89 @@ class TestHeightPrescription:
         assert loaded["["] == gt.HeightPrescription(2.0, 2.0)
 
     def _write(self, tmp_path: Path, payload: object) -> Path:
-        path = tmp_path / "prescriptions.json"
+        path = tmp_path / "modifications.json"
         path.write_text(__import__("json").dumps(payload), encoding="utf-8")
         return path
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         with pytest.raises(gt.GlyphTransformError, match="Failed to read"):
-            gt.load_height_prescriptions(tmp_path / "absent.json")
+            gt.load_character_modifications(tmp_path / "absent.json")
 
     def test_invalid_json_raises(self, tmp_path: Path) -> None:
         path = tmp_path / "bad.json"
         path.write_text("{not json", encoding="utf-8")
         with pytest.raises(gt.GlyphTransformError, match="not valid JSON"):
-            gt.load_height_prescriptions(path)
+            gt.load_character_modifications(path)
 
     def test_wrong_shape_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(gt.GlyphTransformError, match="prescriptions.* list"):
-            gt.load_height_prescriptions(self._write(tmp_path, {"prescriptions": {}}))
+        with pytest.raises(gt.GlyphTransformError, match="modifications.* list"):
+            gt.load_character_modifications(self._write(tmp_path, {"modifications": {}}))
+
+    def test_unknown_mode_raises(self, tmp_path: Path) -> None:
+        payload = {"modifications": [{"mode": "squash", "characters": "/"}]}
+        with pytest.raises(gt.GlyphTransformError, match="mode in .* must be"):
+            gt.load_character_modifications(self._write(tmp_path, payload))
+
+    def test_missing_mode_raises(self, tmp_path: Path) -> None:
+        payload = {
+            "modifications": [{"characters": "/", "ascent_percent": 5, "descent_percent": 5}]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="must be 'midline_center'"):
+            gt.load_character_modifications(self._write(tmp_path, payload))
+
+    def test_midline_center_rejects_percents(self, tmp_path: Path) -> None:
+        payload = {
+            "modifications": [{"mode": "midline_center", "characters": "S", "ascent_percent": 5}]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="takes no ascent_percent"):
+            gt.load_character_modifications(self._write(tmp_path, payload))
 
     def test_out_of_range_percent_raises(self, tmp_path: Path) -> None:
         payload = {
-            "prescriptions": [{"characters": "/", "ascent_percent": 250, "descent_percent": 0}]
+            "modifications": [
+                {"mode": "height", "characters": "/", "ascent_percent": 250, "descent_percent": 0}
+            ]
         }
         with pytest.raises(gt.GlyphTransformError, match="must lie in"):
-            gt.load_height_prescriptions(self._write(tmp_path, payload))
+            gt.load_character_modifications(self._write(tmp_path, payload))
 
     def test_non_numeric_percent_raises(self, tmp_path: Path) -> None:
         payload = {
-            "prescriptions": [{"characters": "/", "ascent_percent": "5", "descent_percent": 0}]
+            "modifications": [
+                {"mode": "height", "characters": "/", "ascent_percent": "5", "descent_percent": 0}
+            ]
         }
         with pytest.raises(gt.GlyphTransformError, match="must be a number"):
-            gt.load_height_prescriptions(self._write(tmp_path, payload))
+            gt.load_character_modifications(self._write(tmp_path, payload))
 
     def test_duplicate_character_raises(self, tmp_path: Path) -> None:
         payload = {
-            "prescriptions": [
-                {"characters": "/", "ascent_percent": 5, "descent_percent": 5},
-                {"characters": "/", "ascent_percent": 2, "descent_percent": 2},
+            "modifications": [
+                {"mode": "height", "characters": "/", "ascent_percent": 5, "descent_percent": 5},
+                {"mode": "height", "characters": "/", "ascent_percent": 2, "descent_percent": 2},
             ]
         }
         with pytest.raises(gt.GlyphTransformError, match="more than once"):
-            gt.load_height_prescriptions(self._write(tmp_path, payload))
+            gt.load_character_modifications(self._write(tmp_path, payload))
+
+    def test_duplicate_across_modes_raises(self, tmp_path: Path) -> None:
+        payload = {
+            "modifications": [
+                {"mode": "midline_center", "characters": "S"},
+                {"mode": "height", "characters": "S", "ascent_percent": 5, "descent_percent": 5},
+            ]
+        }
+        with pytest.raises(gt.GlyphTransformError, match="more than once"):
+            gt.load_character_modifications(self._write(tmp_path, payload))
 
     def test_whitespace_character_raises(self, tmp_path: Path) -> None:
         payload = {
-            "prescriptions": [{"characters": " ", "ascent_percent": 5, "descent_percent": 5}]
+            "modifications": [
+                {"mode": "height", "characters": " ", "ascent_percent": 5, "descent_percent": 5}
+            ]
         }
         with pytest.raises(gt.GlyphTransformError, match="whitespace"):
-            gt.load_height_prescriptions(self._write(tmp_path, payload))
+            gt.load_character_modifications(self._write(tmp_path, payload))
 
 
 class TestScaleGeometryYEdges:
