@@ -22,3 +22,7 @@ job_metrics.csv
 .coverage
 
 *_output
+
+# Generated PDF handbook (rebuild: uv run python scripts/build_pipeline_pdf.py).
+# Only the artifacts are ignored; docs/pdf/README.md is committed.
+docs/pdf/*.pdf
