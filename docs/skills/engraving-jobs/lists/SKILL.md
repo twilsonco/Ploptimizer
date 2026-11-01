@@ -32,7 +32,7 @@ metadata:
 | `counter_prefix` | str \| null | null (unset) | — | plate | Enumerated-list counter prefix (schema parity; not applied at plate level). |
 | `counter_suffix` | str \| null | null (unset) | — | plate | Enumerated-list counter suffix (schema parity; not applied at plate level). |
 | `list_marker_gap_fraction` | float \| null | null (unset) | >=0 | plate | List marker-to-text gap as a fraction of cap height (schema parity; not applied at plate level). |
-| `itemize` | ItemizeBlock \| null | null (unset) | — | content entry | Bullet-list block: every item engraves with the resolved bullet_string marker in one shared marker column. Mutually exclusive with text and enumerate. |
+| `itemize` | ItemizeBlock \| null | null (unset) | — | content entry | Bullet-list block: every item engraves with the resolved `bullet_string` marker in one shared marker column. Mutually exclusive with text and enumerate. |
 | `enumerate` | EnumerateBlock \| null | null (unset) | — | content entry | Enumerated-list block: every item's marker is the computed counter (prefix + style + suffix). Mutually exclusive with text and itemize. |
 | `items` | list[TextLine] | **required** | — | list block | The list's text items. Each item is a text line carrying the list block's attributes (cascading item -> block -> label -> job); at least one item is required. |
 

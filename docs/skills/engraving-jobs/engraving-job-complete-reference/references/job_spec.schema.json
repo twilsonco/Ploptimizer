@@ -27,7 +27,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
+          "description": "Font name: a PLT-extracted font key (the `font_name` fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by `sc_scale`). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
           "title": "Font"
         },
         "character_spacing": {
@@ -224,7 +224,7 @@
             }
           ],
           "default": null,
-          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from `kern_neg_string`. A marker that parses as inline markup under the line's effective `html_brackets` (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
           "title": "Kern Pos String"
         },
         "kern_neg_string": {
@@ -281,7 +281,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises $1 - d/2$ cap heights, its centre landing on the capline; subscript drops $d/2$ cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -323,7 +323,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits $cutter diameter + fraction * cap height$ below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset Fraction"
         },
         "underline_break_clearance_fraction": {
@@ -337,7 +337,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of `underline_offset_fraction` (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance Fraction"
         },
         "underline_break_spaces": {
@@ -447,7 +447,7 @@
             }
           ],
           "default": null,
-          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with `multistroke_overlap_ratio` guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
           "title": "Target Boldness Factor"
         },
         "multistroke_overlap_ratio": {
@@ -462,7 +462,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
         "bold_boldness_multiplier": {
@@ -490,7 +490,7 @@
             }
           ],
           "default": null,
-          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize"
         },
         "max_cutter_downsizes": {
@@ -738,7 +738,7 @@
             }
           ],
           "default": null,
-          "description": "Bullet-list block: every item engraves with the resolved bullet_string marker in one shared marker column. Mutually exclusive with text and enumerate."
+          "description": "Bullet-list block: every item engraves with the resolved `bullet_string` marker in one shared marker column. Mutually exclusive with text and enumerate."
         },
         "enumerate": {
           "anyOf": [
@@ -795,7 +795,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
+          "description": "Font name: a PLT-extracted font key (the `font_name` fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by `sc_scale`). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
           "title": "Font"
         },
         "character_spacing": {
@@ -992,7 +992,7 @@
             }
           ],
           "default": null,
-          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from `kern_neg_string`. A marker that parses as inline markup under the line's effective `html_brackets` (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
           "title": "Kern Pos String"
         },
         "kern_neg_string": {
@@ -1049,7 +1049,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises $1 - d/2$ cap heights, its centre landing on the capline; subscript drops $d/2$ cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -1091,7 +1091,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits $cutter diameter + fraction * cap height$ below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset Fraction"
         },
         "underline_break_clearance_fraction": {
@@ -1105,7 +1105,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of `underline_offset_fraction` (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance Fraction"
         },
         "underline_break_spaces": {
@@ -1215,7 +1215,7 @@
             }
           ],
           "default": null,
-          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with `multistroke_overlap_ratio` guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
           "title": "Target Boldness Factor"
         },
         "multistroke_overlap_ratio": {
@@ -1230,7 +1230,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
         "bold_boldness_multiplier": {
@@ -1258,7 +1258,7 @@
             }
           ],
           "default": null,
-          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize"
         },
         "max_cutter_downsizes": {
@@ -1553,7 +1553,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
+          "description": "Font name: a PLT-extracted font key (the `font_name` fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by `sc_scale`). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
           "title": "Font"
         },
         "character_spacing": {
@@ -1750,7 +1750,7 @@
             }
           ],
           "default": null,
-          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from `kern_neg_string`. A marker that parses as inline markup under the line's effective `html_brackets` (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
           "title": "Kern Pos String"
         },
         "kern_neg_string": {
@@ -1807,7 +1807,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises $1 - d/2$ cap heights, its centre landing on the capline; subscript drops $d/2$ cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -1849,7 +1849,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits $cutter diameter + fraction * cap height$ below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset Fraction"
         },
         "underline_break_clearance_fraction": {
@@ -1863,7 +1863,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of `underline_offset_fraction` (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance Fraction"
         },
         "underline_break_spaces": {
@@ -1973,7 +1973,7 @@
             }
           ],
           "default": null,
-          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with `multistroke_overlap_ratio` guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
           "title": "Target Boldness Factor"
         },
         "multistroke_overlap_ratio": {
@@ -1988,7 +1988,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
         "bold_boldness_multiplier": {
@@ -2016,7 +2016,7 @@
             }
           ],
           "default": null,
-          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize"
         },
         "max_cutter_downsizes": {
@@ -2281,7 +2281,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
+          "description": "Font name: a PLT-extracted font key (the `font_name` fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by `sc_scale`). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
           "title": "Font"
         },
         "character_spacing": {
@@ -2478,7 +2478,7 @@
             }
           ],
           "default": null,
-          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from `kern_neg_string`. A marker that parses as inline markup under the line's effective `html_brackets` (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
           "title": "Kern Pos String"
         },
         "kern_neg_string": {
@@ -2535,7 +2535,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises $1 - d/2$ cap heights, its centre landing on the capline; subscript drops $d/2$ cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -2577,7 +2577,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits $cutter diameter + fraction * cap height$ below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset Fraction"
         },
         "underline_break_clearance_fraction": {
@@ -2591,7 +2591,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of `underline_offset_fraction` (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance Fraction"
         },
         "underline_break_spaces": {
@@ -2701,7 +2701,7 @@
             }
           ],
           "default": null,
-          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with `multistroke_overlap_ratio` guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
           "title": "Target Boldness Factor"
         },
         "multistroke_overlap_ratio": {
@@ -2716,7 +2716,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
         "bold_boldness_multiplier": {
@@ -2744,7 +2744,7 @@
             }
           ],
           "default": null,
-          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize"
         },
         "max_cutter_downsizes": {
@@ -3036,7 +3036,7 @@
             }
           ],
           "default": null,
-          "description": "Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125).",
+          "description": "Universal margin in inches (fallback for `h_margin` and `v_margin`); cascades label -> job (fallback 0.125).",
           "title": "Margin"
         },
         "h_margin": {
@@ -3190,7 +3190,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = floor * (1 + clearance)), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0. Accepted on plates for schema parity only.",
+          "description": "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = $floor * (1 + clearance)$), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0. Accepted on plates for schema parity only.",
           "title": "Descending Character Clearance"
         },
         "descending_character_reciprocal_scale": {
@@ -4385,7 +4385,7 @@
             }
           ],
           "default": null,
-          "description": "Font name: a PLT-extracted font key (the font_name fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
+          "description": "Font name: a PLT-extracted font key (the `font_name` fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by `sc_scale`). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
           "title": "Font"
         },
         "character_spacing": {
@@ -4582,7 +4582,7 @@
             }
           ],
           "default": null,
-          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
+          "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from `kern_neg_string`. A marker that parses as inline markup under the line's effective `html_brackets` (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
           "title": "Kern Pos String"
         },
         "kern_neg_string": {
@@ -4639,7 +4639,7 @@
             }
           ],
           "default": null,
-          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+          "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises $1 - d/2$ cap heights, its centre landing on the capline; subscript drops $d/2$ cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
           "title": "Supersubscript Downscale"
         },
         "html_brackets": {
@@ -4681,7 +4681,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits $cutter diameter + fraction * cap height$ below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Offset Fraction"
         },
         "underline_break_clearance_fraction": {
@@ -4695,7 +4695,7 @@
             }
           ],
           "default": null,
-          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+          "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of `underline_offset_fraction` (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
           "title": "Underline Break Clearance Fraction"
         },
         "underline_break_spaces": {
@@ -4805,7 +4805,7 @@
             }
           ],
           "default": null,
-          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+          "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with `multistroke_overlap_ratio` guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
           "title": "Target Boldness Factor"
         },
         "multistroke_overlap_ratio": {
@@ -4820,7 +4820,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+          "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
           "title": "Multistroke Overlap Ratio"
         },
         "bold_boldness_multiplier": {
@@ -4848,7 +4848,7 @@
             }
           ],
           "default": null,
-          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+          "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
           "title": "Cutter Downsize"
         },
         "max_cutter_downsizes": {
@@ -5112,7 +5112,7 @@
         }
       ],
       "default": null,
-      "description": "Font name: a PLT-extracted font key (the font_name fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by sc_scale). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
+      "description": "Font name: a PLT-extracted font key (the `font_name` fields of `fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs preserved) or a TrueType basename (`*.ttf` under fonts/, extension stripped); case-insensitive, canonicalized at validation. Appending ' SC' to any name selects its synthetic small-caps variant (uppercase glyphs verbatim, ASCII lowercase a-z downscaled by `sc_scale`). Cascades line -> label -> job (fallback ReliefSingleLineCAD-Regular). Unknown names are rejected; run docs/schema/generate_schema_docs.py --show-fonts for the full valid list. The inline `<f:font name>...</f>` markup tag selects any of these names for the wrapped characters of a text line (the run engraves with the cutter its own font's ladder gives that text height); '+' is the canonical space in the tag argument (e.g. `<f:Dino+SC>`).",
       "title": "Font"
     },
     "character_spacing": {
@@ -5309,7 +5309,7 @@
         }
       ],
       "default": null,
-      "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from kern_neg_string. A marker that parses as inline markup under the line's effective html_brackets (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
+      "description": "Manual-kern positive marker string: every occurrence in a text line is stripped (it never engraves) and replaced by a forward cursor shift of `kern_width_fraction * cap height` (capline - baseline) applied to the following character. Multi-character strings are legal (e.g. `<->`); the value must be non-empty, contain no newline, and differ from `kern_neg_string`. A marker that parses as inline markup under the line's effective `html_brackets` (e.g. `<s>` with the default brackets - the strikethrough tag consumes it before the kern strip) is rejected at resolution; `<->` is a legal marker. Unset (`None`) disables the positive marker. Cascades line -> label -> job (`job-config.json` supplies the shop default); works on PLT and TTF fonts.",
       "title": "Kern Pos String"
     },
     "kern_neg_string": {
@@ -5366,7 +5366,7 @@
         }
       ],
       "default": null,
-      "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises 1 - d/2 cap heights, its centre landing on the capline; subscript drops d/2 cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
+      "description": "Downscale applied to a bare `<sup>`/`<sub>` markup run: the run's glyphs engrave uniformly shrunk to this fraction of the line's size, and the baseline shift derives from it, centering the shrunken glyph on the line it belongs to (superscript rises $1 - d/2$ cap heights, its centre landing on the capline; subscript drops $d/2$ cap heights, its centre landing on the baseline). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly (cap-height units) and apply no scaling, so this field is inert on them. The run engraves with the cutter for its downscaled height (the `<scale:N>` ladder). Cascades line -> label -> job (fallback 0.5); explicit 0.2/1.0 are honored.",
       "title": "Supersubscript Downscale"
     },
     "html_brackets": {
@@ -5408,7 +5408,7 @@
         }
       ],
       "default": null,
-      "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits cutter diameter + fraction * cap height below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+      "description": "Extra air for underline markup (`<u>`) as a fraction of the rendered cap height (capline - baseline): the underline centerline (cut with the line's own text cutter) sits $cutter diameter + fraction * cap height$ below the baseline, so the engraved underline's top edge floats exactly that air below the engraved baseline stroke. The break test is strictly horizontal: a glyph breaks the underline where its ink crosses the underline's centerline, so raising it lifts the underline clear and stops it breaking. 0.0 = the underline's top edge touches the baseline stroke. Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
       "title": "Underline Offset Fraction"
     },
     "underline_break_clearance_fraction": {
@@ -5422,7 +5422,7 @@
         }
       ],
       "default": null,
-      "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of underline_offset_fraction (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
+      "description": "Extra air at each underline (`<u>`) break as a fraction of the rendered cap height (capline - baseline): each cut is padded horizontally by `0.5 * cutter + fraction * cap height` (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Independent of `underline_offset_fraction` (which decides which glyphs break). Must be >= 0. Cascades line -> label -> job (fallback 0.0); explicit 0.0 is honored.",
       "title": "Underline Break Clearance Fraction"
     },
     "underline_break_spaces": {
@@ -5532,7 +5532,7 @@
         }
       ],
       "default": null,
-      "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with multistroke_overlap_ratio guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
+      "description": "Target engraved stroke width as a fraction of `text_height` for multi-stroke (bold) PLT fonts - fonts whose glyphs carry `N > 1` parallel cutter passes (the `stroke_count` stored in the font's catalog file). The automatic cutter is sized so the `N` passes plus their overlaps engrave this total width, with `multistroke_overlap_ratio` guarding against unengraved stripes; the resulting cutter is snapped to the shop inventory. The implicit pass overlap is derived and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.05, 0.30]. Cascades line -> label -> job (fallback 0.14); accepted on plates for schema parity only.",
       "title": "Target Boldness Factor"
     },
     "multistroke_overlap_ratio": {
@@ -5547,7 +5547,7 @@
         }
       ],
       "default": null,
-      "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
+      "description": "Minimum overlap fraction between adjacent cutter passes of a multi-stroke (bold) PLT font: the automatic cutter is never smaller than `pass_spacing / (1 - this ratio)`, so adjacent engraved strokes always overlap by at least this fraction and no unengraved stripe can appear between passes (an overlap of 0.25 means the stepover stays within 75% of the cutter width). The actual overlap is derived from the chosen cutter and logged. Inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades line -> label -> job (fallback 0.25); accepted on plates for schema parity only.",
       "title": "Multistroke Overlap Ratio"
     },
     "bold_boldness_multiplier": {
@@ -5575,7 +5575,7 @@
         }
       ],
       "default": null,
-      "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
+      "description": "Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored.",
       "title": "Cutter Downsize"
     },
     "max_cutter_downsizes": {
@@ -5867,7 +5867,7 @@
         }
       ],
       "default": null,
-      "description": "Universal margin in inches (fallback for h_margin and v_margin); cascades label -> job (fallback 0.125).",
+      "description": "Universal margin in inches (fallback for `h_margin` and `v_margin`); cascades label -> job (fallback 0.125).",
       "title": "Margin"
     },
     "h_margin": {
@@ -6021,7 +6021,7 @@
         }
       ],
       "default": null,
-      "description": "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = floor * (1 + clearance)), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0. Accepted on plates for schema parity only.",
+      "description": "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = $floor * (1 + clearance)$), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0. Accepted on plates for schema parity only.",
       "title": "Descending Character Clearance"
     },
     "descending_character_reciprocal_scale": {
@@ -6096,7 +6096,7 @@
         }
       ],
       "default": null,
-      "description": "Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated `default_plate_{i}` sheets (24x16 unless job-config plate_width/plate_height override).",
+      "description": "Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated `default_plate_{i}` sheets (24x16 unless job-config `plate_width`/`plate_height` override).",
       "title": "Plates"
     },
     "labels": {

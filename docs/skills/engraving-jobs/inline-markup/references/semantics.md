@@ -32,7 +32,7 @@ Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb`.
 
 | Tag | Effect | Tuning fields |
 |---|---|---|
-| `<i>…</i>` | Italic: shear about each glyph's own baseline (X shifts by height × tan, Y untouched; a descender's bottom-left moves LEFT) | `italic_angle` (degrees, default 12) |
+| `<i>…</i>` | Italic: shear about each glyph's own baseline (X shifts by $height × tan$, Y untouched; a descender's bottom-left moves LEFT) | `italic_angle` (degrees, default 12) |
 | `<u>…</u>` | Underline: one continuous stroke per maximal span, at `underline_offset_fraction` of cap height below the baseline; spans BREAK over spaces (and over gaps ≥ `underline_break_clearance_fraction` of cap height); `underline_break_spaces` (default true) drops the engraving of spaces inside the span | `underline_offset_fraction`, `underline_break_clearance_fraction`, `underline_break_spaces` |
 | `<b>…</b>` | Bold. Multi-stroke PLT fonts: re-runs the cutter ladder at `target_boldness_factor × bold_boldness_multiplier` (clamped 0.30, WARNING). Single-stroke PLT/TTF: steps to the next larger inventory cutter | `target_boldness_factor`, `bold_boldness_multiplier` |
 | `<scale:N>…</scale>` | Scales the run's text height by factor N (the run re-enters the cutter ladder at `N × text_height`) | — |

@@ -1,6 +1,6 @@
 ---
 name: tool-options
-description: 'Engraver velocity, spindle, dwell and Z via tool_options. Use when: setting cut speed, spindle rpm, dwell, Z clearance; text and borders need different engraver settings; a tool option value gets clamped. Keywords: tool_options, cutting_velocity, spindle_speed, dwell_time, z_clearance, hpgl, header.'
+description: 'Engraver velocity, spindle, dwell and Z via `tool_options`. Use when: setting cut speed, spindle rpm, dwell, Z clearance; text and borders need different engraver settings; a tool option value gets clamped. Keywords: tool_options, cutting_velocity, spindle_speed, dwell_time, z_clearance, hpgl, header.'
 version: 1.0.0
 metadata:
   hermes:

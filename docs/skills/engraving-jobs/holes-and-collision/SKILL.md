@@ -69,10 +69,10 @@ Applied when unset at every tier (including `job-config.json`):
 | `DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL` | `False` | `False` = the collision-avoidance edge-margin slide moves only the colliding `left`/`right`-aligned line. `True` = every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush (the shared shift is capped by the tightest slack in the group). Only the automatic slide is shared - declared margins are never touched, and the phase never fires when `max_h_compress` is 0.0. Cascades label/job (accepted on plates for schema parity only, never text lines); job-config supplies the shop default. |
 | `DEFAULT_BOUNDARY_HOLE_CUTTER` | `0.015` | Boundary/hole cutter diameter feeding the collision stroke floor; `tools.json` `boundary_hole_cutter_size` overrides it. |
 | `DEFAULT_HOLE_ADJUST_FOR_CUTTER` | `True` | `True` = the emitted drill-hole circle shrinks by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is placed from the specified diameter and never moves; a hole at or below the cutter diameter clamps to the smallest emittable circle (one plotter unit radius) with a WARNING. Cascades label/job (accepted on plates for schema parity only, never text lines); job-config supplies the shop default. |
-| `DEFAULT_HOLE_DIAMETER` | `0.125` | Drill-hole diameter when a hole entry omits 'diameter' (a job-config hole_diameter fills hole entries too). |
+| `DEFAULT_HOLE_DIAMETER` | `0.125` | Drill-hole diameter when a hole entry omits 'diameter' (a job-config `hole_diameter` fills hole entries too). |
 | `DEFAULT_HOLE_MARGIN` | `0.1875` | Hole margin when unset everywhere. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_HOLE_TEXT_COLLISION_DISTANCE` | `0.15` | Engraved-stroke air gap on top of the stroke floor `0.5 * (hole_cutter + text_cutter)`. Required from config-or-spec when a job-config is in play (the shop `job-config.json` currently sets 0.1). |
-| `DEFAULT_MIN_HOLE_MARGIN` | `None` | None = collision avoidance may shrink hole_margin all the way to 0.0. Required from config-or-spec when a job-config is in play. |
+| `DEFAULT_MIN_HOLE_MARGIN` | `None` | None = collision avoidance may shrink `hole_margin` all the way to 0.0. Required from config-or-spec when a job-config is in play. |
 
 ## Example
 

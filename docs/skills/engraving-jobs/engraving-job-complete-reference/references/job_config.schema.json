@@ -161,7 +161,7 @@
         }
       ],
       "default": null,
-      "description": "Default label margin in inches (job layer). A spec-declared margin (job level, or on any label) suppresses the configured h_margin/v_margin injection.",
+      "description": "Default label margin in inches (job layer). A spec-declared margin (job level, or on any label) suppresses the configured `h_margin`/`v_margin` injection.",
       "title": "Margin"
     },
     "h_margin": {
@@ -245,7 +245,7 @@
         }
       ],
       "default": null,
-      "description": "Default kerf buffer in inches added to a text line's cutter diameter to get the width it actually engraves (a roughly 45-degree-flank V-bit cuts wider than its nominal diameter). The effective width drives the geometry (kerning clearance, collision stroke floor, compression margin) and the PDF proof stroke widths, and the toolpath height compensates so engraved text stays text_height tall; the tool, the pen map and the PLT file names stay physical. Cascades line -> label -> job; unset falls back to 0.0 (engraved = nominal).",
+      "description": "Default kerf buffer in inches added to a text line's cutter diameter to get the width it actually engraves (a roughly 45-degree-flank V-bit cuts wider than its nominal diameter). The effective width drives the geometry (kerning clearance, collision stroke floor, compression margin) and the PDF proof stroke widths, and the toolpath height compensates so engraved text stays `text_height` tall; the tool, the pen map and the PLT file names stay physical. Cascades line -> label -> job; unset falls back to 0.0 (engraved = nominal).",
       "title": "Cutter Buffer Text"
     },
     "cutter_buffer_routing": {
@@ -259,7 +259,7 @@
         }
       ],
       "default": null,
-      "description": "Default kerf buffer in inches added to the boundary/drill-hole cutter diameter to get the width it actually engraves (the structural sibling of cutter_buffer_text). The effective width drives the cutter-compensated hole radius, the hole margin edge offset, the collision stroke floor, the round-label packing kerf and the PDF proof stroke widths; the *_bh_* file name keeps the physical tool. Cascades line -> label -> job; unset falls back to 0.0.",
+      "description": "Default kerf buffer in inches added to the boundary/drill-hole cutter diameter to get the width it actually engraves (the structural sibling of `cutter_buffer_text`). The effective width drives the cutter-compensated hole radius, the hole margin edge offset, the collision stroke floor, the round-label packing kerf and the PDF proof stroke widths; the *_bh_* file name keeps the physical tool. Cascades line -> label -> job; unset falls back to 0.0.",
       "title": "Cutter Buffer Routing"
     },
     "max_h_compress": {
@@ -300,7 +300,7 @@
         }
       ],
       "default": null,
-      "description": "Default space advance fraction for PLT-extracted fonts (job layer): a space advances fraction * text_height + character_spacing. Unset falls back to 0.3.",
+      "description": "Default space advance fraction for PLT-extracted fonts (job layer): a space advances $fraction * text_height + character_spacing$. Unset falls back to 0.3.",
       "title": "Space Width Fraction"
     },
     "min_glyph_width_fraction": {
@@ -357,7 +357,7 @@
         }
       ],
       "default": null,
-      "description": "Default kerning recession multiplier for PLT-extracted fonts (job layer); scales a negative (recessed) detected penetration. Unset falls back to 1.0; 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width_fraction floor.",
+      "description": "Default kerning recession multiplier for PLT-extracted fonts (job layer); scales a negative (recessed) detected penetration. Unset falls back to 1.0; 0.0 makes a recessed pair advance by nothing beyond the `min_glyph_width_fraction` floor.",
       "title": "Kerning Recession Scale"
     },
     "kerning_min_gap_fraction": {
@@ -398,7 +398,7 @@
         }
       ],
       "default": null,
-      "description": "Default manual-kern positive marker string (job layer): every occurrence in a text line is stripped and replaced by a forward cursor shift of kern_width_fraction of the cap height. Validated like the cascading field (non-empty, no newline, not markup-shaped). Unset (null) disables the positive marker.",
+      "description": "Default manual-kern positive marker string (job layer): every occurrence in a text line is stripped and replaced by a forward cursor shift of `kern_width_fraction` of the cap height. Validated like the cascading field (non-empty, no newline, not markup-shaped). Unset (null) disables the positive marker.",
       "title": "Kern Pos String"
     },
     "kern_neg_string": {
@@ -411,7 +411,7 @@
         }
       ],
       "default": null,
-      "description": "Default manual-kern negative marker string (job layer): every occurrence in a text line is stripped and replaced by a backward cursor shift of kern_width_fraction of the cap height. Validated like the cascading field (non-empty, no newline, not markup-shaped). Unset (null) disables the negative marker.",
+      "description": "Default manual-kern negative marker string (job layer): every occurrence in a text line is stripped and replaced by a backward cursor shift of `kern_width_fraction` of the cap height. Validated like the cascading field (non-empty, no newline, not markup-shaped). Unset (null) disables the negative marker.",
       "title": "Kern Neg String"
     },
     "kern_width_fraction": {
@@ -425,7 +425,7 @@
         }
       ],
       "default": null,
-      "description": "Default manual-kern width as a fraction of the rendered cap height (job layer): one marker shifts the cursor by fraction * cap height (positive string forward, negative backward). Unset falls back to 0.1.",
+      "description": "Default manual-kern width as a fraction of the rendered cap height (job layer): one marker shifts the cursor by $fraction * cap height$ (positive string forward, negative backward). Unset falls back to 0.1.",
       "title": "Kern Width Fraction"
     },
     "sc_scale": {
@@ -455,7 +455,7 @@
         }
       ],
       "default": null,
-      "description": "Default downscale applied to a bare <sup>/<sub> markup run (job layer; the run's glyphs engrave uniformly shrunk to this fraction and the baseline shift derives from it, centering the shrunken glyph on its line -- superscript rises 1 - d/2 cap heights, subscript drops d/2). The argumented forms <sup:0.3>/<sub:-0.2> set the shift explicitly and apply no scaling. Unset falls back to 0.5.",
+      "description": "Default downscale applied to a bare `<sup>`/`<sub>` markup run (job layer; the run's glyphs engrave uniformly shrunk to this fraction and the baseline shift derives from it, centering the shrunken glyph on its line -- superscript rises $1 - d/2$ cap heights, subscript drops $d/2$). The argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly and apply no scaling. Unset falls back to 0.5.",
       "title": "Supersubscript Downscale"
     },
     "html_brackets": {
@@ -468,7 +468,7 @@
         }
       ],
       "default": null,
-      "description": "Default inline-markup delimiter pair (job layer): an even-length string whose first half is the left delimiter and second half the right ('<>' -> '<' + '>'). Unset falls back to '<>'.",
+      "description": "Default inline-markup delimiter pair (job layer): an even-length string whose first half is the left delimiter and second half the right (`<>` -> `'<' + '>'`). Unset falls back to `<>`.",
       "title": "Html Brackets"
     },
     "italic_angle": {
@@ -483,7 +483,7 @@
         }
       ],
       "default": null,
-      "description": "Default italic slant angle in degrees for <i> markup (job layer; PLT glyphs and TTF glyphs without a native italic face are sheared about the baseline). Bound to [0, 45]; 0 means upright. Unset falls back to 12.",
+      "description": "Default italic slant angle in degrees for `<i>` markup (job layer; PLT glyphs and TTF glyphs without a native italic face are sheared about the baseline). Bound to [0, 45]; 0 means upright. Unset falls back to 12.",
       "title": "Italic Angle"
     },
     "underline_offset_fraction": {
@@ -497,7 +497,7 @@
         }
       ],
       "default": null,
-      "description": "Default underline (<u>) extra air as a fraction of the rendered cap height (capline - baseline; job layer): the underline centerline sits cutter diameter + fraction * cap height below the baseline (the engraved underline's top edge floats exactly that air below the engraved baseline stroke). The break test is strictly horizontal, so a glyph breaks the underline where its ink crosses the underline's centerline; raising it lifts the underline clear of a glyph and stops it breaking. Unset falls back to 0.0.",
+      "description": "Default underline (`<u>`) extra air as a fraction of the rendered cap height (capline - baseline; job layer): the underline centerline sits $cutter diameter + fraction * cap height$ below the baseline (the engraved underline's top edge floats exactly that air below the engraved baseline stroke). The break test is strictly horizontal, so a glyph breaks the underline where its ink crosses the underline's centerline; raising it lifts the underline clear of a glyph and stops it breaking. Unset falls back to 0.0.",
       "title": "Underline Offset Fraction"
     },
     "underline_break_clearance_fraction": {
@@ -511,7 +511,7 @@
         }
       ],
       "default": null,
-      "description": "Default underline (<u>) break clearance as a fraction of the rendered cap height (capline - baseline; job layer): each cut is padded horizontally by 0.5 * cutter + fraction * cap height (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Unset falls back to 0.0.",
+      "description": "Default underline (`<u>`) break clearance as a fraction of the rendered cap height (capline - baseline; job layer): each cut is padded horizontally by $0.5 * cutter + fraction * cap height$ (the half cutter is the glyph stroke's own half-width), so the engraved air between a descending glyph's stroke and the underline's cut edge is exactly this value. 0.0 = the cut sits at the ink. Unset falls back to 0.0.",
       "title": "Underline Break Clearance Fraction"
     },
     "underline_break_spaces": {
@@ -524,7 +524,7 @@
         }
       ],
       "default": null,
-      "description": "Default underline (<u>) break-at-spaces flag (job layer): false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Unset falls back to false.",
+      "description": "Default underline (`<u>`) break-at-spaces flag (job layer): false (default) draws one continuous underline across the whole underlined run (spaces included, broken only by descending glyphs); true ends the underline at each space so every word gets its own underline and the inter-word space stays bare. Unset falls back to false.",
       "title": "Underline Break Spaces"
     },
     "strikethrough_offset_fraction": {
@@ -538,7 +538,7 @@
         }
       ],
       "default": null,
-      "description": "Default strikethrough (<s>) height as a fraction of the rendered cap height (capline - baseline; job layer): the stroke (cut with the line's own text cutter) sits fraction * cap height above the baseline, so 0.0 puts it on the baseline and 1.0 on the capline. Unlike the underline the stroke is never broken -- a descender punches through it. Unset (null) centres the stroke on the cap-band midline (half the rendered cap height).",
+      "description": "Default strikethrough (`<s>`) height as a fraction of the rendered cap height (capline - baseline; job layer): the stroke (cut with the line's own text cutter) sits $fraction * cap height$ above the baseline, so 0.0 puts it on the baseline and 1.0 on the capline. Unlike the underline the stroke is never broken -- a descender punches through it. Unset (null) centres the stroke on the cap-band midline (half the rendered cap height).",
       "title": "Strikethrough Offset Fraction"
     },
     "strikethrough_break_spaces": {
@@ -551,7 +551,7 @@
         }
       ],
       "default": null,
-      "description": "Default strikethrough (<s>) break-at-spaces flag (job layer): false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Unset falls back to false.",
+      "description": "Default strikethrough (`<s>`) break-at-spaces flag (job layer): false (default) draws one continuous stroke across the whole struck run (spaces included); true ends the stroke at each space so every word gets its own strike and the inter-word space stays bare. Unset falls back to false.",
       "title": "Strikethrough Break Spaces"
     },
     "v_center_chars": {
@@ -564,7 +564,7 @@
         }
       ],
       "default": null,
-      "description": "Default auto-vertical-centred character set (job layer): every text character occurring in this string is raised or lowered so its own ink is centred between the baseline and the capline (the cap-band midline) -- the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline <vc>...</vc> tag applies the same centering to any characters it wraps. Empty string '' disables the auto-apply. Unset falls back to '' (auto-apply off); the shop config ships '-:\u2013\u2014=<>'.",
+      "description": "Default auto-vertical-centred character set (job layer): every text character occurring in this string is raised or lowered so its own ink is centred between the baseline and the capline (the cap-band midline) -- the characters a font typically draws too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline `<vc>...</vc>` tag applies the same centering to any characters it wraps. Empty string `''` disables the auto-apply. Unset falls back to `''` (auto-apply off); the shop config ships `'-:\u2013\u2014=<>'`.",
       "title": "V Center Chars"
     },
     "target_boldness_factor": {
@@ -579,7 +579,7 @@
         }
       ],
       "default": null,
-      "description": "Default multi-stroke target engraved stroke width as a fraction of text height (job layer; sizes the automatic cutter of multi-stroke/bold PLT fonts so the engraved passes total this width; inert on single-stroke fonts, TTF fonts, and lines with an explicit cutter_size). Unset falls back to 0.14.",
+      "description": "Default multi-stroke target engraved stroke width as a fraction of text height (job layer; sizes the automatic cutter of multi-stroke/bold PLT fonts so the engraved passes total this width; inert on single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`). Unset falls back to 0.14.",
       "title": "Target Boldness Factor"
     },
     "multistroke_overlap_ratio": {
@@ -594,7 +594,7 @@
         }
       ],
       "default": null,
-      "description": "Default multi-stroke minimum pass overlap ratio (job layer; the automatic cutter of a multi-stroke/bold PLT font is never smaller than pass_spacing / (1 - ratio), so adjacent engraved passes always overlap and no unengraved stripe appears). Unset falls back to 0.25.",
+      "description": "Default multi-stroke minimum pass overlap ratio (job layer; the automatic cutter of a multi-stroke/bold PLT font is never smaller than $pass_spacing / (1 - ratio)$, so adjacent engraved passes always overlap and no unengraved stripe appears). Unset falls back to 0.25.",
       "title": "Multistroke Overlap Ratio"
     },
     "bold_boldness_multiplier": {
@@ -609,7 +609,7 @@
         }
       ],
       "default": null,
-      "description": "Default bold markup (<b>) boldness multiplier (job layer): the bold runs of a multi-stroke (bold) PLT font re-run the cutter ladder at target_boldness_factor * this multiplier (clamped to 0.30). Inert on single-stroke PLT and TTF fonts, where <b> steps to the next larger inventory cutter. Unset falls back to 1.5.",
+      "description": "Default bold markup (`<b>`) boldness multiplier (job layer): the bold runs of a multi-stroke (bold) PLT font re-run the cutter ladder at `target_boldness_factor` * this multiplier (clamped to 0.30). Inert on single-stroke PLT and TTF fonts, where `<b>` steps to the next larger inventory cutter. Unset falls back to 1.5.",
       "title": "Bold Boldness Multiplier"
     },
     "holes": {
@@ -692,7 +692,7 @@
         }
       ],
       "default": null,
-      "description": "Default per-label sharing of compression-driven cutter downsizes (job layer; a trigger line's swap applies to every eligible line of the same text_height in the same label).",
+      "description": "Default per-label sharing of compression-driven cutter downsizes (job layer; a trigger line's swap applies to every eligible line of the same `text_height` in the same label).",
       "title": "Cutter Downsize Global"
     },
     "cutter_downsize_global_job_wide": {
@@ -705,7 +705,7 @@
         }
       ],
       "default": null,
-      "description": "Default job-wide scope of the shared compression-driven cutter downsizes (job layer; true widens a trigger line's sharing group from its label to every eligible line of the same text_height across the whole job, so one text size engraves with one tool).",
+      "description": "Default job-wide scope of the shared compression-driven cutter downsizes (job layer; true widens a trigger line's sharing group from its label to every eligible line of the same `text_height` across the whole job, so one text size engraves with one tool).",
       "title": "Cutter Downsize Global Job Wide"
     },
     "h_compress_global": {
@@ -718,7 +718,7 @@
         }
       ],
       "default": null,
-      "description": "Default per-label sharing of horizontal compression (job layer; a trigger line's compression scale applies to every eligible line of the same text_height in the same label).",
+      "description": "Default per-label sharing of horizontal compression (job layer; a trigger line's compression scale applies to every eligible line of the same `text_height` in the same label).",
       "title": "H Compress Global"
     },
     "h_compress_global_same_height_only": {
@@ -731,7 +731,7 @@
         }
       ],
       "default": null,
-      "description": "Default grouping scope of the shared horizontal compression (job layer; true shares the compression only between the lines of the same text_height, false shares it across every eligible line of the label). Unset falls back to True.",
+      "description": "Default grouping scope of the shared horizontal compression (job layer; true shares the compression only between the lines of the same `text_height`, false shares it across every eligible line of the label). Unset falls back to True.",
       "title": "H Compress Global Same Height Only"
     },
     "arc_preserve_compression": {
@@ -783,7 +783,7 @@
         }
       ],
       "default": null,
-      "description": "Default vertical centering mode (job layer; cascades label -> job, never text lines). False (the default) centers a label's text block by its baseline-to-capline band, so the visible text is optically centered and descenders hang into the bottom margin for the descending-character relief to handle against the bottom border; true centers by rendered ink (historical), which charges the deepest descender to the block and makes lines with descenders ride high. Band centering is active only when auto_descending_character_adjustment is enabled. Unset falls back to false.",
+      "description": "Default vertical centering mode (job layer; cascades label -> job, never text lines). False (the default) centers a label's text block by its baseline-to-capline band, so the visible text is optically centered and descenders hang into the bottom margin for the descending-character relief to handle against the bottom border; true centers by rendered ink (historical), which charges the deepest descender to the block and makes lines with descenders ride high. Band centering is active only when `auto_descending_character_adjustment` is enabled. Unset falls back to false.",
       "title": "V Center By Content"
     },
     "auto_descending_character_adjustment": {
@@ -796,7 +796,7 @@
         }
       ],
       "default": null,
-      "description": "Default automatic descending-character relief permission (job layer; cascades label -> job, never text lines). True vertically downscales and raises a descending glyph only when a glyph on the following line comes within the required clearance (the engraved-stroke floor scaled by descending_character_clearance) of it; false leaves descenders exactly as rendered. Unset falls back to true.",
+      "description": "Default automatic descending-character relief permission (job layer; cascades label -> job, never text lines). True vertically downscales and raises a descending glyph only when a glyph on the following line comes within the required clearance (the engraved-stroke floor scaled by `descending_character_clearance`) of it; false leaves descenders exactly as rendered. Unset falls back to true.",
       "title": "Auto Descending Character Adjustment"
     },
     "descending_character_v_scale": {
@@ -840,7 +840,7 @@
         }
       ],
       "default": null,
-      "description": "Default extra engraved-stroke air gap demanded between a descending glyph and the glyph below it, as a unitless factor of the stroke floor at which the two strokes touch (required gap = floor * (1 + clearance); job layer). An explicit 0.0 is honored (only true touching triggers). Unset falls back to 0.0.",
+      "description": "Default extra engraved-stroke air gap demanded between a descending glyph and the glyph below it, as a unitless factor of the stroke floor at which the two strokes touch (required gap = $floor * (1 + clearance)$; job layer). An explicit 0.0 is honored (only true touching triggers). Unset falls back to 0.0.",
       "title": "Descending Character Clearance"
     },
     "descending_character_reciprocal_scale": {
@@ -1000,7 +1000,7 @@
         }
       ],
       "default": null,
-      "description": "Default per-label sharing of the collision-avoidance edge-margin increase (job layer; cascades label -> job, never text lines). When true, a left/right-aligned line that slides off its anchored margin to clear a drill hole makes every other line of the label sharing that exact text_h_alignment match the increased margin, so the group's anchored edges stay flush. Unset falls back to false (only the colliding line moves).",
+      "description": "Default per-label sharing of the collision-avoidance edge-margin increase (job layer; cascades label -> job, never text lines). When true, a left/right-aligned line that slides off its anchored margin to clear a drill hole makes every other line of the label sharing that exact `text_h_alignment` match the increased margin, so the group's anchored edges stay flush. Unset falls back to false (only the colliding line moves).",
       "title": "Align Margin Adjust Global"
     },
     "text_chunk_mode": {
@@ -1042,7 +1042,7 @@
         }
       ],
       "default": null,
-      "description": "Default replacement-file item delimiter (job layer; cascades job -> plate -> label): the single special or whitespace character separating text items within a replacement text file line. Unset falls back to the code default ';'. Injected only when the job spec declares a replacement_text_file at the job, plate, or label level.",
+      "description": "Default replacement-file item delimiter (job layer; cascades job -> plate -> label): the single special or whitespace character separating text items within a replacement text file line. Unset falls back to the code default ';'. Injected only when the job spec declares a `replacement_text_file` at the job, plate, or label level.",
       "title": "Replacement Text Delimiter"
     },
     "replacement_text_file_comment_string": {
@@ -1055,7 +1055,7 @@
         }
       ],
       "default": null,
-      "description": "Default replacement-file comment marker (job layer; cascades job -> plate -> label): a replacement text file line whose whitespace-stripped text starts with this string produces no label copy and is reported in a per-file WARNING. Unset falls back to the code default '# '; '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Injected only when the job spec declares a replacement_text_file at the job, plate, or label level.",
+      "description": "Default replacement-file comment marker (job layer; cascades job -> plate -> label): a replacement text file line whose whitespace-stripped text starts with this string produces no label copy and is reported in a per-file WARNING. Unset falls back to the code default '# '; '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Injected only when the job spec declares a `replacement_text_file` at the job, plate, or label level.",
       "title": "Replacement Text File Comment String"
     },
     "replacement_text_file_allow_blank_lines": {
@@ -1068,7 +1068,7 @@
         }
       ],
       "default": null,
-      "description": "Default allow-blank-lines mode for replacement text files (job layer; cascades job -> plate -> label). When true, whitespace-only lines in a replacement file produce blank labels with no drill holes (even if the label template specifies holes). When false, blank lines are dropped with a warning. Unset falls back to true. Injected only when the job spec declares a replacement_text_file at the job, plate, or label level.",
+      "description": "Default allow-blank-lines mode for replacement text files (job layer; cascades job -> plate -> label). When true, whitespace-only lines in a replacement file produce blank labels with no drill holes (even if the label template specifies holes). When false, blank lines are dropped with a warning. Unset falls back to true. Injected only when the job spec declares a `replacement_text_file` at the job, plate, or label level.",
       "title": "Replacement Text File Allow Blank Lines"
     },
     "type": {
@@ -1108,7 +1108,7 @@
         }
       ],
       "default": null,
-      "description": "Default proportional corner rounding (job layer). True applies rounded_rectangle_fraction proportionately to width and height; false (the default) uses one identical rounding distance on every side (the shorter edge determines it). Unset falls back to false.",
+      "description": "Default proportional corner rounding (job layer). True applies `rounded_rectangle_fraction` proportionately to width and height; false (the default) uses one identical rounding distance on every side (the shorter edge determines it). Unset falls back to false.",
       "title": "Rounded Rectangle Proportional"
     },
     "plate_width": {
@@ -1136,7 +1136,7 @@
         }
       ],
       "default": null,
-      "description": "Default usable plate height in inches (same layer rules as plate_width).",
+      "description": "Default usable plate height in inches (same layer rules as `plate_width`).",
       "title": "Plate Height"
     },
     "left_clearance": {
@@ -1164,7 +1164,7 @@
         }
       ],
       "default": null,
-      "description": "Default plate top-edge clearance in inches (same cascade as left_clearance).",
+      "description": "Default plate top-edge clearance in inches (same cascade as `left_clearance`).",
       "title": "Top Clearance"
     },
     "auto_line_spacing_interline_to_top_bottom_ratio": {

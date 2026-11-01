@@ -123,18 +123,18 @@ specs to copy; `../engraving-job-complete-reference/references/JOB_SPEC.md` is t
 - [Replacement Text Files](../replacement-text/SKILL.md) — Batch-generate one label per line of a text file.
 - [Cascade Rules, job-config.json and tools.json](../cascade-and-config/SKILL.md) — How null inherits, shop defaults inject, and config gates bite.
 - [Label Size, Margins and Shape](../label-geometry/SKILL.md) — Label dimensions, auto-sizing, margins, rounded corners.
-- [Fonts, Small Caps and Cap-Line Enforcement](../fonts-and-capline/SKILL.md) — Pick fonts (PLT catalog, TTF, SC), text_height, cap-line clamp.
+- [Fonts, Small Caps and Cap-Line Enforcement](../fonts-and-capline/SKILL.md) — Pick fonts (PLT catalog, TTF, SC), `text_height`, cap-line clamp.
 - [Glyph Spacing and Kerning](../glyph-spacing-and-kerning/SKILL.md) — Per-character advance, space width, auto-kerning tuning.
 - [Line Spacing, Baseline Stacking and Reflow](../line-stacking-and-reflow/SKILL.md) — Stack lines evenly and reflow long text to fit the label width.
 - [Centering and Descending-Character Relief](../centering-and-descender-relief/SKILL.md) — Horizontal/vertical centering and per-glyph descender clearance.
 - [Inline Markup Tags](../inline-markup/SKILL.md) — Fourteen in-text tags: style, scale, font, cutter, color, center, kerf buffer.
 - [Bullet and Enumerated Lists](../lists/SKILL.md) — itemize/enumerate content blocks with markers and hanging indent.
-- [Cutter Selection](../cutters/SKILL.md) — Auto cutter ladder, explicit cutter_size, kerf buffers, per-cutter PLT files.
-- [Multi-Stroke (Bold) Fonts](../bold-multistroke/SKILL.md) — Stroke-count PLT fonts, target boldness, and <b> behavior.
+- [Cutter Selection](../cutters/SKILL.md) — Auto cutter ladder, explicit `cutter_size`, kerf buffers, per-cutter PLT files.
+- [Multi-Stroke (Bold) Fonts](../bold-multistroke/SKILL.md) — Stroke-count PLT fonts, target boldness, and `<b>` behavior.
 - [Compression and Cutter Downsizing](../compression-and-cutter-downsize/SKILL.md) — Squeeze long text horizontally; swap to a finer cutter when squeezed.
 - [Drill Holes and Collision Avoidance](../holes-and-collision/SKILL.md) — Mounting-hole placement, sizes, and text/hole clearance rules.
 - [Plates, Layout and Bin-Packing](../plates-layout-and-packing/SKILL.md) — Pack labels onto material plates: layout, rotation, clearances.
-- [Tool Options (HPGL Header Commands)](../tool-options/SKILL.md) — Engraver velocity, spindle, dwell and Z via tool_options.
+- [Tool Options (HPGL Header Commands)](../tool-options/SKILL.md) — Engraver velocity, spindle, dwell and Z via `tool_options`.
 - [Running the CLI and Fixing Failures](../running-and-troubleshooting/SKILL.md) — Generate command, outputs, validation entry, error taxonomy.
 - [Validating Jobs, Configs and Cutter Inventories](../validating-jobs/SKILL.md) — pre-flight checks via the skill's own `scripts/validate_*.py`.
 - [Recipes — Complete Example Job Specs](../recipes/SKILL.md) — copy-and-adapt runnable specs.

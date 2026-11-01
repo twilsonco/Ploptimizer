@@ -1,6 +1,6 @@
 ---
 name: compression-and-cutter-downsize
-description: 'Squeeze long text horizontally; swap to a finer cutter when squeezed. Use when: text overflows the label width; choosing the max_h_compress budget; one text size engraves at two cutters. Keywords: max_h_compress, compression, cutter_downsize, h_compress_global, squeeze, arc_preserve_compression.'
+description: 'Squeeze long text horizontally; swap to a finer cutter when squeezed. Use when: text overflows the label width; choosing the `max_h_compress` budget; one text size engraves at two cutters. Keywords: max_h_compress, compression, cutter_downsize, h_compress_global, squeeze, arc_preserve_compression.'
 version: 1.0.0
 metadata:
   hermes:
@@ -13,7 +13,7 @@ metadata:
 ## When to use
 
 - text overflows the label width
-- choosing the max_h_compress budget
+- choosing the `max_h_compress` budget
 - one text size engraves at two cutters
 
 ## Fields
@@ -21,7 +21,7 @@ metadata:
 | Field | Type | Default | Constraints | Tiers | Description |
 |---|---|---|---|---|---|
 | `max_h_compress` | float \| null | null (unset) | >=0 <=1 | job / label / content entry / line / list block | Maximum horizontal compression fraction in `[0.0, 1.0]`. |
-| `cutter_downsize` | bool \| null | null (unset) | — | job / label / content entry / line / list block | Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit cutter_size. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored. |
+| `cutter_downsize` | bool \| null | null (unset) | — | job / label / content entry / line / list block | Allow the automatically selected cutter to be reduced when the text line is horizontally compressed: a line squeezed past the midpoint toward the next smaller inventory tool swaps to it and re-renders at `text_height - smaller_cutter`. One-way (a downsized cutter is never enlarged again within the same line) and fully overridden by an explicit `cutter_size`. Requires a tools.json `available_cutters` inventory. Cascades line -> label -> job (fallback true); explicit false is honored. |
 | `max_cutter_downsizes` | int \| null | null (unset) | >=0 | job / label / content entry / line / list block | Maximum number of successive cutter downsizings applied to one text line (0 disables the mechanism, 1 = at most one size down). Each step re-measures the line, since a smaller cutter renders wider. Cascades line -> label -> job (fallback 1); explicit 0 is honored. |
 | `cutter_downsize_global` | bool \| null | null (unset) | — | job / label / content entry / line / list block | Share a compression-driven cutter downsize across the text lines of one label: when a line's compression triggers a swap to a smaller inventory tool, every other eligible line of the same `text_height` in the same label receives the same swap (then each continues its own one-way step loop). Lines with an explicit `cutter_size`, `cutter_downsize` false, `max_cutter_downsizes` 0, or a zero `max_h_compress` budget are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades line -> label -> job (fallback true); explicit false is honored. |
 | `cutter_downsize_global_job_wide` | bool \| null | null (unset) | — | job / label / content entry / line / list block | Widen the scope of the shared cutter downsize from the label to the whole job: when a line's compression triggers a swap, every eligible line of the same `text_height` in ANY label of the job receives the same swap (the job converges on one tool per text size). Requires `cutter_downsize_global` true; a line with this flag false keeps exactly the per-label behavior (it neither shares to nor receives from the job-wide group). The same eligibility opt-outs apply. Cascades line -> label -> job (fallback false); explicit true is honored. |

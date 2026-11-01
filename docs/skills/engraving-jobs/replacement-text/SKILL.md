@@ -1,6 +1,6 @@
 ---
 name: replacement-text
-description: 'Batch-generate one label per line of a text file. Use when: generating many labels from a data list; writing replacement_text_file specs; choosing job-, plate-, or label-level files. Keywords: replacement text, batch, data file, delimiter, comment, template, plate pinning.'
+description: 'Batch-generate one label per line of a text file. Use when: generating many labels from a data list; writing `replacement_text_file` specs; choosing job-, plate-, or label-level files. Keywords: replacement text, batch, data file, delimiter, comment, template, plate pinning.'
 version: 1.0.0
 metadata:
   hermes:
@@ -13,7 +13,7 @@ metadata:
 ## When to use
 
 - generating many labels from a data list
-- writing replacement_text_file specs
+- writing `replacement_text_file` specs
 - choosing job-, plate-, or label-level files
 
 ## Fields
