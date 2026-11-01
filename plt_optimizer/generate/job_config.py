@@ -312,7 +312,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default label margin in inches (job layer). A spec-declared "
             "margin (job level, or on any label) suppresses the configured "
-            "h_margin/v_margin injection."
+            "`h_margin`/`v_margin` injection."
         ),
     )
     h_margin: Optional[float] = Field(
@@ -364,7 +364,7 @@ class JobDefaults(BaseModel):
             "The effective width drives the geometry (kerning clearance, "
             "collision stroke floor, compression margin) and the PDF proof "
             "stroke widths, and the toolpath height compensates so engraved "
-            "text stays text_height tall; the tool, the pen map and the PLT "
+            "text stays `text_height` tall; the tool, the pen map and the PLT "
             "file names stay physical. Cascades line -> label -> job; unset "
             "falls back to 0.0 (engraved = nominal)."
         ),
@@ -375,7 +375,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default kerf buffer in inches added to the boundary/drill-hole "
             "cutter diameter to get the width it actually engraves (the "
-            "structural sibling of cutter_buffer_text). The effective width "
+            "structural sibling of `cutter_buffer_text`). The effective width "
             "drives the cutter-compensated hole radius, the hole margin edge "
             "offset, the collision stroke floor, the round-label packing kerf "
             "and the PDF proof stroke widths; the *_bh_* file name keeps the "
@@ -400,8 +400,8 @@ class JobDefaults(BaseModel):
         ge=0.0,
         description=(
             "Default space advance fraction for PLT-extracted fonts (job "
-            "layer): a space advances fraction * text_height + "
-            "character_spacing. Unset falls back to 0.3."
+            "layer): a space advances $fraction * text_height + "
+            "character_spacing$. Unset falls back to 0.3."
         ),
     )
     min_glyph_width_fraction: Optional[float] = Field(
@@ -442,7 +442,7 @@ class JobDefaults(BaseModel):
             "Default kerning recession multiplier for PLT-extracted fonts "
             "(job layer); scales a negative (recessed) detected "
             "penetration. Unset falls back to 1.0; 0.0 makes a recessed "
-            "pair advance by nothing beyond the min_glyph_width_fraction "
+            "pair advance by nothing beyond the `min_glyph_width_fraction` "
             "floor."
         ),
     )
@@ -470,7 +470,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default manual-kern positive marker string (job layer): every "
             "occurrence in a text line is stripped and replaced by a "
-            "forward cursor shift of kern_width_fraction of the cap height. "
+            "forward cursor shift of `kern_width_fraction` of the cap height. "
             "Validated like the cascading field (non-empty, no newline, not "
             "markup-shaped). Unset (null) disables the positive marker."
         ),
@@ -480,7 +480,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default manual-kern negative marker string (job layer): every "
             "occurrence in a text line is stripped and replaced by a "
-            "backward cursor shift of kern_width_fraction of the cap height. "
+            "backward cursor shift of `kern_width_fraction` of the cap height. "
             "Validated like the cascading field (non-empty, no newline, not "
             "markup-shaped). Unset (null) disables the negative marker."
         ),
@@ -491,7 +491,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default manual-kern width as a fraction of the rendered cap "
             "height (job layer): one marker shifts the cursor by "
-            "fraction * cap height (positive string forward, negative "
+            "$fraction * cap height$ (positive string forward, negative "
             "backward). Unset falls back to 0.1."
         ),
     )
@@ -511,12 +511,12 @@ class JobDefaults(BaseModel):
         ge=0.2,
         le=1.0,
         description=(
-            "Default downscale applied to a bare <sup>/<sub> markup run "
+            "Default downscale applied to a bare `<sup>`/`<sub>` markup run "
             "(job layer; the run's glyphs engrave uniformly shrunk to this "
             "fraction and the baseline shift derives from it, centering the "
-            "shrunken glyph on its line -- superscript rises 1 - d/2 cap "
-            "heights, subscript drops d/2). The argumented "
-            "forms <sup:0.3>/<sub:-0.2> set the shift explicitly and apply "
+            "shrunken glyph on its line -- superscript rises $1 - d/2$ cap "
+            "heights, subscript drops $d/2$). The argumented "
+            "forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly and apply "
             "no scaling. Unset falls back to 0.5."
         ),
     )
@@ -525,8 +525,8 @@ class JobDefaults(BaseModel):
         description=(
             "Default inline-markup delimiter pair (job layer): an "
             "even-length string whose first half is the left delimiter and "
-            "second half the right ('<>' -> '<' + '>'). Unset falls back "
-            "to '<>'."
+            "second half the right (`<>` -> `'<' + '>'`). Unset falls back "
+            "to `<>`."
         ),
     )
     italic_angle: Optional[float] = Field(
@@ -534,7 +534,7 @@ class JobDefaults(BaseModel):
         ge=0.0,
         le=45.0,
         description=(
-            "Default italic slant angle in degrees for <i> markup (job "
+            "Default italic slant angle in degrees for `<i>` markup (job "
             "layer; PLT glyphs and TTF glyphs without a native italic face "
             "are sheared about the baseline). Bound to [0, 45]; 0 means "
             "upright. Unset falls back to 12."
@@ -544,10 +544,10 @@ class JobDefaults(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Default underline (<u>) extra air as a fraction of the "
+            "Default underline (`<u>`) extra air as a fraction of the "
             "rendered cap height (capline - baseline; job layer): the "
-            "underline centerline sits cutter diameter + fraction * cap "
-            "height below "
+            "underline centerline sits $cutter diameter + fraction * cap "
+            "height$ below "
             "the baseline (the engraved underline's top edge floats exactly "
             "that air below the engraved baseline stroke). The break test "
             "is strictly horizontal, so a glyph breaks the underline where its "
@@ -561,10 +561,10 @@ class JobDefaults(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Default underline (<u>) break clearance as a fraction of the "
+            "Default underline (`<u>`) break clearance as a fraction of the "
             "rendered cap height (capline - baseline; job layer): "
-            "each cut is padded horizontally by 0.5 * cutter + fraction * "
-            "cap height (the half cutter is the glyph stroke's own "
+            "each cut is padded horizontally by $0.5 * cutter + fraction * "
+            "cap height$ (the half cutter is the glyph stroke's own "
             "half-width), so the engraved air between a descending glyph's "
             "stroke and the underline's cut edge is exactly this value. 0.0 "
             "= the cut sits at the ink. Unset falls back to 0.0."
@@ -573,7 +573,7 @@ class JobDefaults(BaseModel):
     underline_break_spaces: Optional[bool] = Field(
         default=None,
         description=(
-            "Default underline (<u>) break-at-spaces flag (job layer): false "
+            "Default underline (`<u>`) break-at-spaces flag (job layer): false "
             "(default) draws one continuous underline across the whole "
             "underlined run (spaces included, broken only by descending "
             "glyphs); true ends the underline at each space so every word "
@@ -585,10 +585,10 @@ class JobDefaults(BaseModel):
         default=None,
         ge=0.0,
         description=(
-            "Default strikethrough (<s>) height as a fraction of the "
+            "Default strikethrough (`<s>`) height as a fraction of the "
             "rendered cap height (capline - baseline; job layer): the "
             "stroke (cut with the line's own text cutter) "
-            "sits fraction * cap height above the baseline, so 0.0 puts it "
+            "sits $fraction * cap height$ above the baseline, so 0.0 puts it "
             "on the baseline and 1.0 on the capline. Unlike the underline "
             "the stroke is never broken -- a "
             "descender punches through it. Unset (null) centres the stroke on "
@@ -598,7 +598,7 @@ class JobDefaults(BaseModel):
     strikethrough_break_spaces: Optional[bool] = Field(
         default=None,
         description=(
-            "Default strikethrough (<s>) break-at-spaces flag (job layer): "
+            "Default strikethrough (`<s>`) break-at-spaces flag (job layer): "
             "false (default) draws one continuous stroke across the whole "
             "struck run (spaces included); true ends the stroke at each "
             "space so every word gets its own strike and the inter-word "
@@ -613,9 +613,9 @@ class JobDefaults(BaseModel):
             "its own ink is centred between the baseline and the capline "
             "(the cap-band midline) -- the characters a font typically draws "
             "too high (hyphen, colon, en/em dash, '=', '<', '>'). The inline "
-            "<vc>...</vc> tag applies the same centering to any characters it "
-            "wraps. Empty string '' disables the auto-apply. Unset falls back "
-            "to '' (auto-apply off); the shop config ships '-:–—=<>'."
+            "`<vc>...</vc>` tag applies the same centering to any characters it "
+            "wraps. Empty string `''` disables the auto-apply. Unset falls back "
+            "to `''` (auto-apply off); the shop config ships `'-:–—=<>'`."
         ),
     )
     target_boldness_factor: Optional[float] = Field(
@@ -627,7 +627,7 @@ class JobDefaults(BaseModel):
             "of text height (job layer; sizes the automatic cutter of "
             "multi-stroke/bold PLT fonts so the engraved passes total this "
             "width; inert on single-stroke fonts, TTF fonts, and lines with "
-            "an explicit cutter_size). Unset falls back to 0.14."
+            "an explicit `cutter_size`). Unset falls back to 0.14."
         ),
     )
     multistroke_overlap_ratio: Optional[float] = Field(
@@ -637,7 +637,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default multi-stroke minimum pass overlap ratio (job layer; the "
             "automatic cutter of a multi-stroke/bold PLT font is never "
-            "smaller than pass_spacing / (1 - ratio), so adjacent engraved "
+            "smaller than $pass_spacing / (1 - ratio)$, so adjacent engraved "
             "passes always overlap and no unengraved stripe appears). Unset "
             "falls back to 0.25."
         ),
@@ -647,10 +647,10 @@ class JobDefaults(BaseModel):
         ge=1.0,
         le=4.0,
         description=(
-            "Default bold markup (<b>) boldness multiplier (job layer): the "
+            "Default bold markup (`<b>`) boldness multiplier (job layer): the "
             "bold runs of a multi-stroke (bold) PLT font re-run the cutter "
-            "ladder at target_boldness_factor * this multiplier (clamped to "
-            "0.30). Inert on single-stroke PLT and TTF fonts, where <b> "
+            "ladder at `target_boldness_factor` * this multiplier (clamped to "
+            "0.30). Inert on single-stroke PLT and TTF fonts, where `<b>` "
             "steps to the next larger inventory cutter. Unset falls back "
             "to 1.5."
         ),
@@ -690,7 +690,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default per-label sharing of compression-driven cutter downsizes "
             "(job layer; a trigger line's swap applies to every eligible line "
-            "of the same text_height in the same label)."
+            "of the same `text_height` in the same label)."
         ),
     )
     cutter_downsize_global_job_wide: Optional[bool] = Field(
@@ -698,7 +698,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default job-wide scope of the shared compression-driven cutter "
             "downsizes (job layer; true widens a trigger line's sharing group "
-            "from its label to every eligible line of the same text_height "
+            "from its label to every eligible line of the same `text_height` "
             "across the whole job, so one text size engraves with one tool)."
         ),
     )
@@ -707,7 +707,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default per-label sharing of horizontal compression (job layer; "
             "a trigger line's compression scale applies to every eligible line "
-            "of the same text_height in the same label)."
+            "of the same `text_height` in the same label)."
         ),
     )
     h_compress_global_same_height_only: Optional[bool] = Field(
@@ -715,7 +715,7 @@ class JobDefaults(BaseModel):
         description=(
             "Default grouping scope of the shared horizontal compression (job "
             "layer; true shares the compression only between the lines of the "
-            "same text_height, false shares it across every eligible line of "
+            "same `text_height`, false shares it across every eligible line of "
             "the label). Unset falls back to True."
         ),
     )
@@ -758,7 +758,7 @@ class JobDefaults(BaseModel):
             "border; true centers by rendered ink (historical), which charges "
             "the deepest descender to the block and makes lines with descenders "
             "ride high. Band centering is active only when "
-            "auto_descending_character_adjustment is enabled. Unset falls back "
+            "`auto_descending_character_adjustment` is enabled. Unset falls back "
             "to false."
         ),
     )
@@ -769,7 +769,7 @@ class JobDefaults(BaseModel):
             "layer; cascades label -> job, never text lines). True vertically "
             "downscales and raises a descending glyph only when a glyph on the "
             "following line comes within the required clearance (the "
-            "engraved-stroke floor scaled by descending_character_clearance) "
+            "engraved-stroke floor scaled by `descending_character_clearance`) "
             "of it; false leaves descenders exactly as rendered. Unset falls "
             "back to true."
         ),
@@ -804,7 +804,7 @@ class JobDefaults(BaseModel):
             "Default extra engraved-stroke air gap demanded between a "
             "descending glyph and the glyph below it, as a unitless factor of "
             "the stroke floor at which the two strokes touch (required gap = "
-            "floor * (1 + clearance); job layer). An explicit 0.0 is honored "
+            "$floor * (1 + clearance)$; job layer). An explicit 0.0 is honored "
             "(only true touching triggers). Unset falls back to 0.0."
         ),
     )
@@ -921,7 +921,7 @@ class JobDefaults(BaseModel):
             "increase (job layer; cascades label -> job, never text lines). "
             "When true, a left/right-aligned line that slides off its anchored "
             "margin to clear a drill hole makes every other line of the label "
-            "sharing that exact text_h_alignment match the increased margin, "
+            "sharing that exact `text_h_alignment` match the increased margin, "
             "so the group's anchored edges stay flush. Unset falls back to "
             "false (only the colliding line moves)."
         ),
@@ -939,7 +939,7 @@ class JobDefaults(BaseModel):
             "job -> plate -> label): the single special or whitespace "
             "character separating text items within a replacement text file "
             "line. Unset falls back to the code default ';'. Injected only "
-            "when the job spec declares a replacement_text_file at the job, "
+            "when the job spec declares a `replacement_text_file` at the job, "
             "plate, or label level."
         ),
     )
@@ -953,7 +953,7 @@ class JobDefaults(BaseModel):
             "back to the code default '# '; '' disables comment handling "
             "(every non-blank line is raw data; blank lines are still "
             "dropped). Injected only when the job spec declares a "
-            "replacement_text_file at the job, plate, or label level."
+            "`replacement_text_file` at the job, plate, or label level."
         ),
     )
     replacement_text_file_allow_blank_lines: Optional[bool] = Field(
@@ -965,7 +965,7 @@ class JobDefaults(BaseModel):
             "labels with no drill holes (even if the label template specifies "
             "holes). When false, blank lines are dropped with a warning. "
             "Unset falls back to true. Injected only when the job spec "
-            "declares a replacement_text_file at the job, plate, or label level."
+            "declares a `replacement_text_file` at the job, plate, or label level."
         ),
     )
     type: Optional[LabelShape] = Field(
@@ -991,7 +991,7 @@ class JobDefaults(BaseModel):
         default=None,
         description=(
             "Default proportional corner rounding (job layer). True applies "
-            "rounded_rectangle_fraction proportionately to width and height; "
+            "`rounded_rectangle_fraction` proportionately to width and height; "
             "false (the default) uses one identical rounding distance on "
             "every side (the shorter edge determines it). Unset falls back "
             "to false."
@@ -1008,7 +1008,7 @@ class JobDefaults(BaseModel):
     plate_height: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Default usable plate height in inches (same layer rules as plate_width).",
+        description="Default usable plate height in inches (same layer rules as `plate_width`).",
     )
     left_clearance: Optional[float] = Field(
         default=None,
@@ -1020,7 +1020,7 @@ class JobDefaults(BaseModel):
     top_clearance: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Default plate top-edge clearance in inches (same cascade as left_clearance).",
+        description="Default plate top-edge clearance in inches (same cascade as `left_clearance`).",
     )
     auto_line_spacing_interline_to_top_bottom_ratio: Optional[float] = Field(
         default=None,

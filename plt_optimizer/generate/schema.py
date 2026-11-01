@@ -552,13 +552,13 @@ class TextAttributes(BaseModel):
     font: Optional[str] = Field(
         default=None,
         description=(
-            "Font name: a PLT-extracted font key (the font_name fields of "
+            "Font name: a PLT-extracted font key (the `font_name` fields of "
             "`fonts/VP-EL-fonts/catalog/*.json`, rendered arc-native with arcs "
             "preserved) or a TrueType basename "
             "(`*.ttf` under fonts/, extension stripped); case-insensitive, "
             "canonicalized at validation. Appending ' SC' to any name "
             "selects its synthetic small-caps variant (uppercase glyphs "
-            "verbatim, ASCII lowercase a-z downscaled by sc_scale). "
+            "verbatim, ASCII lowercase a-z downscaled by `sc_scale`). "
             "Cascades line -> label -> job "
             f"(fallback {DEFAULT_FONT_NAME}). Unknown names are rejected; run "
             "docs/schema/generate_schema_docs.py --show-fonts for the full "
@@ -702,9 +702,9 @@ class TextAttributes(BaseModel):
             "cursor shift of `kern_width_fraction * cap height` (capline - "
             "baseline) applied to the following character. Multi-character "
             "strings are legal (e.g. `<->`); the value must be non-empty, "
-            "contain no newline, and differ from kern_neg_string. A marker "
+            "contain no newline, and differ from `kern_neg_string`. A marker "
             "that parses as inline markup under the line's effective "
-            "html_brackets (e.g. `<s>` with the default brackets - the "
+            "`html_brackets` (e.g. `<s>` with the default brackets - the "
             "strikethrough tag consumes it before the kern strip) is "
             "rejected at resolution; `<->` is a legal marker. Unset (`None`) "
             "disables the positive marker. Cascades line -> label -> job "
@@ -766,8 +766,8 @@ class TextAttributes(BaseModel):
             "glyphs engrave uniformly shrunk to this fraction of the line's "
             "size, and the baseline shift derives from it, centering the "
             "shrunken glyph on the line it belongs to (superscript rises "
-            "1 - d/2 cap heights, its centre landing on the capline; "
-            "subscript drops d/2 cap heights, its centre landing on the "
+            "$1 - d/2$ cap heights, its centre landing on the capline; "
+            "subscript drops $d/2$ cap heights, its centre landing on the "
             "baseline). The "
             "argumented forms `<sup:0.3>`/`<sub:-0.2>` set the shift explicitly "
             "(cap-height units) and apply no scaling, so this field is "
@@ -810,8 +810,8 @@ class TextAttributes(BaseModel):
         description=(
             "Extra air for underline markup (`<u>`) as a fraction of the "
             "rendered cap height (capline - baseline): the underline "
-            "centerline (cut with the line's own text cutter) sits cutter "
-            "diameter + fraction * cap height below the baseline, so the "
+            "centerline (cut with the line's own text cutter) sits $cutter "
+            "diameter + fraction * cap height$ below the baseline, so the "
             "engraved underline's top edge floats exactly that air below the "
             "engraved baseline stroke. The break test is strictly horizontal: "
             "a glyph breaks the underline where its ink crosses the underline's "
@@ -834,7 +834,7 @@ class TextAttributes(BaseModel):
             "engraved air between a descending glyph's stroke and the "
             "underline's cut edge is exactly this value. 0.0 = the cut sits "
             "at the ink. Independent of "
-            "underline_offset_fraction (which decides which glyphs break). Must be >= 0. "
+            "`underline_offset_fraction` (which decides which glyphs break). Must be >= 0. "
             "Cascades line -> label -> job (fallback 0.0); explicit 0.0 "
             "is honored."
         ),
@@ -965,7 +965,7 @@ class TextAttributes(BaseModel):
             "parallel cutter passes (the `stroke_count` stored in the font's "
             "catalog file). The automatic cutter is sized so the `N` passes "
             "plus their overlaps engrave this total width, with "
-            "multistroke_overlap_ratio guarding against unengraved stripes; "
+            "`multistroke_overlap_ratio` guarding against unengraved stripes; "
             "the resulting cutter is snapped to the shop inventory. The "
             "implicit pass overlap is derived and logged. Inert on "
             "single-stroke fonts, TTF fonts, and lines with an explicit "
@@ -986,7 +986,7 @@ class TextAttributes(BaseModel):
             "0.25 means the stepover stays within 75% of the cutter width). "
             "The actual overlap is derived from the chosen cutter and "
             "logged. Inert on single-stroke fonts, TTF fonts, and lines "
-            "with an explicit cutter_size. Bound to [0.1, 0.5]. Cascades "
+            "with an explicit `cutter_size`. Bound to [0.1, 0.5]. Cascades "
             "line -> label -> job (fallback 0.25); accepted on plates for "
             "schema parity only."
         ),
@@ -1015,7 +1015,7 @@ class TextAttributes(BaseModel):
             "midpoint toward the next smaller inventory tool swaps to it and "
             "re-renders at `text_height - smaller_cutter`. One-way (a downsized "
             "cutter is never enlarged again within the same line) and fully "
-            "overridden by an explicit cutter_size. Requires a tools.json "
+            "overridden by an explicit `cutter_size`. Requires a tools.json "
             "`available_cutters` inventory. Cascades line -> label -> job "
             "(fallback true); explicit false is honored."
         ),
@@ -1428,7 +1428,7 @@ class LabelAttributes(TextAttributes):
         default=None,
         ge=0.0,
         description=(
-            "Universal margin in inches (fallback for h_margin and v_margin); "
+            "Universal margin in inches (fallback for `h_margin` and `v_margin`); "
             "cascades label -> job (fallback 0.125)."
         ),
     )
@@ -1514,7 +1514,7 @@ class LabelAttributes(TextAttributes):
         default=None,
         ge=0.0,
         description=(
-            "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = floor * (1 + clearance)), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0."
+            "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = $floor * (1 + clearance)$), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0."
             + PLATE_PARITY_TAIL
         ),
     )
@@ -1679,7 +1679,7 @@ class ContentEntry(TextLine):
         default=None,
         description=(
             "Bullet-list block: every item engraves with the resolved "
-            "bullet_string marker in one shared marker column. Mutually "
+            "`bullet_string` marker in one shared marker column. Mutually "
             "exclusive with text and enumerate."
         ),
     )
@@ -2648,7 +2648,7 @@ class JobSpec(LabelAttributes):
         description=(
             "Plate (material sheet) definitions. Omit for unbounded mode: "
             "auto-allocated `default_plate_{i}` sheets (24x16 unless job-config "
-            "plate_width/plate_height override)."
+            "`plate_width`/`plate_height` override)."
         ),
     )
 
