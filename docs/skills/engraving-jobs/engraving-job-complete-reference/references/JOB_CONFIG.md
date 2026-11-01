@@ -66,7 +66,7 @@ the docs byte-pin; everything above is derived purely from the model.
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `text_height` | float \| null | null (unset) | — | Default font height in inches (job layer). |
-| `font` | str \| null | null (unset) | — | Default font name (job layer): a PLT-extracted font key or a fonts/ TTF basename, case-insensitive. Canonicalized and validated at config load (an unknown name fails here, not in the job spec); unset falls back to the schema default font. |
+| `font` | str \| null | null (unset) | — | Default font name (job layer): a PLT-extracted font key or a fonts/ TTF basename, case-insensitive. Canonicalized and validated at config load (an unknown name fails here, not in the job spec); unset falls back to the schema default font (ReliefSingleLineCAD-Regular). |
 | `sc_scale` | float \| null | null (unset) | >=0.2 <=1 | Default small-caps downscale applied to ASCII lowercase a-z by a ' SC' font variant (job layer; the lowercase character renders as the base font's uppercase glyph uniformly shrunk to this fraction of the cap height). Unset falls back to 0.7. |
 | `enforce_cap_line` | bool \| null | null (unset) | — | Default alphanumeric cap-line clamping (job layer). When true, every ASCII alphanumeric [0-9a-zA-Z] glyph whose ink extends above the per-font cap height is downscaled top-down so its top lands exactly on the capline (strictly pre-markup). Unset falls back to true. |
 
@@ -74,10 +74,10 @@ the docs byte-pin; everything above is derived purely from the model.
 
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
-| `character_spacing` | float \| null | null (unset) | — | Default extra spacing between characters in inches (job layer). |
+| `character_spacing` | float \| null | null (unset) | — | Default extra spacing between characters in inches (job layer). Unset falls back to the per-cutter derived default. |
 | `space_width_fraction` | float \| null | null (unset) | >=0 | Default space advance fraction for PLT-extracted fonts (job layer): a space advances fraction * text_height + character_spacing. Unset falls back to 0.3. |
 | `min_glyph_width_fraction` | float \| null | null (unset) | >=0 | Default global minimum glyph advance width as a fraction of the rendered cap height (capline - baseline) for PLT-extracted fonts (job layer); clamps the profile-envelope kerning for zero-width glyphs. Unset falls back to 0.0. |
-| `kerning_window_fraction` | float \| null | null (unset) | >=0 <=1 | Default kerning window for PLT-extracted fonts (job layer) as a fraction of the rendered text height in [0.0, 1.0]; widens the envelope comparison so staggered pokes widen the advance. Unset falls back to 0.05. |
+| `kerning_window_fraction` | float \| null | null (unset) | >=0 <=1 | Default kerning window for PLT-extracted fonts (job layer) as a fraction of the rendered text height in [0.0, 1.0]; widens the envelope comparison so staggered pokes widen the advance. Unset falls back to 0.05; 0.0 reproduces the historical same-height maximum-penetration kerning. |
 | `kerning_penetration_scale` | float \| null | null (unset) | >=0 | Default kerning penetration multiplier for PLT-extracted fonts (job layer); over-kerns tight pairs proportionally. Unset falls back to 1.0. |
 | `kerning_recession_scale` | float \| null | null (unset) | >=0 | Default kerning recession multiplier for PLT-extracted fonts (job layer); scales a negative (recessed) detected penetration. Unset falls back to 1.0; 0.0 makes a recessed pair advance by nothing beyond the min_glyph_width_fraction floor. |
 | `kerning_min_gap_fraction` | float \| null | null (unset) | >=0 | Default extra kerning air added to every kerned pair advance for PLT-extracted fonts (job layer), as a fraction of the rendered cap height (capline - baseline). Unset falls back to 0.0. |

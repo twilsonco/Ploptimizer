@@ -64,7 +64,10 @@ from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from plt_optimizer.generate.font_registry import normalize_font_name
+from plt_optimizer.generate.font_registry import (
+    DEFAULT_FONT_NAME,
+    normalize_font_name,
+)
 from plt_optimizer.generate.preview_colors import normalize_preview_background_color
 from plt_optimizer.generate.schema import (
     CounterStyle,
@@ -289,11 +292,16 @@ class JobDefaults(BaseModel):
             "Default font name (job layer): a PLT-extracted font key or a "
             "fonts/ TTF basename, case-insensitive. Canonicalized and "
             "validated at config load (an unknown name fails here, not in "
-            "the job spec); unset falls back to the schema default font."
+            f"the job spec); unset falls back to the schema default font "
+            f"({DEFAULT_FONT_NAME})."
         ),
     )
     character_spacing: Optional[float] = Field(
-        default=None, description="Default extra spacing between characters in inches (job layer)."
+        default=None,
+        description=(
+            "Default extra spacing between characters in inches (job layer). "
+            "Unset falls back to the per-cutter derived default."
+        ),
     )
     line_spacing: Optional[float] = Field(
         default=None, description="Default extra spacing between text lines in inches (job layer)."
@@ -414,7 +422,8 @@ class JobDefaults(BaseModel):
             "Default kerning window for PLT-extracted fonts (job layer) as "
             "a fraction of the rendered text height in [0.0, 1.0]; widens "
             "the envelope comparison so staggered pokes widen the "
-            "advance. Unset falls back to 0.05."
+            "advance. Unset falls back to 0.05; 0.0 reproduces the "
+            "historical same-height maximum-penetration kerning."
         ),
     )
     kerning_penetration_scale: Optional[float] = Field(
