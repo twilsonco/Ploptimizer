@@ -55,7 +55,7 @@ themselves (importable -> checkout-root walk -> exit 2 with install hints) and
 default `--job-config`/`--tools` to the CWD, exactly like `generate`, so the
 mirrored copies run from an installed skill directory.
 
-**Attributes in schema model docstrings not typically necessary:** Because schema.py is Pydantic models (classes), and each attribute already has a `description` field, it is redundant to repeat the same information in the docstring. The docstring should focus on the overall purpose and usage of the model rather than individual attribute details.
+**Attributes in Pydantic model docstrings not necessary:** Because the schema models (`schema.py`, `job_config.py`) are Pydantic classes, and each attribute already has a `description` field, it is redundant to repeat the same information in the docstring. The docstring should focus on the overall purpose and usage of the model rather than individual attribute details. (Exception: `str`-Enum classes — the doc generators parse the enum docstring's `Attributes:` block into the value/description tables, so those blocks are load-bearing documentation, not duplication. Plain dataclasses keep theirs too: the block is their only field doc.)
 
 ### Adding New Fields to the Schema
 
@@ -63,6 +63,13 @@ When adding a new cascading field to `JobSpec`, `PlateSpec`, or `LabelSpec`:
 
 1. **Add field to the appropriate model(s)** in `plt_optimizer/generate/schema.py`
    - Include full type hints and `description` in the Field definition
+   - Plate parity: the `PlateSpec` re-declaration's boilerplate comes from
+     the `_parity()` helper (and the upper-tier tail from
+     `PLATE_PARITY_TAIL`) — never retype the "(schema parity; not applied at
+     plate level)" clause by hand
+   - Multi-tier replacement-text fields reuse the shared core constants
+     (`_DELIMITER_CORE`, `_COMMENT_HEAD`/`_COMMENT_TAIL`, `_BLANK_LINES_CORE`,
+     `_REPLACEMENT_FILE_LEAD`) with per-tier cascade/requirement tails
    - If cascading, ensure proper cascade logic in validators
    - Add to all required tier models (JobSpec, PlateSpec, LabelSpec) if cascade is needed
 

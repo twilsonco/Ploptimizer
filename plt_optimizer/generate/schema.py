@@ -473,6 +473,67 @@ def _validate_kern_string_value(v: Optional[str], name: str) -> Optional[str]:
     return v
 
 
+# Shared prose for the replacement-text options. Each of these fields does
+# exactly the same thing at every tier it is declared on (job, plate, label);
+# only the cascade chain and the file-requirement tail vary per tier, so the
+# contract sentence is stated once here.
+_REPLACEMENT_FILE_LEAD = "Path to an EngraveLab/Vision Pro-style replacement text file. "
+_DELIMITER_CORE = (
+    "Single-character delimiter separating text items within a replacement file line (default ';')."
+)
+_COMMENT_HEAD = (
+    "Comment marker for replacement file lines: a line whose "
+    "whitespace-stripped text starts with this string is dropped "
+    "(it produces no label copy) and reported in a per-file WARNING. "
+)
+_COMMENT_TAIL = (
+    "; an explicit '' disables comment handling (every non-blank line is raw "
+    "data; blank lines are still dropped). "
+)
+_BLANK_LINES_CORE = (
+    "Allow whitespace-only lines in a replacement text file to produce blank "
+    "labels with no drill holes. When enabled (true), such lines produce "
+    "instances with empty content and no holes (even if the label definition "
+    "specifies holes). When disabled (false), blank lines are dropped with a "
+    "warning. "
+)
+
+#: Sentence tail marking a label/job-tier field as also accepted on plates.
+#: The plate model re-declares the cascading fields for key acceptance only
+#: (see :class:`PlateSpec`), so the upper-tier prose points at that fact and
+#: :func:`_parity` states it from the plate side.
+PLATE_PARITY_TAIL = " Accepted on plates for schema parity only."
+
+
+def _parity(
+    core: str,
+    note: Optional[str] = None,
+    reason: Optional[str] = None,
+) -> str:
+    """Build a plate-tier field description.
+
+    ``PlateSpec`` re-declares every cascading label/job field so a plate
+    mapping accepts the key, but the field is resolved per label before
+    packing and never applied at plate level. The core names the field; the
+    parity clause is shared boilerplate and lives here.
+
+    Args:
+        core: The field's short name phrase (no trailing period).
+        note: Clause inserted before ``not applied at plate level`` (e.g.
+            ``"the border is resolved per label before packing"``).
+        reason: Clause appended after it (e.g. ``"labels render before
+            packing"``).
+
+    Returns:
+        The full description sentence.
+    """
+    if note is not None:
+        return f"{core} (schema parity; {note}; not applied at plate level)."
+    if reason is not None:
+        return f"{core} (schema parity; not applied at plate level -- {reason})."
+    return f"{core} (schema parity; not applied at plate level)."
+
+
 class TextAttributes(BaseModel):
     """Attributes that can cascade down to individual text lines.
 
@@ -1332,10 +1393,8 @@ class LabelAttributes(TextAttributes):
     type: Optional[LabelShape] = Field(
         default=None,
         description=(
-            "Label boundary shape: `rect` (default, historical) or `round` "
-            "(ellipse with semi-axes `width/2` and `height/2`; a circle when "
-            "width == height). Cascades label -> job; unset (null) falls back "
-            "to `rect`. Accepted on plates for schema parity only."
+            "Label boundary shape: `rect` (default, historical) or `round` (ellipse with semi-axes `width/2` and `height/2`; a circle when width == height). Cascades label -> job; unset (null) falls back to `rect`."
+            + PLATE_PARITY_TAIL
         ),
     )
     rounded_rectangle_fraction: Optional[float] = Field(
@@ -1361,13 +1420,8 @@ class LabelAttributes(TextAttributes):
     rounded_rectangle_proportional: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether `rounded_rectangle_fraction` applies proportionately to "
-            "width and height (true: corner semi-axes `fraction*width/2` and "
-            "`fraction*height/2`) or as one identical rounding distance on every "
-            "side (false, the default: the shorter edge determines the "
-            "rounding for all sides). Cascades job -> plate -> label; unset "
-            "(`null`) falls back to `job-config.json` then `false`. Accepted on "
-            "plates for schema parity only."
+            "Whether `rounded_rectangle_fraction` applies proportionately to width and height (true: corner semi-axes `fraction*width/2` and `fraction*height/2`) or as one identical rounding distance on every side (false, the default: the shorter edge determines the rounding for all sides). Cascades job -> plate -> label; unset (`null`) falls back to `job-config.json` then `false`."
+            + PLATE_PARITY_TAIL
         ),
     )
     margin: Optional[float] = Field(
@@ -1420,40 +1474,22 @@ class LabelAttributes(TextAttributes):
     use_baseline_spacing: Optional[bool] = Field(
         default=None,
         description=(
-            "Stack a label's text lines by baseline-to-baseline pitch "
-            "(`text_height` + `line_spacing`) so descenders hang into the gap and "
-            "every gap reads as one uniform visual spacing; false stacks by "
-            "rendered ink box (historical). Cascades job -> plate -> label "
-            "(never text lines); unset (`null`) falls back to `job-config.json` "
-            "then true. Accepted on plates for schema parity only."
+            "Stack a label's text lines by baseline-to-baseline pitch (`text_height` + `line_spacing`) so descenders hang into the gap and every gap reads as one uniform visual spacing; false stacks by rendered ink box (historical). Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then true."
+            + PLATE_PARITY_TAIL
         ),
     )
     v_center_by_content: Optional[bool] = Field(
         default=None,
         description=(
-            "Center a label's text block by its rendered ink (`true`, historical "
-            "-- the deepest descender is charged to the block, so lines with "
-            "descenders ride high) or by its baseline-to-capline band (false, "
-            "the default -- the visible text is optically centered and "
-            "descenders hang into the bottom margin for the descending-"
-            "character relief to handle). Band centering is active only when "
-            "`auto_descending_character_adjustment` is enabled; with the relief "
-            "off, ink centering is kept and this field is inert. Cascades job "
-            "-> plate -> label (never text lines); unset (`null`) falls back to "
-            "`job-config.json` then `false`. Accepted on plates for schema parity "
-            "only."
+            "Center a label's text block by its rendered ink (`true`, historical -- the deepest descender is charged to the block, so lines with descenders ride high) or by its baseline-to-capline band (false, the default -- the visible text is optically centered and descenders hang into the bottom margin for the descending-character relief to handle). Band centering is active only when `auto_descending_character_adjustment` is enabled; with the relief off, ink centering is kept and this field is inert. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`."
+            + PLATE_PARITY_TAIL
         ),
     )
     auto_descending_character_adjustment: Optional[bool] = Field(
         default=None,
         description=(
-            "Automatically downscale and raise a descending glyph that comes "
-            "(close to) colliding with a glyph on the following line. "
-            "Per-descending-character, triggered by a measured near-miss "
-            "against the line below -- never a blanket adjustment. Cascades "
-            "job -> plate -> label (never text lines); unset (`null`) falls back "
-            "to `job-config.json` then `true`. Accepted on plates for schema "
-            "parity only."
+            "Automatically downscale and raise a descending glyph that comes (close to) colliding with a glyph on the following line. Per-descending-character, triggered by a measured near-miss against the line below -- never a blanket adjustment. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`."
+            + PLATE_PARITY_TAIL
         ),
     )
     descending_character_v_scale: Optional[float] = Field(
@@ -1461,12 +1497,8 @@ class LabelAttributes(TextAttributes):
         ge=0.2,
         le=1.0,
         description=(
-            "Maximum vertical downscale allowed for a triggering descending "
-            "glyph in [0.2, 1.0] (1.0 = no downscaling, 0.5 = 50% "
-            "downscaling), about the glyph's own baseline. Cascades job -> "
-            "plate -> label (never text lines); unset (`null`) falls back to "
-            "`job-config.json` then 0.5. Accepted on plates for schema parity "
-            "only."
+            "Maximum vertical downscale allowed for a triggering descending glyph in [0.2, 1.0] (1.0 = no downscaling, 0.5 = 50% downscaling), about the glyph's own baseline. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 0.5."
+            + PLATE_PARITY_TAIL
         ),
     )
     descending_character_raise: Optional[float] = Field(
@@ -1474,26 +1506,16 @@ class LabelAttributes(TextAttributes):
         ge=0.0,
         le=1.0,
         description=(
-            "Maximum vertical raise allowed for a triggering descending glyph "
-            "as a fraction of its own descender depth in [0.0, 1.0] (0.0 = no "
-            "raising, 1.0 = lift until the glyph's lowest point sits exactly "
-            "at the baseline). Cascades job -> plate -> label (never text "
-            "lines); unset (`null`) falls back to `job-config.json` then 0.7. "
-            "Accepted on plates for schema parity only."
+            "Maximum vertical raise allowed for a triggering descending glyph as a fraction of its own descender depth in [0.0, 1.0] (0.0 = no raising, 1.0 = lift until the glyph's lowest point sits exactly at the baseline). Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 0.7."
+            + PLATE_PARITY_TAIL
         ),
     )
     descending_character_clearance: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra air demanded between the engraved stroke of a descending "
-            "glyph and the engraved stroke of a glyph on the following line, "
-            "as a unitless factor of the stroke floor (required gap = floor * "
-            "(1 + clearance)), so it scales with the cutter width and reads "
-            "the same at every text size. Cascades job -> plate -> label (never "
-            "text lines); explicit 0.0 is honored (only true touching triggers); "
-            "unset (`null`) falls back to `job-config.json` then 0.0. Accepted on "
-            "plates for schema parity only."
+            "Extra air demanded between the engraved stroke of a descending glyph and the engraved stroke of a glyph on the following line, as a unitless factor of the stroke floor (required gap = floor * (1 + clearance)), so it scales with the cutter width and reads the same at every text size. Cascades job -> plate -> label (never text lines); explicit 0.0 is honored (only true touching triggers); unset (`null`) falls back to `job-config.json` then 0.0."
+            + PLATE_PARITY_TAIL
         ),
     )
     descending_character_reciprocal_scale: Optional[float] = Field(
@@ -1501,65 +1523,29 @@ class LabelAttributes(TextAttributes):
         ge=0.2,
         le=1.0,
         description=(
-            "Maximum vertical downscale allowed for the would-be-colliding "
-            "glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal "
-            "downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled "
-            "top-down about their own lowest ink point, so their lowest point "
-            "never moves; they share the relief with the descending glyph in "
-            "proportion to the same ramp driving its downscale/raise. Cascades "
-            "job -> plate -> label (never text lines); unset (`null`) falls back "
-            "to `job-config.json` then 0.5. Accepted on plates for schema parity "
-            "only."
+            "Maximum vertical downscale allowed for the would-be-colliding glyphs on the FOLLOWING line in [0.2, 1.0] (1.0 = no reciprocal downscaling, 0.5 = 50% downscaling). The lower glyphs are scaled top-down about their own lowest ink point, so their lowest point never moves; they share the relief with the descending glyph in proportion to the same ramp driving its downscale/raise. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 0.5."
+            + PLATE_PARITY_TAIL
         ),
     )
     adjust_h_center_for_single_side_hole: Optional[bool] = Field(
         default=None,
         description=(
-            "Permission to apply horizontal shift for asymmetric `left`/`right` "
-            "drill holes. When enabled (true), text is horizontally shifted to "
-            "center between `left` and `right` holes: shift = (left_diameter - "
-            "right_diameter) / 2. Only applied to center-aligned text; `left`/`right` "
-            "alignment ignores the shift. Vertical shifts (for `top`/`bottom` holes) "
-            "are always applied and are not gated by this field. Cascades job -> "
-            "plate -> label (never text lines); unset (`null`) falls back to "
-            "`job-config.json` then `false`. Accepted on plates for schema parity "
-            "only."
+            "Permission to apply horizontal shift for asymmetric `left`/`right` drill holes. When enabled (true), text is horizontally shifted to center between `left` and `right` holes: shift = (left_diameter - right_diameter) / 2. Only applied to center-aligned text; `left`/`right` alignment ignores the shift. Vertical shifts (for `top`/`bottom` holes) are always applied and are not gated by this field. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`."
+            + PLATE_PARITY_TAIL
         ),
     )
     hole_adjust_for_cutter: Optional[bool] = Field(
         default=None,
         description=(
-            "Shrink the emitted drill-hole circle by the boundary/hole cutter "
-            "diameter (the cutter radius on each side of the hole's path) so "
-            "the engraved hole measures the specified diameter: a 0.1in hole "
-            "cut by a 0.015in cutter emits a 0.085in circle. The hole centre "
-            "is untouched (placed from the specified diameter); a hole at or "
-            "below the cutter diameter clamps to the smallest emittable "
-            "circle with a WARNING. Cascades job -> plate -> label (never "
-            "text lines); unset (`null`) falls back to `job-config.json` then "
-            "`true`. Accepted on plates for schema parity only."
+            "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`."
+            + PLATE_PARITY_TAIL
         ),
     )
     align_margin_adjust_global: Optional[bool] = Field(
         default=None,
         description=(
-            "Share the collision-avoidance edge-margin increase across the "
-            "text lines of one label: when a `left`/`right`-aligned line has "
-            "to slide off its anchored margin to clear a drill hole, every "
-            "other line of the label sharing that exact `text_h_alignment` "
-            "matches the increased margin, so the group's anchored edges stay "
-            "flush. When the avoidance switches a colliding line to `center`, "
-            "the unswitched same-alignment lines are additionally flushed "
-            "onto the switched lines' final anchored edge. Flushness is a "
-            "guarantee: a shared slide that pushes a line's far end past the "
-            "content area is absorbed by horizontal compression, and a line "
-            "whose `max_h_compress` budget cannot absorb it fails the job. "
-            "False (the default) moves only the colliding line. Only the automatic "
-            "collision-avoidance slide is shared - declared margins are never "
-            "touched. Setting the option at the job level enables it for "
-            "every label; sharing is always per-label. Cascades label -> job "
-            "(fallback false); explicit true is honored. Accepted on plates "
-            "for schema parity only."
+            "Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. When the avoidance switches a colliding line to `center`, the unswitched same-alignment lines are additionally flushed onto the switched lines' final anchored edge. Flushness is a guarantee: a shared slide that pushes a line's far end past the content area is absorbed by horizontal compression, and a line whose `max_h_compress` budget cannot absorb it fails the job. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored."
+            + PLATE_PARITY_TAIL
         ),
     )
 
@@ -1658,11 +1644,6 @@ class ItemizeBlock(ListAttributes):
     (default `"•"`), placed in one flush marker column shared by the whole
     list; the item's text (and every continuation line it grows to) starts at
     the hanging-indent column right of the markers.
-
-    Attributes:
-        items: Inherited from :class:`ListAttributes` -- the bullet items.
-        bullet_string: Inherited marker string, resolved for the block from
-            item -> block -> label -> job -> config (fallback `"•"`).
     """
 
 
@@ -1674,13 +1655,6 @@ class EnumerateBlock(ListAttributes):
     counter_suffix`) for the item's zero-based position `k` in the block.
     The counter is always computed -- an item's own `bullet_string` has no
     effect here.
-
-    Attributes:
-        items: Inherited from :class:`ListAttributes` -- the enumerated items.
-        counter_start_index: Inherited first counter value (fallback 1).
-        counter_style: Inherited counter style (fallback `decimal`).
-        counter_prefix: Inherited string before each counter (fallback '').
-        counter_suffix: Inherited string after each counter (fallback '').
     """
 
 
@@ -1874,33 +1848,20 @@ class LabelSpec(LabelAttributes):
     )
     replacement_text_delimiter: Optional[str] = Field(
         default=None,
-        description=(
-            "Single-character delimiter separating text items within a "
-            "replacement file line (default ';')."
-        ),
+        description=_DELIMITER_CORE,
     )
     replacement_text_file_comment_string: Optional[str] = Field(
         default=None,
-        description=(
-            "Comment marker for replacement file lines: a line whose "
-            "whitespace-stripped text starts with this string is dropped "
-            "(it produces no label copy) and reported in a per-file WARNING. "
-            "Unset inherits the plate/job cascade (fallback '# '; "
-            "job-config.json supplies the shop default); an explicit '' "
-            "disables comment handling (every non-blank line is raw data; "
-            "blank lines are still dropped). Requires `replacement_text_file`."
-        ),
+        description=_COMMENT_HEAD + "Unset inherits the plate/job cascade (fallback '# '; "
+        "job-config.json supplies the shop default)"
+        + _COMMENT_TAIL
+        + "Requires `replacement_text_file`.",
     )
     replacement_text_file_allow_blank_lines: Optional[bool] = Field(
         default=None,
-        description=(
-            "Allow whitespace-only lines in a replacement text file to produce "
-            "blank labels with no drill holes. When enabled (true), such lines "
-            "produce instances with empty content and no holes (even if the "
-            "label definition specifies holes). When disabled (false), blank lines "
-            "are dropped with a warning. Cascades label -> job; unset (`null`) falls "
-            "back to `job-config.json` then `true`. Requires `replacement_text_file`."
-        ),
+        description=_BLANK_LINES_CORE
+        + "Cascades label -> job; unset (`null`) falls back to `job-config.json` "
+        "then `true`. Requires `replacement_text_file`.",
     )
     plate_id: Optional[str] = Field(
         default=None,
@@ -2046,12 +2007,12 @@ class PlateSpec(BaseModel):
     h_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Horizontal margin in inches (schema parity; not applied at plate level).",
+        description=_parity("Horizontal margin in inches"),
     )
     v_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Vertical margin in inches (schema parity; not applied at plate level).",
+        description=_parity("Vertical margin in inches"),
     )
     hole_margin: Optional[float] = Field(
         default=None, ge=0.0, description="Hole margin in inches (must be >= 0)."
@@ -2064,13 +2025,15 @@ class PlateSpec(BaseModel):
     )
     text_h_alignment: Optional[TextHAlignment] = Field(
         default=None,
-        description="Horizontal text alignment (schema parity; not applied at plate level).",
+        description=_parity("Horizontal text alignment"),
     )
     type: Optional[LabelShape] = Field(
         default=None,
         description=(
-            "Label boundary shape 'rect'/'round' (schema parity; label shape "
-            "is resolved per label before packing; not applied at plate level)."
+            _parity(
+                "Label boundary shape 'rect'/'round'",
+                note="label shape is resolved per label before packing",
+            )
         ),
     )
     rounded_rectangle_fraction: Optional[float] = Field(
@@ -2078,317 +2041,262 @@ class PlateSpec(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Corner rounding fraction in [0.0, 1.0] (schema parity; the border "
-            "is resolved per label before packing; not applied at plate level)."
+            _parity(
+                "Corner rounding fraction in [0.0, 1.0]",
+                note="the border is resolved per label before packing",
+            )
         ),
     )
     rounded_rectangle_proportional: Optional[bool] = Field(
         default=None,
         description=(
-            "Proportional corner rounding (schema parity; the border is "
-            "resolved per label before packing; not applied at plate level)."
+            _parity(
+                "Proportional corner rounding",
+                note="the border is resolved per label before packing",
+            )
         ),
     )
     font: Optional[str] = Field(
         default=None,
         description=(
-            "Font name (schema parity; not applied at plate level). Accepted "
-            "and canonicalized like the cascading font field."
+            _parity("Font name") + " Accepted and canonicalized like the cascading font field."
         ),
     )
     min_hole_margin: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Minimum hole margin in inches (schema parity; not applied at plate level).",
+        description=_parity("Minimum hole margin in inches"),
     )
     cutter_buffer_text: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Text kerf buffer in inches (schema parity; not applied at plate "
-            "level -- text lines resolve their cutter before packing)."
+            _parity(
+                "Text kerf buffer in inches",
+                reason="text lines resolve their cutter before packing",
+            )
         ),
     )
     cutter_buffer_routing: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Boundary/hole kerf buffer in inches (schema parity; not applied at "
-            "plate level -- hole geometry is a per-label property)."
+            _parity(
+                "Boundary/hole kerf buffer in inches",
+                reason="hole geometry is a per-label property",
+            )
         ),
     )
     space_width_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description=("Space advance fraction (schema parity; not applied at plate level)."),
+        description=_parity("Space advance fraction"),
     )
     min_glyph_width_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Global minimum glyph advance width as a fraction of the "
-            "rendered cap height (schema parity; "
-            "not applied at plate level)."
+            _parity("Global minimum glyph advance width as a fraction of the rendered cap height")
         ),
     )
     kerning_window_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description=(
-            "Kerning window fraction as a fraction of the rendered text "
-            "height (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Kerning window fraction as a fraction of the rendered text height"),
     )
     kerning_penetration_scale: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description=(
-            "Kerning penetration multiplier applied to the detected "
-            "penetration (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Kerning penetration multiplier applied to the detected penetration"),
     )
     kerning_recession_scale: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Kerning recession multiplier applied to a negative (recessed) "
-            "detected penetration (schema parity; not applied at plate level)."
+            _parity(
+                "Kerning recession multiplier applied to a negative (recessed) detected penetration"
+            )
         ),
     )
     kerning_min_gap_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra kerning air added to every kerned pair advance as a "
-            "fraction of the rendered cap height "
-            "(schema parity; not applied at plate level)."
+            _parity(
+                "Extra kerning air added to every kerned pair advance as a fraction of the rendered cap height"
+            )
         ),
     )
     fallback_advance_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Fallback advance multiplier on the bounding-box width for pairs "
-            "without overlapping height (schema parity; not applied at plate "
-            "level)."
+            _parity(
+                "Fallback advance multiplier on the bounding-box width for pairs without overlapping height"
+            )
         ),
     )
     kern_pos_string: Optional[str] = Field(
         default=None,
-        description=(
-            "Manual-kern positive marker string (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Manual-kern positive marker string"),
     )
     kern_neg_string: Optional[str] = Field(
         default=None,
-        description=(
-            "Manual-kern negative marker string (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Manual-kern negative marker string"),
     )
     kern_width_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description=(
-            "Manual-kern width as a fraction of the rendered cap height "
-            "(schema parity; not applied at plate level)."
-        ),
+        description=_parity("Manual-kern width as a fraction of the rendered cap height"),
     )
     sc_scale: Optional[float] = Field(
         default=None,
         ge=0.2,
         le=1.0,
         description=(
-            "Small-caps downscale applied to ASCII lowercase a-z by a ' SC' "
-            "font variant (schema parity; not applied at plate level)."
+            _parity("Small-caps downscale applied to ASCII lowercase a-z by a ' SC' font variant")
         ),
     )
     supersubscript_downscale: Optional[float] = Field(
         default=None,
         ge=0.2,
         le=1.0,
-        description=(
-            "Bare `<sup>`/`<sub>` markup run downscale (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Bare `<sup>`/`<sub>` markup run downscale"),
     )
     html_brackets: Optional[str] = Field(
         default=None,
         description=(
-            "Inline-markup delimiter pair (even length; first half left, "
-            "second half right) (schema parity; not applied at plate level)."
+            _parity(
+                "Inline-markup delimiter pair (even length; first half left, second half right)"
+            )
         ),
     )
     italic_angle: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=45.0,
-        description=(
-            "Italic slant angle in degrees for `<i>` markup (schema parity; "
-            "not applied at plate level)."
-        ),
+        description=_parity("Italic slant angle in degrees for `<i>` markup"),
     )
     underline_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Underline (`<u>`) extra air below the baseline stroke as a "
-            "fraction of the rendered cap height "
-            "(schema parity; not applied at plate level)."
+            _parity(
+                "Underline (`<u>`) extra air below the baseline stroke as a fraction of the rendered cap height"
+            )
         ),
     )
     underline_break_clearance_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Underline (`<u>`) extra air at each break as a fraction of the "
-            "rendered cap height (schema "
-            "parity; not applied at plate level)."
+            _parity(
+                "Underline (`<u>`) extra air at each break as a fraction of the rendered cap height"
+            )
         ),
     )
     underline_break_spaces: Optional[bool] = Field(
         default=None,
-        description=(
-            "Underline (`<u>`) break-at-spaces flag (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Underline (`<u>`) break-at-spaces flag"),
     )
     strikethrough_offset_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Strikethrough (`<s>`) height above the baseline as a fraction of "
-            "the rendered cap height "
-            "(schema parity; not applied at plate level)."
+            _parity(
+                "Strikethrough (`<s>`) height above the baseline as a fraction of the rendered cap height"
+            )
         ),
     )
     strikethrough_break_spaces: Optional[bool] = Field(
         default=None,
-        description=(
-            "Strikethrough (`<s>`) break-at-spaces flag (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Strikethrough (`<s>`) break-at-spaces flag"),
     )
     v_center_chars: Optional[str] = Field(
         default=None,
         description=(
-            "Auto-vertical-centred character set (schema parity; not applied "
-            "at plate level -- labels render before packing)."
+            _parity("Auto-vertical-centred character set", reason="labels render before packing")
         ),
     )
     cutter_size: Optional[float] = Field(
         default=None,
         gt=0.0,
-        description=(
-            "Cutter diameter in inches overriding automatic selection "
-            "(schema parity; not applied at plate level)."
-        ),
+        description=_parity("Cutter diameter in inches overriding automatic selection"),
     )
     target_boldness_factor: Optional[float] = Field(
         default=None,
         ge=0.05,
         le=0.30,
         description=(
-            "Multi-stroke target engraved stroke width as a fraction of "
-            "text height (schema parity; not applied at plate level)."
+            _parity("Multi-stroke target engraved stroke width as a fraction of text height")
         ),
     )
     multistroke_overlap_ratio: Optional[float] = Field(
         default=None,
         ge=0.1,
         le=0.5,
-        description=(
-            "Multi-stroke minimum pass overlap ratio (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Multi-stroke minimum pass overlap ratio"),
     )
     bold_boldness_multiplier: Optional[float] = Field(
         default=None,
         ge=1.0,
         le=4.0,
-        description=(
-            "Bold markup (`<b>`) boldness multiplier for multi-stroke fonts "
-            "(schema parity; not applied at plate level)."
-        ),
+        description=_parity("Bold markup (`<b>`) boldness multiplier for multi-stroke fonts"),
     )
     cutter_downsize: Optional[bool] = Field(
         default=None,
-        description=(
-            "Compression-driven cutter reduction permission (schema parity; "
-            "not applied at plate level)."
-        ),
+        description=_parity("Compression-driven cutter reduction permission"),
     )
     max_cutter_downsizes: Optional[int] = Field(
         default=None,
         ge=0,
-        description=(
-            "Maximum number of cutter downsizing steps (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Maximum number of cutter downsizing steps"),
     )
     cutter_downsize_global: Optional[bool] = Field(
         default=None,
-        description=(
-            "Per-label sharing of compression-driven cutter downsizes "
-            "(schema parity; not applied at plate level)."
-        ),
+        description=_parity("Per-label sharing of compression-driven cutter downsizes"),
     )
     cutter_downsize_global_job_wide: Optional[bool] = Field(
         default=None,
-        description=(
-            "Job-wide scope of the shared compression-driven cutter downsizes "
-            "(schema parity; not applied at plate level)."
-        ),
+        description=_parity("Job-wide scope of the shared compression-driven cutter downsizes"),
     )
     h_compress_global: Optional[bool] = Field(
         default=None,
-        description=(
-            "Per-label sharing of horizontal compression (schema parity; "
-            "not applied at plate level)."
-        ),
+        description=_parity("Per-label sharing of horizontal compression"),
     )
     h_compress_global_same_height_only: Optional[bool] = Field(
         default=None,
-        description=(
-            "Grouping scope of the shared horizontal compression (schema "
-            "parity; not applied at plate level)."
-        ),
+        description=_parity("Grouping scope of the shared horizontal compression"),
     )
     arc_preserve_compression: Optional[bool] = Field(
         default=None,
-        description=(
-            "Arc-preserving non-uniform text transforms (schema parity; not "
-            "applied at plate level)."
-        ),
+        description=_parity("Arc-preserving non-uniform text transforms"),
     )
     optimize_line_content: Optional[bool] = Field(
         default=None,
-        description=(
-            "Word-level line-content reflow permission (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Word-level line-content reflow permission"),
     )
     optimize_line_content_max_lines: Optional[int] = Field(
         default=None,
         ge=1,
-        description=(
-            "Ceiling on the number of consecutive lines a reflow group may "
-            "use (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Ceiling on the number of consecutive lines a reflow group may use"),
     )
     enforce_cap_line: Optional[bool] = Field(
         default=None,
         description=(
-            "Alphanumeric cap-line clamping (schema parity; not applied at "
-            "plate level -- labels render before packing)."
+            _parity("Alphanumeric cap-line clamping", reason="labels render before packing")
         ),
     )
     hole_text_collision_distance: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description=(
-            "Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Minimum engraved-stroke air gap in inches"),
     )
     use_baseline_spacing: Optional[bool] = Field(
         default=None,
         description=(
-            "Baseline-to-baseline line spacing (schema parity; not applied at "
-            "plate level -- labels render before packing)."
+            _parity("Baseline-to-baseline line spacing", reason="labels render before packing")
         ),
     )
     v_center_by_content: Optional[bool] = Field(
@@ -2402,8 +2310,10 @@ class PlateSpec(BaseModel):
     auto_descending_character_adjustment: Optional[bool] = Field(
         default=None,
         description=(
-            "Automatic descending-character relief permission (schema parity; "
-            "not applied at plate level -- labels render before packing)."
+            _parity(
+                "Automatic descending-character relief permission",
+                reason="labels render before packing",
+            )
         ),
     )
     descending_character_v_scale: Optional[float] = Field(
@@ -2411,8 +2321,7 @@ class PlateSpec(BaseModel):
         ge=0.2,
         le=1.0,
         description=(
-            "Maximum vertical downscale for a triggering descending glyph in "
-            "[0.2, 1.0] (schema parity; not applied at plate level)."
+            _parity("Maximum vertical downscale for a triggering descending glyph in [0.2, 1.0]")
         ),
     )
     descending_character_raise: Optional[float] = Field(
@@ -2420,17 +2329,16 @@ class PlateSpec(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Maximum raise for a triggering descending glyph as a fraction of "
-            "its descender depth in [0.0, 1.0] (schema parity; not applied at "
-            "plate level)."
+            _parity(
+                "Maximum raise for a triggering descending glyph as a fraction of its descender depth in [0.0, 1.0]"
+            )
         ),
     )
     descending_character_clearance: Optional[float] = Field(
         default=None,
         ge=0.0,
         description=(
-            "Extra engraved-stroke air gap in inches for descending-character "
-            "relief (schema parity; not applied at plate level)."
+            _parity("Extra engraved-stroke air gap in inches for descending-character relief")
         ),
     )
     descending_character_reciprocal_scale: Optional[float] = Field(
@@ -2438,55 +2346,51 @@ class PlateSpec(BaseModel):
         ge=0.2,
         le=1.0,
         description=(
-            "Maximum top-down downscale for the following line's colliding "
-            "glyphs in [0.2, 1.0] (schema parity; not applied at plate level)."
+            _parity(
+                "Maximum top-down downscale for the following line's colliding glyphs in [0.2, 1.0]"
+            )
         ),
     )
     hole_adjust_for_cutter: Optional[bool] = Field(
         default=None,
         description=(
-            "Cutter-compensated drill-hole diameter (schema parity; not "
-            "applied at plate level -- labels render before packing)."
+            _parity("Cutter-compensated drill-hole diameter", reason="labels render before packing")
         ),
     )
     align_margin_adjust_global: Optional[bool] = Field(
         default=None,
         description=(
-            "Per-label sharing of the collision-avoidance edge-margin increase "
-            "(schema parity; not applied at plate level -- labels render "
-            "before packing)."
+            _parity(
+                "Per-label sharing of the collision-avoidance edge-margin increase",
+                reason="labels render before packing",
+            )
         ),
     )
     bullet_string: Optional[str] = Field(
         default=None,
-        description=("Bullet-list marker string (schema parity; not applied at plate level)."),
+        description=_parity("Bullet-list marker string"),
     )
     counter_start_index: Optional[int] = Field(
         default=None,
         ge=1,
-        description=(
-            "Enumerated-list starting counter (schema parity; not applied at plate level)."
-        ),
+        description=_parity("Enumerated-list starting counter"),
     )
     counter_style: Optional[CounterStyle] = Field(
         default=None,
-        description=("Enumerated-list counter style (schema parity; not applied at plate level)."),
+        description=_parity("Enumerated-list counter style"),
     )
     counter_prefix: Optional[str] = Field(
         default=None,
-        description=("Enumerated-list counter prefix (schema parity; not applied at plate level)."),
+        description=_parity("Enumerated-list counter prefix"),
     )
     counter_suffix: Optional[str] = Field(
         default=None,
-        description=("Enumerated-list counter suffix (schema parity; not applied at plate level)."),
+        description=_parity("Enumerated-list counter suffix"),
     )
     list_marker_gap_fraction: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description=(
-            "List marker-to-text gap as a fraction of cap height (schema "
-            "parity; not applied at plate level)."
-        ),
+        description=_parity("List marker-to-text gap as a fraction of cap height"),
     )
     layout: Optional[LayoutMode] = Field(
         default=None,
@@ -2509,43 +2413,27 @@ class PlateSpec(BaseModel):
     )
     replacement_text_file: Optional[str] = Field(
         default=None,
-        description=(
-            "Path to an EngraveLab/Vision Pro-style replacement text file. "
-            "Each line produces one label packed onto this plate only."
-        ),
+        description=_REPLACEMENT_FILE_LEAD
+        + "Each line produces one label packed onto this plate only.",
     )
     replacement_text_delimiter: Optional[str] = Field(
         default=None,
-        description=(
-            "Single-character delimiter separating text items within a "
-            "replacement file line (default ';'). Requires a replacement "
-            "file for this plate (its own, or a label-level file on a label "
-            "pinned to it); cascades plate -> pinned label."
-        ),
+        description=_DELIMITER_CORE + " Requires a replacement file for this plate (its own, or a "
+        "label-level file on a label pinned to it); cascades plate -> pinned label.",
     )
     replacement_text_file_comment_string: Optional[str] = Field(
         default=None,
-        description=(
-            "Comment marker for replacement file lines: a line whose "
-            "whitespace-stripped text starts with this string is dropped "
-            "(it produces no label copy) and reported in a per-file WARNING. "
-            "Unset inherits the job cascade (fallback '# '; "
-            "`job-config.json` supplies the shop default); an explicit '' "
-            "disables comment handling (every non-blank line is raw data; "
-            "blank lines are still dropped). Same file requirement as "
-            "`replacement_text_delimiter`; cascades plate -> pinned label."
-        ),
+        description=_COMMENT_HEAD + "Unset inherits the job cascade (fallback '# '; "
+        "`job-config.json` supplies the shop default)"
+        + _COMMENT_TAIL
+        + "Same file requirement as `replacement_text_delimiter`; "
+        "cascades plate -> pinned label.",
     )
     replacement_text_file_allow_blank_lines: Optional[bool] = Field(
         default=None,
-        description=(
-            "Allow whitespace-only lines in a replacement text file to produce "
-            "blank labels with no drill holes. When enabled (true), such lines "
-            "produce instances with empty content and no holes (even if the "
-            "label definition specifies holes). When disabled (false), blank lines "
-            "are dropped with a warning. Cascades job -> plate; unset (`null`) falls "
-            "back to `job-config.json` then `true`. Requires a replacement file."
-        ),
+        description=_BLANK_LINES_CORE
+        + "Cascades job -> plate; unset (`null`) falls back to `job-config.json` "
+        "then `true`. Requires a replacement file.",
     )
 
     @field_validator("replacement_text_delimiter")
@@ -2796,37 +2684,24 @@ class JobSpec(LabelAttributes):
     )
     replacement_text_delimiter: Optional[str] = Field(
         default=None,
-        description=(
-            "Single-character delimiter separating text items within a "
-            "replacement file line (default ';'). Requires a replacement "
-            "file at some tier (job, plate, or label); cascades "
-            "job -> plate -> label."
-        ),
+        description=_DELIMITER_CORE
+        + " Requires a replacement file at some tier (job, plate, or label); "
+        "cascades job -> plate -> label.",
     )
     replacement_text_file_comment_string: Optional[str] = Field(
         default=None,
-        description=(
-            "Comment marker for replacement file lines: a line whose "
-            "whitespace-stripped text starts with this string is dropped "
-            "(it produces no label copy) and reported in a per-file WARNING. "
-            "Unset falls back to '# ' (`job-config.json` supplies the shop "
-            "default); an explicit '' disables comment handling (every "
-            "non-blank line is raw data; blank lines are still dropped). "
-            "Requires a replacement file at some tier (job, plate, or "
-            "label); cascades job -> plate -> label."
-        ),
+        description=_COMMENT_HEAD
+        + "Unset falls back to '# ' (`job-config.json` supplies the shop default)"
+        + _COMMENT_TAIL
+        + "Requires a replacement file at some tier (job, plate, or label); "
+        "cascades job -> plate -> label.",
     )
     replacement_text_file_allow_blank_lines: Optional[bool] = Field(
         default=None,
-        description=(
-            "Allow whitespace-only lines in a replacement text file to produce "
-            "blank labels with no drill holes. When enabled (true), such lines "
-            "produce instances with empty content and no holes (even if the "
-            "label definition specifies holes). When disabled (false), blank lines "
-            "are dropped with a warning. Cascades job -> plate -> label; unset "
-            "(`null`) falls back to `job-config.json` then `true`. Requires a "
-            "replacement file at some tier (job, plate, or label)."
-        ),
+        description=_BLANK_LINES_CORE
+        + "Cascades job -> plate -> label; unset (`null`) falls back to "
+        "`job-config.json` then `true`. Requires a replacement file at some "
+        "tier (job, plate, or label).",
     )
 
     allow_rotation: bool = Field(

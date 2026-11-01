@@ -770,7 +770,7 @@
     },
     "EnumerateBlock": {
       "additionalProperties": false,
-      "description": "An enumerated list nested inside a label's `content` list.\n\nEvery item's marker is the computed counter\n(`counter_prefix + format_counter(start_index + k, counter_style) +\ncounter_suffix`) for the item's zero-based position `k` in the block.\nThe counter is always computed -- an item's own `bullet_string` has no\neffect here.\n\nAttributes:\n    items: Inherited from :class:`ListAttributes` -- the enumerated items.\n    counter_start_index: Inherited first counter value (fallback 1).\n    counter_style: Inherited counter style (fallback `decimal`).\n    counter_prefix: Inherited string before each counter (fallback '').\n    counter_suffix: Inherited string after each counter (fallback '').",
+      "description": "An enumerated list nested inside a label's `content` list.\n\nEvery item's marker is the computed counter\n(`counter_prefix + format_counter(start_index + k, counter_style) +\ncounter_suffix`) for the item's zero-based position `k` in the block.\nThe counter is always computed -- an item's own `bullet_string` has no\neffect here.",
       "properties": {
         "text_height": {
           "anyOf": [
@@ -1528,7 +1528,7 @@
     },
     "ItemizeBlock": {
       "additionalProperties": false,
-      "description": "A bullet list nested inside a label's `content` list.\n\nEvery item engraves with the resolved `bullet_string` as its marker\n(default `\"\u2022\"`), placed in one flush marker column shared by the whole\nlist; the item's text (and every continuation line it grows to) starts at\nthe hanging-indent column right of the markers.\n\nAttributes:\n    items: Inherited from :class:`ListAttributes` -- the bullet items.\n    bullet_string: Inherited marker string, resolved for the block from\n        item -> block -> label -> job -> config (fallback `\"\u2022\"`).",
+      "description": "A bullet list nested inside a label's `content` list.\n\nEvery item engraves with the resolved `bullet_string` as its marker\n(default `\"\u2022\"`), placed in one flush marker column shared by the whole\nlist; the item's text (and every continuation line it grows to) starts at\nthe hanging-indent column right of the markers.",
       "properties": {
         "text_height": {
           "anyOf": [
@@ -4360,7 +4360,7 @@
     },
     "TextLine": {
       "additionalProperties": false,
-      "description": "A single line of text content within a label.\n    ",
+      "description": "A single line of text content within a label.",
       "properties": {
         "text_height": {
           "anyOf": [
