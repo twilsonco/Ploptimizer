@@ -76,7 +76,10 @@ When adding a new cascading field to `JobSpec`, `PlateSpec`, or `LabelSpec`:
 3. **Update documentation generators** (critical—tests require this)
 
    **`docs/schema/generate_ai_docs.py`:**
-   - No manual changes needed; field auto-generates from Pydantic models
+   - Job-spec fields auto-generate from the Pydantic models; a new
+     `JobDefaults` field must also be added to its group in
+     `_CONFIG_GROUP_FIELDS` (or `_CONFIG_EXTRA_GROUPS` if it has no
+     job-spec theme), else `config_group_problems()` fails the docs tests
    - Run script and commit regenerated artifacts:
      ```bash
      uv run python docs/schema/generate_ai_docs.py

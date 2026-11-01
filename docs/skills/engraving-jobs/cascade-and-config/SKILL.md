@@ -63,5 +63,6 @@ job:
 - `references/snippets.yaml` — more YAML fragments for this topic.
 - `references/fallback-defaults.md` — The complete resolved-fallback-constants table (every `DEFAULT_*`, scraped live from source).
 - [`../engraving-job-complete-reference/references/JOB_SPEC.md`](../engraving-job-complete-reference/references/JOB_SPEC.md) — exhaustive field/enum/default reference for the whole spec.
+- [`../engraving-job-complete-reference/references/JOB_CONFIG.md`](../engraving-job-complete-reference/references/JOB_CONFIG.md) — exhaustive reference for the `job-config.json` shop-default fields.
 - [`../engraving-job-complete-reference/references/job_spec.schema.json`](../engraving-job-complete-reference/references/job_spec.schema.json) — machine-readable schema for structural validation.
 - Related skills: [job-forms](../job-forms/SKILL.md); [cutters](../cutters/SKILL.md); [label-geometry](../label-geometry/SKILL.md); [running-and-troubleshooting](../running-and-troubleshooting/SKILL.md).

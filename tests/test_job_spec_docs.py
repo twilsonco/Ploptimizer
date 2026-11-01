@@ -110,6 +110,45 @@ class TestGeneratedArtifacts:
         if rendered_options.strip():
             assert committed_options.strip(), "JOB_SPEC.md lost its tool-options section"
 
+    def test_job_config_markdown_is_up_to_date(self) -> None:
+        """The model-derived part of JOB_CONFIG.md matches a fresh render.
+
+        The trailing "Field audit" + "Available Tool Options" sections are
+        rendered from the live ``job-config.json`` (key presence + shop-tuned
+        values), so they are deliberately EXCLUDED from the byte-exact
+        comparison: retuning, adding, or removing config keys must never
+        break this pin (config-value immunity -- tests/AGENTS.md).
+        """
+        committed = (ARTIFACTS_DIR / "JOB_CONFIG.md").read_text(encoding="utf-8")
+        rendered = generator.build_job_config_markdown()
+        committed_pinned, committed_live = generator.split_config_tool_options(committed)
+        rendered_pinned, rendered_live = generator.split_config_tool_options(rendered)
+        assert committed_pinned == rendered_pinned, (
+            "JOB_CONFIG.md is stale; run: uv run python docs/schema/generate_ai_docs.py"
+        )
+        if rendered_live.strip():
+            assert committed_live.strip(), "JOB_CONFIG.md lost its live-config sections"
+
+    def test_config_group_partition_is_exact(self) -> None:
+        """Every JobDefaults property is rendered in exactly one section.
+
+        A new field with no group must fail here, not silently vanish from
+        JOB_CONFIG.md (the same failure mode the curated-note test guards
+        for fallback constants).
+        """
+        assert generator.config_group_problems() == []
+
+    def test_config_schema_strips_the_editor_pointer(self) -> None:
+        """The generated schema carries no ``$schema`` property.
+
+        ``$schema`` is a reserved JSON Schema keyword; the document is also
+        the editor's hover source, so it must describe real fields only.
+        """
+        schema = json.loads(generator.build_job_config_schema())
+        assert "$schema" not in schema.get("properties", {})
+        # The pointer field must not be required either.
+        assert "$schema" not in schema.get("required", [])
+
     def test_fallback_constants_are_scraped_live(self) -> None:
         """The fallback table carries the real current constant values.
 

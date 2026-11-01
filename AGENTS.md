@@ -78,7 +78,7 @@ one of them inherits the standards above):
 | `docs/` + `docs/schema/` + `docs/skills/` | Developer docs + the production-agent Hermes skill tree under `docs/skills/engraving-jobs/` (generated `JOB_SPEC.md`/JSON schemas live in its `engraving-job-complete-reference/references/`; regenerate via `generate_ai_docs.py` then `generate_skills.py`, drift-pinned) | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | `scripts/` | Dev/ops scripts: `run_integration_test.py` (end-to-end generate run + layout report), `kerning_report.py`, `validate_job_config.py` / `validate_job_spec.py` (pre-flight input validation; the source of truth for the byte-identical executables the `validating-jobs` skill mirrors into its own `scripts/` — see [`docs/AGENTS.md`](docs/AGENTS.md)) | (see module docstrings) |
 | `examples/` | User-facing sample PLTs + `examples/job_specs/` sample YAML (safe to tweak; never read by unit tests) | - |
-| `job-config.json`, `tools.json` | Shop-level defaults + cutter inventory (hand-tuned; **tests must derive from these, never pin their values** — see `tests/AGENTS.md`) | [`docs/AGENTS.md`](docs/AGENTS.md) |
+| `job-config.json`, `tools.json` | Shop-level defaults + cutter inventory (hand-tuned; **tests must derive from these, never pin their values** — see `tests/AGENTS.md`). Every `job-config.json` field is documented in `docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_CONFIG.md` (generated) and via the file's `$schema` hover | [`docs/AGENTS.md`](docs/AGENTS.md) |
 | `installer/`, `Ploptimizer.spec`, `run_tray.py` | Inno Setup script, PyInstaller spec, tray entry (Windows 10+ distribution) | - |
 
 **Reading order for the generate pipeline:** root (this file) →

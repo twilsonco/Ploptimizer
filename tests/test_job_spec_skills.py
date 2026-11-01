@@ -90,6 +90,18 @@ def _schema() -> Dict[str, Any]:
     return data
 
 
+def _config_schema() -> Dict[str, Any]:
+    """Load the committed job-config JSON Schema.
+
+    Returns:
+        The parsed schema document.
+    """
+    data: Dict[str, Any] = json.loads(
+        (REFERENCE_SKILL_REFERENCES / "job_config.schema.json").read_text(encoding="utf-8")
+    )
+    return data
+
+
 def _skill_dirs() -> List[Path]:
     """List the category's skill directories (dirs containing a SKILL.md).
 
@@ -239,6 +251,47 @@ class TestRegistry:
     def test_recipes_parse(self) -> None:
         """Every recipe parses through parse_yaml."""
         assert gen.recipe_problems() == []
+
+    def test_config_group_order_matches_registry(self) -> None:
+        """JOB_CONFIG.md's group order IS the theme registry's order.
+
+        ``generate_ai_docs`` cannot import ``generate_skills`` (the reverse
+        import exists, so that direction is circular), so the duplication is
+        pinned here: a theme added, removed, or reordered in the registry
+        must be mirrored in ``_CONFIG_THEME_ORDER``.
+        """
+        assert gen._ai._CONFIG_THEME_ORDER == tuple(t.name for t in gen.THEMES)
+
+    def test_config_group_fields_match_registry(self) -> None:
+        """Each JOB_CONFIG.md group matches its theme's config-field subset.
+
+        The config tables group fields by theme; this pins that a field
+        moved between themes in the registry is moved in
+        ``_CONFIG_GROUP_FIELDS`` too (plus the config-only extras).
+        """
+        config_fields = set(_config_schema().get("properties", {}))
+        expected: Dict[str, Set[str]] = {}
+        for theme in gen.THEMES:
+            owned = set(theme.fields) & config_fields
+            if owned:
+                expected[theme.name] = owned
+        for field_name, group in gen._ai._CONFIG_EXTRA_GROUPS.items():
+            expected.setdefault(group, set()).add(field_name)
+        actual = {g: set(f) for g, f in gen._ai._CONFIG_GROUP_FIELDS.items() if f}
+        assert actual == expected, (
+            f"missing: { {g: sorted(v - actual.get(g, set())) for g, v in expected.items() if v - actual.get(g, set())} }; "
+            f"stale: { {g: sorted(v - expected.get(g, set())) for g, v in actual.items() if v - expected.get(g, set())} }"
+        )
+
+    def test_every_config_field_covered_exactly_once(self) -> None:
+        """JOB_CONFIG.md partitions every ``job-config.json`` schema field.
+
+        Closes the asymmetry with the job-spec partition check: a new
+        ``JobDefaults`` field must be assigned to a group (theme or
+        ``_CONFIG_EXTRA_GROUPS``) or explicitly hidden, never left
+        undocumented.
+        """
+        assert gen._ai.config_group_problems() == []
 
 
 # ---------------------------------------------------------------------------

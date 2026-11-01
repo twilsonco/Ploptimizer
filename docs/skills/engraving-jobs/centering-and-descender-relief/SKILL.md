@@ -97,5 +97,6 @@ job:
 - `references/semantics.md` — the full semantics for this topic: mechanisms, thresholds, tier interactions and worked examples the tables above cannot express. Read it before authoring anything non-trivial in this area.
 - `references/snippets.yaml` — more YAML fragments for this topic.
 - [`../engraving-job-complete-reference/references/JOB_SPEC.md`](../engraving-job-complete-reference/references/JOB_SPEC.md) — exhaustive field/enum/default reference for the whole spec.
+- [`../engraving-job-complete-reference/references/JOB_CONFIG.md`](../engraving-job-complete-reference/references/JOB_CONFIG.md) — exhaustive reference for the `job-config.json` shop-default fields.
 - [`../engraving-job-complete-reference/references/job_spec.schema.json`](../engraving-job-complete-reference/references/job_spec.schema.json) — machine-readable schema for structural validation.
 - Related skills: [line-stacking-and-reflow](../line-stacking-and-reflow/SKILL.md); [holes-and-collision](../holes-and-collision/SKILL.md); [inline-markup](../inline-markup/SKILL.md).

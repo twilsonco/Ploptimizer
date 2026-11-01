@@ -12,7 +12,8 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 |---|---|---|
 | `../docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md` | `schema.py` + `job_config.py` models + fallback constants scraped from `resolution.py`/`layout.py` + tool_options from `job-config.json` | `uv run python docs/schema/generate_ai_docs.py` |
 | `.../references/job_spec.schema.json` | `JobSpec` model | same command |
-| `.../references/job_config.schema.json` | `JobDefaults` model | same command |
+| `.../references/job_config.schema.json` | `JobDefaults` model (the editor-only `$schema` property is stripped) | same command |
+| `.../references/JOB_CONFIG.md` | `JobDefaults` model + fallback constants + field-audit key presence and tool_options from `job-config.json` (live sections excluded from the byte-pin) | same command |
 | `../docs/skills/engraving-jobs/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, `engraving-job-complete-reference/SKILL.md`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
 | `../docs/skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual - curated in place, the generator never overwrites** |
 | `README.md` (docs/schema) | hand-written pointer (artifact map, skill-tree layout, regen commands) | manual |
@@ -47,11 +48,16 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   `recipes/` (complete runnable specs from `examples/job_specs/`,
   `parse_yaml`-validated), and `engraving-job-complete-reference/` - the
   exhaustive-reference skill whose `references/` directory holds
-  `JOB_SPEC.md` + the two JSON Schemas (written by `generate_ai_docs.py`);
+  `JOB_SPEC.md`, `JOB_CONFIG.md` + the two JSON Schemas (written by
+  `generate_ai_docs.py`);
   every other skill links the reference through
   `../engraving-job-complete-reference/references/...`. New schema field ->
   assign it to a theme in the registry (coverage check enforces this); new
-  topic -> add a `Theme` entry (+ a curated `semantics.md`; the generator
+  `JobDefaults` field -> add it to its theme's tuple in
+  `generate_ai_docs._CONFIG_GROUP_FIELDS` (config-only fields go in
+  `_CONFIG_EXTRA_GROUPS`), else `config_group_problems()` fails (the
+  registry-mirror tests pin `_CONFIG_GROUP_FIELDS` against the live themes);
+  new topic -> add a `Theme` entry (+ a curated `semantics.md`; the generator
   seeds a stub). A hand-written non-theme skill (like `validating-jobs/`)
   needs: its folder + curated `references/semantics.md`, one bullet in
   `render_toc_lines()`, and re-running the generator (the TOC must list every
@@ -64,13 +70,20 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 - Hermes progressive disclosure is explicit: `references/` files load only
   when NAMED in their `SKILL.md` ("Read next"), and installs copy only
   referenced files - never unlink a generated file from its skill.
-- **Config-value immunity:** the live `job-config.json` tool-options tables
-  (`JOB_SPEC.md` section; the tool-options skill's marked region) are
-  excluded from the byte-pins - retuning the shop config never breaks tests.
+- **Config-value immunity:** the live `job-config.json` sections - the
+  tool-options tables (`JOB_SPEC.md`, `JOB_CONFIG.md`, the tool-options
+  skill's marked region) and `JOB_CONFIG.md`'s field-audit key-presence
+  column (everything from `CONFIG_DYNAMIC_HEADING` on, excluded via
+  `split_config_tool_options`) - are excluded from the byte-pins: retuning,
+  adding, or removing shop-config keys never breaks tests.
   Generator prose (field descriptions, `_FALLBACK_NOTES`, theme pitfalls)
   must therefore NEVER hardcode a `job-config.json` VALUE - say "job-config
   ships the shop value" (a retune like `a30be3e`'s cutter buffers silently
   turns such a number into a lie; the drift pins cannot catch it).
+- **`$schema` is editor-only:** `JobDefaults.schema_ref` (alias `$schema`,
+  `exclude=True`) lets the repo `job-config.json` carry a JSON-Schema pointer
+  for hover docs; `build_job_config_schema()` strips the property from the
+  generated schema, and it is never injected into a job spec.
 - New `str`-Enums must be added to `_ENUM_ORDER` in `generate_ai_docs.py`.
 - `generate_schema_docs.py` - tool-options / font-list documentation generator
   (`--show-fonts` lists every valid font name; the skills cite it for the

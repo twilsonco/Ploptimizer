@@ -56,7 +56,10 @@ autonomously after modifying the codebase.
     from the frozen `tests_deps/` fixtures. A missing option skips, not fails.
   - The `JOB_SPEC.md` drift pin compares only the model-derived part and
     EXCLUDES the config-rendered "Available Tool Options" table
-    (`generate_ai_docs.split_tool_options`) - see
+    (`generate_ai_docs.split_tool_options`). The `JOB_CONFIG.md` pin
+    likewise excludes everything from its "Field audit (live shop config)"
+    heading on (key-presence column + tool options,
+    `generate_ai_docs.split_config_tool_options`) - see
     [`../docs/AGENTS.md`](../docs/AGENTS.md).
   - Spec-declared values (`tests_deps/test123_spec.yaml`: `margin` 0.1,
     `text_height` 0.5) and the suppression contract are test-owned and stay

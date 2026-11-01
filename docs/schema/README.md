@@ -17,7 +17,8 @@ engraver option names, not schema fields).
 |---|---|---|
 | `../skills/engraving-jobs/engraving-job-complete-reference/references/job_spec.schema.json` | `JobSpec` model (`plt_optimizer/generate/schema.py`) | `uv run python docs/schema/generate_ai_docs.py` |
 | `.../references/job_config.schema.json` | `JobDefaults` model (`plt_optimizer/generate/job_config.py`) | same command |
-| `.../references/JOB_SPEC.md` | both models + fallback constants scraped from `resolution.py` / `layout.py` + tool_options from `job-config.json` | same command |
+| `.../references/JOB_SPEC.md` | `JobSpec` model + fallback constants scraped from `resolution.py` / `layout.py` + tool_options from `job-config.json` | same command |
+| `.../references/JOB_CONFIG.md` | `JobDefaults` model + fallback constants + field-audit key presence & tool_options from `job-config.json` | same command |
 | `../skills/engraving-jobs/**` (generated files) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` |
 | `../skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual — curated, never regenerated** |
 | `README.md` (this file) | hand-written | manual |
@@ -26,10 +27,41 @@ Drift is pinned by `tests/test_job_spec_docs.py` (models ↔ generated
 artifacts) and `tests/test_job_spec_skills.py` (registry ↔ skill tree, TOC ↔
 skill dirs, field-partition coverage, prose token audit, link integrity,
 YAML validity). If the models change, regenerate **both** artifact sets and
-commit the output; the suites fail otherwise. The tool-options tables
-(`JOB_SPEC.md` and the tool-options skill) render live from
-`job-config.json` and are **excluded from the byte-pins** (config-value
-immunity — retuning the shop config never breaks the tests).
+commit the output; the suites fail otherwise. The sections rendered live from
+`job-config.json` — the tool-options tables (`JOB_SPEC.md`, `JOB_CONFIG.md`,
+and the tool-options skill) plus `JOB_CONFIG.md`'s field-audit key-presence
+column — are **excluded from the byte-pins** (config-value immunity: retuning,
+adding, or removing shop-config keys never breaks the tests).
+
+## Editor hover docs for `job-config.json`
+
+`job-config.json` starts with
+`"$schema": "./docs/skills/engraving-jobs/engraving-job-complete-reference/references/job_config.schema.json"`,
+which makes a JSON-aware editor (VS Code included) show every field's
+description as a hover tooltip and autocomplete detail, right next to the
+value. The key is accepted by the strict `JobDefaults` model as the
+editor-only `schema_ref` field (`alias="$schema"`, `exclude=True`): it is
+stripped from the generated schema by `build_job_config_schema()` and can
+never reach cascade injection. Because the pointer is **relative to the
+config file**, hover works for the in-repo config; a shop copy kept outside
+the repo needs `job_config.schema.json` beside it (or an absolute `file:`
+URI) to get the same tooltips.
+
+## Rendering a PDF (optional)
+
+The generated references are the master artifacts; a printable manual is a
+one-liner with [pandoc](https://pandoc.org) (a system binary — intentionally
+not a project dependency, and no PDF is committed):
+
+```bash
+uv run python docs/schema/generate_ai_docs.py
+pandoc \
+  docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md \
+  docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_CONFIG.md \
+  -o /tmp/plt-optimizer-job-reference.pdf \
+  --toc --toc-depth=2 --number-sections \
+  -V documentclass=report -V geometry:margin=2cm
+```
 
 ## The skill tree (Hermes category, `../skills/engraving-jobs/`)
 
@@ -67,8 +99,9 @@ skills:
 - **`recipes/`** — generated: complete runnable example specs (validated
   through `parse_yaml` on every regeneration) under `examples/`.
 - **`engraving-job-complete-reference/`** — generated `SKILL.md` whose
-  `references/` directory holds the exhaustive artifacts (`JOB_SPEC.md` +
-  the two JSON Schemas, written by `generate_ai_docs.py`). Every other
+  `references/` directory holds the exhaustive artifacts (`JOB_SPEC.md`,
+  `JOB_CONFIG.md` + the two JSON Schemas, written by
+  `generate_ai_docs.py`). Every other
   skill links the full schema through
   `../engraving-job-complete-reference/references/...`, so installing this
   one category gives the agent the complete contract.
@@ -86,6 +119,14 @@ The 17 themes are an **exact partition of every field in
 `job_spec.schema.json`** (the copy in the complete-reference skill's
 `references/`) — `generate_skills.py` hard-fails if a schema field
 is uncovered or double-covered, so a new field can never ship undocumented.
+The same partition discipline extends to the shop config:
+`generate_ai_docs.py`'s `_CONFIG_GROUP_FIELDS` groups every
+`job_config.schema.json` property into exactly one `JOB_CONFIG.md` section
+(the theme groups, plus `_CONFIG_EXTRA_GROUPS` for the four config-only
+fields and a Meta section for `description`), and
+`config_group_problems()` — pinned by
+`tests/test_job_spec_docs.py` / `tests/test_job_spec_skills.py` — fails on a
+gap, a double-claim, or a group order that drifted from the registry.
 Hermes progressive disclosure is explicit: `skill_view(name)` loads only
 `SKILL.md`; reference files load on demand and are installed only when named
 in their `SKILL.md` — which is why every generated file is linked from its
@@ -153,7 +194,8 @@ jsonschema.validate(job, schema)          # structural check
 ## Regenerating
 
 ```bash
-uv run python docs/schema/generate_ai_docs.py     # JOB_SPEC.md + JSON schemas
+uv run python docs/schema/generate_ai_docs.py     # JOB_SPEC.md + JOB_CONFIG.md
+                                                  # + JSON schemas
                                                   # -> engraving-job-complete-reference/references/
 uv run python docs/schema/generate_skills.py      # skill tree + TOC (+ --check for CI)
 ```

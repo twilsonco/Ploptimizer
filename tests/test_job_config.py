@@ -478,6 +478,51 @@ class TestJobDefaultsModel:
         assert JobDefaults(v_center_by_content=True).v_center_by_content is True
 
 
+class TestSchemaRefField:
+    """The editor-only ``$schema`` key is accepted and never leaks."""
+
+    def test_schema_key_parses_onto_schema_ref(self) -> None:
+        """The reserved ``$schema`` JSON key populates ``schema_ref``."""
+        defaults = JobDefaults(**{"$schema": "./job_config.schema.json"})
+        assert defaults.schema_ref == "./job_config.schema.json"
+
+    def test_schema_ref_unset_when_absent(self) -> None:
+        """A config without the pointer validates with it unset."""
+        assert JobDefaults().schema_ref is None
+
+    def test_schema_ref_excluded_from_model_dump(self) -> None:
+        """The pointer can never reach cascade injection."""
+        from plt_optimizer.generate.job_config import _JOB_LAYER_FIELDS
+
+        defaults = JobDefaults(**{"$schema": "./x.json", "max_h_compress": 0.5})
+        dumped = defaults.model_dump()
+        assert "$schema" not in dumped
+        assert "schema_ref" not in dumped
+        assert dumped["max_h_compress"] == 0.5
+        # Not a default: it must never be listed as a job-layer injection key.
+        assert "schema_ref" not in _JOB_LAYER_FIELDS
+
+    def test_repo_config_loads_with_schema_pointer(self) -> None:
+        """The shipped config carries ``$schema`` and still loads cleanly."""
+        config = load_job_config(Path("job-config.json"))
+        assert config is not None
+        assert config.defaults.schema_ref
+        # The pointer is editor-only: it must not surface as a job default.
+        assert "schema_ref" not in config.defaults.model_dump()
+
+    def test_repo_config_schema_pointer_resolves(self) -> None:
+        """The path in the repo config points at a real generated artifact.
+
+        Guards against moving/renaming the schema out from under the hover
+        affordance (a stale pointer silently degrades to no tooltips).
+        """
+        raw = json.loads(Path("job-config.json").read_text(encoding="utf-8"))
+        pointer = raw["$schema"]
+        assert not pointer.startswith(("http://", "https://"))
+        target = (Path("job-config.json").parent / pointer).resolve()
+        assert target.is_file(), f"$schema points at a missing file: {target}"
+
+
 class TestLoadJobConfig:
     """Tests for load_job_config()."""
 

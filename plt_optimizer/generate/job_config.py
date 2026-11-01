@@ -405,10 +405,25 @@ class JobDefaults(BaseModel):
             the same color. Unset falls back to ``#D3D3D3`` (light grey).
             Display-only: never injected into the job spec and never
             affects the emitted PLTs.
+        schema_ref: Editor-only ``$schema`` pointer to the generated
+            ``job_config.schema.json`` (hover docs for every key in a
+            JSON-aware editor). Excluded from the model dump; never read
+            by the pipeline and never injected into a job spec.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    schema_ref: Optional[str] = Field(
+        default=None,
+        alias="$schema",
+        exclude=True,
+        description=(
+            "Editor-only pointer to the generated ``job_config.schema.json``; "
+            "enables hover documentation for every key in a JSON-aware editor. "
+            "Never read by the pipeline (excluded from the model dump, so it "
+            "can never reach cascade injection)."
+        ),
+    )
     description: Optional[str] = Field(
         default=None,
         description="Free-form comment field (mirrors tools.json); not a default.",

@@ -16,6 +16,10 @@ skill:
 - `JOB_SPEC.md`            Dense markdown reference: per-model field
   tables, enum value tables, resolved fallback defaults, and the
   required-when-unconfigured set.
+- `JOB_CONFIG.md`          Dense markdown reference for the shop config:
+  field audit (type / code fallback / set-in-config by key presence),
+  per-topic field tables, config enums, the required gate, and the live
+  tool-options table.
 
 Hand-written semantics (job forms, cascade rules, expansion behavior,
 examples) live in the sibling sub-skill `references/semantics.md` files of
@@ -66,10 +70,184 @@ REF_SKILL_REFERENCES = (
 JOB_SPEC_JSON = REF_SKILL_REFERENCES / "job_spec.schema.json"
 JOB_CONFIG_JSON = REF_SKILL_REFERENCES / "job_config.schema.json"
 JOB_SPEC_MD = REF_SKILL_REFERENCES / "JOB_SPEC.md"
+JOB_CONFIG_MD = REF_SKILL_REFERENCES / "JOB_CONFIG.md"
 
 # Rendering order for the markdown model sections (root model first).
 _MODEL_ORDER = ("JobSpec", "PlateSpec", "LabelSpec", "ContentEntry", "TextLine", "HoleSpec")
 _ENUM_ORDER = ("HoleLocation", "TextHAlignment", "LayoutMode", "TextColor", "CounterStyle")
+
+# Rendering order for the `JOB_CONFIG.md` field sections: the thematic groups
+# of the `generate_skills.py` theme registry, in registry order, so the shop
+# config reference and the sub-skill tree group fields identically. Kept as
+# plain names (not imported) because `generate_skills.py` imports THIS module;
+# `tests/test_job_spec_docs.py` pins this tuple against the live registry.
+_CONFIG_THEME_ORDER = (
+    "job-forms",
+    "replacement-text",
+    "cascade-and-config",
+    "label-geometry",
+    "fonts-and-capline",
+    "glyph-spacing-and-kerning",
+    "line-stacking-and-reflow",
+    "centering-and-descender-relief",
+    "inline-markup",
+    "lists",
+    "cutters",
+    "bold-multistroke",
+    "compression-and-cutter-downsize",
+    "holes-and-collision",
+    "plates-layout-and-packing",
+    "tool-options",
+    "running-and-troubleshooting",
+)
+
+#: Section title for each group (the theme registry's own titles, duplicated
+#: here for the same import-direction reason; pinned by the docs tests).
+_CONFIG_GROUP_TITLES = {
+    "job-forms": "Job Forms",
+    "replacement-text": "Replacement Text",
+    "cascade-and-config": "Cascade, Config Tier and tools.json",
+    "label-geometry": "Label Size, Margins and Shape",
+    "fonts-and-capline": "Fonts and Cap Line",
+    "glyph-spacing-and-kerning": "Glyph Spacing and Kerning",
+    "line-stacking-and-reflow": "Line Stacking and Reflow",
+    "centering-and-descender-relief": "Centering and Descender Relief",
+    "inline-markup": "Inline Markup",
+    "lists": "Lists",
+    "cutters": "Cutters",
+    "bold-multistroke": "Bold and Multistroke",
+    "compression-and-cutter-downsize": "Compression and Cutter Downsize",
+    "holes-and-collision": "Holes and Collision",
+    "plates-layout-and-packing": "Plates, Layout and Packing",
+    "tool-options": "Tool Options",
+    "running-and-troubleshooting": "Running and Troubleshooting",
+}
+
+#: Config-only fields with no job-spec counterpart, mapped to the group that
+#: documents them (`description` and the stripped `$schema` are the Meta
+#: section, handled outside the group loop).
+_CONFIG_EXTRA_GROUPS = {
+    "hole_diameter": "holes-and-collision",
+    "plate_width": "plates-layout-and-packing",
+    "plate_height": "plates-layout-and-packing",
+    "preview_background_color": "cascade-and-config",
+}
+
+#: Fields rendered in the leading `Meta` section (not pipeline defaults).
+_CONFIG_META_FIELDS = ("description",)
+
+#: `JobDefaults` properties excluded from every rendered section. `$schema` is
+#: the editor-only hover pointer (`JobDefaults.schema_ref`); it is stripped
+#: from the generated schema by :func:`build_job_config_schema` and must not
+#: appear in the field tables either.
+_CONFIG_HIDDEN_FIELDS = ("$schema",)
+
+#: Group -> config fields, mirroring the `generate_skills.py` theme registry
+#: (intersected with the `JobDefaults` properties) plus `_CONFIG_EXTRA_GROUPS`.
+#: Duplicated as plain data because `generate_skills.py` imports THIS module;
+#: `tests/test_job_spec_docs.py` pins it against the live registry, so a theme
+#: field move surfaces as a failing test instead of a silently stale section.
+_CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
+    "replacement-text": (
+        "replacement_text_delimiter",
+        "replacement_text_file_comment_string",
+        "replacement_text_file_allow_blank_lines",
+    ),
+    "cascade-and-config": ("preview_background_color",),
+    "label-geometry": (
+        "margin",
+        "h_margin",
+        "v_margin",
+        "type",
+        "rounded_rectangle_fraction",
+        "rounded_rectangle_proportional",
+    ),
+    "fonts-and-capline": ("text_height", "font", "sc_scale", "enforce_cap_line"),
+    "glyph-spacing-and-kerning": (
+        "character_spacing",
+        "space_width_fraction",
+        "min_glyph_width_fraction",
+        "kerning_window_fraction",
+        "kerning_penetration_scale",
+        "kerning_recession_scale",
+        "kerning_min_gap_fraction",
+        "fallback_advance_fraction",
+        "kern_pos_string",
+        "kern_neg_string",
+        "kern_width_fraction",
+    ),
+    "line-stacking-and-reflow": (
+        "line_spacing",
+        "optimize_line_content",
+        "use_baseline_spacing",
+        "optimize_line_content_max_lines",
+        "auto_line_spacing_interline_to_top_bottom_ratio",
+    ),
+    "centering-and-descender-relief": (
+        "text_h_alignment",
+        "v_center_chars",
+        "v_center_by_content",
+        "auto_descending_character_adjustment",
+        "descending_character_v_scale",
+        "descending_character_raise",
+        "descending_character_clearance",
+        "descending_character_reciprocal_scale",
+        "adjust_h_center_for_single_side_hole",
+    ),
+    "inline-markup": (
+        "supersubscript_downscale",
+        "html_brackets",
+        "italic_angle",
+        "underline_offset_fraction",
+        "underline_break_clearance_fraction",
+        "underline_break_spaces",
+        "strikethrough_offset_fraction",
+        "strikethrough_break_spaces",
+    ),
+    "lists": (
+        "bullet_string",
+        "counter_start_index",
+        "counter_style",
+        "counter_prefix",
+        "counter_suffix",
+        "list_marker_gap_fraction",
+    ),
+    "cutters": ("cutter_buffer_text", "cutter_buffer_routing"),
+    "bold-multistroke": (
+        "target_boldness_factor",
+        "multistroke_overlap_ratio",
+        "bold_boldness_multiplier",
+    ),
+    "compression-and-cutter-downsize": (
+        "max_h_compress",
+        "cutter_downsize",
+        "max_cutter_downsizes",
+        "cutter_downsize_global",
+        "cutter_downsize_global_job_wide",
+        "h_compress_global",
+        "h_compress_global_same_height_only",
+        "arc_preserve_compression",
+    ),
+    "holes-and-collision": (
+        "hole_margin",
+        "min_hole_margin",
+        "hole_text_collision_distance",
+        "holes",
+        "hole_diameter",
+        "hole_adjust_for_cutter",
+        "align_margin_adjust_global",
+    ),
+    "plates-layout-and-packing": (
+        "allow_rotation",
+        "text_chunk_mode",
+        "layout",
+        "plate_width",
+        "plate_height",
+        "left_clearance",
+        "top_clearance",
+    ),
+    "tool-options": ("tool_options",),
+}
 
 # JSON-Schema primitive -> Python-flavoured name (AI-consumer friendly).
 _TYPE_NAMES = {"number": "float", "integer": "int", "string": "str", "boolean": "bool"}
@@ -429,11 +607,18 @@ def build_job_spec_schema() -> str:
 def build_job_config_schema() -> str:
     """Render the `job-config.json` JSON Schema as deterministic pretty JSON.
 
+    The editor-only `$schema` property (the `JobDefaults.schema_ref` alias)
+    is stripped: `$schema` is a reserved JSON Schema keyword, and this
+    document is the hover source editors consult, so it must describe the
+    config's real fields only.
+
     Returns:
         Pretty-printed JSON Schema text for :class:`JobDefaults` (trailing
         newline included).
     """
-    return json.dumps(JobDefaults.model_json_schema(), indent=2) + "\n"
+    schema = JobDefaults.model_json_schema()
+    schema.get("properties", {}).pop("$schema", None)
+    return json.dumps(schema, indent=2) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -690,6 +875,13 @@ def _scrape_constants() -> dict[str, str]:
 #: immunity -- see tests/AGENTS.md).
 TOOL_OPTIONS_HEADING = "## Available Tool Options"
 
+#: Start of the `JOB_CONFIG.md` sections rendered from the live
+#: `job-config.json` (the field audit's key-presence column + the tool-options
+#: table). Everything before this heading is byte-pinned; everything from it
+#: onward is excluded, so retuning OR adding/removing keys in the shop config
+#: can never break the pin (config-value immunity -- see tests/AGENTS.md).
+CONFIG_DYNAMIC_HEADING = "## Field audit (live shop config)"
+
 
 def split_tool_options(markdown: str) -> tuple[str, str]:
     """Split rendered markdown into the model part and the tool-options part.
@@ -707,6 +899,28 @@ def split_tool_options(markdown: str) -> tuple[str, str]:
         document carries no tool-options section.
     """
     index = markdown.find(TOOL_OPTIONS_HEADING)
+    if index < 0:
+        return markdown, ""
+    return markdown[:index], markdown[index:]
+
+
+def split_config_tool_options(markdown: str) -> tuple[str, str]:
+    """Split a `JOB_CONFIG.md` render into pinned and live-config parts.
+
+    The pinned part (everything before :data:`CONFIG_DYNAMIC_HEADING`) is
+    derived purely from the model, the enums and the code fallback
+    constants. The live part (the field audit's key-presence column + the
+    tool-options table) is derived from `job-config.json` and excluded from
+    the byte-pin (config-value immunity).
+
+    Args:
+        markdown: A `JOB_CONFIG.md` render (committed file or fresh build).
+
+    Returns:
+        `(pinned_part, live_part)`; `live_part` is `""` when the document
+        carries no audit heading.
+    """
+    index = markdown.find(CONFIG_DYNAMIC_HEADING)
     if index < 0:
         return markdown, ""
     return markdown[:index], markdown[index:]
@@ -883,6 +1097,220 @@ def build_job_spec_markdown() -> str:
 
 
 # ---------------------------------------------------------------------------
+# JOB_CONFIG.md builder (shop-config human reference)
+# ---------------------------------------------------------------------------
+
+
+def _config_schema() -> dict[str, Any]:
+    """Return the `JobDefaults` JSON Schema with `$schema` stripped.
+
+    Returns:
+        The schema document used for every `JOB_CONFIG.md` render.
+    """
+    schema = JobDefaults.model_json_schema()
+    schema.get("properties", {}).pop("$schema", None)
+    return schema
+
+
+def _load_config_keys() -> set[str]:
+    """Load the top-level key set of the repo `job-config.json`.
+
+    Only KEY PRESENCE is ever rendered (config-value immunity: the shop
+    retunes values freely; a pinned artifact must never embed one).
+
+    Returns:
+        Set of top-level keys, empty when the file is missing/unreadable.
+    """
+    config_path = REPO_ROOT / "job-config.json"
+    if not config_path.exists():
+        return set()
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return set()
+    return set(data) if isinstance(data, dict) else set()
+
+
+def config_group_problems() -> list[str]:
+    """Verify the config field grouping is an exact partition.
+
+    Every rendered `JobDefaults` property must appear in exactly one section
+    (Meta, `_CONFIG_META_FIELDS`, or one `_CONFIG_GROUP_FIELDS` group), and
+    every grouped name must be a real property. A new field with no group
+    must fail a test, not silently vanish from the docs (the same failure
+    mode `_FALLBACK_NOTES` guards for constants).
+
+    Returns:
+        Human-readable problems (empty when the partition is sound).
+    """
+    properties = _config_schema().get("properties", {})
+    problems: list[str] = []
+    counts: dict[str, int] = {}
+    for name in _CONFIG_META_FIELDS:
+        counts[name] = counts.get(name, 0) + 1
+    for group, fields in _CONFIG_GROUP_FIELDS.items():
+        if group not in _CONFIG_THEME_ORDER:
+            problems.append(f"unknown config group: {group}")
+        if group not in _CONFIG_GROUP_TITLES:
+            problems.append(f"config group has no title: {group}")
+        for name in fields:
+            counts[name] = counts.get(name, 0) + 1
+    for name, count in sorted(counts.items()):
+        if count > 1:
+            problems.append(f"config field in {count} groups: {name}")
+        if name not in properties:
+            problems.append(f"grouped field is not a JobDefaults property: {name}")
+    for name in sorted(properties):
+        if name in _CONFIG_HIDDEN_FIELDS:
+            continue
+        if name not in counts:
+            problems.append(f"JobDefaults property in no config group: {name}")
+    return problems
+
+
+def build_job_config_markdown() -> str:
+    """Render the complete generated `job-config.json` reference.
+
+    Pinned sections (model-derived only): intro (shop-tier semantics), a Meta
+    table, one field table per thematic group (rows byte-identical to
+    `JOB_SPEC.md` because both render through :func:`_render_model`), the
+    enums the config references, and the required-when-unconfigured gate.
+
+    Live sections (below :data:`CONFIG_DYNAMIC_HEADING`, excluded from the
+    byte-pin): the field audit table (every field, its type, its code
+    fallback, and whether the repo `job-config.json` sets it -- key presence
+    only, never a value) and the tool-options table.
+
+    Returns:
+        The full `JOB_CONFIG.md` text (deterministic; trailing newline
+        included).
+    """
+    schema = _config_schema()
+    properties: dict[str, Any] = schema.get("properties", {})
+    defs: dict[str, Any] = schema.get("$defs", {})
+    configured = _load_config_keys()
+    constants = _scrape_constants()
+
+    def fallback_label(field_name: str) -> str:
+        constant = f"DEFAULT_{field_name.upper()}"
+        return f"`{constants[constant]}`" if constant in constants else "—"
+
+    def set_label(field_name: str) -> str:
+        return "**set**" if field_name in configured else "unset"
+
+    def table_for(fields: list[str]) -> str:
+        node = {
+            "properties": {name: properties[name] for name in fields if name in properties},
+            "required": [],
+        }
+        return _render_model("JobDefaults", node, heading=False)
+
+    lines: list[str] = [
+        "# `job-config.json` Shop Defaults — Generated Reference",
+        "",
+        "<!--",
+        "AUTO-GENERATED by docs/schema/generate_ai_docs.py — DO NOT EDIT.",
+        "Regenerate:  uv run python docs/schema/generate_ai_docs.py",
+        "Pinned by:   tests/test_job_spec_docs.py",
+        "Semantics that a schema cannot express (cascade mechanics, tool",
+        "option usage, troubleshooting) live in the thematic sub-skills of",
+        "this category: ../../<theme>/references/semantics.md.",
+        "-->",
+        "",
+        "`job-config.json` is the shop tier of the generate pipeline: its",
+        "values are injected as the top-most (job/plate) layer of the cascade,",
+        "so every label may still override them, and a field set to `null` (or",
+        "omitted) means \"no configured default\" — the code fallback applies.",
+        "Precedence: job YAML > `job-config.json` > code fallback. All units",
+        "are **inches**. Every key is validated at load against",
+        "[`job_config.schema.json`](job_config.schema.json) (this file's source",
+        "of truth): unknown keys and out-of-range values fail the run with",
+        "every problem listed at once.",
+        "",
+        "Add `\"$schema\": \"./docs/skills/engraving-jobs/engraving-job-complete-reference/references/job_config.schema.json\"`",
+        "to a config file to get per-field hover documentation in a JSON-aware",
+        "editor (the path is relative to the config file; for a config kept",
+        "outside the repo, copy the schema beside it or use a `file:` URI).",
+        "",
+        "Sections below the `Field audit` heading are rendered from the live",
+        "`job-config.json` (key presence and tool options) and are excluded from",
+        "the docs byte-pin; everything above is derived purely from the model.",
+        "",
+        "## Meta",
+        "",
+        table_for(list(_CONFIG_META_FIELDS)),
+        "",
+        "## Fields by topic",
+        "",
+    ]
+    for group in _CONFIG_THEME_ORDER:
+        fields = _CONFIG_GROUP_FIELDS.get(group)
+        if not fields:
+            continue
+        lines += [f"### {_CONFIG_GROUP_TITLES[group]}", "", table_for(list(fields)), ""]
+
+    enum_names = [name for name in _ENUM_ORDER if name in defs and "enum" in defs[name]]
+    enum_names += sorted(
+        name for name in defs if "enum" in defs[name] and name not in enum_names
+    )
+    lines += [
+        "## Enums",
+        "",
+        "Enumerations accepted by the config's fields (shared with the job",
+        "spec — see `JOB_SPEC.md` for the full set).",
+        "",
+    ]
+    for name in enum_names:
+        lines += [_render_enum(name, defs[name]), ""]
+
+    required_fields = sorted(REQUIRED_WHEN_UNCONFIGURED)
+    lines += [
+        "## Required-when-unconfigured (job-config gate)",
+        "",
+        "When a `--job-config` path is in play, these fields must be supplied by",
+        "the config **or** the job spec (job level, or on every label); missing",
+        "everywhere aborts parsing with `JobConfigError`:",
+        "",
+    ]
+    lines += [f"- `{name}`" for name in required_fields]
+    lines += [
+        "- `plate_width` / `plate_height` (enforced separately: needed whenever",
+        "  plates are undeclared, i.e. unbounded auto-allocation)",
+        "",
+        "Without a config path (direct API / test callers), every field keeps its",
+        "code fallback and nothing is required.",
+        "",
+        CONFIG_DYNAMIC_HEADING,
+        "",
+        "Every configurable field, its code fallback (the value used when the",
+        "field is unset everywhere), and whether the repo `job-config.json`",
+        "currently sets it (key presence only — the shop retunes values freely,",
+        "so no value from that file is embedded in this document). This section",
+        "and the tool-options table below are rendered from the live config and",
+        "excluded from the docs byte-pin.",
+        "",
+        "| Field | Type | Code fallback | In shop config | Group |",
+        "|---|---|---|---|---|",
+    ]
+    group_of: dict[str, str] = dict.fromkeys(_CONFIG_META_FIELDS, "Meta")
+    for group, fields in _CONFIG_GROUP_FIELDS.items():
+        for name in fields:
+            group_of[name] = group
+    for field_name, node in properties.items():
+        lines.append(
+            f"| `{field_name}` | {_type_label(node)} | {fallback_label(field_name)} | "
+            f"{set_label(field_name)} | {group_of.get(field_name, '—')} |"
+        )
+    lines.append("")
+
+    tool_options = _load_tool_options()
+    if tool_options:
+        lines += _format_tool_options_markdown(tool_options)
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -894,6 +1322,7 @@ def main() -> None:
         JOB_SPEC_JSON: build_job_spec_schema(),
         JOB_CONFIG_JSON: build_job_config_schema(),
         JOB_SPEC_MD: build_job_spec_markdown(),
+        JOB_CONFIG_MD: build_job_config_markdown(),
     }
     for path, content in artifacts.items():
         path.write_text(content, encoding="utf-8")

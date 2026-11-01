@@ -597,3 +597,4 @@ job:
 - `references/semantics.md` — choosing and adapting a recipe.
 - [`../generate-engraving-job/SKILL.md`](../generate-engraving-job/SKILL.md) — the main workflow skill.
 - [`../engraving-job-complete-reference/references/JOB_SPEC.md`](../engraving-job-complete-reference/references/JOB_SPEC.md) — exhaustive field reference.
+- [`../engraving-job-complete-reference/references/JOB_CONFIG.md`](../engraving-job-complete-reference/references/JOB_CONFIG.md) — exhaustive shop-config field reference.
