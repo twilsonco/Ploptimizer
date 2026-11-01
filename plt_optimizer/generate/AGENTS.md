@@ -62,7 +62,11 @@ mirrored copies run from an installed skill directory.
 When adding a new cascading field to `JobSpec`, `PlateSpec`, or `LabelSpec`:
 
 1. **Add field to the appropriate model(s)** in `plt_optimizer/generate/schema.py`
-   - Include full type hints and `description` in the Field definition
+   - Include full type hints and `description` in the Field definition.
+     Descriptions render as markdown (schema hovers, `JOB_SPEC.md`):
+     backtick markup tags (`<sup>`) and multi-word field names, and wrap
+     formulas in `$...$` (`$1 - d/2$`) — pinned by
+     `tests/test_prose_markdown.py`, see [`../../docs/AGENTS.md`](../../docs/AGENTS.md)
    - Plate parity: the `PlateSpec` re-declaration's boilerplate comes from
      the `_parity()` helper (and the upper-tier tail from
      `PLATE_PARITY_TAIL`) — never retype the "(schema parity; not applied at

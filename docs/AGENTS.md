@@ -30,6 +30,17 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   Regenerate after ANY schema/job-config field change - `generate_ai_docs.py`
   FIRST (the reference skill's files), then `generate_skills.py` (it reads
   the committed `job_spec.schema.json` for its coverage check).
+- **Prose markdown-safety (pinned by `tests/test_prose_markdown.py`):** all
+  rendered prose - `Field(description=...)` in `schema.py`/`job_config.py`,
+  `_FALLBACK_NOTES`, the Theme `core`/`use_when`/`pitfalls` registry strings,
+  and the skill-tree markdown bodies - must backtick markup tags
+  (`<sup>`, `<vc>...</vc>`, `<theme>`), backtick every multi-word
+  schema/config field name it mentions, and delimit formulas with `$...$`
+  (e.g. `$1 - d/2$`) or backticks, so nothing renders as stray HTML/italics.
+  Exempt by design: frontmatter `Keywords:` lists (bare search terms), fenced
+  code blocks (YAML fragments engrave tags literally), single-word field
+  names (`text`, `height` - indistinguishable from English), parenthetical
+  prose like `(capline - baseline)`, and error-message strings.
 - The skill tree is a Hermes **category** directory
   (`docs/skills/engraving-jobs/`) of skill folders: hand-written main skill
   `generate-engraving-job/` (workflow + AUTO-TOC markers), 17 generated
