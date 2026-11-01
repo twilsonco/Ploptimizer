@@ -378,7 +378,7 @@ class JobDefaults(BaseModel):
             "structural sibling of `cutter_buffer_text`). The effective width "
             "drives the cutter-compensated hole radius, the hole margin edge "
             "offset, the collision stroke floor, the round-label packing kerf "
-            "and the PDF proof stroke widths; the *_bh_* file name keeps the "
+            "and the PDF proof stroke widths; the `*_bh_*` file name keeps the "
             "physical tool. Cascades line -> label -> job; unset falls back "
             "to 0.0."
         ),

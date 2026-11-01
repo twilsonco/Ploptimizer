@@ -9,7 +9,9 @@ convention:
 
 - markup tags and placeholder chevrons -> backticks (`` `<sup>` ``);
 - formulas -> ``$...$`` (``$1 - d/2$``) or backticks;
-- every multi-word schema/job-config field named in prose -> backticks.
+- every multi-word schema/job-config field named in prose -> backticks;
+- code-shaped asterisk globs (``*_bh_*``, ``*.ttf``) -> backticks (intentional
+  ``*emphasis*`` is exempt).
 
 Scanned sources: ``Field(description=...)`` in ``schema.py`` /
 ``job_config.py``, ``_FALLBACK_NOTES`` in ``generate_ai_docs.py``, the
@@ -62,6 +64,10 @@ _SPAN_RE = re.compile(
     r"|(?<!`)`(?!`)[^`]+(?<!`)`(?!`)"  # `code`
     r"|\$[^$\n]+\$"  # $math$
 )
+#: Asterisk-wrapped tokens that are code, not emphasis: globs containing
+#: underscores (`*_bh_*`) and extension globs (`*.ttf`, `*.json`). Bare,
+#: they italicize in markdown; intentional `*word*` emphasis is exempt.
+_GLOB_RE = re.compile(r"(?<![\w`$*])\*(?:[\w.]*_[\w.]*|\.[\w*]+)\*(?![\w*])")
 
 
 def _span_mask(text: str) -> List[bool]:
@@ -81,7 +87,7 @@ def _span_mask(text: str) -> List[bool]:
 
 
 def _violations(text: str, base_line: int = 1) -> List[Tuple[int, str, str]]:
-    """Find bare tags / math / field names in one prose string.
+    """Find bare tags / math / field names / globs in one prose string.
 
     Matches inside backtick/`$...$` spans are exempt; a match's line is
     attributed against ``base_line`` so multi-line blocks report the right
@@ -107,6 +113,7 @@ def _violations(text: str, base_line: int = 1) -> List[Tuple[int, str, str]]:
     emit(_TAG_RE, "bare markup tag")
     emit(_MATH_RE, "bare formula")
     emit(_FIELD_RE, "bare field name")
+    emit(_GLOB_RE, "bare glob")
     return found
 
 
@@ -299,6 +306,15 @@ class TestLintSelfCheck:
         """A real field name needs backticks; the backticked form is clean."""
         assert (1, "bare field name", "text_height") in _violations("set text_height to 0.5")
         assert not _violations("set `text_height` to 0.5")
+
+    def test_detects_bare_glob(self) -> None:
+        """A `*_bh_*`-style glob italicizes; the backticked form is clean."""
+        assert (1, "bare glob", "*_bh_*") in _violations("the *_bh_* file name")
+        assert not _violations("the `*_bh_*` file name")
+
+    def test_intentional_emphasis_is_exempt(self) -> None:
+        """`*word*` emphasis (no underscore/dot inside) is not a violation."""
+        assert not _violations("a *recessed* (negative) penetration")
 
     def test_single_word_fields_are_not_enforced(self) -> None:
         """Prose words `text`/`height` must not be flagged as field names."""

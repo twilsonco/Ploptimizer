@@ -35,8 +35,10 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   `_FALLBACK_NOTES`, the Theme `core`/`use_when`/`pitfalls` registry strings,
   and the skill-tree markdown bodies - must backtick markup tags
   (`<sup>`, `<vc>...</vc>`, `<theme>`), backtick every multi-word
-  schema/config field name it mentions, and delimit formulas with `$...$`
-  (e.g. `$1 - d/2$`) or backticks, so nothing renders as stray HTML/italics.
+  schema/config field name it mentions, backtick code-shaped globs
+  (`*_bh_*`, `*.ttf` - intentional `*emphasis*` is exempt), and delimit
+  formulas with `$...$` (e.g. `$1 - d/2$`) or backticks, so nothing
+  renders as stray HTML/italics.
   Exempt by design: frontmatter `Keywords:` lists (bare search terms), fenced
   code blocks (YAML fragments engrave tags literally), single-word field
   names (`text`, `height` - indistinguishable from English), parenthetical
