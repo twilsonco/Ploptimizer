@@ -2,7 +2,7 @@
   "$defs": {
     "ContentEntry": {
       "additionalProperties": false,
-      "description": "One entry of a label's `content` list: a text line or a list block.\n\nA plain entry carries `text` (the historical :class:`TextLine` shape,\nso every existing spec validates unchanged). A list entry carries exactly\none of `itemize` / `enumerate` (and no `text`), nesting the list\nblock's fields and items. The three slots are mutually exclusive.\n\nAttributes:\n    itemize: Optional bullet-list block (mutually exclusive with\n        `text` and `enumerate`).\n    enumerate: Optional enumerated-list block (mutually exclusive with\n        `text` and `itemize`).",
+      "description": "One entry of a label's `content` list: a text line or a list block.\n\nA plain entry carries `text` (the historical :class:`TextLine` shape,\nso every existing spec validates unchanged). A list entry carries exactly\none of `itemize` / `enumerate` (and no `text`), nesting the list\nblock's fields and items. The three slots are mutually exclusive.",
       "properties": {
         "text_height": {
           "anyOf": [
@@ -4360,7 +4360,7 @@
     },
     "TextLine": {
       "additionalProperties": false,
-      "description": "A single line of text content within a label.\n\nAttributes:\n    text: The actual text string to render.\n    text_height: Optional font height in inches. Inherits from parent\n        LabelSpec.text_height or JobSpec.text_height if not set locally.\n    placeholder: When `True`, this line is replaced by the corresponding\n        item from the replacement file during expansion; all other\n        attributes (text height, alignment, color, ...) are preserved on\n        the synthesized line. Non-placeholder lines are copied verbatim to\n        every generated label instance. Requires the parent label to\n        declare `replacement_text_file`.\n    new_line: When `True`, this line begins on its own line in the\n        label. It modifies the word-level line-content reflow\n        (`optimize_line_content`): the line starts a new reflow group,\n        so the lines that follow it (which do not carry the flag\n        themselves) reflow together with it instead of with the lines\n        above it. The flag is inert when the line does not enable\n        `optimize_line_content` (every line then begins on its own line\n        already). Line-level only -- it is never inherited from the label\n        or the job, and it has no `job-config.json` counterpart.",
+      "description": "A single line of text content within a label.\n    ",
       "properties": {
         "text_height": {
           "anyOf": [

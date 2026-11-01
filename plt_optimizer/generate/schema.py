@@ -1603,28 +1603,7 @@ class LabelAttributes(TextAttributes):
 
 
 class TextLine(TextAttributes):
-    """A single line of text content within a label.
-
-    Attributes:
-        text: The actual text string to render.
-        text_height: Optional font height in inches. Inherits from parent
-            LabelSpec.text_height or JobSpec.text_height if not set locally.
-        placeholder: When `True`, this line is replaced by the corresponding
-            item from the replacement file during expansion; all other
-            attributes (text height, alignment, color, ...) are preserved on
-            the synthesized line. Non-placeholder lines are copied verbatim to
-            every generated label instance. Requires the parent label to
-            declare `replacement_text_file`.
-        new_line: When `True`, this line begins on its own line in the
-            label. It modifies the word-level line-content reflow
-            (`optimize_line_content`): the line starts a new reflow group,
-            so the lines that follow it (which do not carry the flag
-            themselves) reflow together with it instead of with the lines
-            above it. The flag is inert when the line does not enable
-            `optimize_line_content` (every line then begins on its own line
-            already). Line-level only -- it is never inherited from the label
-            or the job, and it has no `job-config.json` counterpart.
-    """
+    """A single line of text content within a label."""
 
     text: str = Field(description="The text string to render (non-empty).")
     placeholder: bool = Field(
@@ -1712,12 +1691,6 @@ class ContentEntry(TextLine):
     so every existing spec validates unchanged). A list entry carries exactly
     one of `itemize` / `enumerate` (and no `text`), nesting the list
     block's fields and items. The three slots are mutually exclusive.
-
-    Attributes:
-        itemize: Optional bullet-list block (mutually exclusive with
-            `text` and `enumerate`).
-        enumerate: Optional enumerated-list block (mutually exclusive with
-            `text` and `itemize`).
     """
 
     text: Optional[str] = Field(  # type: ignore[assignment]
