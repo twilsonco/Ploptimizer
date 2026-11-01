@@ -247,7 +247,7 @@ THEMES: Tuple[Theme, ...] = (
         core="Batch-generate one label per line of a text file.",
         use_when=(
             "generating many labels from a data list",
-            "writing replacement_text_file specs",
+            "writing `replacement_text_file` specs",
             "choosing job-, plate-, or label-level files",
         ),
         keywords=(
@@ -434,7 +434,7 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="fonts-and-capline",
         title="Fonts, Small Caps and Cap-Line Enforcement",
-        core="Pick fonts (PLT catalog, TTF, SC), text_height, cap-line clamp.",
+        core="Pick fonts (PLT catalog, TTF, SC), `text_height`, cap-line clamp.",
         use_when=(
             "choosing a font",
             "letters sit off the cap line",
@@ -823,7 +823,7 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="cutters",
         title="Cutter Selection",
-        core="Auto cutter ladder, explicit cutter_size, kerf buffers, per-cutter PLT files.",
+        core="Auto cutter ladder, explicit `cutter_size`, kerf buffers, per-cutter PLT files.",
         use_when=(
             "choosing or overriding the engraving cutter",
             "output splits into multiple PLT files",
@@ -916,10 +916,10 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="bold-multistroke",
         title="Multi-Stroke (Bold) Fonts",
-        core="Stroke-count PLT fonts, target boldness, and <b> behavior.",
+        core="Stroke-count PLT fonts, target boldness, and `<b>` behavior.",
         use_when=(
             "engraving bold text on PLT fonts",
-            "tuning target_boldness_factor",
+            "tuning `target_boldness_factor`",
             "passes leave unengraved stripes",
         ),
         keywords=(
@@ -965,7 +965,7 @@ THEMES: Tuple[Theme, ...] = (
         core="Squeeze long text horizontally; swap to a finer cutter when squeezed.",
         use_when=(
             "text overflows the label width",
-            "choosing the max_h_compress budget",
+            "choosing the `max_h_compress` budget",
             "one text size engraves at two cutters",
         ),
         keywords=(
@@ -1203,7 +1203,7 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="tool-options",
         title="Tool Options (HPGL Header Commands)",
-        core="Engraver velocity, spindle, dwell and Z via tool_options.",
+        core="Engraver velocity, spindle, dwell and Z via `tool_options`.",
         use_when=(
             "setting cut speed, spindle rpm, dwell, Z clearance",
             "text and borders need different engraver settings",

@@ -261,7 +261,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_LINE_SPACING": "Extra line spacing when unset at line/label/job level.",
     "DEFAULT_HOLE_MARGIN": "Hole margin when unset everywhere. Required from config-or-spec when "
     "a job-config is in play.",
-    "DEFAULT_MIN_HOLE_MARGIN": "None = collision avoidance may shrink hole_margin all the way "
+    "DEFAULT_MIN_HOLE_MARGIN": "None = collision avoidance may shrink `hole_margin` all the way "
     "to 0.0. Required from config-or-spec when a job-config is in play.",
     "DEFAULT_HOLE_TEXT_COLLISION_DISTANCE": "Engraved-stroke air gap on top of the stroke floor "
     "`0.5 * (hole_cutter + text_cutter)`. Required from config-or-spec when a job-config is in "
@@ -282,8 +282,8 @@ _FALLBACK_NOTES: dict[str, str] = {
     "automatic slide is shared - declared margins are never touched, and the phase never fires "
     "when `max_h_compress` is 0.0. Cascades label/job (accepted on plates for schema parity only, "
     "never text lines); job-config supplies the shop default.",
-    "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from text_height "
-    "(IDEAL_CUTTER_MAP + inventory snapping). An explicit cutter_size (line/label/job, no "
+    "DEFAULT_CUTTER_SIZE": "None = the text cutter is auto-selected from `text_height` "
+    "(IDEAL_CUTTER_MAP + inventory snapping). An explicit `cutter_size` (line/label/job, no "
     "job-config tier) overrides the lookup: it snaps to the inventory (next size down, else "
     "up) and the toolpath height becomes `text_height - (cutter_size + cutter_buffer_text)` "
     "(the buffer applies to an explicit tool exactly like an automatic one).",
@@ -306,7 +306,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "catalog file). "
     "The automatic cutter is sized so the N engraved passes total this width, then snapped to "
     "the inventory (stepping up when the snap-down breaks the gap-free floor). Inert on "
-    "single-stroke fonts, TTF fonts, and lines with an explicit cutter_size. Cascades "
+    "single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Cascades "
     "line/label/job; job-config supplies the shop default.",
     "DEFAULT_MULTISTROKE_OVERLAP_RATIO": "0.25 = the minimum overlap fraction between adjacent "
     "cutter passes of a multi-stroke (bold) PLT font: the derived cutter is never smaller than "
@@ -315,7 +315,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "single-stroke fonts, TTF fonts, and lines with an explicit `cutter_size`. Cascades "
     "line/label/job; job-config supplies the shop default.",
     "DEFAULT_BOLD_BOLDNESS_MULTIPLIER": "1.5 = the multiplier inline `<b>` markup applies to "
-    "target_boldness_factor on a multi-stroke (bold) PLT font (the bold runs re-run the cutter "
+    "`target_boldness_factor` on a multi-stroke (bold) PLT font (the bold runs re-run the cutter "
     "ladder at factor * multiplier, clamped to 0.30 with a WARNING). On single-stroke PLT and "
     "TTF fonts `<b>` instead steps to the next larger inventory cutter and this multiplier is "
     "inert. Cascades line/label/job; job-config supplies the shop default.",
@@ -418,8 +418,8 @@ _FALLBACK_NOTES: dict[str, str] = {
     "engraved strokes would touch (the stroke floor); a unitless factor of that floor, so 0.3 "
     "demands 30% extra air and the requirement scales with the cutter width (reads the same at "
     "every text size). Cascades label/job; job-config supplies the shop default.",
-    "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits text_color "
-    "(never cascades; a job-level text_color is rejected). 'none' cannot be specified "
+    "DEFAULT_TEXT_COLOR": "Implicit stroke-color layer of text that omits `text_color` "
+    "(never cascades; a job-level `text_color` is rejected). 'none' cannot be specified "
     "explicitly.",
     "DEFAULT_FONT": "Font fallback when unset at line/label/job level (and when job-config "
     "font is unset). Must be a valid font_registry name: a PLT-extracted catalog `font_name` key "
@@ -430,11 +430,11 @@ _FALLBACK_NOTES: dict[str, str] = {
     "variant of the base font) renders ASCII lowercase a-z as the base font's uppercase glyph "
     "uniformly shrunk to 70% of the cap height, top-down (the glyph's own bottom stays in "
     "place, its top descends). Uppercase and caseless characters engrave at full size and the "
-    "nominal text_height is untouched (no cutter change). 1.0 renders the variant identically "
+    "nominal `text_height` is untouched (no cutter change). 1.0 renders the variant identically "
     "to its base font; the field is inert on a non-SC font. Cascades line/label/job; job-config "
     "supplies the shop default.",
     "DEFAULT_HOLE_DIAMETER": "Drill-hole diameter when a hole entry omits 'diameter' (a "
-    "job-config hole_diameter fills hole entries too).",
+    "job-config `hole_diameter` fills hole entries too).",
     "DEFAULT_PLATE_WIDTH": "Auto-allocated (unbounded mode) default plate width when job-config "
     "`plate_width` is unset. Required from config when a job-config is in play and plates are "
     "undeclared.",
@@ -516,7 +516,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     "DEFAULT_KERNING_RECESSION_SCALE": "Multiplier on a *recessed* (negative) detected penetration (PLT-extracted "
     "fonts). 1.0 keeps the geometric recession (the historical linear "
     "behavior); 0.0 makes a recessed pair advance by nothing beyond the "
-    "min_glyph_width_fraction floor, so the penetration dial only tightens "
+    "`min_glyph_width_fraction` floor, so the penetration dial only tightens "
     "pairs whose silhouettes overlap.",
     "DEFAULT_KERNING_WINDOW_FRACTION": "Kerning window (fraction of the rendered text height, in [0.0, 1.0]). "
     "For PLT-extracted fonts. Each envelope sample compares against the "
@@ -1023,7 +1023,7 @@ def build_job_spec_markdown() -> str:
         "Pinned by:   tests/test_job_spec_docs.py",
         "Semantics that a schema cannot express (job forms, cascade rules,",
         "replacement-file expansion, examples) live in the thematic sub-skills",
-        "of this category: ../../<theme>/references/semantics.md.",
+        "of this category: ../../`<theme>`/references/semantics.md.",
         "-->",
         "",
         "A job YAML file is a single top-level `job:` mapping; its value validates",
@@ -1214,7 +1214,7 @@ def build_job_config_markdown() -> str:
         "Pinned by:   tests/test_job_spec_docs.py",
         "Semantics that a schema cannot express (cascade mechanics, tool",
         "option usage, troubleshooting) live in the thematic sub-skills of",
-        "this category: ../../<theme>/references/semantics.md.",
+        "this category: ../../`<theme>`/references/semantics.md.",
         "-->",
         "",
         "`job-config.json` is the shop tier of the generate pipeline: its",
