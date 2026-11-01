@@ -7,7 +7,7 @@ autonomously after modifying the codebase.
 
 ## Conventions
 
-- 82 `test_<module_or_feature>.py` files; every module in `plt_optimizer/` plus
+- 83 `test_<module_or_feature>.py` files; every module in `plt_optimizer/` plus
   CLI, UI, and integration coverage. `pytest` + `pytest-cov`.
 - **Fixtures live in `tests_deps/` (frozen)** - see its README. Never move,
   rename, or edit fixture contents unless deliberately updating the fixtures

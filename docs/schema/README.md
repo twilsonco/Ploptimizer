@@ -21,6 +21,7 @@ engraver option names, not schema fields).
 | `.../references/JOB_CONFIG.md` | `JobDefaults` model + fallback constants + field-audit key presence & tool_options from `job-config.json` | same command |
 | `../skills/engraving-jobs/**` (generated files) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` |
 | `../skills/engraving-jobs/*/references/semantics.md` | hand-written semantics | **manual — curated, never regenerated** |
+| `../pdf/plt-generation-pipeline.pdf` | the skill-tree markdown above + live `generate` runs of the curated showcase | `uv run python scripts/build_pipeline_pdf.py` (gitignored artifact; needs pandoc + xelatex + ghostscript) |
 | `README.md` (this file) | hand-written | manual |
 
 Drift is pinned by `tests/test_job_spec_docs.py` (models ↔ generated

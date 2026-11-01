@@ -110,6 +110,14 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   schema.
 - `INTEGRATION_TESTING.md` - the generate-pipeline walkthrough
   (`scripts/run_integration_test.py`).
+- `pdf/` - the compiled **PDF handbook** (`plt-generation-pipeline.pdf`), a
+  DERIVED artifact built by `scripts/build_pipeline_pdf.py` from the committed
+  skill-tree markdown + live example runs (pandoc + xelatex + ghostscript,
+  external tools). The PDF is gitignored (`docs/pdf/*.pdf`); `pdf/README.md`
+  documents the build. Never hand-edit the PDF, never byte-pin it, and never
+  add content the generators do not already emit - the builder renders
+  `docs/skills/engraving-jobs/**` as-is, so fixing the handbook means fixing
+  the source docs and rebuilding.
 - `RECTPACK_KNOBS.md` - packing knob analysis (fill-order contract:
   [`../plt_optimizer/generate/packing/AGENTS.md`](../plt_optimizer/generate/packing/AGENTS.md)).
 - `PROFILING.md` - the perf loop (measure → identify → patch → re-measure →
