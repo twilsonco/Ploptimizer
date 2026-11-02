@@ -14,6 +14,7 @@ local artifact and is never byte-pinned.
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import subprocess
 import sys
@@ -196,6 +197,16 @@ class TestDiscovery:
 
 
 class TestCover:
+    def test_frontmatter_has_title_date_author(self, script: Any, master: str) -> None:
+        import plt_optimizer
+
+        fm = master.split("---\n", 3)[1]  # the leading pandoc YAML block
+        assert 'title: "PLT-Optimizer Generation Pipeline Handbook"' in fm
+        assert "subtitle:" in fm
+        assert plt_optimizer.__version__ in fm  # author line carries the version
+        # date is a real calendar date (e.g. "November 1, 2026").
+        assert re.search(r'date: "\w+ \d+, \d{4}"', fm), fm
+
     def test_cover_has_version_and_units(self, script: Any, master: str) -> None:
         import plt_optimizer
 
@@ -423,7 +434,8 @@ class TestSelectors:
         )
         assert rc == 0
         text = (tmp_path / "handbook.md").read_text(encoding="utf-8")
-        assert "# PLT-Optimizer Generation Pipeline Handbook" in text
+        assert text.startswith('---\ntitle: "PLT-Optimizer Generation Pipeline Handbook"')
+        assert "# About this build" in text
         assert "# Appendices" in text
 
     def test_preflight_reports_missing(self, script: Any) -> None:
@@ -436,6 +448,7 @@ class TestSelectors:
         assert cmd[0] == "pandoc"
         assert "--pdf-engine=xelatex" in cmd
         assert "-V" in cmd and "geometry:landscape" in cmd
+        assert "titlepage=true" in cmd  # renders the title/date as a title page
         assert any(a.startswith("--include-in-header=") for a in cmd)
 
     def test_combined_proofs_filters_diagnostics(self, script: Any, tmp_path: Path) -> None:

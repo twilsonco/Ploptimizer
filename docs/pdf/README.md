@@ -8,8 +8,11 @@ below — never hand-edit the PDF, and never byte-pin it in a test.
 The handbook assembles everything a shop needs in one printable, searchable,
 hyperlinked document:
 
-- **Cover** — tool version, git commit, build date, toolchain, and the exact
-  list of source files included (so a printed copy is traceable).
+- **Title page** — handbook title, subtitle, `plt_optimizer` version, and the
+  build date (also written into the PDF's document properties, so the file
+  shows its title in viewers).
+- **"About this build"** — tool version, git commit, build date, toolchain, and
+  the exact list of source files included (so a printed copy is traceable).
 - **Quick start** — the author → validate → run → check loop, the CLI flag
   table, and the non-negotiable invariants.
 - **Part I — Job Spec Reference** — `JOB_SPEC.md` inlined verbatim (every

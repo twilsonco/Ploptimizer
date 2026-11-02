@@ -694,8 +694,36 @@ def tool_versions() -> List[str]:
     return lines
 
 
+def build_frontmatter() -> str:
+    """Render the pandoc YAML metadata block for the title page.
+
+    pandoc consumes this as document metadata: it renders a LaTeX title page
+    (title, subtitle, author, date) before the TOC and writes the title into
+    the PDF's document properties (viewer tab + metadata dialog).
+
+    Returns:
+        A YAML frontmatter block, newline-terminated.
+    """
+    today = dt.date.today()
+    date = f"{today.strftime('%B')} {today.day}, {today.year}"
+    fields = {
+        "title": "PLT-Optimizer Generation Pipeline Handbook",
+        "subtitle": (
+            "Job spec YAML schema, job-config.json shop defaults, "
+            "topic semantics, and worked examples with rendered proofs"
+        ),
+        # The commit hash lives in the "About this build" table (a code span):
+        # on the title page a hex hash can contain ligature sequences (ff/fi/fb)
+        # that the serif title font renders as missing glyphs.
+        "author": f"plt_optimizer v{repo_version()}",
+        "date": date,
+    }
+    body = "\n".join(f'{key}: "{value}"' for key, value in fields.items())
+    return f"---\n{body}\n---\n\n"
+
+
 def build_cover(sections: Sequence[str], dpi: int) -> str:
-    """Render the cover/title page.
+    """Render the "About this build" cover section.
 
     Args:
         sections: Sections the build includes (listed for traceability).
@@ -709,10 +737,7 @@ def build_cover(sections: Sequence[str], dpi: int) -> str:
         f"- `{display_path(path)}`"
         for path in sorted(p for p in SKILL_ROOT.rglob("*.md") if p.is_file())
     )
-    return f"""# PLT-Optimizer Generation Pipeline Handbook
-
-**Job spec YAML schema + `job-config.json` shop defaults + topic semantics +
-worked examples with rendered proofs.**
+    return f"""# About this build
 
 | | |
 |---|---|
@@ -1137,9 +1162,7 @@ def build_field_index() -> str:
     if not schema_path.is_file():
         return "*(the committed `job_spec.schema.json` was not found)*\n"
     schema = json.loads(schema_path.read_text("utf-8"))
-    defs: Dict[str, Dict[str, Any]] = {
-        k: dict(v) for k, v in (schema.get("$defs") or {}).items()
-    }
+    defs: Dict[str, Dict[str, Any]] = {k: dict(v) for k, v in (schema.get("$defs") or {}).items()}
     if isinstance(schema.get("properties"), dict):
         defs.setdefault("JobSpec", schema)
     owners: Dict[str, List[str]] = {}
@@ -1270,7 +1293,7 @@ def assemble(plan: BuildPlan, outputs: Sequence[JobOutput]) -> str:
         The complete master markdown.
     """
     anchors: Dict[str, str] = {}
-    parts: List[str] = []
+    parts: List[str] = [build_frontmatter()]
     if "cover" in plan.sections:
         parts.append(build_cover(plan.sections, plan.dpi))
     if "quickstart" in plan.sections:
@@ -1350,6 +1373,8 @@ PANDOC_ARGS: Tuple[str, ...] = (
     "geometry:margin=1.5cm",
     "-V",
     "fontsize=10pt",
+    "-V",
+    "titlepage=true",
     "-V",
     "colorlinks=true",
     "-V",
