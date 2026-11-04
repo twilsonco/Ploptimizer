@@ -2283,6 +2283,21 @@ by a `JobSpec` validator. It is also absent from `PlateSpec` and
   a single underscore (`wb(uv)` -> `wb_uv`), so output names carry only ASCII
   letters, digits and underscores.
 
+- **Written PLT files are reflowed at the write boundary.** Every emitter
+  (`plate_optimizer.emit_layer_document`, `vectorize.extract_pens_from_plt_text`
+  / `assemble_plt_from_rendered_labels`, `text_geometry.Stroke.to_hpgl`,
+  `label_renderer._linecollection_to_hpgl`) produces a **compact one-line**
+  stream, and every regex transform on `RenderedLabel.plt_content` /
+  `PerCutterExport.combined_by_plate` assumes that. The two per-cutter write
+  sites go through `vectorize._write_plt`, which applies
+  `core.hpgl_lines.format_hpgl_lines` (one command per line, a bare `PD;`/`PU;`
+  glued to its arc) and writes **CRLF** -- the EngraveLab/VisionPro layout
+  (`examples/ex_text.plt`, `examples/ex_structural.plt`). The reflow is
+  cosmetic and parse-identity guaranteed, so intermediate content stays
+  compact and only the bytes on disk change. Pinned by
+  `tests/test_phase3_export.py::TestWrittenPltLineFormatting` (written files
+  assert `splitlines()[:2] == ["IN;", "PA;"]`, never `startswith("IN;PA;")`).
+
 
 ### Colored Combined PDF Previews (`preview_colors`)
 

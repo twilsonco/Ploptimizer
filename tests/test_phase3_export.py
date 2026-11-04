@@ -58,7 +58,9 @@ class TestExportAndOptimizePhase3:
         for path in exported_paths:
             assert path.parent == tmp_path / "plt"
             content = path.read_text()
-            assert content.startswith("IN;PA;")
+            # Written files use the EngraveLab layout: one command per line, so
+            # the header is the first two lines (see core.hpgl_lines).
+            assert content.splitlines()[:2] == ["IN;", "PA;"]
             assert content.endswith("SP;\n")
             assert len(content) > 50  # Has actual content
 
@@ -790,7 +792,7 @@ class TestExportTextColorSplit:
         ]
         for name in text_names:
             content = (tmp_path / "plt" / name).read_text(encoding="utf-8")
-            assert content.startswith("IN;PA;")
+            assert content.splitlines()[:2] == ["IN;", "PA;"]
             assert re.search(r"(?:PU|PD)\d", content)
 
 
@@ -946,7 +948,7 @@ class TestFilenameCap:
             # The truncated path is the one actually written, with content.
             assert path.is_file()
             content = path.read_text()
-            assert content.startswith("IN;PA;")
+            assert content.splitlines()[:2] == ["IN;", "PA;"]
             assert "PD" in content
         # The mirrored PDF previews follow the shortened stem.
         for path in result.plt_paths:
@@ -1676,6 +1678,117 @@ class TestHCompressGlobalDemoExample:
             "45_txt_hcg.plt",
             "60_txt_hcg.plt",
         ]
+
+
+class TestWrittenPltLineFormatting:
+    """Written per-cutter PLT files use the EngraveLab line layout.
+
+    The emitters produce a compact one-line HPGL stream; the write boundary
+    (``vectorize._write_plt`` -> ``core.hpgl_lines.format_hpgl_lines``)
+    reflows it to one command per line with CRLF terminators, matching the
+    reference tool's output (``examples/ex_text.plt`` /
+    ``examples/ex_structural.plt``). The reflow is cosmetic: re-joining the
+    lines reproduces a stream that parses to the same document.
+    """
+
+    _SPEC = Path("tests_deps/arc_preserve_job.yaml")
+
+    # One HPGL command per line: letters, parameters, terminating ``;``. A
+    # bare pen-state command may prefix the line it is glued to (``PD;AA...;``).
+    _LINE_RE = re.compile(r"^(?:P[DU];)?[A-Z][A-Z0-9,.\-:]*;$")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the arc-bearing demo job (arc-native + polyline geometry)."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="lines",
+            optimize=True,
+            plots=False,
+        )
+
+    def test_every_written_file_is_crlf(self, tmp_path: Path) -> None:
+        """Terminators are CRLF on every platform (no bare LF/CR)."""
+        result = self._export(tmp_path)
+        assert result.plt_paths
+        for path in result.plt_paths:
+            raw = path.read_bytes()
+            assert b"\r\n" in raw, path.name
+            stripped = raw.replace(b"\r\n", b"")
+            assert b"\n" not in stripped, path.name
+            assert b"\r" not in stripped, path.name
+            # Exactly one terminator at EOF (no trailing blank line).
+            assert raw.endswith(b"SP;\r\n"), path.name
+
+    def test_every_line_is_one_command(self, tmp_path: Path) -> None:
+        """Each line carries exactly one ``;``-terminated command."""
+        result = self._export(tmp_path)
+        for path in result.plt_paths:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            assert lines, path.name
+            for line in lines:
+                assert self._LINE_RE.match(line), f"{path.name}: {line!r}"
+
+    def test_header_and_footer_are_one_command_per_line(self, tmp_path: Path) -> None:
+        """``IN;``/tool options/``PA;`` and the ``SP;`` footer each get a line."""
+        result = self._export(tmp_path)
+        for path in result.plt_paths:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            assert lines[0] == "IN;", path.name
+            assert lines[-1] == "SP;", path.name
+            # The header terminates with PA; before any geometry starts.
+            assert "PA;" in lines, path.name
+            first_geom = next(i for i, line in enumerate(lines) if line[:2] in ("PU", "PD", "AA"))
+            assert first_geom > lines.index("PA;"), path.name
+            # Tool options are never merged into one line (e.g. ``ZO124,50;``).
+            for line in lines[: lines.index("PA;")]:
+                assert line.count(";") == 1, f"{path.name}: {line!r}"
+
+    def test_bare_pen_command_is_glued_to_its_arc(self, tmp_path: Path) -> None:
+        """The reference layout keeps ``PD;`` on the arc's line."""
+        result = self._export(tmp_path)
+        glued = 0
+        for path in result.plt_paths:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for line in lines:
+                assert not line.startswith(("PD;", "PU;")) or line.count(";") == 2, (
+                    f"{path.name}: {line!r}"
+                )
+                # An arc never starts a line of its own after a bare command.
+                assert not line.startswith("AA"), path.name
+                glued += line.startswith("PD;AA")
+        assert glued > 0, "the arc-bearing fixture emitted no PD;AA"
+
+    def test_reflow_is_lossless(self, tmp_path: Path) -> None:
+        """Re-joining the written lines parses to the same document.
+
+        Proves the write boundary only inserts newlines: the geometry, path
+        structure, and both travel metrics survive byte-for-byte.
+        """
+        from plt_optimizer.core.parser import PLTParser
+
+        result = self._export(tmp_path)
+        parser = PLTParser()
+        for path in result.plt_paths:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            written = parser.parse_string("\n".join(lines))
+            compact = parser.parse_string("".join(lines))
+            assert written.total_segments == compact.total_segments, path.name
+            assert len(written.stroke_paths) == len(compact.stroke_paths), path.name
+            assert written.cutting_distance() == pytest.approx(compact.cutting_distance())
+            assert written.rapid_distance() == pytest.approx(compact.rapid_distance())
+
+    def test_written_file_is_already_canonical(self, tmp_path: Path) -> None:
+        """Re-running the formatter on a written file changes nothing."""
+        from plt_optimizer.core.hpgl_lines import format_hpgl_lines
+
+        result = self._export(tmp_path)
+        for path in result.plt_paths:
+            content = path.read_text(encoding="utf-8")
+            assert format_hpgl_lines(content) == content, path.name
 
 
 class TestArcPreserveCompressionDemoExample:

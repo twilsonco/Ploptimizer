@@ -284,9 +284,7 @@ class TestRotatePltContent90cw:
         # the cutter-compensated one (hole_adjust_for_cutter defaults on): the
         # 0.125in hole emits (0.125 - 0.015) / 2 = 0.055in of path radius, so
         # the cutter's own stroke brings the engraved hole up to 0.125in.
-        assert all(
-            a.radius / HPGL_UNITS_PER_INCH == pytest.approx(0.055, abs=0.001) for a in arcs
-        )
+        assert all(a.radius / HPGL_UNITS_PER_INCH == pytest.approx(0.055, abs=0.001) for a in arcs)
 
 
 class TestAssemblePltFromRenderedLabels:
@@ -394,7 +392,9 @@ class TestAssemblePltFromRenderedLabels:
         and no content to append (line 146 false side). The plate must
         degrade to a bare header+footer, without any PU0,0 separator.
         """
-        label = ResolvedLabel(id="blank", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1)
+        label = ResolvedLabel(
+            id="blank", count=1, width=1.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
+        )
         rendered = RenderedLabel(
             source_label=label,
             plt_content="IN;PA;PU100,200;SP;",
@@ -772,16 +772,18 @@ class TestPlateSpaceExport:
         """Optimized files carry no SP selects; every contour is PU-led."""
         raw, opt = self._export_pair(tmp_path)
         for name, content in opt.items():
-            assert content.startswith("IN;PA;")
+            # Written files use the EngraveLab layout: one command per line.
+            assert content.splitlines()[:2] == ["IN;", "PA;"]
             assert content.endswith("SP;\n")
             # Final per-cutter files are single-tool streams: no pen selects.
             assert not re.search(r"SP\d", content), name
             # Geometry must be pen-up-led: the first drawable command after
             # the header is a PU move, never a bare PD/AA.
-            first_geom = re.search(r"(PU|PD|AA)", content[len("IN;PA;") :])
+            geometry = content.split("PA;", 1)[1]
+            first_geom = re.search(r"(PU|PD|AA)", geometry)
             assert first_geom is not None and first_geom.group(1) == "PU", name
             # Raw (unoptimized) files share the framing too.
-            assert raw[name].startswith("IN;PA;")
+            assert raw[name].splitlines()[:2] == ["IN;", "PA;"]
             assert raw[name].endswith("SP;\n")
 
     def test_word_mode_matches_line_mode_geometry(self, tmp_path: Path) -> None:
@@ -835,5 +837,5 @@ class TestPlateSpaceExport:
         assert result.plt_paths
         for path in result.plt_paths:
             content = path.read_text(encoding="utf-8")
-            assert content.startswith("IN;PA;")
+            assert content.splitlines()[:2] == ["IN;", "PA;"]
             assert content.endswith("SP;\n")

@@ -136,6 +136,94 @@ class TestPLTWriterFileHandling:
             content = output_path.read_bytes()
             assert content.startswith("\ufeff".encode("utf-8"))
 
+
+class TestWriteFileLineEndings:
+    """Written files use CRLF terminators (EngraveLab/VisionPro parity)."""
+
+    @staticmethod
+    def _arc_document() -> PLTDocument:
+        """A tiny document with a header, a cut, an arc, and the SP footer."""
+        return PLTDocument(
+            header_commands=[HeaderCommand("IN"), HeaderCommand("PA")],
+            stroke_paths=[
+                StrokePath(
+                    pen_up_position=Coordinate(x=0.0, y=0.0),
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=0.0, y=0.0),
+                            end=Coordinate(x=1016.0, y=0.0),
+                            is_cutting=True,
+                        ),
+                        ArcSegment(
+                            start=Coordinate(x=1016.0, y=0.0),
+                            end=Coordinate(x=1016.0, y=1016.0),
+                            center=Coordinate(x=1016.0, y=1016.0),
+                            sweep_angle=-90.0,
+                            is_cutting=True,
+                        ),
+                    ),
+                )
+            ],
+            footer_commands=[FooterCommand("SP")],
+        )
+
+    def test_write_file_uses_crlf(self) -> None:
+        """Every line terminator on disk is CRLF, on every platform."""
+        writer = PLTWriter()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "output.plt"
+            writer.write_file(self._arc_document(), output_path)
+
+            raw = output_path.read_bytes()
+            assert b"\r\n" in raw
+            # Every terminator is CRLF: no bare LF and no bare CR survive.
+            stripped = raw.replace(b"\r\n", b"")
+            assert b"\n" not in stripped
+            assert b"\r" not in stripped
+            # The arc keeps its bare pen command on the same line.
+            assert b"PD;AA1016.000,1016.000,-90.000;\r\n" in raw
+            assert b"PD;\r\n" not in raw
+
+    def test_written_file_reparses_identically(self) -> None:
+        """CRLF is cosmetic: the written file parses to the same document."""
+        writer = PLTWriter()
+        parser = PLTParser()
+        document = self._arc_document()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "output.plt"
+            writer.write_file(document, output_path)
+
+            reparsed = parser.parse_file(output_path)
+
+        assert reparsed.total_segments == document.total_segments
+        assert reparsed.cutting_distance() == pytest.approx(document.cutting_distance())
+
+    def test_write_string_keeps_lf(self) -> None:
+        """The in-memory contract is unchanged: `write_string` joins with \\n."""
+        writer = PLTWriter()
+        content = writer.write_string(self._arc_document())
+        assert "\r" not in content
+        assert content.endswith("\n")
+
+    def test_write_file_with_bom_uses_crlf(self) -> None:
+        """The BOM path writes CRLF too (bytes bypass the text-mode newline)."""
+        writer = PLTWriter()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "output.plt"
+            writer.write_file(self._arc_document(), output_path, add_bom=True)
+
+            raw = output_path.read_bytes()
+            assert raw.startswith("\ufeff".encode("utf-8"))
+            body = raw[len("\ufeff".encode("utf-8")) :]
+            stripped = body.replace(b"\r\n", b"")
+            assert b"\n" not in stripped
+            assert b"\r" not in stripped
+            assert b"IN;\r\n" in body
+
+
 class TestPLTWriterFilenameLength:
     """Tests for ensuring filename length constraints."""
 

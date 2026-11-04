@@ -63,6 +63,10 @@ class PLTWriter:
     decimal places and maintains the exact command sequence required by
     the EngraveLab format.
 
+    Layout matches the reference tools: :meth:`write_string` emits one command
+    per line (``\\n``-joined in memory, a bare ``PD;``/``PU;`` glued to the arc
+    it governs) and :meth:`write_file` writes it to disk with CRLF terminators.
+
     Example:
         >>> doc = PLTDocument()
         >>> doc.header_commands.append(HeaderCommand("IN"))
@@ -136,11 +140,18 @@ class PLTWriter:
             # Ensure parent directory exists
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
+            # CRLF terminators on every platform: the reference tools
+            # (EngraveLab/VisionPro) write Windows line endings, and the
+            # generate pipeline's per-cutter files match them (see
+            # ``generate.vectorize._write_plt``). ``write_string`` keeps its
+            # in-memory "\n" contract; the newline translation happens here.
             if add_bom:
                 # Add UTF-8 BOM for Windows compatibility with some applications
-                file_path.write_bytes("\ufeff".encode("utf-8") + content.encode("utf-8"))
+                crlf = content.replace("\n", "\r\n")
+                file_path.write_bytes("\ufeff".encode("utf-8") + crlf.encode("utf-8"))
             else:
-                file_path.write_text(content, encoding="utf-8")
+                with open(file_path, "w", encoding="utf-8", newline="\r\n") as handle:
+                    handle.write(content)
 
         except OSError as e:
             raise WriteError(f"Failed to write file: {e}") from e

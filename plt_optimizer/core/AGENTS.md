@@ -17,7 +17,20 @@ the `benchmark` tool, and the generate pipeline's plate-space optimization
   semantic equivalence, root AGENTS.md §2). The parser treats bare `PA` as
   header and `SP` as footer; `extract_pens_from_plt_text` (generate side)
   rewrites section-leading bare `PD` to `PU…;PD…` so dropped pen-selects never
-  join sections with a phantom cut.
+  join sections with a phantom cut. `PLTWriter.write_string` emits one command
+  per line (`\n`-joined, in-memory contract); `write_file` writes it with
+  **CRLF** terminators on every platform, matching EngraveLab/VisionPro.
+- `hpgl_lines.py` - THE write-boundary line layout:
+  `format_hpgl_lines(content)` reflows a compact HPGL stream to the reference
+  tool's EngraveLab layout (one command per line, a bare `PD;`/`PU;` glued to
+  the `AA`/`AR`/`CI` it governs, single trailing `\n`). Purely cosmetic and
+  **parse-identity guaranteed** (the parser tokenizes on `;` and ignores
+  newlines) - it never merges, splits, reorders, or rewrites a command,
+  because splitting a batched `PD` *would* change the parsed structure (the
+  parser takes a batched `PD`'s first pair as the path's `pen_up_position`).
+  The generate pipeline's per-cutter files go through it
+  (`generate/vectorize._write_plt`); pinned by `tests/test_hpgl_lines.py` +
+  `tests/test_phase3_export.py::TestWrittenPltLineFormatting`.
 - `units.py` - THE device scale: `HPGL_UNITS_PER_INCH = 1016`,
   `inches_to_units()` / `units_to_inches()`. Every inch↔coordinate conversion on
   the emission/read-back path goes through here; never hardcode 1000 (root

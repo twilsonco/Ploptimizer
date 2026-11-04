@@ -144,8 +144,10 @@ LAYER_HOLES: int = 3
 # by ``tool_options.prepend_tool_option_headers``, so the header always
 # terminates with ``PA;`` before geometry starts. The footer is the bare
 # pen-deselect ``SP;`` (no DF/PS0, no SP0 reset, no trailing IN, no ``%``).
-# Written files additionally end with a single newline (appended at the
-# per-cutter write sites in ``vectorize.export_per_cutter_plts``).
+# In-memory content is a compact one-line stream; the per-cutter write sites
+# (``vectorize._write_plt``) reflow it to the reference tool's layout -- one
+# command per line, a bare ``PD;``/``PU;`` glued to its arc, CRLF terminators,
+# single trailing newline -- via ``core.hpgl_lines.format_hpgl_lines``.
 PLT_HEADER: str = "IN;PA;"
 PLT_FOOTER: str = "SP;"
 

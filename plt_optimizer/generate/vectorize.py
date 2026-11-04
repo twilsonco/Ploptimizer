@@ -39,6 +39,7 @@ from plt_optimizer.core.filenames import (
     ensure_plot_filename_length,
     sanitize_filename_component,
 )
+from plt_optimizer.core.hpgl_lines import format_hpgl_lines
 from plt_optimizer.core.models import ArcSegment, PLTDocument, Segment
 from plt_optimizer.core.optimizer import OptimizationStrategy
 from plt_optimizer.core.units import inches_to_units
@@ -86,6 +87,26 @@ _LOG = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 LAYER_BOUNDARY: int = 2
 LAYER_HOLES: int = 3
+
+
+def _write_plt(path: Path, content: str) -> None:
+    """Write per-cutter PLT content to disk in EngraveLab layout.
+
+    The formatting boundary for the generate pipeline: the compact
+    in-memory HPGL stream (one ``;``-joined line) is reflowed to one
+    command per line -- a bare ``PD;``/``PU;`` glued to the arc it
+    governs -- and written with CRLF terminators, matching the reference
+    tool's output (see ``examples/ex_text.plt``). The transform is
+    parse-identity guaranteed (see
+    :func:`plt_optimizer.core.hpgl_lines.format_hpgl_lines`), so the
+    engraved toolpath is byte-for-byte the same geometry.
+
+    Args:
+        path: Destination ``.plt`` file (parent must exist).
+        content: Compact HPGL content (typically ending in ``SP;``).
+    """
+    with open(path, "w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write(format_hpgl_lines(content))
 
 
 # ---------------------------------------------------------------------------
@@ -1138,7 +1159,7 @@ def export_per_cutter_plts(
             # 39 characters, so the name is shortened from the right (the
             # mirrored PDF previews inherit the shortened stem).
             structure_path = ensure_plot_filename_length(structure_path, _LOG)
-            structure_path.write_text(bh_content + "\n", encoding="utf-8")
+            _write_plt(structure_path, bh_content)
             result.plt_paths.append(structure_path)
             file_widths[structure_path] = hole_cutter_width
 
@@ -1182,7 +1203,7 @@ def export_per_cutter_plts(
             text_path = plt_dir / f"{prefix}{layer_tag}_txt_{job_id}.plt"
             # Plotter-controller cap (see the structural write above).
             text_path = ensure_plot_filename_length(text_path, _LOG)
-            text_path.write_text(written_content + "\n", encoding="utf-8")
+            _write_plt(text_path, written_content)
             result.plt_paths.append(text_path)
             file_widths[text_path] = pen_widths[pen_id]
             file_stroke_widths[text_path] = stroke_widths

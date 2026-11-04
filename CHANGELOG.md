@@ -4,6 +4,28 @@
 
 ### Features
 
+* **core/generate:** written PLT files now use the **EngraveLab/VisionPro line
+  layout** -- one HPGL command per line, a bare `PD;`/`PU;` glued to the arc it
+  governs (`PD;AA254,1016,90;`), CRLF terminators, single trailing newline --
+  instead of one long `;`-joined line. Purely cosmetic: the new
+  `core/hpgl_lines.format_hpgl_lines` applies at the **write boundary** only
+  (`generate/vectorize._write_plt` for the per-cutter files,
+  `PLTWriter.write_file` for optimize/watch), so every emitter and every regex
+  transform on the compact in-memory intermediates (`RenderedLabel.plt_content`,
+  `PerCutterExport.combined_by_plate`) is untouched. The transform is
+  **parse-identity guaranteed** (the parser tokenizes on `;` and ignores
+  newlines) and never merges, splits, reorders, or rewrites a command --
+  splitting a batched `PD` *would* change the parsed structure (its first pair
+  is the path's `pen_up_position`), so a batched polyline stays on one line.
+  Output is byte-identical (modulo CRLF) to the manual find-replace conversion.
+  - Pins: `tests/test_hpgl_lines.py` (layout, glue, idempotence, parse-identity
+    over every `tests_deps/*.plt`),
+    `tests/test_phase3_export.py::TestWrittenPltLineFormatting` (written files:
+    CRLF, one command per line, header/footer one per line, `PD;AA` glued,
+    lossless reflow), `tests/test_writer.py::TestWriteFileLineEndings`.
+    Written-file framing assertions move from `startswith("IN;PA;")` to
+    `splitlines()[:2] == ["IN;", "PA;"]`.
+
 * **fonts:** extraction-time **character geometry modifications** driven by data, not code.
   `fonts/character-modifications.json` lists `{mode, characters, ...}` groups; the extractor
   applies them to every non-symbol font it regenerates (all 16 catalogs + showcases regenerated).
