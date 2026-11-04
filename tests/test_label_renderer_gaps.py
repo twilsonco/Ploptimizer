@@ -1700,7 +1700,7 @@ class TestStrokeWidthMap:
         ublock, _uwords, uglyphs = _render_line_block(buffered, TextChunkMode.LINE)
         uwidths = _stroke_width_map(buffered, ublock, uglyphs)
         # Glyph strokes at 0.06 + 0.02; the underline inverts to the same.
-        assert set(round(w, 4) for w in uwidths) == {0.08}
+        assert {round(w, 4) for w in uwidths} == {0.08}
 
     def test_glyph_strokes_carry_the_per_character_engraved_width(self) -> None:
         """A <cb:D> span widens only its own characters' glyph strokes."""

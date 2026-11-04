@@ -185,7 +185,6 @@ class TestMatplotlibFallback:
         project_root = os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))
         )
-        project_root_escaped = project_root.replace("\\", "/")
 
         code = f'''
 import coverage

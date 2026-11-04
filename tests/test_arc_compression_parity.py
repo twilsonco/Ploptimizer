@@ -36,7 +36,7 @@ import pytest
 from plt_optimizer.core.models import ArcSegment, StrokeSegment
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.units import units_to_inches
-from plt_optimizer.generate.arc_fit import ellipse_from_arc, fit_arc
+from plt_optimizer.generate.arc_fit import fit_arc
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests_deps" / "arc_compression"
 

@@ -13,8 +13,8 @@ import pytest
 
 from plt_optimizer.generate.packing.layout import (
     DEFAULT_PLATE_HEIGHT,
-    DEFAULT_ROUND_CLEARANCE_IN,
     DEFAULT_PLATE_WIDTH,
+    DEFAULT_ROUND_CLEARANCE_IN,
     LayoutFitError,
     PackedLabel,
     PackedPlate,

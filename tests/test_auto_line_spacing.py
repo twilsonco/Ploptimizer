@@ -7,6 +7,7 @@ inter-line spacing based on label dimensions, margins, and line count.
 from __future__ import annotations
 
 import pytest
+
 from plt_optimizer.generate.resolution import resolve_job_spec
 from plt_optimizer.generate.schema import JobSpec, LabelSpec, TextLine
 

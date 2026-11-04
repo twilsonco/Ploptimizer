@@ -817,7 +817,6 @@ class TestIsClosedPath:
         from plt_optimizer.utils.geometry import is_closed_path
 
         # Simulated ellipse polygon: 8 segments forming a closed loop
-        start = Coordinate(x=50.0, y=0.0)
         points = [
             Coordinate(x=50.0, y=0.0),  # 0: start
             Coordinate(x=75.0, y=25.0),  # 1

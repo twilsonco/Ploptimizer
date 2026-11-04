@@ -223,7 +223,7 @@ def _md_prose(path: Path) -> str:
                 break
     out: List[str] = []
     fence = False
-    for i in range(start):
+    for _i in range(start):
         out.append("")  # frontmatter: blanked, numbering preserved
     for i in range(start, len(lines)):
         if lines[i].strip().startswith("```"):

@@ -497,7 +497,7 @@ def _collect_specs(values: Sequence[str]) -> List[Path]:
             specs.append(path)
     missing = [str(p) for p in specs if not p.is_file()]
     if missing:
-        raise SystemExit(f"job spec(s) not found:\n  " + "\n  ".join(missing))
+        raise SystemExit("job spec(s) not found:\n  " + "\n  ".join(missing))
     return specs
 
 
@@ -602,7 +602,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     stage_keys = [
         key for key in (rows[0] if rows else {}) if str(key).startswith("stage_")
     ]
-    print("\n=== wall-clock summary (median of %d) ===" % max(1, args.repeats))
+    print(f"\n=== wall-clock summary (median of {max(1, args.repeats)}) ===")
     header = f"{'spec':<48} {'wall_s':>8} {'cpu_s':>8}"
     print(header)
     for row in rows:

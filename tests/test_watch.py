@@ -762,7 +762,9 @@ class TestWatchCommandProcessExistingFiles:
                 MockHandler.return_value = mock_handler_instance
 
                 result = cmd._process_existing_files()
-                # Should count processed files
+                # One .plt file in the watch dir -> one file enqueued.
+                assert result == 1
+                mock_handler_instance._enqueue_file.assert_called_once_with(plt_file)
 
 
 class TestWatchCommandSignalHandler:
@@ -827,7 +829,7 @@ class TestWatchCommandSetupLogging:
 
         protected_dir = tmp_path / "protected" / "output"
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch('plt_optimizer.utils.logging.setup_logging'):
             cmd = WatchCommand(args=[
                 "--watch-dir", str(tmp_path),
                 "--output-dir", str(protected_dir),
@@ -851,7 +853,7 @@ class TestWatchCommandSetupLogging:
 
         protected_dir = tmp_path / "protected" / "output"
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch('plt_optimizer.utils.logging.setup_logging'):
             cmd = WatchCommand(args=[
                 "--watch-dir", str(tmp_path),
                 "--output-dir", str(protected_dir),
@@ -1294,10 +1296,12 @@ class TestProcessFileErrorPaths:
             result = handler._process_file(test_file)
             assert result is False
 
-            # Should try to copy unprocessed file to output
+            # The unprocessed copy lands in the output dir, and the warning
+            # naming it is logged.
             fallback_path = output_dir / "test_unprocessed.plt"
-            # Note: This may or may not exist depending on error timing
-            # But the warning should be logged about copying attempt
+            warnings = [str(c) for c in handler._text_logger.warning.call_args_list]
+            assert any("unprocessed" in w for w in warnings)
+            assert fallback_path.name in "".join(warnings)
 
 
 class TestDebugSaveFiles:
@@ -1426,7 +1430,7 @@ class TestDebugSaveFiles:
         mock_optimized_doc = MagicMock()
 
         # Mock the writer to avoid file I/O issues
-        with patch.object(handler, '_writer') as mock_writer:
+        with patch.object(handler, '_writer'):
             # plot_plt_document is imported inside _save_debug_files from diagnostics.plotter
             # So we need to mock it at its actual location
             with patch('plt_optimizer.diagnostics.plotter.plot_plt_document'):
@@ -1497,9 +1501,11 @@ class TestProcessFileMetrics:
                                 mock_reasm_instance.reassemble.return_value = mock_doc
                                 MockReasm.return_value = mock_reasm_instance
 
-                                result = handler._process_file(test_file)
+                                handler._process_file(test_file)
 
-        # Should attempt to log metrics on success
+        # The metrics row is written on the success path (the file move after
+        # it fails here: output_dir is a non-existent absolute path).
+        handler._metrics_logger.log_job.assert_called_once()
 
 
 class TestProcessFileMoveDeleteErrors:
@@ -1513,7 +1519,6 @@ class TestProcessFileMoveDeleteErrors:
 
         watch_dir = tmp_path / "watch"
         output_dir = tmp_path / "output"
-        processed_dir = tmp_path / "processed"
 
         watch_dir.mkdir()
         output_dir.mkdir()
@@ -1940,7 +1945,7 @@ class TestProcessFileArchivePaths:
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler') as MockReassembler:
+                            with patch('plt_optimizer.cli.watch.Reassembler'):
                                 handler._process_file(test_file)
 
         # File should be moved to processed_dir (if successful)
@@ -1992,7 +1997,7 @@ class TestProcessFileArchivePaths:
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler') as MockReassembler:
+                            with patch('plt_optimizer.cli.watch.Reassembler'):
                                 handler._process_file(test_file)
 
         # File should be deleted (no processed_dir configured)
@@ -2230,7 +2235,9 @@ class TestWatchCommandObserverJoinTimeout:
 
             result = cmd.run()
 
-            # Verify join was called with timeout=5.0
+            # Clean shutdown returns the success exit code, and the observer
+            # is joined with a bounded timeout.
+            assert result == 0
             mock_observer_instance.join.assert_called_once_with(timeout=5.0)
 
 
@@ -2349,15 +2356,14 @@ class TestProcessFileDeleteErrorPath:
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
                             # Make os.remove (which Path.unlink calls) raise an error
-                            original_remove = __import__('os').remove
-
                             def failing_remove(path, **kwargs):
                                 raise OSError("Cannot delete file")
 
                             with patch('os.remove', side_effect=failing_remove):
                                 result = handler._process_file(test_file)
 
-                            # Should still succeed overall despite unlink error
+                            # The unlink failure is swallowed: the job still succeeds.
+                            assert result is True
 
 
 class TestRunWatcherFromConfigNonMainThread:
@@ -2451,6 +2457,8 @@ class TestRunWatcherFromConfigSignalHandler:
                 with patch('signal.pause', side_effect=raise_interrupt, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
+        assert result == 0
+
 
 class TestRunWatcherFromConfigKeyboardInterruptLoop:
     """Tests for KeyboardInterrupt in the main loop (lines 632-634)."""
@@ -2491,7 +2499,8 @@ class TestRunWatcherFromConfigKeyboardInterruptLoop:
             with patch('signal.pause', side_effect=raise_interrupt, create=True):
                 result = run_watcher_from_config(config, stop_event)
 
-        # Should return 0 after handling interrupt
+        # The interrupt is handled inside the loop; the watcher still exits 0.
+        assert result == 0
 
 
 class TestWatchCommandRunWithExistingFilesException:
@@ -2609,7 +2618,7 @@ class TestWatchCommandMainFunction:
             p.mkdir(parents=True)
 
         # Patch WatchCommand to avoid actual work
-        with patch.object(WatchCommand, 'run', return_value=0) as mock_run:
+        with patch.object(WatchCommand, 'run', return_value=0):
             result = main(["--watch-dir", str(tmp_watch), "--output-dir", str(tmp_output), "--log-dir", str(tmp_log)])
 
         assert result == 0
@@ -2739,7 +2748,7 @@ class TestSaveDebugFilesPath:
         )
 
         mock_doc = MagicMock()
-        with patch.object(handler, '_writer') as mock_writer:
+        with patch.object(handler, '_writer'):
             # Make plot_plt_document raise an exception
             with patch(
                 'plt_optimizer.diagnostics.plotter.plot_plt_document',
@@ -2940,7 +2949,8 @@ class TestProcessedDirCreationInValidate:
         with patch.object(Path, 'exists', mock_exists):
             result = cmd._validate_directories()
 
-        # Should fail when processed_dir can't be created
+        # processed_dir reports as missing and cannot be created -> invalid.
+        assert result is False
 
 
 class TestProcessFileFallbackCopyPaths:
@@ -2980,7 +2990,9 @@ class TestProcessFileFallbackCopyPaths:
                 "fallback" in c.lower() or "copy" in c.lower()
                 for c in warning_calls
             )
-            # Either the copy succeeded and was logged, or it failed gracefully
+            # The failure is reported through the unprocessed-copy path.
+            assert any("unprocessed" in c.lower() for c in warning_calls)
+            assert copy_attempted
 
 
 class TestWatchCommandRunObserverHandling:
@@ -4676,7 +4688,6 @@ class TestAtomicOutputWrites:
         """Return a mock for the writer that creates a real file on write."""
         from plt_optimizer.core.writer import PLTWriter
 
-        real_writer = PLTWriter()
         writer = MagicMock(spec=PLTWriter)
 
         def fake_write(_doc: object, path: Path) -> None:

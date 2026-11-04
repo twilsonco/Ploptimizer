@@ -741,8 +741,8 @@ class TestDirectionSweepIdentity:
     )
     def test_sweep_preserves_undirected_segments(self, fixture: str) -> None:
         """NoOp + sweep keeps the undirected segment multiset byte-for-byte."""
-        from plt_optimizer.core.pipeline import optimize_and_reassemble
         from plt_optimizer.core.optimizer import NoOpStrategy
+        from plt_optimizer.core.pipeline import optimize_and_reassemble
 
         deps_dir = Path(__file__).parent.parent / "tests_deps"
         original_path = deps_dir / fixture

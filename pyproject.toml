@@ -134,6 +134,12 @@ lint.ignore = [
 # imports gets relocated to the closing paren by the formatter, where it no
 # longer anchors the diagnostic, so E402 is suppressed for this file here.
 "fonts/font_showcase.py" = ["E402"]
+# run_integration_test.py inserts the repo root on sys.path (so the pipeline
+# imports and the repo-root-relative defaults work from any cwd) before
+# importing plt_optimizer; the module-level logging setup and the
+# GENERATE_DEFAULT_PLOTS switch sit between the bootstrap and the imports.
+# The order is the point, so E402 is suppressed for this file here.
+"scripts/run_integration_test.py" = ["E402"]
 
 [dependency-groups]
 dev = [

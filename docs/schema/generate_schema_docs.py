@@ -36,50 +36,50 @@ if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
 
 def load_job_config(config_path: Path) -> dict:
     """Load job-config.json.
-    
+
     Args:
         config_path: Path to job-config.json.
-    
+
     Returns:
         Parsed JSON dict.
-    
+
     Raises:
         FileNotFoundError: If config_path doesn't exist.
         json.JSONDecodeError: If JSON is invalid.
     """
     if not config_path.exists():
         raise FileNotFoundError(f"job-config.json not found at {config_path}")
-    
+
     with open(config_path) as f:
         return json.load(f)
 
 
 def format_tool_options_list(tool_options: dict) -> list[str]:
     """Format tool options as a list of lines.
-    
+
     Each line is a bullet-point entry with full details.
-    
+
     Args:
         tool_options: Dict of tool_options from job-config.json.
-    
+
     Returns:
         List of formatted lines (each can be printed or joined).
     """
     if not tool_options:
         return ["(No tool options defined)"]
-    
+
     lines = [
         "**Available Tool Options:**",
         "",
     ]
-    
+
     for key in sorted(tool_options.keys()):
         option = tool_options[key]
         name = option.get("name", key)
         command = option.get("command", "?")
         param_type = option.get("type", "?")
         units = option.get("units", "")
-        
+
         default = option.get("default", {})
         if isinstance(default, dict):
             text_default = default.get("text", "—")
@@ -87,7 +87,7 @@ def format_tool_options_list(tool_options: dict) -> list[str]:
         else:
             text_default = default if default is not None else "—"
             bh_default = text_default
-        
+
         # Build range description
         range_desc = ""
         if param_type in ("int", "float"):
@@ -95,25 +95,25 @@ def format_tool_options_list(tool_options: dict) -> list[str]:
             max_val = option.get("max")
             if min_val is not None and max_val is not None:
                 range_desc = f" [{min_val}–{max_val}]"
-        
+
         # Format the line
         line = (
             f"- **{key}**: {name} ({command}, {param_type}, {units}{range_desc}). "
             f"Defaults: text={text_default}, borders_holes={bh_default}."
         )
         lines.append(line)
-    
+
     return lines
 
 
 def format_python_docstring_addition(tool_options: dict) -> list[str]:
     """Generate Python code showing tool options addition to docstring.
-    
+
     This produces lines that can be appended to an existing docstring.
-    
+
     Args:
         tool_options: Dict of tool_options from job-config.json.
-    
+
     Returns:
         List of Python string literal lines ready to paste into a docstring.
     """
@@ -122,14 +122,14 @@ def format_python_docstring_addition(tool_options: dict) -> list[str]:
         '            "**Available Tool Options:**\\n"',
         '            ""',
     ]
-    
+
     for key in sorted(tool_options.keys()):
         option = tool_options[key]
         name = option.get("name", key)
         command = option.get("command", "?")
         param_type = option.get("type", "?")
         units = option.get("units", "")
-        
+
         default = option.get("default", {})
         if isinstance(default, dict):
             text_default = default.get("text", "—")
@@ -137,7 +137,7 @@ def format_python_docstring_addition(tool_options: dict) -> list[str]:
         else:
             text_default = default if default is not None else "—"
             bh_default = text_default
-        
+
         # Build range description
         range_desc = ""
         if param_type in ("int", "float"):
@@ -145,13 +145,13 @@ def format_python_docstring_addition(tool_options: dict) -> list[str]:
             max_val = option.get("max")
             if min_val is not None and max_val is not None:
                 range_desc = f" [{min_val}–{max_val}]"
-        
+
         line = (
             f'            "- **{key}**: {name} ({command}, {param_type}, {units}{range_desc}). '
             f'Defaults: text={text_default}, borders_holes={bh_default}.\\n"'
         )
         lines.append(line)
-    
+
     return lines
 
 
@@ -208,7 +208,7 @@ def format_fonts_list() -> list[str]:
 def main() -> int:
     """Main entry point."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="Generate tool_options documentation from job-config.json"
     )
@@ -233,9 +233,9 @@ def main() -> int:
         default=Path('job-config.json'),
         help='Path to job-config.json (default: job-config.json)'
     )
-    
+
     args = parser.parse_args()
-    
+
     # Font discovery lives in the code (font_registry), not in job-config.json,
     # so it works even when the config file is absent.
     if args.show_fonts:
@@ -245,16 +245,16 @@ def main() -> int:
             print(line)
         print("=" * 80)
         return 0
-    
+
     # Load config
     try:
         config = load_job_config(args.config)
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"❌ Error loading {args.config}: {e}", file=sys.stderr)
         return 1
-    
+
     tool_options = config.get('tool_options', {})
-    
+
     if args.show_python_code:
         print("Append these lines to the description=(...) string in JobSpec.tool_options:")
         print("=" * 80)
@@ -262,7 +262,7 @@ def main() -> int:
             print(line)
         print("=" * 80)
         return 0
-    
+
     if args.show:
         print("Available Tool Options (for documentation):")
         print("=" * 80)
@@ -270,7 +270,7 @@ def main() -> int:
             print(line)
         print("=" * 80)
         return 0
-    
+
     # Default: show both
     print("📋 Available Tool Options:")
     print("=" * 80)

@@ -96,15 +96,15 @@ class TestCSVMetricsLoggerEnsureHeader:
     def test_ensure_header_creates_file(self, tmp_path: Path) -> None:
         """Test that _ensure_header creates the CSV file if it doesn't exist."""
         log_file = tmp_path / "test_metrics.csv"
-        logger = CSVMetricsLogger(log_file=log_file)
+        # The header is written during __init__ (_ensure_header).
+        CSVMetricsLogger(log_file=log_file)
 
-        # The file should have been created during __init__
         assert log_file.exists()
 
     def test_ensure_header_writes_correct_columns(self, tmp_path: Path) -> None:
         """Test that _ensure_header writes the correct column headers."""
         log_file = tmp_path / "test_columns.csv"
-        logger = CSVMetricsLogger(log_file=log_file)
+        CSVMetricsLogger(log_file=log_file)
 
         with open(log_file, encoding="utf-8") as f:
             first_line = f.readline().strip()
@@ -130,7 +130,7 @@ class TestCSVMetricsLoggerEnsureHeader:
         # Pre-create file with custom content
         log_file.write_text("custom_header", encoding="utf-8")
 
-        logger = CSVMetricsLogger(log_file=log_file)
+        CSVMetricsLogger(log_file=log_file)
 
         # Content should be unchanged
         assert log_file.read_text(encoding="utf-8") == "custom_header"

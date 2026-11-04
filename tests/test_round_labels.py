@@ -22,7 +22,6 @@ from typing import Optional
 import numpy as np
 import pytest
 
-from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.generate.collision.detection import detect_text_hole_collisions
 from plt_optimizer.generate.collision.holes import hole_circles_local, round_corner_hole
 from plt_optimizer.generate.collision.shapes import label_ellipse, label_is_round

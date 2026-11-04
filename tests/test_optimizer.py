@@ -1494,20 +1494,26 @@ class TestGeneticAlgorithmCoverage:
         """Test _decode_gene extracts block_id and reversed flag."""
         strategy = GeneticAlgorithmStrategy()
 
-        # Gene encoding: bit 0-30 for block_id, bit 31 for reversed
+        # Gene encoding is sign-based: positive = forward (gene == block_id),
+        # negative = reversed (block_id == -gene - 1).
         gene_normal = 5  # block_id=5, not reversed
         block_id, is_reversed = strategy._decode_gene(gene_normal)
         assert block_id == 5
         assert is_reversed is False
 
+        block_id, is_reversed = strategy._decode_gene(-6)  # block_id=5, reversed
+        assert block_id == 5
+        assert is_reversed is True
+
     def test_is_reversed_gene(self) -> None:
-        """Test _is_reversed_gene correctly identifies reversal bit."""
+        """Test _is_reversed_gene correctly identifies the reversal sign."""
         strategy = GeneticAlgorithmStrategy()
 
-        gene_not_reversed = 100  # even or with high bit not set
-        gene_reversed = (1 << 31) | 5  # high bit set
+        gene_not_reversed = 100  # positive: forward traversal
+        gene_reversed = -100  # negative: reversed traversal
 
         assert strategy._is_reversed_gene(gene_not_reversed) is False
+        assert strategy._is_reversed_gene(gene_reversed) is True
 
     def test_two_opt_refinement_ga(self) -> None:
         """Test _two_opt_refinement in GA context."""
@@ -2143,6 +2149,7 @@ class TestChristofidesCoverage2:
         # Create vertices so vid=1 is the exit of block 0 (is_exit=True)
         vertices = strategy._create_vertices([block_a], (0.0, 0.0), (100.0, 0.0))
         # vid=1 is the exit vertex of block 0
+        assert vertices[1][3] is True
         result = strategy._determine_reversal_for_first_block(1, [block_a])
         assert result is True
 

@@ -2532,7 +2532,7 @@ class TestKernShifts:
 
     def test_wrappers_thread_the_kwarg(self, synth_lib: Path) -> None:
         """All three public wrappers pass kern_shifts through to the walk."""
-        kwargs = dict(cutter_diameter=0.0, character_spacing=0.0, kern_shifts=(0.0, 0.1))
+        kwargs = {"cutter_diameter": 0.0, "character_spacing": 0.0, "kern_shifts": (0.0, 0.1)}
         b1 = render_text_line_plt_font("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
         b2, _ = render_text_line_plt_font_with_words("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
         b3, _, _ = render_text_line_plt_font_with_glyphs("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)

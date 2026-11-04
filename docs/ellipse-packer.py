@@ -1,8 +1,8 @@
-import math
 import numpy as np
-from shapely.geometry import Point
 from shapely.affinity import scale, translate
+from shapely.geometry import Point
 from shapely.ops import unary_union
+
 
 def create_ellipse_polygon(semi_a, semi_b, clearance=0.0625, num_points=32):
     """
@@ -10,8 +10,8 @@ def create_ellipse_polygon(semi_a, semi_b, clearance=0.0625, num_points=32):
     buffered by half clearance for collision-free overlap checks.
     """
     circle = Point(0, 0).buffer(1.0, resolution=num_points // 4)
-    ellipse = scale(circle, xfact=semi_a + (clearance / 2.0), 
-                             yfact=semi_b + (clearance / 2.0), 
+    ellipse = scale(circle, xfact=semi_a + (clearance / 2.0),
+                             yfact=semi_b + (clearance / 2.0),
                              origin=(0, 0))
     return ellipse
 
@@ -35,10 +35,10 @@ class EllipsePacker:
 
         for item in sorted_specs:
             a, b = item['semi_a'], item['semi_b']
-            
+
             # Orientations to try: 0 deg (a, b) and 90 deg (b, a)
             orientations = [(a, b, 0), (b, a, 90)]
-            
+
             best_pos = None
             best_rotation = None
             min_extent = float('inf')
@@ -60,7 +60,7 @@ class EllipsePacker:
                 for x in x_range:
                     if x + half_w > self.plate_w or x - half_w < 0:
                         continue
-                        
+
                     for y in y_range:
                         if y + half_h > self.plate_h or y - half_h < 0:
                             continue
@@ -107,7 +107,7 @@ class EllipsePacker:
         # Calculate used boundary and salvaged scrap rectangle dimensions
         max_x = max([p['center_in'][0] + p['semi_a_in'] for p in packed_results]) if packed_results else 0.0
         max_y = max([p['center_in'][1] + p['semi_b_in'] for p in packed_results]) if packed_results else 0.0
-        
+
         scrap_info = {
             'used_width_in': round(max_x, 3),
             'used_height_in': round(max_y, 3),

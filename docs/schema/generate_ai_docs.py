@@ -945,7 +945,7 @@ def _load_tool_options() -> dict[str, Any]:
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
         return config.get("tool_options", {})
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 

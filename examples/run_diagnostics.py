@@ -37,7 +37,7 @@ from plt_optimizer.core.optimizer import (
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.pipeline import chunk_document, preprocess_document
 from plt_optimizer.core.profiler import Profiler
-from plt_optimizer.core.reassembler import MetricsCalculator, Reassembler
+from plt_optimizer.core.reassembler import Reassembler
 from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.core.writer import PLTWriter
 from plt_optimizer.diagnostics.plotter import plot_plt_document
@@ -78,7 +78,6 @@ def run_diagnostics_on_file(
 
         # Preserve original document for before plots
         original_doc = doc
-        original_cutting = original_doc.cutting_distance()
         original_rapid = original_doc.rapid_distance()
 
         output_stem = input_path.stem
@@ -135,9 +134,7 @@ def run_diagnostics_on_file(
         optimized_doc = reassembler.reassemble(doc, blocks, optimization_result)
 
         # Calculate metrics
-        metrics_calc = MetricsCalculator()
         optimized_rapid = optimized_doc.rapid_distance()
-        optimized_cutting = optimized_doc.cutting_distance()
 
         rapid_improvement_pct = (
             ((original_rapid - optimized_rapid) / original_rapid * 100)

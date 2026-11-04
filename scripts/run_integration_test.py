@@ -48,8 +48,8 @@ GENERATE_DEFAULT_PLOTS = True
 from plt_optimizer.core.units import units_to_inches
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
-from plt_optimizer.generate.packing.layout import PackedPlate, generate_layout
 from plt_optimizer.generate.layout_report import format_layout_report
+from plt_optimizer.generate.packing.layout import PackedPlate, generate_layout
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     memoize_extents_probe,
@@ -440,7 +440,7 @@ def phase_3_5_validate_coordinates(exported_paths: list[Path]) -> None:
         x_coords = []
         y_coords = []
 
-        for cmd, coords_str in re.findall(coord_pattern, content):
+        for _cmd, coords_str in re.findall(coord_pattern, content):
             coords = coords_str.split(",")
             if len(coords) >= 2:
                 try:

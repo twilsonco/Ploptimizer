@@ -85,12 +85,20 @@ class TestHeaderCommandFromToken:
         assert cmd.parameters is None
 
     def test_parse_command_no_params_various(self) -> None:
-        """Test various no-param commands go through regex fallback (line 109)."""
+        """No-":" tokens go through the regex fallback (line 109)."""
         from plt_optimizer.core.models import HeaderCommand
 
-        for token in ["PA;", "PU0.000,0.000;"]:
+        # The fallback splits leading letters from the trailing parameter
+        # string, so the instruction is recovered from the leading letters and
+        # parameters are None only when nothing follows them.
+        cases = {
+            "PA;": ("PA", None),
+            "PU0.000,0.000;": ("PU", (0.0, 0.0)),
+        }
+        for token, (instruction, params) in cases.items():
             cmd = HeaderCommand.from_token(token)
-            # Commands without explicit : separator use regex fallback
+            assert cmd.instruction == instruction
+            assert cmd.parameters == params
 
     def test_parse_command_params_rounded(self) -> None:
         """Test that floating point params are rounded to 3 decimal places (line 115-116)."""

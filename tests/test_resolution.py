@@ -4174,7 +4174,7 @@ class TestAutoLineSpacingBaselineProbe:
         """An explicit v_margin fills the fixed inner area exactly."""
         label = resolve_job_spec(self._job(v_margin=0.3), extents_probe=self._probe)[0]
         heights = [line.toolpath_text_height for line in label.content]
-        asc = [h for h in heights]
+        asc = list(heights)
         desc = [0.20, 0.0]
         block = baseline_block_height(heights, asc, desc, [label.content[0].line_spacing])
         assert math.isclose(block, 2.0 - 2 * 0.3, abs_tol=1e-6)
