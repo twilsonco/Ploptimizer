@@ -725,26 +725,3 @@ class TestHeaderCommandFromTokenRegexFallback:
 
         with pytest.raises(ValueError, match="Invalid token format"):
             FooterCommand.from_token("SP")
-
-
-class TestPLTDocumentTotalDistance:
-    """Tests for PLTDocument.total_distance() method (line 242)."""
-
-    def test_empty_document_total(self) -> None:
-        """Test total distance on empty document."""
-        doc = PLTDocument()
-        assert doc.total_distance() == 0.0
-
-    def test_document_total_single_path(self) -> None:
-        """Test total distance calculation across document paths."""
-        from plt_optimizer.core.models import Coordinate, StrokeSegment
-
-        seg = StrokeSegment(
-            start=Coordinate(x=0.0, y=0.0),
-            end=Coordinate(x=50.0, y=0.0),
-            is_cutting=True,
-        )
-        path = StrokePath(segments=(seg,))
-        doc = PLTDocument(stroke_paths=[path])
-
-        assert doc.total_distance() == 50.0

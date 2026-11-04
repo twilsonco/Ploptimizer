@@ -22,6 +22,7 @@ import pytest
 
 if TYPE_CHECKING:
     from plt_optimizer.cli.watch import PLTFileHandler
+    from plt_optimizer.core.optimizer import ParallelEnsembleOptimizationResult
 
 
 class TestPLTFileHandlerSupportedExtensions:
@@ -1182,8 +1183,13 @@ class TestShouldProcessEdgeCases:
         assert result is False
 
 
-class TestIsPltFile:
-    """Tests for _is_plt_file method."""
+class TestIsPltFileDirectoryWithPltExtension:
+    """A *directory* named ``*.plt`` must not be treated as a plotter file.
+
+    Complements ``TestIsPltFile.test_is_plt_file_returns_false_for_directories``
+    (an extensionless directory, rejected by the extension check): here the
+    extension passes and the ``is_file`` guard is what rejects it.
+    """
 
     def test_is_plt_file_returns_false_for_directory(self, tmp_path: Path) -> None:
         """Test that directories return False."""
@@ -1206,28 +1212,16 @@ class TestIsPltFile:
             plt_dir.rmdir()
 
 
-class TestDebugSaveFiles:
-    """Tests for debug file saving functionality (lines 42-43)."""
-
-    def test_save_debug_files_when_disabled(self, tmp_path: Path) -> None:
-        """Test that nothing happens when debug_save_files is False."""
-        from plt_optimizer.cli.watch import PLTFileHandler
-
-        handler = PLTFileHandler(
-            watch_dir=tmp_path,
-            output_dir=Path("/output"),
-            text_logger=MagicMock(),
-            metrics_logger=MagicMock(),
-            debug_save_files=False,  # Explicitly disabled
-        )
-
-        mock_doc = MagicMock()
-        # Should return early without doing anything
-        handler._save_debug_files("job_123", mock_doc, mock_doc, 100.0, 80.0)
-        # No error should occur
+class TestSaveDebugFilesGuards:
+    """The ``log_dir is None`` early-return guard in ``_save_debug_files``."""
 
     def test_save_debug_files_with_log_dir_none(self, tmp_path: Path) -> None:
-        """Test that debug save returns early when log_dir is None."""
+        """Debug save returns early when ``log_dir`` is None, writing nothing.
+
+        The other early-return guard (``debug_save_files=False``) and the
+        plotter-exception path are covered by ``TestDebugSaveFiles``; this
+        covers the second half of the shared guard at ``watch.py:361``.
+        """
         from plt_optimizer.cli.watch import PLTFileHandler
 
         handler = PLTFileHandler(
@@ -1240,31 +1234,11 @@ class TestDebugSaveFiles:
         )
 
         mock_doc = MagicMock()
-        handler._save_debug_files("job_123", mock_doc, mock_doc, 100.0, 80.0)
-        # Should return early without error
-
-    def test_save_debug_files_with_exception(self, tmp_path: Path) -> None:
-        """Test that exceptions in debug save are caught and logged."""
-        from plt_optimizer.cli.watch import PLTFileHandler
-
-        log_dir = tmp_path / "logs"
-        log_dir.mkdir()
-
-        handler = PLTFileHandler(
-            watch_dir=tmp_path,
-            output_dir=Path("/output"),
-            text_logger=MagicMock(),
-            metrics_logger=MagicMock(),
-            debug_save_files=True,
-            log_dir=log_dir,
-        )
-
-        mock_doc = MagicMock()
-        # Make plotter raise an exception
-        with patch('plt_optimizer.cli.watch.plot_plt_document', side_effect=Exception("Plot failed")):
+        with patch.object(handler, "_writer") as mock_writer:
             handler._save_debug_files("job_123", mock_doc, mock_doc, 100.0, 80.0)
-            # Should be caught and logged as warning
-            handler._text_logger.warning.assert_called()
+
+        mock_writer.write_file.assert_not_called()
+        handler._text_logger.warning.assert_not_called()
 
 
 class TestProcessFileErrorPaths:
@@ -2425,12 +2399,11 @@ class TestRunWatcherFromConfigNonMainThread:
                     raise KeyboardInterrupt()
 
                 with patch('signal.pause', side_effect=raise_interrupt, create=True):
-                    original_current_thread = threading.current_thread
-
                     def mock_current_thread():
-                        mock_thread = MagicMock()
-                        mock_thread == threading.main_thread  # Returns False
-                        return mock_thread
+                        # A MagicMock never equals threading.main_thread(), so
+                        # watch.py:776 sees a non-main thread and skips the
+                        # signal-handler registration.
+                        return MagicMock()
 
                     with patch.object(threading, 'current_thread', mock_current_thread):
                         result = run_watcher_from_config(config, stop_event)
