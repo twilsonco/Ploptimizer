@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import replace
 from pathlib import Path
@@ -15,16 +16,17 @@ from plt_optimizer.generate.job_config import (
     apply_job_config_defaults,
 )
 from plt_optimizer.generate.resolution import (
+    DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL,
+    DEFAULT_ARC_PRESERVE_COMPRESSION,
     DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT,
     DEFAULT_BOLD_BOLDNESS_MULTIPLIER,
-    DEFAULT_ARC_PRESERVE_COMPRESSION,
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     DEFAULT_BULLET_STRING,
+    DEFAULT_CUTTER_BUFFER_ROUTING,
+    DEFAULT_CUTTER_BUFFER_TEXT,
     DEFAULT_CUTTER_DOWNSIZE,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL,
     DEFAULT_CUTTER_DOWNSIZE_GLOBAL_JOB_WIDE,
-    DEFAULT_CUTTER_BUFFER_ROUTING,
-    DEFAULT_CUTTER_BUFFER_TEXT,
     DEFAULT_CUTTER_SIZE,
     DEFAULT_DESCENDING_CHARACTER_CLEARANCE,
     DEFAULT_DESCENDING_CHARACTER_RAISE,
@@ -35,22 +37,19 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_FONT,
     DEFAULT_H_COMPRESS_GLOBAL,
     DEFAULT_H_COMPRESS_GLOBAL_SAME_HEIGHT_ONLY,
-    DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL,
     DEFAULT_HOLE_ADJUST_FOR_CUTTER,
     DEFAULT_HOLE_MARGIN,
     DEFAULT_HOLE_TEXT_COLLISION_DISTANCE,
     DEFAULT_HTML_BRACKETS,
     DEFAULT_ITALIC_ANGLE,
+    DEFAULT_KERN_NEG_STRING,
+    DEFAULT_KERN_POS_STRING,
+    DEFAULT_KERN_WIDTH_FRACTION,
     DEFAULT_KERNING_MIN_GAP_FRACTION,
     DEFAULT_KERNING_PENETRATION_SCALE,
     DEFAULT_KERNING_RECESSION_SCALE,
     DEFAULT_KERNING_WINDOW_FRACTION,
-    DEFAULT_KERN_NEG_STRING,
-    DEFAULT_KERN_POS_STRING,
-    DEFAULT_KERN_WIDTH_FRACTION,
     DEFAULT_LABEL_SHAPE,
-    DEFAULT_ROUNDED_RECTANGLE_FRACTION,
-    DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL,
     DEFAULT_LINE_SPACING,
     DEFAULT_MARGIN,
     DEFAULT_MAX_CUTTER_DOWNSIZES,
@@ -60,6 +59,8 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MULTISTROKE_OVERLAP_RATIO,
     DEFAULT_OPTIMIZE_LINE_CONTENT,
     DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
+    DEFAULT_ROUNDED_RECTANGLE_FRACTION,
+    DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL,
     DEFAULT_SC_SCALE,
     DEFAULT_SPACE_WIDTH_FRACTION,
     DEFAULT_STRIKETHROUGH_BREAK_SPACES,
@@ -91,9 +92,9 @@ from plt_optimizer.generate.resolution import (
     build_cutter_pen_map,
     compute_horizontal_offset,
     compute_horizontal_scale,
-    ellipse_content_inset,
     design_pass_spacing,
     effective_cutter_diameter,
+    ellipse_content_inset,
     fit_baseline_spacing_to_margins,
     fit_line_spacing_to_margins,
     get_cutter_diameter,
@@ -572,7 +573,9 @@ class TestHoleMarginResolution:
 
     def test_negative_hole_margin_rejected(self) -> None:
         """Negative hole_margin values must fail schema validation."""
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError, match=r"hole_margin\s+Input should be greater than or equal to 0"
+        ):
             JobSpec(
                 job_name="HM",
                 hole_margin=-0.1,
@@ -684,19 +687,19 @@ class TestResolvedDataclasses:
             h_margin=0.1,
             v_margin=0.1,
         )
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             label.width = 2.0  # type: ignore[misc]
 
     def test_resolved_text_line_is_frozen(self) -> None:
         """ResolvedTextLine should be immutable."""
         line = _make_line(text="X")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             line.text = "Y"  # type: ignore[misc]
 
     def test_resolved_hole_spec_is_frozen(self) -> None:
         """ResolvedHoleSpec should be immutable."""
         hole = ResolvedHoleSpec(diameter=0.125, location="left")
-        with pytest.raises(Exception):  # FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             hole.diameter = 0.25  # type: ignore[misc]
 
     def test_default_factories(self) -> None:
@@ -1165,9 +1168,9 @@ class TestComputeHorizontalOffsetWithEdgeMargin:
     def test_right_anchors_at_margin_minus_edge_margin(self) -> None:
         """ "right" slides leftward by the edge margin."""
         # Right inner edge 3.2, width 1.5, minus 0.3in of edge margin.
-        assert compute_horizontal_offset(
-            1.5, 3.0, 0.2, "right", edge_margin=0.3
-        ) == pytest.approx(1.4)
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "right", edge_margin=0.3) == pytest.approx(
+            1.4
+        )
 
     def test_zero_edge_margin_is_the_legacy_position(self) -> None:
         """edge_margin=0.0 reproduces every alignment exactly."""
@@ -1178,9 +1181,9 @@ class TestComputeHorizontalOffsetWithEdgeMargin:
 
     def test_center_ignores_edge_margin(self) -> None:
         """A centered line has no anchored edge: the slide is inert."""
-        assert compute_horizontal_offset(
-            1.5, 3.0, 0.2, "center", edge_margin=0.5
-        ) == pytest.approx(0.95)
+        assert compute_horizontal_offset(1.5, 3.0, 0.2, "center", edge_margin=0.5) == pytest.approx(
+            0.95
+        )
 
     def test_slide_clamped_by_far_margin(self) -> None:
         """A fitting line is never slid past the far inner margin."""
@@ -2807,7 +2810,7 @@ class TestMultiStrokeCutterResolution:
         """The ladder result is an immutable value object."""
         ladder = multi_stroke_cutter_diameter(0.5, 5)
         assert isinstance(ladder, MultiStrokeCutter)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             ladder.cutter = 0.0  # type: ignore[misc]
 
 
@@ -7102,8 +7105,7 @@ class TestAlignMarginAdjustGlobalCascade:
     def test_label_true_is_honored(self) -> None:
         """An intentional label-level True never falls through."""
         assert (
-            resolve_job_spec(self._job(job=False, label=True))[0].align_margin_adjust_global
-            is True
+            resolve_job_spec(self._job(job=False, label=True))[0].align_margin_adjust_global is True
         )
 
     def test_resolved_label_defaults_false(self) -> None:
@@ -7577,12 +7579,19 @@ class TestKernStringCascade:
         moved = line.with_markup("C<+>D")
         assert moved.plain_text == "CD"
         assert moved.kern_values == (0, 1)
-        assert moved.kern_shifts_inches == (0.0, pytest.approx(line.kern_width_fraction * line.toolpath_text_height))
+        assert moved.kern_shifts_inches == (
+            0.0,
+            pytest.approx(line.kern_width_fraction * line.toolpath_text_height),
+        )
 
     def test_kern_shifts_inches_tracks_toolpath_height(self) -> None:
         """The shift converts through the CURRENT cap height (fraction x toolpath)."""
         job = self._job(
-            job_kwargs={"kern_pos_string": "<+>", "kern_neg_string": "<->", "kern_width_fraction": 0.2}
+            job_kwargs={
+                "kern_pos_string": "<+>",
+                "kern_neg_string": "<->",
+                "kern_width_fraction": 0.2,
+            }
         )
         line = resolve_job_spec(job)[0].content[0]
         expected = 0.2 * line.toolpath_text_height
@@ -7706,9 +7715,7 @@ class TestListResolution:
 
     def test_itemize_expands_one_line_per_item(self) -> None:
         """A bullet block yields its items in order, sharing one group."""
-        job = self._job(
-            content=[{"itemize": {"items": [{"text": "alpha"}, {"text": "beta"}]}}]
-        )
+        job = self._job(content=[{"itemize": {"items": [{"text": "alpha"}, {"text": "beta"}]}}])
         content = resolve_job_spec(job)[0].content
         assert [line.plain_text for line in content] == ["alpha", "beta"]
         assert [line.marker_text for line in content] == ["•", "•"]
@@ -7813,9 +7820,7 @@ class TestListResolution:
 
     def test_enumerate_ignores_the_bullet_string(self) -> None:
         """The counter is always computed -- a bullet_string is inert there."""
-        job = self._job(
-            content=[{"enumerate": {"items": [{"text": "a"}], "bullet_string": "X"}}]
-        )
+        job = self._job(content=[{"enumerate": {"items": [{"text": "a"}], "bullet_string": "X"}}])
         assert resolve_job_spec(job)[0].content[0].marker_text == "1"
 
     def test_counter_settings_cascade_label_and_job(self) -> None:
@@ -7985,9 +7990,7 @@ class TestListResolution:
 
     def test_job_level_root_content_expands_lists(self) -> None:
         """The root-level single-label form expands list blocks too."""
-        job = self._job(
-            content=[{"enumerate": {"items": [{"text": "a"}, {"text": "b"}]}}]
-        )
+        job = self._job(content=[{"enumerate": {"items": [{"text": "a"}, {"text": "b"}]}}])
         content = resolve_job_spec(job)[0].content
         assert [line.marker_text for line in content] == ["1", "2"]
 
@@ -8543,8 +8546,7 @@ class TestMultiStrokeLadderBufferContract:
                 compensated = multi_stroke_cutter_diameter(
                     nominal_height,
                     stroke_count,
-                    boldness_factor=DEFAULT_TARGET_BOLDNESS_FACTOR
-                    - buffer / nominal_height,
+                    boldness_factor=DEFAULT_TARGET_BOLDNESS_FACTOR - buffer / nominal_height,
                 )
                 # The ideal drops below the floor, so the floor wins: identical cutter.
                 assert compensated.cutter == pytest.approx(plain.cutter)

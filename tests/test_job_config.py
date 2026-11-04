@@ -363,36 +363,56 @@ class TestJobDefaultsModel:
         assert JobDefaults().kern_neg_string is None
         assert JobDefaults().kern_width_fraction is None
         assert JobDefaults(kern_pos_string="<->").kern_pos_string == "<->"
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"kern_width_fraction\s+Input should be greater than or equal to 0",
+        ):
             JobDefaults(kern_width_fraction=-0.1)
         assert JobDefaults().sc_scale is None
         assert JobDefaults(sc_scale=0.4).sc_scale == pytest.approx(0.4)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError, match=r"sc_scale\s+Input should be greater than or equal to 0\.2"
+        ):
             JobDefaults(sc_scale=0.1)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError, match=r"sc_scale\s+Input should be less than or equal to 1"
+        ):
             JobDefaults(sc_scale=1.1)
         assert JobDefaults().supersubscript_downscale is None
         assert JobDefaults(supersubscript_downscale=0.6).supersubscript_downscale == pytest.approx(
             0.6
         )
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"supersubscript_downscale\s+Input should be greater than or equal to 0\.2",
+        ):
             JobDefaults(supersubscript_downscale=0.1)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"supersubscript_downscale\s+Input should be less than or equal to 1",
+        ):
             JobDefaults(supersubscript_downscale=1.1)
         assert JobDefaults().html_brackets is None
         assert JobDefaults(html_brackets="<<>>").html_brackets == "<<>>"
         assert JobDefaults().italic_angle is None
         assert JobDefaults(italic_angle=20.0).italic_angle == pytest.approx(20.0)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError, match=r"italic_angle\s+Input should be greater than or equal to 0"
+        ):
             JobDefaults(italic_angle=-1.0)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError, match=r"italic_angle\s+Input should be less than or equal to 45"
+        ):
             JobDefaults(italic_angle=46.0)
         assert JobDefaults().underline_offset_fraction is None
         assert JobDefaults(
             underline_offset_fraction=0.08
         ).underline_offset_fraction == pytest.approx(0.08)
         assert JobDefaults(underline_offset_fraction=0.0).underline_offset_fraction == 0.0
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"underline_offset_fraction\s+Input should be greater than or equal to 0",
+        ):
             JobDefaults(underline_offset_fraction=-0.1)
         assert JobDefaults().underline_break_clearance_fraction is None
         assert JobDefaults(
@@ -402,7 +422,10 @@ class TestJobDefaultsModel:
             JobDefaults(underline_break_clearance_fraction=0.0).underline_break_clearance_fraction
             == 0.0
         )
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"underline_break_clearance_fraction\s+Input should be greater than or equal to 0",
+        ):
             JobDefaults(underline_break_clearance_fraction=-0.1)
         assert JobDefaults().underline_break_spaces is None
         assert JobDefaults(underline_break_spaces=True).underline_break_spaces is True
@@ -414,7 +437,10 @@ class TestJobDefaultsModel:
             strikethrough_offset_fraction=0.22
         ).strikethrough_offset_fraction == pytest.approx(0.22)
         assert JobDefaults(strikethrough_offset_fraction=0.0).strikethrough_offset_fraction == 0.0
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"strikethrough_offset_fraction\s+Input should be greater than or equal to 0",
+        ):
             JobDefaults(strikethrough_offset_fraction=-0.1)
         assert JobDefaults().strikethrough_break_spaces is None
         assert JobDefaults(strikethrough_break_spaces=True).strikethrough_break_spaces is True
@@ -440,9 +466,15 @@ class TestJobDefaultsModel:
         )
         assert JobDefaults(target_boldness_factor=0.05).target_boldness_factor == 0.05
         assert JobDefaults(target_boldness_factor=0.30).target_boldness_factor == 0.30
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"target_boldness_factor\s+Input should be greater than or equal to 0\.05",
+        ):
             JobDefaults(target_boldness_factor=0.04)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"target_boldness_factor\s+Input should be less than or equal to 0\.3",
+        ):
             JobDefaults(target_boldness_factor=0.31)
         assert JobDefaults().multistroke_overlap_ratio is None
         assert JobDefaults(
@@ -450,9 +482,15 @@ class TestJobDefaultsModel:
         ).multistroke_overlap_ratio == pytest.approx(0.35)
         assert JobDefaults(multistroke_overlap_ratio=0.1).multistroke_overlap_ratio == 0.1
         assert JobDefaults(multistroke_overlap_ratio=0.5).multistroke_overlap_ratio == 0.5
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"multistroke_overlap_ratio\s+Input should be greater than or equal to 0\.1",
+        ):
             JobDefaults(multistroke_overlap_ratio=0.05)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"multistroke_overlap_ratio\s+Input should be less than or equal to 0\.5",
+        ):
             JobDefaults(multistroke_overlap_ratio=0.6)
         assert JobDefaults().use_baseline_spacing is None
         assert JobDefaults(use_baseline_spacing=False).use_baseline_spacing is False
@@ -466,9 +504,15 @@ class TestJobDefaultsModel:
         assert JobDefaults(rounded_rectangle_fraction=0.5).rounded_rectangle_fraction == 0.5
         assert JobDefaults(rounded_rectangle_fraction=0.0).rounded_rectangle_fraction == 0.0
         assert JobDefaults(rounded_rectangle_fraction=1.0).rounded_rectangle_fraction == 1.0
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"rounded_rectangle_fraction\s+Input should be greater than or equal to 0",
+        ):
             JobDefaults(rounded_rectangle_fraction=-0.1)
-        with pytest.raises(Exception):
+        with pytest.raises(
+            ValidationError,
+            match=r"rounded_rectangle_fraction\s+Input should be less than or equal to 1",
+        ):
             JobDefaults(rounded_rectangle_fraction=1.1)
         assert JobDefaults().rounded_rectangle_proportional is None
         assert (

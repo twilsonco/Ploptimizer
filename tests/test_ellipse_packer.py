@@ -7,10 +7,10 @@ rotation selection, and the fit-failure path.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import pytest
-
 from shapely.affinity import translate as shapely_translate
 
 from plt_optimizer.generate.packing.ellipse_packer import (
@@ -147,7 +147,9 @@ class TestClearanceAndCollisions:
         result = pack_ellipses(12.0, 4.0, specs, ScrapDirection.PREFER_WIDTH, clearance=0.0)
         assert len(result.placed) == 2
         first, second = result.placed
-        centre_distance = math.hypot(first.center_x - second.center_x, first.center_y - second.center_y)
+        centre_distance = math.hypot(
+            first.center_x - second.center_x, first.center_y - second.center_y
+        )
         assert centre_distance >= 2.0 - 1e-9
 
 
@@ -265,5 +267,5 @@ class TestResultShape:
     def test_result_is_frozen(self) -> None:
         result = pack_ellipses(6.0, 6.0, [EllipseSpec("a", 1.0, 1.0)])
         assert isinstance(result, EllipsePackingResult)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             result.used_width_in = 99.0  # type: ignore[misc]
