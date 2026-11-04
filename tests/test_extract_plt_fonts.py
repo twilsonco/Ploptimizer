@@ -2087,12 +2087,18 @@ class TestHeightPrescriptionsCli:
             == 0
         )
         data = json.loads((out / "Dino.json").read_text(encoding="utf-8"))
-        # The shipped prescriptions put the pipe on [-100, 1000]; the derived
-        # cent sign is built from that bar, so its box must reflect the
-        # normalised bar, not the raw engraved one.
+        # The shipped prescriptions normalise the pipe's ink box onto its
+        # target bounds; the derived cent sign is built from that bar, so its
+        # box must reflect the normalised bar, not the raw engraved one. The
+        # percentages are hand-tuned font data, so the target is derived from
+        # the file itself (the pattern TestShippedCatalogPrescriptions uses).
+        modifications = gt.load_character_modifications(script.DEFAULT_MODIFICATIONS_FILE)
+        prescription = modifications["|"]
+        assert isinstance(prescription, gt.HeightPrescription)
+        low, high = prescription.target_bounds(script.LIBRARY_UNITS_PER_INCH)
         bar = data["characters"]["|"]["bounding_box"]
-        assert bar["min_y"] == pytest.approx(-100.0, abs=1e-3)
-        assert bar["max_y"] == pytest.approx(1000.0, abs=1e-3)
+        assert bar["min_y"] == pytest.approx(low, abs=1e-3)
+        assert bar["max_y"] == pytest.approx(high, abs=1e-3)
         assert "\u00a2" in data["characters"]
 
 

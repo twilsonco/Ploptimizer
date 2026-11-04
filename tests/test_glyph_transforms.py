@@ -10,6 +10,7 @@ giving cap = 1000 and midline = 500 in every recipe test.
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import sys
 from pathlib import Path
@@ -742,11 +743,25 @@ class TestCharacterModifications:
         loaded = gt.load_character_modifications(path)
         assert set(loaded) == set("/\\|{}()[]S")
         assert loaded["S"] == gt.MidlineCenter()
-        assert loaded["/"] == gt.HeightPrescription(5.0, 5.0)
-        assert loaded["|"] == gt.HeightPrescription(0.0, 10.0)
-        assert loaded["{"] == gt.HeightPrescription(10.0, 10.0)
-        assert loaded["("] == gt.HeightPrescription(5.0, 5.0)
-        assert loaded["["] == gt.HeightPrescription(2.0, 2.0)
+        # The height percentages are hand-tuned font data, so every expected
+        # prescription is derived from the file's own groups (retuning the
+        # file must never break this test) -- what is pinned here is the
+        # loader's semantics: group expansion, mode mapping, and the
+        # ascent_percent/descent_percent -> field mapping.
+        groups = json.loads(path.read_text(encoding="utf-8"))["modifications"]
+        expected: Dict[str, gt.HeightPrescription] = {}
+        for group in groups:
+            if group["mode"] != "height":
+                continue
+            for character in group["characters"]:
+                expected[character] = gt.HeightPrescription(
+                    group["ascent_percent"], group["descent_percent"]
+                )
+        assert expected, "the shipped file declares no height groups"
+        for character, prescription in expected.items():
+            assert loaded[character] == prescription, character
+        # Totality: every non-midline character carries a height prescription.
+        assert set(expected) == set(loaded) - {"S"}
 
     def _write(self, tmp_path: Path, payload: object) -> Path:
         path = tmp_path / "modifications.json"

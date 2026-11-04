@@ -301,16 +301,14 @@ class TestExportAndOptimizePhase3:
         def _fake_physical(layers, output_path=None, show_plot=False, **kwargs):
             physical_calls.append(Path(output_path).name)
 
-        with (
-            patch("plt_optimizer.diagnostics.plotter.plot_plt_document", side_effect=_fake_simple),
-            patch(
-                "plt_optimizer.diagnostics.plotter.plot_physical_strokes",
-                side_effect=_fake_physical,
-            ),
+        with patch(
+            "plt_optimizer.diagnostics.plotter.plot_plt_document", side_effect=_fake_simple
+        ), patch(
+            "plt_optimizer.diagnostics.plotter.plot_physical_strokes",
+            side_effect=_fake_physical,
         ):
-            pdf_paths = _write_simple_plots(tmp_path, "fb", result)
+            _write_simple_plots(tmp_path, "fb", result)
 
-        names = {p.name for p in pdf_paths}
         # Per-cutter files keep the stem cutter token, so they render physical.
         assert any("_txt_" in n for n in physical_calls)
         # The combined plot has no pen-width map -> thin centerline fallback.
@@ -6598,7 +6596,7 @@ class TestKernDemoExample:
     def test_zero_width_consumes_the_marker_and_shifts_nothing(self, tmp_path: Path) -> None:
         """kern_width_fraction 0.0 strips the marker (plain 'AV') but shifts 0."""
         result = self._export(tmp_path)
-        zero = by_id_zero = result.rendered_labels["plt_zero_width"].source_label
+        zero = result.rendered_labels["plt_zero_width"].source_label
         assert zero.content[0].plain_text == "AV"
         # The marker is stripped, so the width equals the plain control.
         plain = self._width(result.rendered_labels["plt_wide_plain"].source_label)
