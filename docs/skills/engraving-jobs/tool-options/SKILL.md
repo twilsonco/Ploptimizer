@@ -20,7 +20,7 @@ metadata:
 
 | Field | Type | Default | Constraints | Tiers | Description |
 |---|---|---|---|---|---|
-| `tool_options` | ? \| null | null (unset) | — | job | Optional engraver tool options (header commands). Keys are underscored header names (e.g., `cutting_velocity`, `dwell_time`, `spindle_speed`). Values override job-config.json defaults for those parameters. Supported options and their ranges are defined in job-config.json `tool_options` metadata, which includes `command`, `type`, `units`, `default` (with dual text/borders_holes values), and for numeric types `min`/`max` bounds. Omitted options use job-config defaults or are omitted from the PLT if the default is `null`. Out-of-bounds values are clamped to the configured range with a WARNING logged. |
+| `tool_options` | dict \| null | null (unset) | — | job | Optional engraver tool options (header commands). Keys are underscored header names (e.g., `cutting_velocity`, `dwell_time`, `spindle_speed`). Values override job-config.json defaults for those parameters. Supported options and their ranges are defined in job-config.json `tool_options` metadata, which includes `command`, `type`, `units`, `default` (with dual text/borders_holes values), and for numeric types `min`/`max` bounds. Omitted options use job-config defaults or are omitted from the PLT if the default is `null`. Out-of-bounds values are clamped to the configured range with a WARNING logged. |
 
 ## Available options
 

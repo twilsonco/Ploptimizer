@@ -250,7 +250,13 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 # JSON-Schema primitive -> Python-flavoured name (AI-consumer friendly).
-_TYPE_NAMES = {"number": "float", "integer": "int", "string": "str", "boolean": "bool"}
+_TYPE_NAMES = {
+    "number": "float",
+    "integer": "int",
+    "string": "str",
+    "boolean": "bool",
+    "object": "dict",
+}
 
 # Curation notes for the resolved fallback constants scraped from
 # `resolution.py` / `schema.py` / `layout.py` (the *values* always come

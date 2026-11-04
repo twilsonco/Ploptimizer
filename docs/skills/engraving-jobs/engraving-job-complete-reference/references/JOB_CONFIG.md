@@ -190,7 +190,7 @@ the docs byte-pin; everything above is derived purely from the model.
 
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
-| `tool_options` | ? \| null | null (unset) | — | Optional engraver tool options (header commands) metadata. Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), 'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual text/borders_holes dict), and for numeric types 'min'/'max' bounds. Validated at config load: every problem in the file is reported in one JobConfigError. Populated by the extract_headers.py script from PLT reference files. |
+| `tool_options` | dict \| null | null (unset) | — | Optional engraver tool options (header commands) metadata. Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), 'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual text/borders_holes dict), and for numeric types 'min'/'max' bounds. Validated at config load: every problem in the file is reported in one JobConfigError. Populated by the extract_headers.py script from PLT reference files. |
 
 ## Enums
 
@@ -407,7 +407,7 @@ excluded from the docs byte-pin.
 | `left_clearance` | float \| null | — | **set** | plates-layout-and-packing |
 | `top_clearance` | float \| null | — | **set** | plates-layout-and-packing |
 | `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | — | **set** | line-stacking-and-reflow |
-| `tool_options` | ? \| null | — | **set** | tool-options |
+| `tool_options` | dict \| null | — | **set** | tool-options |
 | `preview_background_color` | str \| null | — | **set** | cascade-and-config |
 
 ## Available Tool Options
