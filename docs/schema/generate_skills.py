@@ -15,7 +15,10 @@ directory of skill directories:
   and validates but NEVER overwrites (it seeds a stub only when missing,
   so the production agent's in-place edits survive regeneration).
 - ``recipes/``                 complete runnable example specs, copied
-  from ``examples/job_specs/`` and validated through ``parse_yaml``.
+  from ``examples/job_specs/`` and validated through ``parse_yaml``,
+  together with every replacement-data file each spec references (the
+  skill body names the files; the YAML is not embedded, keeping the body
+  under the Hermes size cap).
 - ``validating-jobs/scripts/`` the pre-flight validation helpers, copied
   byte-for-byte from the repo ``scripts/`` directory (the source of truth) and
   made executable, so the installed skill carries the executables its
@@ -29,9 +32,10 @@ directory of skill directories:
 Field/enum/default tables reuse the renderers in ``generate_ai_docs.py``
 (loaded by path, same pattern as ``tests/test_job_spec_docs.py``), so every
 table row is byte-identical to ``JOB_SPEC.md``. The theme registry below
-must partition EVERY property of EVERY model in the job spec schema exactly
-once; the coverage check hard-fails otherwise, so a new schema field can
-never ship undocumented.
+must partition EVERY property of EVERY model in the job spec schema (models
+are discovered by walking the schema, so nested models cannot escape) and
+EVERY schema enum exactly once; the coverage checks hard-fail otherwise, so
+a new schema field can never ship undocumented.
 
 Hermes progressive disclosure is explicit: ``skill_view(name)`` loads only
 ``SKILL.md``; reference files load via ``skill_view(name, path)`` when the
@@ -98,7 +102,10 @@ TOC_END = "<!-- END AUTO-TOC -->"
 TOOL_OPTIONS_BEGIN = "<!-- BEGIN TOOL OPTIONS (live from job-config.json) -->"
 TOOL_OPTIONS_END = "<!-- END TOOL OPTIONS -->"
 
-#: Model rendering order for the per-theme field tables (root model first).
+#: Model ordering preference for the per-theme field tables (root model
+#: first). ``model_nodes`` discovers every model reachable in the schema and
+#: appends models missing from this tuple alphabetically, so the tuple never
+#: gates coverage — it only pins the render order of the known models.
 _MODEL_ORDER: Tuple[str, ...] = (
     "JobSpec",
     "PlateSpec",
@@ -175,6 +182,7 @@ class Recipe:
     source: str
     title: str
     caption: str
+    notes: Tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -1327,9 +1335,8 @@ RECIPES: Tuple[Recipe, ...] = (
         source="replacement_job.yaml",
         title="Batch from a replacement file",
         caption=(
-            "A job-level `replacement_text_file` batch. Its data file lives beside the "
-            "spec in `examples/job_specs/` — copy both together; paths resolve relative "
-            "to the YAML."
+            "A job-level `replacement_text_file` batch (its data file ships "
+            "beside the spec); paths resolve relative to the YAML."
         ),
     ),
     Recipe(
@@ -1351,8 +1358,82 @@ RECIPES: Tuple[Recipe, ...] = (
         source="2026-10-06 seer.yaml",
         title="Production multi-label job",
         caption=(
-            "A real shop job: multiple labels, per-label content and sizing. Pair it with "
-            "its sibling data files in `examples/job_specs/` when copying."
+            "A real shop job: multiple labels, per-label content and sizing, each "
+            "label batched from its own replacement data file (shipped beside it)."
+        ),
+        notes=(
+            "Label-level `replacement_text_file` (one data file per label) with "
+            "`placeholder: true` template lines.",
+            "Per-label `width` / `height` / `text_height` overriding the job tier.",
+        ),
+    ),
+    Recipe(
+        source="2026-10-30 CES vons 1735.yaml",
+        title="Production job with material",
+        caption=(
+            "A real multi-size shop job: a job-level `material` tag on every output "
+            "stem, three plate sizes fed by per-label replacement files."
+        ),
+        notes=(
+            "`material: bw` — the material tag lands in every PLT/PDF file name "
+            "(`[<plate>_][<material>_]<cutter>_...`), so mixed runs sort at the machine.",
+            "Commented-out `plates:` blocks show how the same job is pinned to "
+            "declared plate sizes when stock is fixed.",
+        ),
+    ),
+    Recipe(
+        source="2026-10-06 seer wb-uv.yaml",
+        title="Engraver tool options",
+        caption=(
+            "A production job setting `tool_options` (cutting velocity, spindle "
+            "rpm) for the HPGL header commands."
+        ),
+        notes=(
+            "`tool_options` keys must exist in the shop `job-config.json` metadata "
+            "— an unknown key is silently ignored.",
+            "Options apply per output layer (text vs borders/holes defaults); the "
+            "spec value overrides both.",
+        ),
+    ),
+    Recipe(
+        source="2026-10-15 coolsys round tags target 910.yaml",
+        title="Round tags with explicit cutter",
+        caption=(
+            "Small round tags: explicit `cutter_size`, a top mounting hole, "
+            "`dino sc` small-caps font, job-level replacement batch."
+        ),
+        notes=(
+            "`cutter_size: 0.02` pins the tool (no auto-ladder selection); the "
+            "toolpath height subtracts cutter + buffer.",
+            "`font: dino sc` + `sc_scale` — a PLT small-caps family from the catalog.",
+            "Round `type` with `holes` at `location: top` — the collision phase "
+            "keeps text clear of the hole.",
+        ),
+    ),
+    Recipe(
+        source="2026-07-22 sunwest.yaml",
+        title="Simple grid layout",
+        caption=(
+            "A uniform-count job using `layout: columns-simple` (rectpack-free "
+            "grid fill) with `count` copies."
+        ),
+        notes=(
+            "`layout` selects the packing engine; `*-simple` modes fill a fixed "
+            "grid and never rotate.",
+            "`count` multiplies the single root `content` label.",
+        ),
+    ),
+    Recipe(
+        source="2026-10-07 coolsys 1 big label sc.yaml",
+        title="Inline markup showcase",
+        caption=(
+            "One big placard driven by inline markup: fonts, italics, scaling and "
+            "per-line styling inside the text strings."
+        ),
+        notes=(
+            "Markup tags (`<f:>`, `<i>`, `<scale:>`, ...) cascade per line; the "
+            "inline-markup skill documents every tag.",
+            "Shows content-entry `text` carrying rich markup, not plain strings.",
         ),
     ),
 )
@@ -1368,6 +1449,85 @@ def recipe_slug(source: str) -> str:
         Lowercased name with each run of whitespace replaced by one hyphen.
     """
     return re.sub(r"\s+", "-", source.strip())
+
+
+def _recipe_data_refs(source: str) -> List[str]:
+    """Every ``replacement_text_file`` ref in a recipe (existing or missing).
+
+    Args:
+        source: Filename under ``examples/job_specs/``.
+
+    Returns:
+        Sorted ref strings as written in the spec.
+    """
+    path = EXAMPLE_SPECS_DIR / source
+    if not path.exists():
+        return []
+    try:
+        spec = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return []  # parse_yaml reports the real failure in recipe_problems
+    found: Set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "replacement_text_file" and isinstance(value, str):
+                    found.add(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(spec)
+    return sorted(found)
+
+
+def recipe_data_files(source: str) -> List[str]:
+    """List the replacement-data files a recipe references (shippable ones).
+
+    Every ``replacement_text_file`` value at any tier of the spec (job,
+    plate, label) is resolved relative to the spec's own directory; the
+    files ship byte-identical beside the copied YAML in ``recipes/examples/``
+    so the recipe runs from the installed skill.
+
+    Args:
+        source: Filename under ``examples/job_specs/``.
+
+    Returns:
+        Sorted basenames that exist under ``examples/job_specs/`` (missing
+        ones are reported by :func:`recipe_problems`).
+    """
+    return [ref for ref in _recipe_data_refs(source) if (EXAMPLE_SPECS_DIR / ref).is_file()]
+
+
+def recipe_problems() -> List[str]:
+    """Validate that every recipe source parses through ``parse_yaml``.
+
+    Also flags every ``replacement_text_file`` a recipe references whose
+    data file is missing under ``examples/job_specs/`` (it could not be
+    mirrored into the skill).
+
+    Returns:
+        Human-readable problems (empty when every recipe parses).
+    """
+    from plt_optimizer.generate.schema import parse_yaml
+
+    problems: List[str] = []
+    for recipe in RECIPES:
+        path = EXAMPLE_SPECS_DIR / recipe.source
+        if not path.exists():
+            problems.append(f"{recipe.source}: missing under examples/job_specs/")
+            continue
+        try:
+            parse_yaml(path)
+        except (ValueError, FileNotFoundError) as exc:
+            problems.append(f"{recipe.source}: parse_yaml failed: {exc}")
+        for ref in _recipe_data_refs(recipe.source):
+            if not (EXAMPLE_SPECS_DIR / ref).is_file():
+                problems.append(f"{recipe.source}: data file `{ref}` missing")
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -1388,18 +1548,92 @@ def load_schema() -> Dict[str, Any]:
 def model_nodes(schema: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     """Return a model-name -> schema-node mapping in render order.
 
+    Models are discovered by walking the schema from the root: every ``$ref``
+    target in ``$defs`` that declares ``properties`` is a model, transitively
+    (so a model reachable only through an existing field's ``items``/``anyOf``
+    is never missed). :data:`_MODEL_ORDER` is an ordering preference, not a
+    gate: known models keep their declared order (root first), any newly
+    discovered model appends alphabetically. This keeps ``coverage_problems``,
+    the ``Tiers`` column, and ``all_field_names`` complete as ``schema.py``
+    grows nested models.
+
     Args:
         schema: The job spec JSON Schema document.
 
     Returns:
         Ordered mapping of model name to its schema node.
     """
-    defs: Dict[str, Any] = schema.get("$defs", {})
-    nodes: Dict[str, Dict[str, Any]] = {"JobSpec": schema}
-    for name in _MODEL_ORDER[1:]:
-        if name in defs:
-            nodes[name] = defs[name]
+    defs: Dict[str, Dict[str, Any]] = schema.get("$defs", {})
+    discovered: Set[str] = set()
+    visited: Set[int] = set()
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict) or id(node) in visited:
+            return
+        visited.add(id(node))
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.rsplit("/", 1)[-1]
+            target = defs.get(name)
+            if isinstance(target, dict):
+                if "properties" in target:
+                    discovered.add(name)
+                walk(target)
+            return
+        props = node.get("properties")
+        if isinstance(props, dict):
+            for sub in props.values():
+                walk(sub)
+        for key in ("items", "anyOf", "allOf", "oneOf", "additionalProperties"):
+            child = node.get(key)
+            if isinstance(child, list):
+                for sub in child:
+                    walk(sub)
+            elif isinstance(child, dict):
+                walk(child)
+
+    walk(schema)
+    ordered = [name for name in _MODEL_ORDER if name == "JobSpec" or name in discovered]
+    ordered += sorted(discovered - set(ordered))
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for name in ordered:
+        nodes[name] = schema if name == "JobSpec" else defs[name]
     return nodes
+
+
+def enum_coverage_problems(schema: Dict[str, Any]) -> List[str]:
+    """Verify the theme registry partitions every schema enum exactly once.
+
+    Every ``$defs`` enum must be claimed by exactly one theme's ``enums`` so
+    its value table renders in a sub-skill (``JOB_SPEC.md`` alone is not
+    progressive-disclosure reachable from the TOC). Mirrors
+    :func:`coverage_problems` for fields.
+
+    Args:
+        schema: The job spec JSON Schema document.
+
+    Returns:
+        Human-readable problems (empty when the partition is exact).
+    """
+    defs: Dict[str, Any] = schema.get("$defs", {})
+    enums = {name for name, node in defs.items() if isinstance(node, dict) and "enum" in node}
+    counts: Dict[str, int] = {}
+    for theme in THEMES:
+        for name in theme.enums:
+            counts[name] = counts.get(name, 0) + 1
+    problems: List[str] = []
+    problems += [
+        f"enum `{name}` claimed by {count} themes (must be exactly 1)"
+        for name, count in sorted(counts.items())
+        if count > 1
+    ]
+    missing = sorted(enums - set(counts))
+    unknown = sorted(set(counts) - enums)
+    if missing:
+        problems.append(f"enums not covered by any theme: {missing}")
+    if unknown:
+        problems.append(f"theme enums not present in the schema: {unknown}")
+    return problems
 
 
 def all_field_names(schema: Dict[str, Any]) -> Set[str]:
@@ -1819,6 +2053,10 @@ _SEMANTICS_STUB = """# {title} — semantics
 CURATED FILE - hand-written and edited in place. The skill generator links to
 and validates this file but NEVER overwrites it (it seeds this stub only when
 the file is missing), so edits survive regeneration.
+
+TODO: replace this stub with real semantics before shipping the skill.
+`tests/test_job_spec_skills.py::test_no_stub_semantics` fails while this
+TODO marker is present.
 -->
 
 Document what the schema tables in `../SKILL.md` cannot express for {title}:
@@ -1841,6 +2079,11 @@ def semantics_stub(theme_title: str) -> str:
 def render_recipes_skill_md() -> str:
     """Render ``recipes/SKILL.md`` (complete runnable examples).
 
+    Recipes are shipped as files under ``examples/`` (YAML + every
+    replacement-data file they reference) and named here with a caption and
+    per-recipe notes; the full YAML is NOT embedded (the body must stay
+    under the Hermes soft cap as the registry grows).
+
     Returns:
         The full SKILL.md text.
     """
@@ -1855,22 +2098,26 @@ def render_recipes_skill_md() -> str:
     parts.append("# Recipes — Complete Example Job Specs\n")
     parts.append(
         "## When to use\n\n"
-        "- Starting a new job: pick the closest shape below, copy its YAML, adapt it.\n"
+        "- Starting a new job: pick the closest shape below, open its file, copy and adapt.\n"
         "- Learning how the fields combine in a real, validated spec.\n"
     )
     parts.append(
-        "Every example below is copied verbatim from `examples/job_specs/` in the tool "
-        "repository and re-validated through `parse_yaml` on every regeneration. The "
-        "files live in `examples/` beside this skill. Replacement data files (where a "
-        "recipe uses one) live beside the ORIGINAL spec and must be copied with it — "
-        "paths resolve relative to the YAML file's directory.\n"
+        "Every recipe is copied verbatim from `examples/job_specs/` in the tool "
+        "repository and re-validated through `parse_yaml` on every regeneration. "
+        "The files live in `examples/` beside this skill, and each recipe's "
+        "replacement data files (where it uses any) ship beside it in the same "
+        "directory — a recipe runs with only its `examples/` directory. Paths "
+        "inside a spec resolve relative to the YAML file, so keep data files "
+        "next to the copy you run.\n"
     )
     for recipe in RECIPES:
         slug = recipe_slug(recipe.source)
-        source_text = (EXAMPLE_SPECS_DIR / recipe.source).read_text(encoding="utf-8")
         parts.append(f"## {recipe.title}\n\n{recipe.caption}\n")
-        parts.append(f"File: [`examples/{slug}`](examples/{slug})\n")
-        parts.append(f"```yaml\n{source_text.rstrip()}\n```\n")
+        files = [f"`examples/{slug}`"]
+        files += [f"`examples/{ref}`" for ref in recipe_data_files(recipe.source)]
+        parts.append("Files: " + ", ".join(files) + "\n")
+        if recipe.notes:
+            parts.append("\n".join(f"- {note}" for note in recipe.notes) + "\n")
     parts.append(
         "## Read next\n\n"
         "- `references/semantics.md` — choosing and adapting a recipe.\n"
@@ -2069,27 +2316,6 @@ def fragment_problems(schema: Dict[str, Any]) -> List[str]:
     return problems
 
 
-def recipe_problems() -> List[str]:
-    """Validate that every recipe source parses through ``parse_yaml``.
-
-    Returns:
-        Human-readable problems (empty when every recipe parses).
-    """
-    from plt_optimizer.generate.schema import parse_yaml
-
-    problems: List[str] = []
-    for recipe in RECIPES:
-        path = EXAMPLE_SPECS_DIR / recipe.source
-        if not path.exists():
-            problems.append(f"{recipe.source}: missing under examples/job_specs/")
-            continue
-        try:
-            parse_yaml(path)
-        except (ValueError, FileNotFoundError) as exc:
-            problems.append(f"{recipe.source}: parse_yaml failed: {exc}")
-    return problems
-
-
 def skill_script_problems() -> List[str]:
     """Validate that every mirrored skill script exists in the repo.
 
@@ -2107,6 +2333,25 @@ def skill_script_problems() -> List[str]:
     return problems
 
 
+def semantics_problems() -> List[str]:
+    """Flag theme semantics files that are still generator stubs.
+
+    ``references/semantics.md`` is curated prose; the generator seeds a stub
+    (carrying a ``TODO`` marker) only when the file is missing. A seeded stub
+    that was never written up means the skill ships with no semantics, so it
+    must fail the registry gate (and ``test_no_stub_semantics``).
+
+    Returns:
+        Human-readable problems (empty when every semantics file is curated).
+    """
+    problems: List[str] = []
+    for theme_name in [t.name for t in THEMES] + ["recipes"]:
+        path = CATEGORY_DIR / theme_name / "references" / "semantics.md"
+        if path.exists() and "TODO" in path.read_text(encoding="utf-8"):
+            problems.append(f"{theme_name}: references/semantics.md is still the seeded stub")
+    return problems
+
+
 def registry_problems(schema: Optional[Dict[str, Any]] = None) -> List[str]:
     """Run every registry-level check (coverage, fragments, recipes).
 
@@ -2119,9 +2364,11 @@ def registry_problems(schema: Optional[Dict[str, Any]] = None) -> List[str]:
     doc = load_schema() if schema is None else schema
     return (
         coverage_problems(doc)
+        + enum_coverage_problems(doc)
         + fragment_problems(doc)
         + recipe_problems()
         + skill_script_problems()
+        + semantics_problems()
     )
 
 
@@ -2192,12 +2439,34 @@ def write_all(plan: Dict[Path, str]) -> int:
             changed += 1
     examples_dir = CATEGORY_DIR / "recipes" / "examples"
     examples_dir.mkdir(parents=True, exist_ok=True)
-    for recipe in RECIPES:
-        shutil.copyfile(
-            EXAMPLE_SPECS_DIR / recipe.source, examples_dir / recipe_slug(recipe.source)
-        )
+    for src, dst_name in recipe_copy_plan():
+        shutil.copyfile(EXAMPLE_SPECS_DIR / src, examples_dir / dst_name)
     copy_skill_scripts()
     return changed
+
+
+def recipe_copy_plan() -> List[Tuple[str, str]]:
+    """Pairs of (source basename under examples/job_specs/, destination name).
+
+    Every recipe YAML plus every replacement-data file it references is
+    mirrored byte-identically into ``recipes/examples/`` (data files keep
+    their exact names — the specs reference them by basename relative to
+    the YAML).
+
+    Returns:
+        Ordered list of (source, destination) pairs (stable, deduplicated).
+    """
+    pairs: List[Tuple[str, str]] = []
+    seen: Set[str] = set()
+    for recipe in RECIPES:
+        if recipe.source not in seen:
+            seen.add(recipe.source)
+            pairs.append((recipe.source, recipe_slug(recipe.source)))
+        for ref in recipe_data_files(recipe.source):
+            if ref not in seen:
+                seen.add(ref)
+                pairs.append((ref, ref))
+    return pairs
 
 
 def copy_skill_scripts() -> None:
@@ -2252,10 +2521,10 @@ def check_all(plan: Dict[Path, str]) -> List[Path]:
             content
         ):
             stale.append(path)
-    for recipe in RECIPES:
-        src = EXAMPLE_SPECS_DIR / recipe.source
-        dst = CATEGORY_DIR / "recipes" / "examples" / recipe_slug(recipe.source)
-        if not dst.exists() or dst.read_bytes() != src.read_bytes():
+    for recipe_src, dst_name in recipe_copy_plan():
+        src_file = EXAMPLE_SPECS_DIR / recipe_src
+        dst = CATEGORY_DIR / "recipes" / "examples" / dst_name
+        if not dst.exists() or dst.read_bytes() != src_file.read_bytes():
             stale.append(dst)
     for name in SKILL_SCRIPT_SOURCES:
         src = REPO_ROOT / "scripts" / name
@@ -2291,19 +2560,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    problems = registry_problems()
-    if problems:
-        for problem in problems:
-            print(f"registry problem: {problem}", file=sys.stderr)
-        return 1
-
+    # Seeding runs BEFORE the registry gate: a brand-new theme has no
+    # semantics file yet, and the stub it gets must not make the seed
+    # command itself fail.
     if args.seed_semantics:
+        problems = registry_problems()
+        if problems:
+            for problem in problems:
+                print(f"registry problem: {problem}", file=sys.stderr)
+            return 1
         created = seed_semantics()
         for path in created:
             print(f"seeded {path.relative_to(REPO_ROOT)}")
         if not created:
             print("all semantics.md files present; nothing seeded")
         return 0
+
+    problems = registry_problems()
+    if problems:
+        for problem in problems:
+            print(f"registry problem: {problem}", file=sys.stderr)
+        return 1
 
     plan = build_file_plan()
     if args.check:

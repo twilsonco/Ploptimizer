@@ -1,0 +1,6 @@
+Prot A;509 lbs. R507
+Prot B;558 lbs. R507
+Prot C;634 lbs. R507
+Prot D;516 lbs. R507
+Prot E;488 lbs. R507
+Prot F;495 lbs. R507

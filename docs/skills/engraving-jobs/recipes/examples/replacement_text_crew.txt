@@ -1,0 +1,8 @@
+# Crew roster for the shared-cascade demo. The job-level
+# replacement_text_file_comment_string ("# ") drops the comment lines below,
+# and the job-level replacement_text_delimiter (";") splits each data line
+# into the two placeholder items (name, role) -- neither field is repeated on
+# the label that reads this file.
+Ada Lovelace;Analyst
+Grace Hopper;Compiler
+Katherine Johnson;Calculator

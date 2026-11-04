@@ -10,7 +10,9 @@ unreachable, or field-lying reference:
   render of ``docs/schema/generate_skills.py`` (the live-from-config
   tool-options table region is excluded, mirroring the ``JOB_SPEC.md``
   config-value immunity pin);
-- the theme registry must partition EVERY job-spec schema field exactly once;
+- the theme registry must partition EVERY job-spec schema field exactly once
+  (models discovered by walking the schema, so nested models cannot escape)
+  and EVERY schema enum exactly once;
 - the main-skill TOC must list exactly the skill directories on disk;
 - every file under the category must be referenced by name from a
   ``SKILL.md`` (Hermes installs only referenced files) and every link resolve;
@@ -229,6 +231,71 @@ class TestRegistry:
         """Coverage (exact partition), fragments, and recipes are all clean."""
         assert gen.registry_problems() == []
 
+    def test_model_nodes_discovers_all_defs_models(self) -> None:
+        """Every object model reachable in the schema is a rendered model.
+
+        ``model_nodes`` walks the schema (``$ref``/``items``/``anyOf``)
+        instead of trusting ``_MODEL_ORDER``, so a model added to
+        ``schema.py`` can never escape the field-coverage gate.
+        """
+        schema = _schema()
+        defs = schema.get("$defs", {})
+        reachable = {
+            name for name, node in defs.items() if isinstance(node, dict) and "properties" in node
+        }
+        assert set(gen.model_nodes(schema)) == reachable | {"JobSpec"}
+
+    def test_nested_model_fields_are_coverage_checked(self) -> None:
+        """A new model reached through an EXISTING field is flagged uncovered.
+
+        Simulates the historical hole: swapping ``holes.items`` to a new
+        model whose inner fields no theme claims. The registry check must
+        hard-fail so the fields cannot ship undocumented.
+        """
+        import copy
+
+        schema = copy.deepcopy(_schema())
+        schema["$defs"]["HoleSpec2"] = {
+            "type": "object",
+            "properties": {"diameter": {"type": "number"}, "inner_gap": {"type": "number"}},
+        }
+        schema["$defs"]["LabelSpec"]["properties"]["holes"]["items"] = {"$ref": "#/$defs/HoleSpec2"}
+        assert "HoleSpec2" in gen.model_nodes(schema)
+        assert "inner_gap" in gen.all_field_names(schema)
+        problems = gen.coverage_problems(schema)
+        assert any("inner_gap" in problem for problem in problems), problems
+
+    def test_every_schema_enum_covered_exactly_once(self) -> None:
+        """Each enum in the schema is claimed by exactly one theme."""
+        schema = _schema()
+        enums = {
+            name
+            for name, node in schema.get("$defs", {}).items()
+            if isinstance(node, dict) and "enum" in node
+        }
+        counts: Dict[str, int] = {}
+        for theme in gen.THEMES:
+            for name in theme.enums:
+                counts[name] = counts.get(name, 0) + 1
+        assert set(counts) == enums, (
+            f"uncovered: {sorted(enums - set(counts))}; unknown: {sorted(set(counts) - enums)}"
+        )
+        duplicated = sorted(name for name, count in counts.items() if count > 1)
+        assert not duplicated, f"enums claimed by multiple themes: {duplicated}"
+
+    def test_enum_coverage_problems_catches_unclaimed_enum(self) -> None:
+        """A new schema enum with no theme surfaces as a registry problem."""
+        import copy
+
+        schema = copy.deepcopy(_schema())
+        schema["$defs"]["EdgeStyle"] = {"enum": ["a", "b"], "type": "string"}
+        problems = gen.enum_coverage_problems(schema)
+        assert any("EdgeStyle" in problem for problem in problems), problems
+
+    def test_semantics_stub_is_detectable(self) -> None:
+        """A seeded stub carries the marker ``test_no_stub_semantics`` greps."""
+        assert "TODO" in gen.semantics_stub("Some Theme")
+
     def test_every_schema_field_covered_exactly_once(self) -> None:
         """Each property of each model appears in exactly one theme."""
         counts: Dict[str, int] = {}
@@ -243,8 +310,10 @@ class TestRegistry:
         assert not duplicated, f"fields claimed by multiple themes: {duplicated}"
 
     def test_recipes_examples_match_generated_files(self) -> None:
-        """recipes/examples/ contains exactly the registry's recipe files."""
+        """recipes/examples/ holds exactly the registry YAMLs + their data files."""
         expected = {gen.recipe_slug(r.source) for r in gen.RECIPES}
+        for recipe in gen.RECIPES:
+            expected |= set(gen.recipe_data_files(recipe.source))
         actual = {p.name for p in (CATEGORY_DIR / "recipes" / "examples").iterdir()}
         assert actual == expected
 
@@ -383,7 +452,10 @@ class TestLinkIntegrity:
         for skill_dir in _skill_dirs():
             text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
             named = set(_LOCAL_REF_RE.findall(text))
-            named |= {f"examples/{m}" for m in re.findall(r"examples/([A-Za-z0-9_.\-]+)", text)}
+            named |= {
+                f"examples/{m}"
+                for m in re.findall(r"examples/([A-Za-z0-9][A-Za-z0-9_.\- ]*)", text)
+            }
             for subdir in ("references", "examples", "scripts"):
                 base = skill_dir / subdir
                 if not base.exists():

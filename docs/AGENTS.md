@@ -59,7 +59,8 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   CWD-relative like `generate`, so the skill's copies run from an install dir),
   generated
   `recipes/` (complete runnable specs from `examples/job_specs/`,
-  `parse_yaml`-validated), and `engraving-job-complete-reference/` - the
+  `parse_yaml`-validated, with each spec's replacement data files copied
+  beside it), and `engraving-job-complete-reference/` - the
   exhaustive-reference skill whose `references/` directory holds
   `JOB_SPEC.md`, `JOB_CONFIG.md` + the two JSON Schemas (written by
   `generate_ai_docs.py`);
@@ -70,8 +71,9 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   `generate_ai_docs._CONFIG_GROUP_FIELDS` (config-only fields go in
   `_CONFIG_EXTRA_GROUPS`), else `config_group_problems()` fails (the
   registry-mirror tests pin `_CONFIG_GROUP_FIELDS` against the live themes);
-  new topic -> add a `Theme` entry (+ a curated `semantics.md`; the generator
-  seeds a stub). A hand-written non-theme skill (like `validating-jobs/`)
+  new topic -> add a `Theme` entry (+ write its `references/semantics.md`;
+  the generator seeds a `TODO`-marked stub and the registry gate fails while
+  any stub remains). A hand-written non-theme skill (like `validating-jobs/`)
   needs: its folder + curated `references/semantics.md`, one bullet in
   `render_toc_lines()`, and re-running the generator (the TOC must list every
   skill dir on disk). A skill that documents repo executables must ALSO list

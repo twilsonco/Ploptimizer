@@ -98,7 +98,10 @@ skills:
   `compression-and-cutter-downsize`, `holes-and-collision`,
   `plates-layout-and-packing`, `tool-options`, `running-and-troubleshooting`.
 - **`recipes/`** — generated: complete runnable example specs (validated
-  through `parse_yaml` on every regeneration) under `examples/`.
+  through `parse_yaml` on every regeneration) under `examples/`, each
+  recipe's `replacement_text_file` data files shipped beside it; the
+  `SKILL.md` names the files with per-recipe notes (recipe YAMLs are never
+  embedded, keeping the body under the Hermes size cap).
 - **`engraving-job-complete-reference/`** — generated `SKILL.md` whose
   `references/` directory holds the exhaustive artifacts (`JOB_SPEC.md`,
   `JOB_CONFIG.md` + the two JSON Schemas, written by
@@ -112,14 +115,17 @@ Each sub-skill folder contains:
 | File | Owner |
 |---|---|
 | `SKILL.md` | generated (frontmatter, when-to-use, live field/enum/default tables, example, pitfalls, explicit Read-next) |
-| `references/semantics.md` | **curated prose** — the rules/mechanisms a schema cannot express; edited in place (generator seeds a stub only when missing, never overwrites) |
+| `references/semantics.md` | **curated prose** — the rules/mechanisms a schema cannot express; edited in place (generator seeds a `TODO`-marked stub only when missing, never overwrites; the registry gate fails while a stub remains) |
 | `references/snippets.yaml` | generated theme YAML fragments |
 | `scripts/validate_job_*.py` | **generator-mirrored** (`validating-jobs/` only): byte-identical executable copies of the repo `scripts/` helpers, drift-pinned by `--check` |
 
 The 17 themes are an **exact partition of every field in
 `job_spec.schema.json`** (the copy in the complete-reference skill's
-`references/`) — `generate_skills.py` hard-fails if a schema field
-is uncovered or double-covered, so a new field can never ship undocumented.
+`references/`) — models are discovered by walking the schema from the root
+(so a nested model added to `schema.py` can never escape the gate) — and of
+**every schema enum** (each enum's value table renders in exactly one
+sub-skill). `generate_skills.py` hard-fails if a field/enum is uncovered or
+double-covered, so a new field can never ship undocumented.
 The same partition discipline extends to the shop config:
 `generate_ai_docs.py`'s `_CONFIG_GROUP_FIELDS` groups every
 `job_config.schema.json` property into exactly one `JOB_CONFIG.md` section
