@@ -21,6 +21,13 @@ by tests.
 We adhere strictly to the **Ruff / Black** formatting standards and modern Python paradigms.
 * **Strict Typing:** Every function, class, and method must have complete PEP 484 type hints. Run type checks via `mypy` before finalizing code.
 * **Pre-commit hook:** Ensure that all code passes the configured pre-commit hooks before committing. This includes linting, formatting, and type checks.
+* **Lint scope:** `ruff check` and `ruff format` run on the **whole repo**
+  (`pre-commit` + CI) — `tests/`, `scripts/`, `docs/`, `examples/` and `fonts/`
+  included, not just the package. `mypy` stays scoped to `plt_optimizer/`
+  (strict mode; typing the test suite to that bar is a separate project).
+  Legitimate per-file exceptions live in `[tool.ruff.lint.per-file-ignores]`
+  in `pyproject.toml` with the reason stated there — prefer that over
+  scattering `# noqa`.
 * **Docstrings:** Use Google-style docstrings for all modules, classes, and public functions, *except for Pydantic schema models where attribute-level `description` fields suffice.*
 * **Immutability & Data Structures:** Prefer `dataclasses` (with `frozen=True` where appropriate) or `pydantic` models for internal state representation. 
 * **Mathematical Precision:** Never use `==` for floating-point coordinate comparisons. Always use `math.isclose()` or `numpy.isclose()` with explicit tolerances.

@@ -35,6 +35,12 @@ jobs:
                 - 'plt_optimizer/**'
                 - 'tests/**'
                 - '*.py'
+            lint:
+              paths:
+                - '**/*.py'
+                - 'pyproject.toml'
+                - '.pre-commit-config.yaml'
+                - '.github/workflows/ci.yml'
 
   # Skip lint/type-check/test for release-please PRs and for the push that
   # merges a release-please PR back into main. release-please creates PRs
@@ -49,7 +55,7 @@ jobs:
     needs: changes
     if: |
       needs.changes.outputs.should_skip != 'true' &&
-      fromJSON(needs.changes.outputs.paths_result).python.should_skip != 'true' &&
+      fromJSON(needs.changes.outputs.paths_result).lint.should_skip != 'true' &&
       !(
         (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--branches--')) ||
         (github.event_name == 'push' && (
@@ -72,13 +78,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # Repo-wide (not just plt_optimizer/) so lint/format debt cannot
+      # accumulate in tests/, scripts/, docs/ or examples/, where the
+      # package-scoped gate never saw it. Mirrors the pre-commit hooks.
       - name: Lint with ruff
-        run: uv run ruff check plt_optimizer/
+        run: uv run ruff check .
 
       # Mirrors the ruff-format pre-commit hook so CI verifies the exact same
       # checks the hooks enforce (hooks auto-format; CI verifies it happened).
       - name: Check formatting with ruff
-        run: uv run ruff format --check plt_optimizer/
+        run: uv run ruff format --check .
 
   type-check:
     name: Type Check

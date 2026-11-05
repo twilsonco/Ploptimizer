@@ -10,16 +10,22 @@ repos:
       # silently use a stale local toolchain, letting CI fail on a version
       # mypy/ruff never sees. All three hooks share the SAME extras so uv
       # syncs the venv once per commit instead of flip-flopping packages.
+      #
+      # SCOPE: the two ruff hooks cover the WHOLE repo (tests/, scripts/,
+      # docs/, examples/ included) so lint debt cannot accumulate outside the
+      # package the way it did when these ran on plt_optimizer/ only. mypy
+      # stays scoped to plt_optimizer/: it runs in strict mode, and typing the
+      # test suite to that bar is a separate project.
       - id: ruff-check
         name: ruff check
-        entry: uv run --extra dev --extra plotting ruff check plt_optimizer/
+        entry: uv run --extra dev --extra plotting ruff check .
         language: system
         pass_filenames: false
         types_or: [python]
 
       - id: ruff-format
         name: ruff format
-        entry: uv run --extra dev --extra plotting ruff format plt_optimizer/
+        entry: uv run --extra dev --extra plotting ruff format .
         language: system
         pass_filenames: false
         types_or: [python]

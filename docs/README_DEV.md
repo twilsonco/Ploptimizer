@@ -917,19 +917,27 @@ uses. Never commit with `git commit --no-verify`; CI runs the identical checks
 `.github/workflows/ci.yml`), and mypy is pinned to `platform = "win32"` in
 `pyproject.toml` so results are identical on every OS.
 
+**Scope:** the two ruff hooks run on the **whole repo** (`.`) — the test suite,
+`scripts/`, the `docs/schema/` generators, `examples/` and `fonts/` included —
+so lint and format debt cannot accumulate outside the package. `mypy` stays
+scoped to `plt_optimizer/`: it runs in `strict = true` mode, and typing the
+tests to that bar is a separate project. The lint job runs whenever any `*.py`
+changes (its own `paths_filter` key, so a `docs/` typo is checked without
+triggering the full test matrix).
+
 #### Manual Checks
 
-Run the linter:
+Lint the whole repo (what the hook and CI run):
 ```bash
-uv run --extra dev ruff check plt_optimizer/
+uv run --extra dev ruff check .
 ```
 
-Format code:
+Format the whole repo:
 ```bash
-uv run --extra dev ruff format plt_optimizer/
+uv run --extra dev ruff format .
 ```
 
-Type checking:
+Type checking (package only — see the scope note above):
 ```bash
 uv run --extra dev --extra plotting mypy plt_optimizer/
 ```
