@@ -43,9 +43,7 @@ class TestAppendCsv:
         """Existing rows survive a sweep; new rows land after them."""
         csv_path = tmp_path / "summary.csv"
         harness._append_csv(csv_path, [{"run_ts": "t1", "spec": "a", "wall_s": 1.0}])
-        preserved = harness._append_csv(
-            csv_path, [{"run_ts": "t2", "spec": "a", "wall_s": 0.5}]
-        )
+        preserved = harness._append_csv(csv_path, [{"run_ts": "t2", "spec": "a", "wall_s": 0.5}])
 
         rows = _read(csv_path)
         assert [r["run_ts"] for r in rows] == ["t1", "t2"]

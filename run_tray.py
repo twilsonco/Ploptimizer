@@ -34,6 +34,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 def get_icon_path() -> Path:
     """Get path to icon.ico accounting for PyInstaller frozen builds.
 
@@ -230,6 +231,7 @@ def main() -> int:
         # Force termination - sys.exit() is needed because pystray's blocking run() loop
         # won't exit on its own when stop() is called from a callback
         import os
+
         os._exit(0)
 
     # Create tray manager

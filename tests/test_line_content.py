@@ -1332,9 +1332,7 @@ class TestKernAwareReflow:
         assert second.text == "A<+>BB C"
         assert second.plain_text == "ABB C"  # marker stripped from plain text
         assert second.kern_values == (0, 1, 0, 0, 0)  # +1 rides 'B'
-        assert second.kern_shifts_inches[1] == pytest.approx(
-            0.1 * second.toolpath_text_height
-        )
+        assert second.kern_shifts_inches[1] == pytest.approx(0.1 * second.toolpath_text_height)
 
     def test_probe_measures_the_marker_free_width(self) -> None:
         """A marker contributes no width: the probe sees the plain glyph count."""

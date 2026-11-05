@@ -43,9 +43,7 @@ from plt_optimizer.generate.resolution import (
 from plt_optimizer.utils.stage_timing import StageTimings
 
 
-def _line(
-    text: str, line_spacing: float = 0.0, alignment: str = "center"
-) -> ResolvedTextLine:
+def _line(text: str, line_spacing: float = 0.0, alignment: str = "center") -> ResolvedTextLine:
     """Build a minimal resolved text line with the given requested spacing."""
     return ResolvedTextLine(
         text=text,
@@ -117,7 +115,9 @@ def _fix(char: str = "p") -> DescenderFix:
     )
 
 
-def _record(level: int, message: str, name: str = "plt_optimizer.generate.test") -> logging.LogRecord:
+def _record(
+    level: int, message: str, name: str = "plt_optimizer.generate.test"
+) -> logging.LogRecord:
     """Build a log record for the capture tests."""
     return logging.LogRecord(
         name=name,
@@ -296,9 +296,7 @@ class TestBuildReportShape:
         assert len(report["errors"]) == 1
         assert report["errors"][0]["label_id"] is None
 
-    def test_explicit_collector_wins_over_the_log_records(
-        self, tmp_path: Path
-    ) -> None:
+    def test_explicit_collector_wins_over_the_log_records(self, tmp_path: Path) -> None:
         """The explicit collector is preferred over the log-derived timings.
 
         The stage timing *records* are INFO level, so they never exist
@@ -358,9 +356,7 @@ class TestLineFindings:
         )
 
         findings = report["labels"][0]["lines"][0]["findings"]
-        assert findings == [
-            {"type": "compression", "scale": 0.87, "percent_compressed": 13.0}
-        ]
+        assert findings == [{"type": "compression", "scale": 0.87, "percent_compressed": 13.0}]
 
     def test_spacing_finding(self, tmp_path: Path) -> None:
         """A clamped gap records the requested and effective values."""
@@ -376,9 +372,7 @@ class TestLineFindings:
         )
 
         findings = report["labels"][0]["lines"][0]["findings"]
-        assert findings == [
-            {"type": "spacing", "requested": 0.5, "effective": 0.2}
-        ]
+        assert findings == [{"type": "spacing", "requested": 0.5, "effective": 0.2}]
 
     def test_cutter_downsize_finding(self, tmp_path: Path) -> None:
         """A downsized cutter records the original and the final diameter."""
@@ -394,9 +388,7 @@ class TestLineFindings:
         )
 
         findings = report["labels"][0]["lines"][0]["findings"]
-        assert findings == [
-            {"type": "cutter_downsize", "original": 0.06, "final": 0.045}
-        ]
+        assert findings == [{"type": "cutter_downsize", "original": 0.06, "final": 0.045}]
 
     def test_descender_relief_findings(self, tmp_path: Path) -> None:
         """Each relieved glyph becomes its own finding entry."""
@@ -420,9 +412,7 @@ class TestLineFindings:
 
     def test_edge_margin_finding(self, tmp_path: Path) -> None:
         """A slid line records the anchored side and the margin it gained."""
-        resolved, rendered = _label(
-            "l1", [_line("SERIAL", 0.0, "left")], edge_margins={0: 0.3525}
-        )
+        resolved, rendered = _label("l1", [_line("SERIAL", 0.0, "left")], edge_margins={0: 0.3525})
         report = build_report(
             job_name="Job",
             job_id="Job",
@@ -438,9 +428,7 @@ class TestLineFindings:
 
     def test_alignment_switch_finding(self, tmp_path: Path) -> None:
         """A switched line records the alignment it declared and the one it got."""
-        resolved, rendered = _label(
-            "l1", [_line("SERIAL", 0.0, "left")], center_switched={0}
-        )
+        resolved, rendered = _label("l1", [_line("SERIAL", 0.0, "left")], center_switched={0})
         report = build_report(
             job_name="Job",
             job_id="Job",
@@ -567,12 +555,8 @@ class TestLineFindingDataclass:
         assert LineFinding(line_index=0, text="A", markup_scale=(1.0, 2.0)).has_effect
         assert LineFinding(line_index=0, text="A", sup_sub=(0.0, 0.5)).has_effect
         assert LineFinding(line_index=0, text="A", font_runs=(("Arial",), (0.03,))).has_effect
-        assert (
-            LineFinding(line_index=0, text="A", cutter_runs=((0.03,), (0.03,))).has_effect
-        )
-        assert (
-            LineFinding(line_index=0, text="A", original_cutter=(3, (0.03,))).has_effect
-        )
+        assert LineFinding(line_index=0, text="A", cutter_runs=((0.03,), (0.03,))).has_effect
+        assert LineFinding(line_index=0, text="A", original_cutter=(3, (0.03,))).has_effect
         assert LineFinding(line_index=0, text="A", edge_margin=("left", 0.35)).has_effect
         assert LineFinding(line_index=0, text="A", align_switched=True).has_effect
         # The declared alignment is context, not an applied effect.

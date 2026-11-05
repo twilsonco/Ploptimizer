@@ -1968,9 +1968,7 @@ class TestAlignMarginAdjustGlobalField:
 
     def test_label_and_job_accept_booleans(self) -> None:
         """Both directions validate on the tiers that carry the field."""
-        label = LabelSpec(
-            id="lbl", content=[TextLine(text="X")], align_margin_adjust_global=True
-        )
+        label = LabelSpec(id="lbl", content=[TextLine(text="X")], align_margin_adjust_global=True)
         assert label.align_margin_adjust_global is True
         job = JobSpec(
             job_name="J",
@@ -1983,9 +1981,7 @@ class TestAlignMarginAdjustGlobalField:
 
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the False fallback."""
-        assert (
-            LabelSpec(id="lbl", content=[TextLine(text="X")]).align_margin_adjust_global is None
-        )
+        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).align_margin_adjust_global is None
         assert (
             JobSpec(
                 job_name="J",
@@ -1998,9 +1994,7 @@ class TestAlignMarginAdjustGlobalField:
 
     def test_plate_accepts_field_for_parity(self) -> None:
         """PlateSpec should accept the field for schema parity."""
-        plate = PlateSpec(
-            id="plate_1", width=24.0, height=12.0, align_margin_adjust_global=True
-        )
+        plate = PlateSpec(id="plate_1", width=24.0, height=12.0, align_margin_adjust_global=True)
         assert plate.align_margin_adjust_global is True
 
 
@@ -3622,9 +3616,7 @@ class TestKernStringField:
         with pytest.raises(ValidationError):
             PlateSpec(id="p", width=24.0, height=16.0, kern_pos_string="")
         with pytest.raises(ValidationError):
-            PlateSpec(
-                id="p", width=24.0, height=16.0, kern_pos_string="<->", kern_neg_string="<->"
-            )
+            PlateSpec(id="p", width=24.0, height=16.0, kern_pos_string="<->", kern_neg_string="<->")
 
 
 class TestKernWidthFractionField:
@@ -3633,7 +3625,12 @@ class TestKernWidthFractionField:
     def test_defaults_to_none(self) -> None:
         """Every tier defaults the width fraction to None (unset -> 0.1)."""
         assert TextLine(text="X").kern_width_fraction is None
-        assert JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).kern_width_fraction is None
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+            ).kern_width_fraction
+            is None
+        )
 
     def test_zero_is_accepted(self) -> None:
         """An explicit 0.0 is a legal value (markers shift nothing)."""

@@ -457,8 +457,7 @@ class TestArcStrokeConversion:
         assert arc.end.x == pytest.approx(0.5 * U + radius, abs=1e-6)
         assert arc.end.y == pytest.approx(center_y, abs=1e-6)
         assert emit_layer_document([path]) == (
-            f"IN;PA;PU{round(0.5 * U)},{start_y};PD;"
-            f"AA{round(0.5 * U)},{round(center_y)},-90;SP;"
+            f"IN;PA;PU{round(0.5 * U)},{start_y};PD;AA{round(0.5 * U)},{round(center_y)},-90;SP;"
         )
 
     def test_matches_hpgl_string_transform(self) -> None:
@@ -473,9 +472,7 @@ class TestArcStrokeConversion:
                 ArcSeg(start=0.8 + 0.7j, center=1.2 + 0.4j, sweep_deg=-90.0),
             ),
         )
-        transformed = _transform_hpgl_coordinates(
-            stroke.to_hpgl(), flip_y_span=U, flip_y_axis=True
-        )
+        transformed = _transform_hpgl_coordinates(stroke.to_hpgl(), flip_y_span=U, flip_y_axis=True)
         path = _stroke_to_path(self._TRANSFORM, stroke, False, 0, 0)
         emitted = emit_layer_document([path])
         body = emitted[len("IN;PA;") : -len("SP;")]
@@ -1273,6 +1270,6 @@ class TestBuildStrokeWidthMap:
         assert len(width_map) == 2
         # The rotated transform maps (x, y) -> (rot_y_max - y, x - rot_x_min)
         # plus the slot; every key must be a positive device point.
-        for (start, end) in width_map:
+        for start, end in width_map:
             for x, y in (start, end):
                 assert x >= 0 and y >= 0

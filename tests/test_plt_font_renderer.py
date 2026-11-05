@@ -2461,7 +2461,11 @@ class TestKernShifts:
         """A +0.1 delta on the second glyph widens the line by exactly 0.1."""
         plain = _render("AB", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         kerned = _render(
-            "AB", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            "AB",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
             kern_shifts=(0.0, 0.1),
         )
         assert kerned.bounds()[2] - plain.bounds()[2] == pytest.approx(0.1, abs=1e-9)
@@ -2470,7 +2474,11 @@ class TestKernShifts:
         """A -0.25 delta narrows the pair by exactly 0.25 (no clamp)."""
         plain = _render("CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         kerned = _render(
-            "CA", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            "CA",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
             kern_shifts=(0.0, -0.25),
         )
         # C spans [0, 1.0]; A kerns to origin 0.5 (the diagonal penetration),
@@ -2482,7 +2490,11 @@ class TestKernShifts:
         """The shifted glyph is the next pair's reference: deltas accumulate."""
         plain = _render("ABC", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         kerned = _render(
-            "ABC", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            "ABC",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
             kern_shifts=(0.0, 0.1, 0.1),
         )
         # B rides +0.1 and C rides B's origin + its own +0.1: total +0.2.
@@ -2492,7 +2504,11 @@ class TestKernShifts:
         """The envelope pair kerns as if adjacent; the delta rides on top."""
         plain = _render("TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         kerned = _render(
-            "TR", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            "TR",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
             kern_shifts=(0.0, 0.25),
         )
         # The T/R pair advance is unchanged by the marker; the marker adds 0.25.
@@ -2502,7 +2518,11 @@ class TestKernShifts:
         """A marker before a space attaches to the next word's first glyph."""
         plain = _render("A A", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0)
         kerned = _render(
-            "A A", 1.0, synth_lib, cutter_diameter=0.0, character_spacing=0.0,
+            "A A",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.0,
+            character_spacing=0.0,
             kern_shifts=(0.0, 0.0, 0.1),
         )
         # The third entry is the second A (markers attach to the next
@@ -2513,7 +2533,11 @@ class TestKernShifts:
         """kern_shifts=None keeps the historical geometry exactly."""
         plain = _render("AB", 1.0, synth_lib, cutter_diameter=0.04, character_spacing=0.02)
         explicit_zero = _render(
-            "AB", 1.0, synth_lib, cutter_diameter=0.04, character_spacing=0.02,
+            "AB",
+            1.0,
+            synth_lib,
+            cutter_diameter=0.04,
+            character_spacing=0.02,
             kern_shifts=(0.0, 0.0),
         )
         assert explicit_zero.bounds() == pytest.approx(plain.bounds())
@@ -2534,7 +2558,11 @@ class TestKernShifts:
         """All three public wrappers pass kern_shifts through to the walk."""
         kwargs = {"cutter_diameter": 0.0, "character_spacing": 0.0, "kern_shifts": (0.0, 0.1)}
         b1 = render_text_line_plt_font("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
-        b2, _ = render_text_line_plt_font_with_words("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
-        b3, _, _ = render_text_line_plt_font_with_glyphs("AB", 1.0, "Test", library_dir=synth_lib, **kwargs)
+        b2, _ = render_text_line_plt_font_with_words(
+            "AB", 1.0, "Test", library_dir=synth_lib, **kwargs
+        )
+        b3, _, _ = render_text_line_plt_font_with_glyphs(
+            "AB", 1.0, "Test", library_dir=synth_lib, **kwargs
+        )
         assert b2.bounds() == pytest.approx(b1.bounds())
         assert b3.bounds() == pytest.approx(b1.bounds())

@@ -154,9 +154,7 @@ class TestAffineImageContract:
 
     @pytest.mark.parametrize("glyph", GLYPHS)
     @pytest.mark.parametrize("setting,scale", SETTINGS)
-    def test_compressed_is_the_affine_image(
-        self, glyph: str, setting: str, scale: float
-    ) -> None:
+    def test_compressed_is_the_affine_image(self, glyph: str, setting: str, scale: float) -> None:
         _s, base = _parse(f"{glyph}_no-compress.plt")
         _s2, comp = _parse(f"{glyph}_{setting}-x-compress.plt")
         deviation = _hausdorff(_scale_x(base, scale), comp)
@@ -214,9 +212,7 @@ class TestOurFitterMatchesReference:
             radius = units_to_inches(seg.radius)
             t0 = math.degrees(math.atan2(start.imag - center.imag, start.real - center.real))
             anchor = units_to_inches(ANCHOR_UNITS)
-            chain = fit_arc(
-                center, radius, t0, seg.sweep_angle, scale_x=scale, anchor_x=anchor
-            )
+            chain = fit_arc(center, radius, t0, seg.sweep_angle, scale_x=scale, anchor_x=anchor)
             assert chain is not None, f"{glyph} at s={scale}: refused to fit a real arc"
             for piece in chain:
                 if piece.is_arc:

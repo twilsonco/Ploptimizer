@@ -114,9 +114,7 @@ class TestAutoLineSpacing:
         # Should have calculated spacing
         assert label.content[0].line_spacing > 0.0
         # All lines get the same spacing value stored (though only first n-1 are used)
-        assert abs(
-            label.content[1].line_spacing - label.content[0].line_spacing
-        ) < 0.001
+        assert abs(label.content[1].line_spacing - label.content[0].line_spacing) < 0.001
 
     def test_auto_spacing_mixed_with_explicit_raises_warning(
         self,

@@ -956,9 +956,7 @@ class TestFractureLinearPathsPreservesClosedPaths:
         # Close the loop by adjusting the last endpoint to match the first start
         last_seg = segments[-1]
         first_start = segments[0].start
-        segments[-1] = StrokeSegment(
-            start=last_seg.start, end=first_start, is_cutting=True
-        )
+        segments[-1] = StrokeSegment(start=last_seg.start, end=first_start, is_cutting=True)
 
         path = StrokePath(pen_up_position=None, segments=tuple(segments))
         doc = PLTDocument(header_commands=[], stroke_paths=[path], footer_commands=[])

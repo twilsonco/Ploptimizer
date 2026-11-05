@@ -66,9 +66,7 @@ class TestStageTimer:
         assert match is not None
         assert float(match.group("seconds")) == pytest.approx(3.5)
 
-    def test_exception_propagates_after_timing(
-        self, logger: logging.Logger, caplog
-    ) -> None:
+    def test_exception_propagates_after_timing(self, logger: logging.Logger, caplog) -> None:
         """A raising stage still emits its timing line; the error propagates."""
         with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
             with pytest.raises(RuntimeError, match="boom"):

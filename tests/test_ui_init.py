@@ -76,4 +76,3 @@ class TestUIAllList:
 
             expected = {"TrayIconManager", "SettingsWindow"}
             assert set(ui_module.__all__) == expected
-

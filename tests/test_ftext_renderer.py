@@ -709,7 +709,10 @@ class TestInlineSmallCaps:
             "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7
         )
         flagged = ftext_renderer.render_text_line_ftext(
-            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "Aa",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=(True, True),
         )
         assert _extents(flagged) == pytest.approx(_extents(whole), abs=1e-9)
@@ -718,7 +721,10 @@ class TestInlineSmallCaps:
         """All-False flags render the base font exactly (the tag's fast path)."""
         plain = ftext_renderer.render_text_line_ftext("Aa", 1.0, DEFAULT_FONT_PATH)
         unflagged = ftext_renderer.render_text_line_ftext(
-            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "Aa",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=(False, False),
         )
         assert _extents(unflagged) == pytest.approx(_extents(plain), abs=1e-9)
@@ -733,7 +739,10 @@ class TestInlineSmallCaps:
             "aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7, small_caps_flags=flags
         )
         unflagged = ftext_renderer.render_text_line_ftext(
-            "aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "aa",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=(False, False),
         )
         flagged_groups = ftext_renderer.glyph_groups_for_line(
@@ -754,7 +763,10 @@ class TestInlineSmallCaps:
         """A flagged ``a`` draws the shrunk capital, not the font's own ``a``."""
         mapped = ftext_renderer.render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
         small = ftext_renderer.render_text_line_ftext(
-            "Aa", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "Aa",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=(False, True),
         )
         cap = _extents(
@@ -764,8 +776,11 @@ class TestInlineSmallCaps:
         shrunk = _extents(
             small,
             ftext_renderer.glyph_groups_for_line(
-                "Aa", DEFAULT_FONT_PATH, len(small),
-                small_caps=True, small_caps_flags=(False, True),
+                "Aa",
+                DEFAULT_FONT_PATH,
+                len(small),
+                small_caps=True,
+                small_caps_flags=(False, True),
             )[1][1],
         )
         # Anchor: the glyph's own left edge and lowest ink stay exactly put.
@@ -778,7 +793,10 @@ class TestInlineSmallCaps:
         """An unflagged lowercase glyph keeps the font's own lowercase ink."""
         plain = ftext_renderer.render_text_line_ftext("aA", 1.0, DEFAULT_FONT_PATH)
         unflagged = ftext_renderer.render_text_line_ftext(
-            "aA", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "aA",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=(False, False),
         )
         assert _extents(unflagged) == pytest.approx(_extents(plain), abs=1e-9)
@@ -786,7 +804,10 @@ class TestInlineSmallCaps:
     def test_glyph_groups_keyed_by_original_with_flags(self) -> None:
         """The partition reports the text's characters, sliced by the mapped counts."""
         whole, _words, glyphs = ftext_renderer.render_text_line_ftext_with_glyphs(
-            "Hi there", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "Hi there",
+            0.5,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=tuple(ch.islower() for ch in "Hi there"),
         )
         assert [char for char, _indices in glyphs] == list("Hithere")
@@ -796,7 +817,10 @@ class TestInlineSmallCaps:
     def test_word_groups_partition_the_line_with_flags(self) -> None:
         """Flagged SC word groups come from the exact slicing and partition."""
         whole, words = ftext_renderer.render_text_line_ftext_with_words(
-            "Hi there", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "Hi there",
+            1.0,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=tuple(ch.islower() for ch in "Hi there"),
         )
         assert [word for word, _indices in words] == ["Hi", "there"]
@@ -814,7 +838,10 @@ class TestInlineSmallCaps:
             lambda path, text: seen.append(text),
         )
         ftext_renderer.render_text_line_ftext(
-            "My Aunt", 0.5, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+            "My Aunt",
+            0.5,
+            DEFAULT_FONT_PATH,
+            small_caps_scale=0.7,
             small_caps_flags=(False, True, False, False, False, False, False),
         )
         # Only the flagged 'y' maps; the rest keeps its case.
@@ -827,7 +854,10 @@ class TestInlineSmallCaps:
         monkeypatch.setattr(ftext_renderer, "_glyph_contour_count", lambda path, ch: 99)
         with caplog.at_level(logging.WARNING):
             lc = ftext_renderer.render_text_line_ftext(
-                "ab", 1.0, DEFAULT_FONT_PATH, small_caps_scale=0.7,
+                "ab",
+                1.0,
+                DEFAULT_FONT_PATH,
+                small_caps_scale=0.7,
                 small_caps_flags=(True, True),
             )
         caps = ftext_renderer.render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
@@ -990,7 +1020,11 @@ class TestApplyBold:
     def test_word_groups_partition_the_bold_line(self) -> None:
         """Bold word groups come from the exact slicing and partition the line."""
         whole, words = ftext_renderer.render_text_line_ftext_with_words(
-            "AB CD", 0.5, DEFAULT_FONT_PATH, bold_scale=0.7, bold_flags=(False, True, False, False, False)
+            "AB CD",
+            0.5,
+            DEFAULT_FONT_PATH,
+            bold_scale=0.7,
+            bold_flags=(False, True, False, False, False),
         )
         assert [word for word, _ in words] == ["AB", "CD"]
         flat = [i for _word, indices in words for i in indices]
@@ -1131,9 +1165,7 @@ class TestApplyBaselineShifts:
     def test_unshifted_glyph_is_untouched(self) -> None:
         """The 0.0 character of a mixed line keeps its exact geometry."""
         plain = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH)
-        shifted = render_text_line_ftext(
-            "AA", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.4)
-        )
+        shifted = render_text_line_ftext("AA", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.4))
         groups = ftext_renderer.glyph_groups_for_line("AA", DEFAULT_FONT_PATH, len(plain))
         assert _extents(shifted, groups[0][1]) == pytest.approx(
             _extents(plain, groups[0][1]), abs=1e-9
@@ -1142,9 +1174,7 @@ class TestApplyBaselineShifts:
     def test_all_zero_is_bit_identical(self) -> None:
         """An all-zero ``baseline_shifts`` renders the untouched line."""
         plain = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH)
-        explicit = render_text_line_ftext(
-            "AB", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.0)
-        )
+        explicit = render_text_line_ftext("AB", 1.0, DEFAULT_FONT_PATH, baseline_shifts=(0.0, 0.0))
         assert _extents(explicit) == pytest.approx(_extents(plain), abs=1e-9)
 
     def test_shift_composes_with_the_glyph_scale(self) -> None:
@@ -1166,9 +1196,7 @@ class TestApplyBaselineShifts:
 
     def test_contour_partition_survives_the_shift(self) -> None:
         """The per-glyph contour partition stays 1:1 (the sweep stays valid)."""
-        shifted = render_text_line_ftext(
-            "AV", 0.5, DEFAULT_FONT_PATH, baseline_shifts=(0.3, -0.3)
-        )
+        shifted = render_text_line_ftext("AV", 0.5, DEFAULT_FONT_PATH, baseline_shifts=(0.3, -0.3))
         _lc, _words, glyph_groups = ftext_renderer.render_text_line_ftext_with_glyphs(
             "AV", 0.5, DEFAULT_FONT_PATH, baseline_shifts=(0.3, -0.3)
         )
@@ -1222,9 +1250,7 @@ class TestApplyCapLineEnforcement:
         """A descender glyph clamps about its own lowest ink, not y=0."""
         plain = render_text_line_ftext("g", 1.0, DEFAULT_FONT_PATH)
         # The bundled 'g' sits below the cap; force a clamp with a low cap.
-        clamped = ftext_renderer._apply_cap_line_enforcement(
-            plain, "g", DEFAULT_FONT_PATH, 0.5
-        )
+        clamped = ftext_renderer._apply_cap_line_enforcement(plain, "g", DEFAULT_FONT_PATH, 0.5)
         extents = _extents(clamped)
         assert extents[2] == pytest.approx(_extents(plain)[2], abs=1e-9)
         assert extents[3] == pytest.approx(0.5, abs=1e-9)
@@ -1232,9 +1258,7 @@ class TestApplyCapLineEnforcement:
     def test_helper_clamps_forced_overshoot(self) -> None:
         """The helper clamps exactly and leaves X exactly in place."""
         plain = render_text_line_ftext("H", 1.0, DEFAULT_FONT_PATH)
-        clamped = ftext_renderer._apply_cap_line_enforcement(
-            plain, "H", DEFAULT_FONT_PATH, 0.5
-        )
+        clamped = ftext_renderer._apply_cap_line_enforcement(plain, "H", DEFAULT_FONT_PATH, 0.5)
         assert _extents(clamped)[3] == pytest.approx(0.5, abs=1e-9)
         assert _extents(clamped)[2] == pytest.approx(_extents(plain)[2], abs=1e-9)
         assert _extents(clamped)[0] == pytest.approx(_extents(plain)[0], abs=1e-9)
@@ -1243,9 +1267,7 @@ class TestApplyCapLineEnforcement:
     def test_helper_punctuation_exempt(self) -> None:
         """The helper's alphanumeric gate skips overshooting punctuation."""
         plain = render_text_line_ftext("!", 1.0, DEFAULT_FONT_PATH)
-        clamped = ftext_renderer._apply_cap_line_enforcement(
-            plain, "!", DEFAULT_FONT_PATH, 0.5
-        )
+        clamped = ftext_renderer._apply_cap_line_enforcement(plain, "!", DEFAULT_FONT_PATH, 0.5)
         assert _extents(clamped) == pytest.approx(_extents(plain))
 
     def test_helper_count_drift_warns_and_keeps_the_render(
@@ -1255,9 +1277,7 @@ class TestApplyCapLineEnforcement:
         plain = render_text_line_ftext("H", 1.0, DEFAULT_FONT_PATH)
         monkeypatch.setattr(ftext_renderer, "_per_glyph_counts", lambda *a, **k: None)
         with caplog.at_level(logging.WARNING, logger="plt_optimizer.generate.ftext_renderer"):
-            result = ftext_renderer._apply_cap_line_enforcement(
-                plain, "H", DEFAULT_FONT_PATH, 0.5
-            )
+            result = ftext_renderer._apply_cap_line_enforcement(plain, "H", DEFAULT_FONT_PATH, 0.5)
         assert _extents(result) == pytest.approx(_extents(plain))
         assert "do not sum" in caplog.text
 
@@ -1312,9 +1332,7 @@ class TestApplyCapLineEnforcement:
         )
         italic_plain = render_text_line_ftext("b", 1.0, DEFAULT_FONT_PATH, italic_tan=0.5)
         assert _extents(italic)[3] == pytest.approx(1.0 * 1.5, abs=1e-9)
-        assert _extents(italic_plain)[3] == pytest.approx(
-            _extents(plain)[3] * 1.5, abs=1e-9
-        )
+        assert _extents(italic_plain)[3] == pytest.approx(_extents(plain)[3] * 1.5, abs=1e-9)
         assert _extents(italic)[3] < _extents(italic_plain)[3]
 
     def test_sup_shift_composes_on_the_clamped_glyph(self) -> None:

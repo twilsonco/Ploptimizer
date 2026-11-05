@@ -158,9 +158,7 @@ def plot_history(
     for metric in metrics:
         fig, ax = plt.subplots(figsize=(9.0, 5.0))
         for spec, values in sorted(series_for_metric(rows, iterations, metric).items()):
-            points = [
-                (i, value) for i, value in enumerate(values) if value is not None
-            ]
+            points = [(i, value) for i, value in enumerate(values) if value is not None]
             if not points:
                 continue
             ax.plot([i for i, _v in points], [v for _i, v in points], marker="o", label=spec)

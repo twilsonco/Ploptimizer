@@ -464,7 +464,9 @@ class TestResolveLogFile:
         explicit = tmp_path / "explicit.log"
         assert resolve_log_file(explicit) == explicit
 
-    def test_env_var_selects_the_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_env_var_selects_the_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """The environment can redirect the log file."""
         target = tmp_path / "from_env.log"
         monkeypatch.setenv(LOG_FILE_ENV_VAR, str(target))
@@ -494,17 +496,13 @@ class TestPublishLogPolicy:
         assert os.environ[LOG_CONSOLE_ENV_VAR] == "stderr"
         assert os.environ[LOG_FILE_ENV_VAR] == str(target)
 
-    def test_stdout_console_is_published_as_stdout(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_stdout_console_is_published_as_stdout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A stdout console is published as such."""
         monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
         publish_log_policy(level=logging.INFO, console_stream=sys.stdout)
         assert os.environ[LOG_CONSOLE_ENV_VAR] == "stdout"
 
-    def test_absent_console_leaves_the_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_absent_console_leaves_the_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """No console stream means the child keeps the stdout default."""
         monkeypatch.delenv(LOG_CONSOLE_ENV_VAR, raising=False)
         publish_log_policy(level=logging.INFO)
@@ -597,7 +595,9 @@ class TestTextLoggerPickling:
         """The level survives the round trip."""
         import pickle
 
-        logger = TextLogger(name="test_pickle_level", level=logging.WARNING, log_file=tmp_path / "b.log")
+        logger = TextLogger(
+            name="test_pickle_level", level=logging.WARNING, log_file=tmp_path / "b.log"
+        )
         restored = pickle.loads(pickle.dumps(logger))
         assert restored.logger.level == logging.WARNING
 
@@ -605,7 +605,9 @@ class TestTextLoggerPickling:
         """Restoring a logger does not re-add the console handler."""
         import pickle
 
-        logger = TextLogger(name="test_pickle_handlers", level=logging.INFO, log_file=tmp_path / "c.log")
+        logger = TextLogger(
+            name="test_pickle_handlers", level=logging.INFO, log_file=tmp_path / "c.log"
+        )
         handler_count = len(logger.logger.handlers)
         restored = pickle.loads(pickle.dumps(logger))
         assert len(restored.logger.handlers) == handler_count

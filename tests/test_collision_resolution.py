@@ -346,9 +346,7 @@ class TestJobLevelAbort:
             rendered = render_label_to_plt(label)
 
         assert rendered.has_collisions is False
-        collision_records = [
-            r for r in caplog.records if "collides with" in r.getMessage()
-        ]
+        collision_records = [r for r in caplog.records if "collides with" in r.getMessage()]
         assert collision_records, "No collision detection logged"
         assert all(r.levelno == logging.WARNING for r in collision_records)
         assert not any(r.levelno >= logging.ERROR for r in caplog.records)
@@ -488,18 +486,14 @@ class TestStrokeAwareThreshold:
         _lc3, aware_entries = _render_text_local_with_bounds(aware_resolved)
         assert detect_text_hole_collisions(aware_resolved, aware_entries) == []
 
-    def test_unresolved_collision_logs_error(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_unresolved_collision_logs_error(self, caplog: pytest.LogCaptureFixture) -> None:
         """Collisions that survive every phase keep ERROR severity."""
         label = _label()  # side holes, no avoidance knobs -> unresolvable
         with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
             rendered = render_label_to_plt(label)
 
         assert rendered.has_collisions is True
-        collision_records = [
-            r for r in caplog.records if "collides with" in r.getMessage()
-        ]
+        collision_records = [r for r in caplog.records if "collides with" in r.getMessage()]
         assert collision_records
         assert all(r.levelno >= logging.ERROR for r in collision_records)
 
@@ -523,8 +517,7 @@ class TestStrokeAwareThreshold:
     def test_dataclass_defaults(self) -> None:
         """Manually built labels default to 0.15in gap and 0.015in cutter."""
         label = ResolvedLabel(
-            id="defaults", count=1, width=3.0, height=1.0, margin=0.1,
-            h_margin=0.1, v_margin=0.1
+            id="defaults", count=1, width=3.0, height=1.0, margin=0.1, h_margin=0.1, v_margin=0.1
         )
         assert label.hole_text_collision_distance == pytest.approx(0.15)
         assert label.hole_cutter_diameter == pytest.approx(0.015)
@@ -545,9 +538,14 @@ class TestHoleAwareShiftInCollisionDetection:
         # 3x1in label, top hole, text centered at y=0.5 without shift.
         # A 0.2in shift moves text center to y=0.3 -- further from the top hole.
         top_hole = [ResolvedHoleSpec(diameter=0.4, location="top")]
-        base = _label(text="HI", holes=top_hole, height=1.0,
-                      hole_margin=0.05, hole_text_collision_distance=0.0,
-                      hole_cutter_diameter=0.0)
+        base = _label(
+            text="HI",
+            holes=top_hole,
+            height=1.0,
+            hole_margin=0.05,
+            hole_text_collision_distance=0.0,
+            hole_cutter_diameter=0.0,
+        )
         _lc, entries = _render_text_local_with_bounds(base)
 
         # Without shift: text is near the top hole -> collision detected.
@@ -560,9 +558,14 @@ class TestHoleAwareShiftInCollisionDetection:
     def test_negative_shift_moves_text_away_from_bottom_hole(self) -> None:
         """Negative shift (bottom-only hole) moves text up; bottom-hole gap widens."""
         bottom_hole = [ResolvedHoleSpec(diameter=0.4, location="bottom")]
-        base = _label(text="HI", holes=bottom_hole, height=1.0,
-                      hole_margin=0.0, hole_text_collision_distance=0.0,
-                      hole_cutter_diameter=0.0)
+        base = _label(
+            text="HI",
+            holes=bottom_hole,
+            height=1.0,
+            hole_margin=0.0,
+            hole_text_collision_distance=0.0,
+            hole_cutter_diameter=0.0,
+        )
         _lc, entries = _render_text_local_with_bounds(base)
 
         assert len(detect_text_hole_collisions(base, entries)) >= 1
@@ -1434,9 +1437,7 @@ class TestAlignmentSwitchToCenter:
         with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
             render_label_to_plt(label)
 
-        messages = [
-            r.getMessage() for r in caplog.records if "center alignment" in r.getMessage()
-        ]
+        messages = [r.getMessage() for r in caplog.records if "center alignment" in r.getMessage()]
         assert messages
         assert "edge_label" in messages[0]
 
@@ -1540,8 +1541,8 @@ class TestEdgeMarginSlideUnitCases:
         sharp = resolve_via_edge_margin(label, sharp_entries)
         assert slid is not None and sharp is not None
         # The corner inset widens the effective margin, shrinking the slack.
-        assert 0.0 < slid.collision_edge_margin_by_line[0] < (
-            sharp.collision_edge_margin_by_line[0]
+        assert (
+            0.0 < slid.collision_edge_margin_by_line[0] < (sharp.collision_edge_margin_by_line[0])
         )
 
     def test_right_aligned_far_left_hole_caps_the_slide(self) -> None:
@@ -1562,9 +1563,7 @@ class TestEdgeMarginSlideUnitCases:
         # 4in label: the 2.434in centered line starts at x=0.783, clear of the
         # left hole's right edge (0.4375) + the stroke floor.
         label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE, width=4.0)
-        result = resolve_via_compression(
-            label, 0.3, render=_render_text_local_with_bounds
-        )
+        result = resolve_via_compression(label, 0.3, render=_render_text_local_with_bounds)
 
         assert result is not None
         assert result.collision_center_by_line == frozenset({0})

@@ -595,7 +595,9 @@ class TestPerStrokeDirection:
         all_forward = glyph_sweep._traversal((1, 2, 3), (1, 2, 3), (False,) * 3, paths)
 
         modes = glyph_sweep._group_modes((1, 2, 3), paths)
-        survivor = next(m for m in modes if glyph_sweep._mode_key(m) == glyph_sweep._mode_key(all_forward))
+        survivor = next(
+            m for m in modes if glyph_sweep._mode_key(m) == glyph_sweep._mode_key(all_forward)
+        )
 
         assert survivor is not all_forward
         assert survivor.intra < all_forward.intra
@@ -620,9 +622,11 @@ class TestPerStrokeDirection:
     def test_oversized_glyph_still_sweeps_monotonically(self) -> None:
         """The fallback path sweeps and never increases intra-chunk travel."""
         glyph = tuple(range(1, glyph_sweep.MAX_EXACT_STROKE_MODES + 3))
-        paths = [_stroke((0.0, 1.0), (1.0, 1.0))] + [
-            _stroke((float(i), 0.0), (float(i), 1.0)) for i in glyph
-        ] + [_stroke((0.5, 1.0), (1.5, 1.0))]
+        paths = (
+            [_stroke((0.0, 1.0), (1.0, 1.0))]
+            + [_stroke((float(i), 0.0), (float(i), 1.0)) for i in glyph]
+            + [_stroke((0.5, 1.0), (1.5, 1.0))]
+        )
         groups = [(0,), glyph, (len(paths) - 1,)]
 
         result = sweep_glyph_directions(paths, groups)

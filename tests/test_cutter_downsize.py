@@ -953,9 +953,7 @@ class TestBoldLockstep:
     def test_one_step_moves_both_cutters_one_rung(self) -> None:
         """plain 0.09 -> 0.06 drags bold 0.125 -> 0.09 (one rung each)."""
         labels = [_label("l1", _bold_line(cutter=0.09, bold_cutter=0.125))]
-        out = apply_compression_cutter_downsize(
-            labels, _INVENTORY, probe=_probe({0.09: 0.80})
-        )
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({0.09: 0.80}))
         line = out[0].content[0]
         assert math.isclose(line.cutter_diameter, 0.06)
         assert math.isclose(line.bold_cutter_diameter, 0.09)
@@ -976,9 +974,7 @@ class TestBoldLockstep:
     def test_bold_line_without_bold_cutter_steps_plain_only(self) -> None:
         """A line with no bold cutter behaves exactly as before."""
         labels = [_label("l1", _bold_line(cutter=0.09, bold_cutter=None))]
-        out = apply_compression_cutter_downsize(
-            labels, _INVENTORY, probe=_probe({0.09: 0.80})
-        )
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({0.09: 0.80}))
         line = out[0].content[0]
         assert math.isclose(line.cutter_diameter, 0.06)
         assert line.bold_cutter_diameter is None
@@ -986,9 +982,7 @@ class TestBoldLockstep:
     def test_bold_step_refused_at_the_smallest_rung(self) -> None:
         """The bold cutter at the inventory floor stays put; the plain steps."""
         labels = [_label("l1", _bold_line(cutter=0.045, bold_cutter=0.03))]
-        out = apply_compression_cutter_downsize(
-            labels, _INVENTORY, probe=_probe({0.045: 0.80})
-        )
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({0.045: 0.80}))
         line = out[0].content[0]
         assert math.isclose(line.cutter_diameter, 0.03)
         # next_smaller(0.03) is 0.03's rung below -> 0.03 is the smallest in
@@ -1037,9 +1031,7 @@ class TestBoldLockstep:
         def bold_markup_line() -> ResolvedTextLine:
             styled = parse_markup("a<b>B</b>c", "<", ">")
             base = _bold_line("a<b>B</b>c", cutter=0.09, bold_cutter=0.125)
-            return dataclasses.replace(
-                base, plain_text=styled.plain_text, styled_runs=styled.runs
-            )
+            return dataclasses.replace(base, plain_text=styled.plain_text, styled_runs=styled.runs)
 
         assert bold_markup_line().baseline_raises == (0.0, 0.0175, 0.0)
         out = apply_compression_cutter_downsize(
@@ -1085,9 +1077,7 @@ class TestCutterMarkupPin:
     def test_the_override_keeps_its_tool(self) -> None:
         """The explicit tool survives the downsize; the plain characters step."""
         labels = [_label("l1", self._cutter_line(cutter=0.09, override=0.03))]
-        out = apply_compression_cutter_downsize(
-            labels, _INVENTORY, probe=_probe({0.09: 0.80})
-        )
+        out = apply_compression_cutter_downsize(labels, _INVENTORY, probe=_probe({0.09: 0.80}))
         line = out[0].content[0]
         # The plain characters took the smaller tool...
         assert math.isclose(line.cutter_diameter, 0.06)

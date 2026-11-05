@@ -1773,8 +1773,7 @@ class TestStrokeWidthMap:
             if stroke.segments
             and abs(stroke.segments[0].start.imag - cap) <= 1e-9
             and all(
-                abs(segment.start.imag - cap) <= 1e-9
-                and abs(segment.end.imag - cap) <= 1e-9
+                abs(segment.start.imag - cap) <= 1e-9 and abs(segment.end.imag - cap) <= 1e-9
                 for segment in stroke.segments
             )
         ]

@@ -92,6 +92,7 @@ def run_diagnostics_on_file(
             rapid_travel_inches=units_to_inches(original_rapid),
         )
         import matplotlib.pyplot as plt
+
         plt.close(fig_before)
         text_logger.info(f"Generated before plot: {before_plot_path.name}")
 
@@ -338,8 +339,7 @@ Examples:
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory to save output plots and files "
-        "(default: <input-dir>_diag_output)",
+        help="Directory to save output plots and files (default: <input-dir>_diag_output)",
     )
     parser.add_argument(
         "--no-optimize",

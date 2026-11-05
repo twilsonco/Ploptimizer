@@ -231,9 +231,7 @@ class TestDefaultConfig:
 
     def test_load_config_preserves_stored_new_keys(self) -> None:
         """Stored timeout/preference values override the defaults."""
-        json_content = json.dumps(
-            {"ensemble_timeout_seconds": 30.0, "same_row_preference": 2.5}
-        )
+        json_content = json.dumps({"ensemble_timeout_seconds": 30.0, "same_row_preference": 2.5})
 
         with patch.object(Path, "exists", return_value=True):
             with patch("builtins.open", mock_open(read_data=json_content)):

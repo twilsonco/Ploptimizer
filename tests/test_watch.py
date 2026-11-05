@@ -87,12 +87,17 @@ class TestWatchCommandArgumentParsing:
         """Test parsing of all valid arguments."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", "/some/path",
-            "--output-dir", "/output/path",
-            "--log-dir", "/log/path",
-            "--fast-mode",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                "/some/path",
+                "--output-dir",
+                "/output/path",
+                "--log-dir",
+                "/log/path",
+                "--fast-mode",
+            ]
+        )
 
         assert cmd._args.watch_dir == Path("/some/path")
         assert cmd._args.output_dir == Path("/output/path")
@@ -114,9 +119,7 @@ class TestWatchCommandArgumentParsing:
 class TestPLTFileHandlerIsFileLocked:
     """Tests for the _is_file_locked helper method."""
 
-    def test_is_file_locked_returns_false_for_unlocked_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_is_file_locked_returns_false_for_unlocked_file(self, tmp_path: Path) -> None:
         """Test that an unlocked file is reported as not locked."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -132,9 +135,7 @@ class TestPLTFileHandlerIsFileLocked:
 
         assert handler._is_file_locked(test_file) is False
 
-    def test_is_file_locked_returns_true_on_oserror(
-        self, tmp_path: Path
-    ) -> None:
+    def test_is_file_locked_returns_true_on_oserror(self, tmp_path: Path) -> None:
         """Test that an OSError from open() reports the file as locked."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -155,9 +156,7 @@ class TestPLTFileHandlerIsFileLocked:
 class TestPLTFileHandlerDebouncing:
     """Tests for file processing debouncing logic."""
 
-    def test_should_process_returns_false_for_recently_processed(
-        self, tmp_path: Path
-    ) -> None:
+    def test_should_process_returns_false_for_recently_processed(self, tmp_path: Path) -> None:
         """Test that files in processed_files set return False."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -206,9 +205,7 @@ class TestPLTFileHandlerDebouncing:
 class TestPLTFileHandlerProcessFile:
     """Tests for the _process_file method."""
 
-    def test_process_file_returns_false_for_empty_blocks(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_returns_false_for_empty_blocks(self, tmp_path: Path) -> None:
         """Test that processing returns False when no blocks are generated."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -228,15 +225,15 @@ class TestPLTFileHandlerProcessFile:
         mock_doc.stroke_paths = []
         mock_doc.total_segments = 0
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                     # Return empty blocks to trigger the warning path
                     MockChunker.return_value.chunk.return_value = []
 
@@ -244,9 +241,7 @@ class TestPLTFileHandlerProcessFile:
 
         assert result is False
 
-    def test_process_file_passes_structural_ratio_to_profiler(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_passes_structural_ratio_to_profiler(self, tmp_path: Path) -> None:
         """Test the handler forwards its structural_ratio to the Profiler."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -266,15 +261,15 @@ class TestPLTFileHandlerProcessFile:
         mock_doc.stroke_paths = []
         mock_doc.total_segments = 0
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                     MockChunker.return_value.chunk.return_value = []
                     handler._process_file(test_file)
 
@@ -316,28 +311,24 @@ class TestPLTFileHandlerProcessFile:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
-                    mock_metrics_calc.calculate_original_travel_distance.return_value = (
-                        1000.0
-                    )
+                    mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch(
-                            'plt_optimizer.cli.watch.OptimizerEngine'
-                        ) as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             handler._process_file(test_file)
 
                             # Verify the strategy was set correctly (fast_mode=True)
@@ -345,9 +336,7 @@ class TestPLTFileHandlerProcessFile:
                             strategy_name = call_args[1]["strategy"].__class__.__name__
                             assert strategy_name == "NearestNeighbor2OptStrategy"
 
-    def test_process_file_uses_parallel_ensemble_by_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_uses_parallel_ensemble_by_default(self, tmp_path: Path) -> None:
         """Test that non-fast mode uses ParallelEnsembleStrategy."""
         from unittest.mock import MagicMock, patch
 
@@ -369,28 +358,24 @@ class TestPLTFileHandlerProcessFile:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
-                    mock_metrics_calc.calculate_original_travel_distance.return_value = (
-                        1000.0
-                    )
+                    mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch(
-                            'plt_optimizer.cli.watch.OptimizerEngine'
-                        ) as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             handler._process_file(test_file)
 
                             # Verify the strategy was set correctly (fast_mode=False)
@@ -417,7 +402,7 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = True
         mock_event.src_path = "/watch/some_dir"
 
-        with patch.object(handler, '_process_file') as mock_process:
+        with patch.object(handler, "_process_file") as mock_process:
             handler.on_created(mock_event)
             mock_process.assert_not_called()
 
@@ -436,7 +421,7 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = False
         mock_event.src_path = "/watch/file.txt"
 
-        with patch.object(handler, '_process_file') as mock_process:
+        with patch.object(handler, "_process_file") as mock_process:
             handler.on_created(mock_event)
             mock_process.assert_not_called()
 
@@ -455,8 +440,8 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = False
         mock_event.src_path = "/watch/file.plt"
 
-        with patch.object(handler, '_is_plt_file', return_value=True):
-            with patch.object(handler, '_enqueue_file') as mock_enqueue:
+        with patch.object(handler, "_is_plt_file", return_value=True):
+            with patch.object(handler, "_enqueue_file") as mock_enqueue:
                 handler.on_created(mock_event)
                 mock_enqueue.assert_called_once_with(Path("/watch/file.plt"))
 
@@ -475,7 +460,7 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = True
         mock_event.src_path = "/watch/some_dir"
 
-        with patch.object(handler, '_process_file') as mock_process:
+        with patch.object(handler, "_process_file") as mock_process:
             handler.on_modified(mock_event)
             mock_process.assert_not_called()
 
@@ -494,7 +479,7 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = False
         mock_event.src_path = "/watch/file.csv"
 
-        with patch.object(handler, '_process_file') as mock_process:
+        with patch.object(handler, "_process_file") as mock_process:
             handler.on_modified(mock_event)
             mock_process.assert_not_called()
 
@@ -513,8 +498,8 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = False
         mock_event.src_path = "/watch/file.hpgl"
 
-        with patch.object(handler, '_is_plt_file', return_value=True):
-            with patch.object(handler, '_enqueue_file') as mock_enqueue:
+        with patch.object(handler, "_is_plt_file", return_value=True):
+            with patch.object(handler, "_enqueue_file") as mock_enqueue:
                 handler.on_modified(mock_event)
                 mock_enqueue.assert_called_once_with(Path("/watch/file.hpgl"))
 
@@ -533,8 +518,8 @@ class TestPLTFileHandlerEventHandlers:
         mock_event.is_directory = False
         mock_event.src_path = "/watch/file.plt"
 
-        with patch.object(handler, '_is_plt_file', return_value=True):
-            with patch.object(handler, '_enqueue_file') as mock_enqueue:
+        with patch.object(handler, "_is_plt_file", return_value=True):
+            with patch.object(handler, "_enqueue_file") as mock_enqueue:
                 handler.on_created(mock_event)
                 mock_enqueue.assert_called_once_with(Path("/watch/file.plt"))
 
@@ -558,7 +543,7 @@ class TestRunWatcherFromConfig:
         (tmp_path / "output").mkdir(parents=True)
         (tmp_path / "logs").mkdir(parents=True)
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
@@ -566,9 +551,7 @@ class TestRunWatcherFromConfig:
             result = run_watcher_from_config(config, stop_event)
             assert result == 1
 
-    def test_returns_error_for_non_directory_watch_path(
-        self, tmp_path: Path
-    ) -> None:
+    def test_returns_error_for_non_directory_watch_path(self, tmp_path: Path) -> None:
         """Test that a file path for watch_dir returns error code."""
         from plt_optimizer.cli.watch import run_watcher_from_config
 
@@ -588,7 +571,7 @@ class TestRunWatcherFromConfig:
         (tmp_path / "output").mkdir(parents=True)
         (tmp_path / "logs").mkdir(parents=True)
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
@@ -624,10 +607,10 @@ class TestRunWatcherStructuralRatio:
         stop_event = threading.Event()
         stop_event.set()  # exit the wait loop immediately
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             mock_setup.return_value = (MagicMock(), MagicMock())
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
-                with patch('plt_optimizer.cli.watch.Observer'):
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
+                with patch("plt_optimizer.cli.watch.Observer"):
                     result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -663,11 +646,12 @@ class TestWatchCommandRun:
         # Ensure it doesn't exist
         if tmp_watch.exists():
             import shutil
+
             shutil.rmtree(tmp_watch)
 
         cmd = WatchCommand(args=["--watch-dir", str(tmp_watch)])
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
@@ -689,11 +673,16 @@ class TestWatchCommandRun:
             p.mkdir(parents=True, exist_ok=True)
 
         try:
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(tmp_watch),
-                "--output-dir", str(tmp_output),
-                "--log-dir", str(tmp_log),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(tmp_watch),
+                    "--output-dir",
+                    str(tmp_output),
+                    "--log-dir",
+                    str(tmp_log),
+                ]
+            )
 
             text_logger = MagicMock()
             metrics_logger = MagicMock()
@@ -709,6 +698,7 @@ class TestWatchCommandRun:
 
         finally:
             import shutil
+
             for p in [tmp_watch, tmp_output, tmp_log]:
                 if p.exists():
                     shutil.rmtree(p, ignore_errors=True)
@@ -721,7 +711,7 @@ class TestWatchCommandValidateDirectories:
         """Test validation fails for missing watch directory."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", "/nonexistent"])
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
@@ -745,16 +735,21 @@ class TestWatchCommandProcessExistingFiles:
 
         log_dir = tmp_path / "logs"
 
-        with patch.object(WatchCommand, '_setup_logging'):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(tmp_path),
-                "--output-dir", str(tmp_path / "output"),
-                "--log-dir", str(log_dir),
-            ])
+        with patch.object(WatchCommand, "_setup_logging"):
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(tmp_path),
+                    "--output-dir",
+                    str(tmp_path / "output"),
+                    "--log-dir",
+                    str(log_dir),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 mock_handler_instance._is_plt_file.return_value = True
                 mock_handler_instance._should_process.return_value = True
@@ -774,7 +769,7 @@ class TestWatchCommandSignalHandler:
         """Test that signal handler sets shutdown flag."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", "/tmp"])
             cmd._text_logger = MagicMock()
             cmd._shutdown_requested = False
@@ -794,18 +789,16 @@ class TestWatchCommandPathValidation:
         """Test that paths under existing parents validate successfully."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
             # This should not raise - parent exists and is writable
             cmd._validate_path_can_be_created(tmp_path / "new_subdir")
 
-    def test_validate_path_can_be_created_raises_for_protected_root(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_path_can_be_created_raises_for_protected_root(self, tmp_path: Path) -> None:
         """Test that paths under protected root directories fail validation."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
 
             # A path like /nonexistent_root/subdir should raise ValueError
@@ -813,31 +806,37 @@ class TestWatchCommandPathValidation:
                 cmd._validate_path_can_be_created(
                     Path("/this/path/does/not/exist/and/cannot/be/created")
                 )
-            assert "root directory" in str(exc_info.value).lower() or "writable" in str(
-                exc_info.value
-            ).lower()
+            assert (
+                "root directory" in str(exc_info.value).lower()
+                or "writable" in str(exc_info.value).lower()
+            )
 
 
 class TestWatchCommandSetupLogging:
     """Tests for _setup_logging method."""
 
-    def test_setup_logging_permission_denied_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_setup_logging_permission_denied_error(self, tmp_path: Path) -> None:
         """Test that permission errors on directory creation raise OSError."""
         from plt_optimizer.cli.watch import WatchCommand
 
         protected_dir = tmp_path / "protected" / "output"
 
-        with patch('plt_optimizer.utils.logging.setup_logging'):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(tmp_path),
-                "--output-dir", str(protected_dir),
-                "--log-dir", str(tmp_path / "logs"),
-            ])
+        with patch("plt_optimizer.utils.logging.setup_logging"):
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(tmp_path),
+                    "--output-dir",
+                    str(protected_dir),
+                    "--log-dir",
+                    str(tmp_path / "logs"),
+                ]
+            )
 
             # Mock mkdir to raise PermissionError
-            with patch.object(Path, 'mkdir', side_effect=PermissionError("Operation not permitted")):
+            with patch.object(
+                Path, "mkdir", side_effect=PermissionError("Operation not permitted")
+            ):
                 try:
                     cmd._setup_logging()
                 except OSError as e:
@@ -845,23 +844,28 @@ class TestWatchCommandSetupLogging:
                 else:
                     pytest.fail("Expected OSError to be raised")
 
-    def test_setup_logging_raises_oserror_on_permission_denied(
-        self, tmp_path: Path
-    ) -> None:
+    def test_setup_logging_raises_oserror_on_permission_denied(self, tmp_path: Path) -> None:
         """Test that PermissionError during mkdir is converted to OSError."""
         from plt_optimizer.cli.watch import WatchCommand
 
         protected_dir = tmp_path / "protected" / "output"
 
-        with patch('plt_optimizer.utils.logging.setup_logging'):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(tmp_path),
-                "--output-dir", str(protected_dir),
-                "--log-dir", str(tmp_path / "logs"),
-            ])
+        with patch("plt_optimizer.utils.logging.setup_logging"):
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(tmp_path),
+                    "--output-dir",
+                    str(protected_dir),
+                    "--log-dir",
+                    str(tmp_path / "logs"),
+                ]
+            )
 
             # Mock mkdir to raise PermissionError
-            with patch.object(Path, 'mkdir', side_effect=PermissionError("Operation not permitted")):
+            with patch.object(
+                Path, "mkdir", side_effect=PermissionError("Operation not permitted")
+            ):
                 try:
                     cmd._setup_logging()
                 except OSError as e:
@@ -871,13 +875,11 @@ class TestWatchCommandSetupLogging:
 class TestWatchCommandValidateDirectoriesPermissions:
     """Tests for directory permission errors in _validate_directories."""
 
-    def test_validate_returns_false_on_watch_dir_permission_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_returns_false_on_watch_dir_permission_error(self, tmp_path: Path) -> None:
         """Test that permission error on reading watch dir causes failure."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
@@ -914,11 +916,16 @@ class TestWatchCommandRunObserverCleanup:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         # Set up mock loggers
         text_logger = MagicMock()
@@ -930,7 +937,7 @@ class TestWatchCommandRunObserverCleanup:
         cmd._shutdown_requested = True
 
         # Mock Observer to avoid actual threading
-        with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+        with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
             mock_observer_instance = MagicMock()
             MockObserver.return_value = mock_observer_instance
 
@@ -943,9 +950,7 @@ class TestWatchCommandRunObserverCleanup:
 class TestRunWatcherFromConfigPermissions:
     """Tests for run_watcher_from_config permission errors."""
 
-    def test_run_watcher_returns_error_on_permission_denied(
-        self, tmp_path: Path
-    ) -> None:
+    def test_run_watcher_returns_error_on_permission_denied(self, tmp_path: Path) -> None:
         """Test that PermissionError on directory creation returns error code."""
         from plt_optimizer.cli.watch import run_watcher_from_config
 
@@ -957,7 +962,7 @@ class TestRunWatcherFromConfigPermissions:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
@@ -970,7 +975,7 @@ class TestRunWatcherFromConfigPermissions:
                     raise PermissionError("Permission denied")
                 return original_mkdir(self, *args, **kwargs)
 
-            with patch.object(Path, 'mkdir', mock_mkdir):
+            with patch.object(Path, "mkdir", mock_mkdir):
                 result = run_watcher_from_config(config, stop_event)
                 assert result == 1
 
@@ -985,17 +990,22 @@ class TestWatchCommandSetupLoggingOriginal:
         log_dir = tmp_path / "logs"
         output_dir = tmp_path / "output"
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             mock_setup.return_value = (MagicMock(), MagicMock())
 
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(tmp_path),
-                "--output-dir", str(output_dir),
-                "--log-dir", str(log_dir),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(tmp_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--log-dir",
+                    str(log_dir),
+                ]
+            )
 
             # Mock path validation to succeed
-            with patch.object(cmd, '_validate_path_can_be_created'):
+            with patch.object(cmd, "_validate_path_can_be_created"):
                 try:
                     cmd._setup_logging()
                 except OSError:
@@ -1010,12 +1020,11 @@ class TestImportErrorHandling:
         import sys
 
         # Remove watchdog from modules if loaded
-        modules_to_remove = [k for k in sys.modules.keys()
-                           if 'watchdog' in k.lower()]
+        modules_to_remove = [k for k in sys.modules.keys() if "watchdog" in k.lower()]
         for mod in modules_to_remove:
             del sys.modules[mod]
 
-        with patch.dict('sys.modules', {'watchdog': None}):
+        with patch.dict("sys.modules", {"watchdog": None}):
             # When watchdog can't be imported, the module should raise ImportError
             # This tests lines 42-43 of watch.py
             pass  # Can't easily test without modifying import structure
@@ -1024,13 +1033,11 @@ class TestImportErrorHandling:
 class TestPathValidationErrors:
     """Tests for path validation error handling."""
 
-    def test_validate_path_raises_for_nonexistent_parent_chain(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_path_raises_for_nonexistent_parent_chain(self, tmp_path: Path) -> None:
         """Test that ValueError is raised when parent chain doesn't exist."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             # Try to validate a deeply nested path where no parents exist
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
 
@@ -1040,14 +1047,16 @@ class TestPathValidationErrors:
                 cmd._validate_path_can_be_created(fake_path)
 
             # Should mention root directory or writable issue
-            assert "root directory" in str(exc_info.value).lower() or \
-                   "writable" in str(exc_info.value).lower()
+            assert (
+                "root directory" in str(exc_info.value).lower()
+                or "writable" in str(exc_info.value).lower()
+            )
 
     def test_validate_path_raises_for_unwritable_parent(self, tmp_path: Path) -> None:
         """Test that ValueError is raised for unwritable parent directory."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", str(tmp_path)])
 
             # Simulate an unwritable parent by mocking Path.touch to raise
@@ -1064,9 +1073,7 @@ class TestPathValidationErrors:
             fake_path = tmp_path / "unwritable_subdir" / "file"
             assert not fake_path.exists()  # Sanity check
 
-            with patch.object(
-                Path, 'touch', side_effect=OSError(30, "Read-only file system")
-            ):
+            with patch.object(Path, "touch", side_effect=OSError(30, "Read-only file system")):
                 with pytest.raises(ValueError) as exc_info:
                     cmd._validate_path_can_be_created(fake_path)
 
@@ -1087,11 +1094,16 @@ class TestObserverCleanupPaths:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         # Set up mock loggers
         text_logger = MagicMock()
@@ -1102,7 +1114,7 @@ class TestObserverCleanupPaths:
         # Pre-set shutdown requested (immediate exit)
         cmd._shutdown_requested = True
 
-        with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+        with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
             mock_observer_instance = MagicMock()
             MockObserver.return_value = mock_observer_instance
 
@@ -1116,17 +1128,19 @@ class TestObserverCleanupPaths:
 class TestWatchCommandProcessedDirHandling:
     """Tests for processed_dir directory creation errors."""
 
-    def test_validate_returns_false_for_uncreatable_processed_dir(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_returns_false_for_uncreatable_processed_dir(self, tmp_path: Path) -> None:
         """Test that failure to create processed_dir causes validation to fail."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(tmp_path),
-                "--processed-dir", "/usr/share/unwritable_processed",
-            ])
+        with patch.object(WatchCommand, "_setup_logging"):
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(tmp_path),
+                    "--processed-dir",
+                    "/usr/share/unwritable_processed",
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -1138,11 +1152,13 @@ class TestWatchCommandProcessedDirHandling:
                     return False  # Does not exist, needs to be created
                 return original_exists(self)
 
-            with patch.object(Path, 'exists', mock_exists):
+            with patch.object(Path, "exists", mock_exists):
                 try:
                     result = cmd._validate_directories()
                     # Should fail when processed_dir can't be created
-                    assert result is False or True  # Either outcome acceptable due to platform differences
+                    assert (
+                        result is False or True
+                    )  # Either outcome acceptable due to platform differences
                 except OSError:
                     pass  # Some platforms raise instead of returning False
 
@@ -1150,9 +1166,7 @@ class TestWatchCommandProcessedDirHandling:
 class TestShouldProcessEdgeCases:
     """Tests for edge cases in _should_process method."""
 
-    def test_should_process_returns_false_for_nonexistent_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_should_process_returns_false_for_nonexistent_file(self, tmp_path: Path) -> None:
         """Test that non-existent files return False."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -1261,7 +1275,7 @@ class TestProcessFileErrorPaths:
         )
 
         # Mock parser to raise exception
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.side_effect = ValueError("Parse error")
 
             result = handler._process_file(test_file)
@@ -1290,7 +1304,7 @@ class TestProcessFileErrorPaths:
         )
 
         # Mock parser to raise exception
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.side_effect = RuntimeError("Optimization failed")
 
             result = handler._process_file(test_file)
@@ -1322,7 +1336,7 @@ class TestDebugSaveFiles:
 
         mock_doc = MagicMock()
 
-        with patch.object(handler, '_writer') as mock_writer:
+        with patch.object(handler, "_writer") as mock_writer:
             handler._save_debug_files(
                 job_id="test_job",
                 original_doc=mock_doc,
@@ -1334,9 +1348,7 @@ class TestDebugSaveFiles:
         # Writer should not be called when disabled
         mock_writer.write_file.assert_not_called()
 
-    def test_debug_save_files_handles_plotter_exception(
-        self, tmp_path: Path
-    ) -> None:
+    def test_debug_save_files_handles_plotter_exception(self, tmp_path: Path) -> None:
         """Test that exceptions from plotter are caught and logged."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -1355,10 +1367,10 @@ class TestDebugSaveFiles:
         mock_doc = MagicMock()
         mock_optimized_doc = MagicMock()
 
-        with patch.object(handler, '_writer'):
+        with patch.object(handler, "_writer"):
             # Make plot_plt_document raise an exception
             with patch(
-                'plt_optimizer.diagnostics.plotter.plot_plt_document',
+                "plt_optimizer.diagnostics.plotter.plot_plt_document",
                 side_effect=RuntimeError("Plotting failed"),
             ):
                 handler._save_debug_files(
@@ -1430,10 +1442,10 @@ class TestDebugSaveFiles:
         mock_optimized_doc = MagicMock()
 
         # Mock the writer to avoid file I/O issues
-        with patch.object(handler, '_writer'):
+        with patch.object(handler, "_writer"):
             # plot_plt_document is imported inside _save_debug_files from diagnostics.plotter
             # So we need to mock it at its actual location
-            with patch('plt_optimizer.diagnostics.plotter.plot_plt_document'):
+            with patch("plt_optimizer.diagnostics.plotter.plot_plt_document"):
                 handler._save_debug_files(
                     job_id="test_job",
                     original_doc=mock_doc,
@@ -1469,34 +1481,28 @@ class TestProcessFileMetrics:
         mock_optimized_result = MagicMock()
         mock_optimized_result.total_travel_distance = 800.0
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
             mock_parser._parse_and_build_document.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
-                    mock_metrics_calc.calculate_original_travel_distance.return_value = (
-                        1000.0
-                    )
+                    mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch(
-                            'plt_optimizer.cli.watch.OptimizerEngine'
-                        ) as MockOptimizer:
-                            MockOptimizer.return_value.optimize.return_value = (
-                                mock_optimized_result
-                            )
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
+                            MockOptimizer.return_value.optimize.return_value = mock_optimized_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler') as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 mock_reasm_instance = MagicMock()
                                 mock_reasm_instance.reassemble.return_value = mock_doc
                                 MockReasm.return_value = mock_reasm_instance
@@ -1511,9 +1517,7 @@ class TestProcessFileMetrics:
 class TestProcessFileMoveDeleteErrors:
     """Tests for error paths when moving/deleting files after processing."""
 
-    def test_move_to_processed_dir_fails_gracefully(
-        self, tmp_path: Path
-    ) -> None:
+    def test_move_to_processed_dir_fails_gracefully(self, tmp_path: Path) -> None:
         """Test that OSError during file move is caught and logged."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -1537,26 +1541,24 @@ class TestProcessFileMoveDeleteErrors:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator'):
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator"):
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOpt:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
                             mock_opt_result = MagicMock()
                             mock_opt_result.total_travel_distance = 800.0
                             MockOpt.return_value.optimize.return_value = mock_opt_result
 
-                            with patch(
-                                'plt_optimizer.cli.watch.Reassembler'
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 # Process file (will try to delete original)
@@ -1586,26 +1588,24 @@ class TestProcessFileMoveDeleteErrors:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator'):
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator"):
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOpt:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
                             mock_opt_result = MagicMock()
                             mock_opt_result.total_travel_distance = 800.0
                             MockOpt.return_value.optimize.return_value = mock_opt_result
 
-                            with patch(
-                                'plt_optimizer.cli.watch.Reassembler'
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 # Process file - delete warning should be logged if it fails
@@ -1639,26 +1639,24 @@ class TestProcessedDirHandling:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator'):
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator"):
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOpt:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
                             mock_opt_result = MagicMock()
                             mock_opt_result.total_travel_distance = 800.0
                             MockOpt.return_value.optimize.return_value = mock_opt_result
 
-                            with patch(
-                                'plt_optimizer.cli.watch.Reassembler'
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 # Process file (will move to processed_dir)
@@ -1668,9 +1666,7 @@ class TestProcessedDirHandling:
 class TestStructuralVsTextPipeline:
     """Tests for structural vs text document processing pipeline."""
 
-    def test_structural_document_uses_fracture_and_remove_redundant(
-        self, tmp_path: Path
-    ) -> None:
+    def test_structural_document_uses_fracture_and_remove_redundant(self, tmp_path: Path) -> None:
         """Test that structural documents are processed through fracture path."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -1689,55 +1685,41 @@ class TestStructuralVsTextPipeline:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 # Set is_structural to True
                 mock_profile_result = MagicMock()
                 mock_profile_result.is_structural = True
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
-                    mock_metrics_calc.calculate_original_travel_distance.return_value = (
-                        1000.0
-                    )
+                    mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
                     # Patch fracture_linear_paths and simplify_overlapping_strokes
-                    with patch(
-                        'plt_optimizer.cli.watch.fracture_linear_paths'
-                    ) as mock_fracture:
+                    with patch("plt_optimizer.cli.watch.fracture_linear_paths") as mock_fracture:
                         mock_fractured_doc = MagicMock()
                         mock_fracture.return_value = mock_fractured_doc
 
                         with patch(
-                            'plt_optimizer.cli.watch.simplify_overlapping_strokes'
+                            "plt_optimizer.cli.watch.simplify_overlapping_strokes"
                         ) as mock_remove:
                             mock_remove.return_value = mock_fractured_doc
 
-                            with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
-                                MockChunker.return_value.chunk.return_value = [
-                                    MagicMock()
-                                ]
+                            with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
+                                MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                                with patch(
-                                    'plt_optimizer.cli.watch.OptimizerEngine'
-                                ) as MockOpt:
+                                with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
                                     mock_opt_result = MagicMock()
                                     mock_opt_result.total_travel_distance = 800.0
-                                    MockOpt.return_value.optimize.return_value = (
-                                        mock_opt_result
-                                    )
+                                    MockOpt.return_value.optimize.return_value = mock_opt_result
 
-                                    with patch(
-                                        'plt_optimizer.cli.watch.Reassembler'
-                                    ) as MockReasm:
-                                        MockReasm.return_value.reassemble.return_value = (
-                                            mock_doc
-                                        )
+                                    with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
+                                        MockReasm.return_value.reassemble.return_value = mock_doc
 
                                         handler._process_file(test_file)
 
@@ -1762,50 +1744,36 @@ class TestStructuralVsTextPipeline:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 # Set is_structural to False (text document)
                 mock_profile_result = MagicMock()
                 mock_profile_result.is_structural = False
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
-                    mock_metrics_calc.calculate_original_travel_distance.return_value = (
-                        1000.0
-                    )
+                    mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
                     # These should NOT be called for text documents
-                    with patch(
-                        'plt_optimizer.cli.watch.fracture_linear_paths'
-                    ) as mock_fracture:
+                    with patch("plt_optimizer.cli.watch.fracture_linear_paths") as mock_fracture:
                         with patch(
-                            'plt_optimizer.cli.watch.simplify_overlapping_strokes'
+                            "plt_optimizer.cli.watch.simplify_overlapping_strokes"
                         ) as mock_remove:
-                            with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
-                                MockChunker.return_value.chunk.return_value = [
-                                    MagicMock()
-                                ]
+                            with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
+                                MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                                with patch(
-                                    'plt_optimizer.cli.watch.OptimizerEngine'
-                                ) as MockOpt:
+                                with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
                                     mock_opt_result = MagicMock()
                                     mock_opt_result.total_travel_distance = 800.0
-                                    MockOpt.return_value.optimize.return_value = (
-                                        mock_opt_result
-                                    )
+                                    MockOpt.return_value.optimize.return_value = mock_opt_result
 
-                                    with patch(
-                                        'plt_optimizer.cli.watch.Reassembler'
-                                    ) as MockReasm:
-                                        MockReasm.return_value.reassemble.return_value = (
-                                            mock_doc
-                                        )
+                                    with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
+                                        MockReasm.return_value.reassemble.return_value = mock_doc
 
                                         handler._process_file(test_file)
 
@@ -1821,7 +1789,7 @@ class TestMainFunction:
         """Test that main() creates WatchCommand and runs it."""
         from plt_optimizer.cli.watch import main
 
-        with patch('plt_optimizer.cli.watch.WatchCommand') as MockCmd:
+        with patch("plt_optimizer.cli.watch.WatchCommand") as MockCmd:
             mock_cmd_instance = MagicMock()
             mock_cmd_instance.run.return_value = 0
             MockCmd.return_value = mock_cmd_instance
@@ -1840,10 +1808,14 @@ class TestWatchCommandArgumentParsingExtended:
         """Test parsing of --processed-dir argument."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", "/some/path",
-            "--processed-dir", "/archive/path",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                "/some/path",
+                "--processed-dir",
+                "/archive/path",
+            ]
+        )
 
         assert cmd._args.processed_dir == Path("/archive/path")
 
@@ -1851,10 +1823,13 @@ class TestWatchCommandArgumentParsingExtended:
         """Test parsing of --debug-save-files argument."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", "/some/path",
-            "--debug-save-files",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                "/some/path",
+                "--debug-save-files",
+            ]
+        )
 
         assert cmd._args.debug_save_files is True
 
@@ -1923,29 +1898,29 @@ class TestProcessFileArchivePaths:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
                     mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler'):
+                            with patch("plt_optimizer.cli.watch.Reassembler"):
                                 handler._process_file(test_file)
 
         # File should be moved to processed_dir (if successful)
@@ -1975,29 +1950,29 @@ class TestProcessFileArchivePaths:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
                     mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler'):
+                            with patch("plt_optimizer.cli.watch.Reassembler"):
                                 handler._process_file(test_file)
 
         # File should be deleted (no processed_dir configured)
@@ -2031,21 +2006,21 @@ class TestProcessFileArchivePaths:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler'):
-                with patch('plt_optimizer.cli.watch.MetricsCalculator'):
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+            with patch("plt_optimizer.cli.watch.Profiler"):
+                with patch("plt_optimizer.cli.watch.MetricsCalculator"):
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler'):
+                            with patch("plt_optimizer.cli.watch.Reassembler"):
                                 original_move = shutil.move
 
                                 def failing_move(*args, **kwargs):
@@ -2053,7 +2028,9 @@ class TestProcessFileArchivePaths:
                                         raise OSError("Permission denied")
                                     return original_move(*args, **kwargs)
 
-                                with patch('plt_optimizer.cli.watch.shutil.move', side_effect=failing_move):
+                                with patch(
+                                    "plt_optimizer.cli.watch.shutil.move", side_effect=failing_move
+                                ):
                                     handler._process_file(test_file)
 
         handler._text_logger.warning.assert_called()
@@ -2082,34 +2059,38 @@ class TestProcessFileExceptionHandling:
             metrics_logger=MagicMock(),
         )
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_doc = MagicMock()
             mock_doc.stroke_paths = [MagicMock()]
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
                     mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch('plt_optimizer.cli.watch.Reassembler') as MockReassembler:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReassembler:
+
                                 def raise_on_reassembly(*args, **kwargs):
                                     raise RuntimeError("Reassembly failed")
-                                MockReassembler.return_value.reassemble.side_effect = raise_on_reassembly
+
+                                MockReassembler.return_value.reassemble.side_effect = (
+                                    raise_on_reassembly
+                                )
 
                                 result = handler._process_file(test_file)
 
@@ -2142,7 +2123,7 @@ class TestRunWatcherSignalHandling:
         stop_event = threading.Event()
         stop_event.set()  # Exit immediately
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
@@ -2166,11 +2147,16 @@ class TestWatchCommandRunKeyboardInterrupt:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -2182,7 +2168,7 @@ class TestWatchCommandRunKeyboardInterrupt:
         cmd._observer = None  # Will be set by _run_watcher if needed
 
         # Mock observer to avoid actual threading
-        with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+        with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
             mock_observer_instance = MagicMock()
             MockObserver.return_value = mock_observer_instance
 
@@ -2194,7 +2180,7 @@ class TestWatchCommandRunKeyboardInterrupt:
                 if interrupt_count[0] == 1:
                     raise KeyboardInterrupt()
 
-            with patch('signal.pause', side_effect=mock_signal_pause, create=True):
+            with patch("signal.pause", side_effect=mock_signal_pause, create=True):
                 result = cmd.run()
 
         # Should complete without error and return 0
@@ -2215,11 +2201,16 @@ class TestWatchCommandObserverJoinTimeout:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -2229,7 +2220,7 @@ class TestWatchCommandObserverJoinTimeout:
         # Pre-set shutdown so we exit immediately
         cmd._shutdown_requested = True
 
-        with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+        with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
             mock_observer_instance = MagicMock()
             MockObserver.return_value = mock_observer_instance
 
@@ -2270,24 +2261,24 @@ class TestProcessFileMoveErrorPath:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
                     mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
@@ -2300,7 +2291,7 @@ class TestProcessFileMoveErrorPath:
                                     raise OSError("Cannot move to processed directory")
                                 return original_move(src, dst)
 
-                            with patch('shutil.move', side_effect=failing_move):
+                            with patch("shutil.move", side_effect=failing_move):
                                 result = handler._process_file(test_file)
 
                             # Should still succeed overall despite move error
@@ -2333,24 +2324,24 @@ class TestProcessFileDeleteErrorPath:
         mock_doc = MagicMock()
         mock_doc.stroke_paths = [MagicMock()]
 
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.return_value = mock_doc
 
-            with patch('plt_optimizer.cli.watch.Profiler') as MockProfiler:
+            with patch("plt_optimizer.cli.watch.Profiler") as MockProfiler:
                 mock_profile_result = MagicMock()
                 mock_profile_result.baseline_extent = 10.0
                 MockProfiler.return_value.profile.return_value = mock_profile_result
 
-                with patch('plt_optimizer.cli.watch.MetricsCalculator') as MockMetricsCalc:
+                with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetricsCalc:
                     mock_metrics_calc = MagicMock()
                     mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetricsCalc.return_value = mock_metrics_calc
 
-                    with patch('plt_optimizer.cli.watch.Chunker') as MockChunker:
+                    with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         mock_blocks = [MagicMock()]
                         MockChunker.return_value.chunk.return_value = mock_blocks
 
-                        with patch('plt_optimizer.cli.watch.OptimizerEngine') as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
@@ -2359,7 +2350,7 @@ class TestProcessFileDeleteErrorPath:
                             def failing_remove(path, **kwargs):
                                 raise OSError("Cannot delete file")
 
-                            with patch('os.remove', side_effect=failing_remove):
+                            with patch("os.remove", side_effect=failing_remove):
                                 result = handler._process_file(test_file)
 
                             # The unlink failure is swallowed: the job still succeeds.
@@ -2390,13 +2381,13 @@ class TestRunWatcherFromConfigNonMainThread:
         stop_event = threading.Event()
 
         # Create a mock that simulates being in a non-main thread
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
 
             # Patch PLTFileHandler to avoid creating real parser
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 MockHandler.return_value = mock_handler_instance
 
@@ -2404,14 +2395,15 @@ class TestRunWatcherFromConfigNonMainThread:
                 def raise_interrupt():
                     raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=raise_interrupt, create=True):
+                with patch("signal.pause", side_effect=raise_interrupt, create=True):
+
                     def mock_current_thread():
                         # A MagicMock never equals threading.main_thread(), so
                         # watch.py:776 sees a non-main thread and skips the
                         # signal-handler registration.
                         return MagicMock()
 
-                    with patch.object(threading, 'current_thread', mock_current_thread):
+                    with patch.object(threading, "current_thread", mock_current_thread):
                         result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -2440,13 +2432,13 @@ class TestRunWatcherFromConfigSignalHandler:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
 
             # Patch PLTFileHandler to avoid creating real parser
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 MockHandler.return_value = mock_handler_instance
 
@@ -2454,7 +2446,7 @@ class TestRunWatcherFromConfigSignalHandler:
                 def raise_interrupt():
                     raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=raise_interrupt, create=True):
+                with patch("signal.pause", side_effect=raise_interrupt, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -2483,7 +2475,7 @@ class TestRunWatcherFromConfigKeyboardInterruptLoop:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
@@ -2496,7 +2488,7 @@ class TestRunWatcherFromConfigKeyboardInterruptLoop:
                 if call_count[0] == 1:
                     raise KeyboardInterrupt()
 
-            with patch('signal.pause', side_effect=raise_interrupt, create=True):
+            with patch("signal.pause", side_effect=raise_interrupt, create=True):
                 result = run_watcher_from_config(config, stop_event)
 
         # The interrupt is handled inside the loop; the watcher still exits 0.
@@ -2521,11 +2513,16 @@ class TestWatchCommandRunWithExistingFilesException:
         test_file = watch_dir / "test.plt"
         test_file.write_text("IN;PD100,100;SP;\n")
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -2533,7 +2530,7 @@ class TestWatchCommandRunWithExistingFilesException:
         cmd._metrics_logger = metrics_logger
 
         try:
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 mock_handler_instance._is_plt_file.return_value = True
                 mock_handler_instance._should_process.return_value = True
@@ -2574,13 +2571,13 @@ class TestRunWatcherFromConfigObserverStartException:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
 
             # Patch PLTFileHandler to avoid creating real parser
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 MockHandler.return_value = mock_handler_instance
 
@@ -2588,7 +2585,7 @@ class TestRunWatcherFromConfigObserverStartException:
                 def raising_start():
                     raise RuntimeError("Observer failed to start")
 
-                with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+                with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
                     mock_instance = MagicMock()
                     mock_instance.schedule.return_value = None
                     mock_instance.start.side_effect = raising_start
@@ -2612,14 +2609,24 @@ class TestWatchCommandMainFunction:
         tmp_log = Path("/tmp/test_main_logs")
 
         import shutil
+
         for p in [tmp_watch, tmp_output, tmp_log]:
             if p.exists():
                 shutil.rmtree(p)
             p.mkdir(parents=True)
 
         # Patch WatchCommand to avoid actual work
-        with patch.object(WatchCommand, 'run', return_value=0):
-            result = main(["--watch-dir", str(tmp_watch), "--output-dir", str(tmp_output), "--log-dir", str(tmp_log)])
+        with patch.object(WatchCommand, "run", return_value=0):
+            result = main(
+                [
+                    "--watch-dir",
+                    str(tmp_watch),
+                    "--output-dir",
+                    str(tmp_output),
+                    "--log-dir",
+                    str(tmp_log),
+                ]
+            )
 
         assert result == 0
 
@@ -2647,7 +2654,7 @@ class TestProcessFileCopyErrorPath:
         )
 
         # Make the parser raise an exception
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.side_effect = RuntimeError("Parse failed")
 
             result = handler._process_file(test_file)
@@ -2679,18 +2686,18 @@ class TestProcessFileCopyFallbackOSError:
         )
 
         # Make the parser raise an exception
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.side_effect = RuntimeError("Parse failed")
 
             # Make shutil.copy2 raise OSError
-            original_copy = __import__('shutil').copy2
+            original_copy = __import__("shutil").copy2
 
             def failing_copy(src, dst):
                 if "unprocessed" in str(dst) or src == test_file:
                     raise OSError("Cannot copy file")
                 return original_copy(src, dst)
 
-            with patch('shutil.copy2', side_effect=failing_copy):
+            with patch("shutil.copy2", side_effect=failing_copy):
                 result = handler._process_file(test_file)
                 # Should still return False (failure)
                 assert result is False
@@ -2748,18 +2755,18 @@ class TestSaveDebugFilesPath:
         )
 
         mock_doc = MagicMock()
-        with patch.object(handler, '_writer'):
+        with patch.object(handler, "_writer"):
             # Make plot_plt_document raise an exception
             with patch(
-                'plt_optimizer.diagnostics.plotter.plot_plt_document',
-                side_effect=RuntimeError("Plotting engine error")
+                "plt_optimizer.diagnostics.plotter.plot_plt_document",
+                side_effect=RuntimeError("Plotting engine error"),
             ):
                 handler._save_debug_files(
                     "job_456",
                     original_doc=mock_doc,
                     optimized_doc=mock_doc,
                     original_distance=1000.0,
-                    optimized_distance=800.0
+                    optimized_distance=800.0,
                 )
 
         # Should have logged a warning about the plot failure
@@ -2784,7 +2791,7 @@ class TestSaveDebugFilesPath:
         )
 
         mock_doc = MagicMock()
-        with patch.object(handler, '_writer') as mock_writer:
+        with patch.object(handler, "_writer") as mock_writer:
             # Make writer raise an exception
             mock_writer.write_file.side_effect = OSError("Disk full")
 
@@ -2793,7 +2800,7 @@ class TestSaveDebugFilesPath:
                 original_doc=mock_doc,
                 optimized_doc=mock_doc,
                 original_distance=500.0,
-                optimized_distance=400.0
+                optimized_distance=400.0,
             )
 
         # Should have logged a warning about write failure
@@ -2836,13 +2843,13 @@ class TestRunWatcherNonMainThreadSignal:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
 
             # Patch PLTFileHandler to avoid creating real parser
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 MockHandler.return_value = mock_handler_instance
 
@@ -2857,13 +2864,14 @@ class TestRunWatcherNonMainThreadSignal:
                     if call_count[0] == 1:
                         raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=signal_pause_with_exit, create=True):
+                with patch("signal.pause", side_effect=signal_pause_with_exit, create=True):
                     # Also set stop_event so loop exits after first iteration
                     stop_event.set()
 
                     # Simulate being in a non-main thread by patching current_thread
                     class MockThread:
                         """Mock thread that is NOT the main thread."""
+
                         name = "TestWorkerThread"
                         daemon = False  # Add required attribute
 
@@ -2871,11 +2879,7 @@ class TestRunWatcherNonMainThreadSignal:
                             # Make this not equal to the real main thread
                             return False
 
-                    with patch.object(
-                        threading,
-                        'current_thread',
-                        return_value=MockThread()
-                    ):
+                    with patch.object(threading, "current_thread", return_value=MockThread()):
                         result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -2898,12 +2902,18 @@ class TestProcessedDirCreationInValidate:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-            "--processed-dir", str(processed_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+                "--processed-dir",
+                str(processed_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -2926,12 +2936,18 @@ class TestProcessedDirCreationInValidate:
         # Protected location
         processed_dir = Path("/usr/share/protected_dir")
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-            "--processed-dir", str(processed_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+                "--processed-dir",
+                str(processed_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -2946,7 +2962,7 @@ class TestProcessedDirCreationInValidate:
                 return False  # Does not exist, will try to create
             return original_exists(self)
 
-        with patch.object(Path, 'exists', mock_exists):
+        with patch.object(Path, "exists", mock_exists):
             result = cmd._validate_directories()
 
         # processed_dir reports as missing and cannot be created -> invalid.
@@ -2976,19 +2992,16 @@ class TestProcessFileFallbackCopyPaths:
         )
 
         # Mock parser to raise exception
-        with patch.object(handler, '_parser') as mock_parser:
+        with patch.object(handler, "_parser") as mock_parser:
             mock_parser.parse_file.side_effect = ValueError("Parse failed")
 
             result = handler._process_file(test_file)
             assert result is False
 
             # Check that fallback was attempted (warning logged about copying)
-            warning_calls = [
-                str(call) for call in handler._text_logger.warning.call_args_list
-            ]
+            warning_calls = [str(call) for call in handler._text_logger.warning.call_args_list]
             copy_attempted = any(
-                "fallback" in c.lower() or "copy" in c.lower()
-                for c in warning_calls
+                "fallback" in c.lower() or "copy" in c.lower() for c in warning_calls
             )
             # The failure is reported through the unprocessed-copy path.
             assert any("unprocessed" in c.lower() for c in warning_calls)
@@ -3009,11 +3022,16 @@ class TestWatchCommandRunObserverHandling:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -3023,7 +3041,7 @@ class TestWatchCommandRunObserverHandling:
         # Pre-set shutdown so we exit immediately after starting observer
         cmd._shutdown_requested = True
 
-        with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+        with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
             mock_observer_instance = MagicMock()
             MockObserver.return_value = mock_observer_instance
 
@@ -3047,11 +3065,16 @@ class TestWatchCommandRunSuccessPath:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         text_logger = MagicMock()
         metrics_logger = MagicMock()
@@ -3061,7 +3084,7 @@ class TestWatchCommandRunSuccessPath:
         # Pre-set shutdown to trigger immediate exit path (line 947)
         cmd._shutdown_requested = True
 
-        with patch('plt_optimizer.cli.watch.Observer') as MockObserver:
+        with patch("plt_optimizer.cli.watch.Observer") as MockObserver:
             mock_observer_instance = MagicMock()
             MockObserver.return_value = mock_observer_instance
 
@@ -3077,7 +3100,7 @@ class TestSignalHandlerShutdownFlag:
         """Test that SIGTERM sets the shutdown flag."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        with patch.object(WatchCommand, '_setup_logging'):
+        with patch.object(WatchCommand, "_setup_logging"):
             cmd = WatchCommand(args=["--watch-dir", "/tmp"])
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
@@ -3116,15 +3139,15 @@ class TestRunWatcherExistingFilesProcessing:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
 
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 mock_handler_instance._is_plt_file.side_effect = lambda p: (
-                    p.suffix.lower() in ('.plt', '.hpgl')
+                    p.suffix.lower() in (".plt", ".hpgl")
                 )
                 mock_handler_instance._should_process.return_value = True
                 mock_handler_instance._process_file.return_value = True
@@ -3133,7 +3156,7 @@ class TestRunWatcherExistingFilesProcessing:
                 def raise_interrupt():
                     raise KeyboardInterrupt()
 
-                with patch('signal.pause', side_effect=raise_interrupt, create=True):
+                with patch("signal.pause", side_effect=raise_interrupt, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -3165,15 +3188,15 @@ class TestRunWatcherExistingFilesException:
 
         stop_event = threading.Event()
 
-        with patch('plt_optimizer.utils.logging.setup_logging') as mock_setup:
+        with patch("plt_optimizer.utils.logging.setup_logging") as mock_setup:
             text_logger = MagicMock()
             metrics_logger = MagicMock()
             mock_setup.return_value = (text_logger, metrics_logger)
 
-            with patch('plt_optimizer.cli.watch.PLTFileHandler') as MockHandler:
+            with patch("plt_optimizer.cli.watch.PLTFileHandler") as MockHandler:
                 mock_handler_instance = MagicMock()
                 mock_handler_instance._is_plt_file.side_effect = lambda p: (
-                    p.suffix.lower() in ('.plt', '.hpgl')
+                    p.suffix.lower() in (".plt", ".hpgl")
                 )
                 mock_handler_instance._should_process.return_value = True
                 # Make _process_file raise an exception for one file
@@ -3192,7 +3215,7 @@ class TestRunWatcherExistingFilesException:
                 def immediate_exit():
                     stop_event.set()
 
-                with patch('signal.pause', side_effect=immediate_exit, create=True):
+                with patch("signal.pause", side_effect=immediate_exit, create=True):
                     result = run_watcher_from_config(config, stop_event)
 
         assert result == 0
@@ -3320,17 +3343,11 @@ class TestParallelEnsembleResultPathInProcessFile:
                     with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                        with patch(
-                            "plt_optimizer.cli.watch.OptimizerEngine"
-                        ) as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             MockOptimizer.return_value.optimize.return_value = ensemble_result
 
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReassembler:
-                                MockReassembler.return_value.reassemble.return_value = (
-                                    mock_doc
-                                )
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReassembler:
+                                MockReassembler.return_value.reassemble.return_value = mock_doc
 
                                 with patch.object(handler, "_writer") as mock_writer:
                                     mock_writer.write_file.return_value = None
@@ -3339,18 +3356,14 @@ class TestParallelEnsembleResultPathInProcessFile:
 
         return result  # type: ignore[return-value]
 
-    def test_process_file_ensemble_result_with_improvement(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_ensemble_result_with_improvement(self, tmp_path: Path) -> None:
         """Test that ensemble result branches are covered (improvement_percent set)."""
         ensemble_result = _make_ensemble_result()
         result = self._run_process_file_with_ensemble_result(tmp_path, ensemble_result)
         # Result may be True or False depending on mock setup; just ensure no crash
         assert isinstance(result, bool)
 
-    def test_process_file_ensemble_result_no_improvement(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_ensemble_result_no_improvement(self, tmp_path: Path) -> None:
         """Test ensemble result with improvement_percent=None (covers else branches)."""
         ensemble_result = _make_ensemble_result_no_improvement()
         result = self._run_process_file_with_ensemble_result(tmp_path, ensemble_result)
@@ -3394,27 +3407,19 @@ class TestProcessFileUnlinkErrorPath:
 
                 with patch("plt_optimizer.cli.watch.MetricsCalculator") as MockMetrics:
                     mock_metrics_calc = MagicMock()
-                    mock_metrics_calc.calculate_original_travel_distance.return_value = (
-                        1000.0
-                    )
+                    mock_metrics_calc.calculate_original_travel_distance.return_value = 1000.0
                     MockMetrics.return_value = mock_metrics_calc
 
                     with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                        with patch(
-                            "plt_optimizer.cli.watch.OptimizerEngine"
-                        ) as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReassembler:
-                                MockReassembler.return_value.reassemble.return_value = (
-                                    mock_doc
-                                )
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReassembler:
+                                MockReassembler.return_value.reassemble.return_value = mock_doc
 
                                 with patch.object(handler, "_writer") as mock_writer:
                                     # Make the writer actually write to temp directory
@@ -3424,9 +3429,7 @@ class TestProcessFileUnlinkErrorPath:
 
                                     mock_writer.write_file.side_effect = fake_write
                                     # Make _ensure_filename_length return the path unchanged
-                                    mock_writer._ensure_filename_length.side_effect = (
-                                        lambda p: p
-                                    )
+                                    mock_writer._ensure_filename_length.side_effect = lambda p: p
 
                                     # Patch Path.unlink to raise OSError on the original test file
                                     original_unlink = Path.unlink
@@ -3437,9 +3440,7 @@ class TestProcessFileUnlinkErrorPath:
                                             raise OSError("Permission denied")
                                         original_unlink(self)
 
-                                    with patch.object(
-                                        Path, "unlink", mock_unlink
-                                    ):
+                                    with patch.object(Path, "unlink", mock_unlink):
                                         result = handler._process_file(test_file)
 
         # Should return True (success despite unlink failure)
@@ -3805,17 +3806,20 @@ class TestValidatePathCanBeCreatedRootCheck:
 class TestSetupLoggingValueErrorToOSError:
     """Tests for _setup_logging raising OSError from ValueError (lines 803-804)."""
 
-    def test_setup_logging_raises_oserror_when_validate_raises(
-        self, tmp_path: Path
-    ) -> None:
+    def test_setup_logging_raises_oserror_when_validate_raises(self, tmp_path: Path) -> None:
         """Test that ValueError from _validate_path_can_be_created becomes OSError."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(tmp_path),
-            "--output-dir", str(tmp_path / "output"),
-            "--log-dir", str(tmp_path / "logs"),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(tmp_path / "output"),
+                "--log-dir",
+                str(tmp_path / "logs"),
+            ]
+        )
 
         with patch.object(
             cmd,
@@ -3829,9 +3833,7 @@ class TestSetupLoggingValueErrorToOSError:
 class TestValidateDirectoriesWatchDirIsFile:
     """Tests for watch_dir that is a file not a directory (lines 840-841)."""
 
-    def test_validate_returns_false_when_watch_dir_is_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_returns_false_when_watch_dir_is_file(self, tmp_path: Path) -> None:
         """Test that _validate_directories fails if watch_dir is a regular file."""
         from plt_optimizer.cli.watch import WatchCommand
 
@@ -3852,9 +3854,7 @@ class TestValidateDirectoriesWatchDirIsFile:
 class TestValidateDirectoriesOutputDirOSError:
     """Tests for output_dir mkdir failing in _validate_directories (lines 854-860)."""
 
-    def test_validate_returns_false_when_output_dir_mkdir_fails(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_returns_false_when_output_dir_mkdir_fails(self, tmp_path: Path) -> None:
         """Test that OSError on output_dir.mkdir() causes validation failure."""
         from plt_optimizer.cli.watch import WatchCommand
 
@@ -3863,10 +3863,14 @@ class TestValidateDirectoriesOutputDirOSError:
         output_dir = tmp_path / "output"  # Does not exist yet
 
         with patch.object(WatchCommand, "_setup_logging"):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(watch_dir),
-                "--output-dir", str(output_dir),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(watch_dir),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -3884,9 +3888,7 @@ class TestValidateDirectoriesOutputDirOSError:
 class TestValidateDirectoriesLogDirOSError:
     """Tests for log_dir mkdir failing in _validate_directories (lines 864-868)."""
 
-    def test_validate_returns_false_when_log_dir_mkdir_fails(
-        self, tmp_path: Path
-    ) -> None:
+    def test_validate_returns_false_when_log_dir_mkdir_fails(self, tmp_path: Path) -> None:
         """Test that OSError on log_dir.mkdir() causes validation failure."""
         from plt_optimizer.cli.watch import WatchCommand
 
@@ -3897,11 +3899,16 @@ class TestValidateDirectoriesLogDirOSError:
         log_dir = tmp_path / "logs"  # Does not exist yet
 
         with patch.object(WatchCommand, "_setup_logging"):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(watch_dir),
-                "--output-dir", str(output_dir),
-                "--log-dir", str(log_dir),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(watch_dir),
+                    "--output-dir",
+                    str(output_dir),
+                    "--log-dir",
+                    str(log_dir),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -3936,10 +3943,14 @@ class TestProcessExistingFilesLoopBranches:
         (watch_dir / "readme.txt").write_text("not a plt file")
 
         with patch.object(WatchCommand, "_setup_logging"):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(watch_dir),
-                "--output-dir", str(output_dir),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(watch_dir),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -3966,10 +3977,14 @@ class TestProcessExistingFilesLoopBranches:
         plt_file.write_text("IN;SP;\n")
 
         with patch.object(WatchCommand, "_setup_logging"):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(watch_dir),
-                "--output-dir", str(output_dir),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(watch_dir),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -3996,10 +4011,14 @@ class TestProcessExistingFilesLoopBranches:
         plt_file.write_text("IN;SP;\n")
 
         with patch.object(WatchCommand, "_setup_logging"):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(watch_dir),
-                "--output-dir", str(output_dir),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(watch_dir),
+                    "--output-dir",
+                    str(output_dir),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -4041,12 +4060,18 @@ class TestWatchCommandRunProcessedDirLogging:
         log_dir.mkdir()
         processed_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-            "--processed-dir", str(processed_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+                "--processed-dir",
+                str(processed_dir),
+            ]
+        )
 
         # Force immediate shutdown
         cmd._shutdown_requested = True
@@ -4070,11 +4095,16 @@ class TestWatchCommandRunProcessedDirLogging:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+            ]
+        )
 
         cmd._shutdown_requested = True
 
@@ -4114,9 +4144,12 @@ class TestMainModuleEntryPoint:
                 "sys.argv",
                 [
                     "plt-optimizer",
-                    "--watch-dir", watch_dir,
-                    "--output-dir", output_dir,
-                    "--log-dir", log_dir,
+                    "--watch-dir",
+                    watch_dir,
+                    "--output-dir",
+                    output_dir,
+                    "--log-dir",
+                    log_dir,
                 ],
             ):
                 with patch("sys.exit") as mock_exit:
@@ -4132,6 +4165,7 @@ class TestMainModuleEntryPoint:
                 sys.modules["plt_optimizer.cli.watch"] = cached_module
             else:
                 import importlib
+
                 importlib.import_module("plt_optimizer.cli.watch")
 
         mock_exit.assert_called()
@@ -4146,9 +4180,7 @@ class TestWatchdogImportError:
         import sys
 
         # Remove the watch module from cache to force re-import
-        module_keys_to_remove = [
-            k for k in sys.modules if k.startswith("plt_optimizer.cli.watch")
-        ]
+        module_keys_to_remove = [k for k in sys.modules if k.startswith("plt_optimizer.cli.watch")]
         for key in module_keys_to_remove:
             del sys.modules[key]
 
@@ -4175,9 +4207,7 @@ class TestWatchdogImportError:
 class TestProcessFileMethodNameCoverage:
     """Tests to cover line 432 (method_name in dir() -> set failed_method)."""
 
-    def test_method_name_set_in_failed_method_after_exception(
-        self, tmp_path: Path
-    ) -> None:
+    def test_method_name_set_in_failed_method_after_exception(self, tmp_path: Path) -> None:
         """Test that method_name is used for failed_method when exception is late."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -4217,19 +4247,15 @@ class TestProcessFileMethodNameCoverage:
                     with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
 
-                        with patch(
-                            "plt_optimizer.cli.watch.OptimizerEngine"
-                        ) as MockOptimizer:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOptimizer:
                             mock_result = MagicMock()
                             mock_result.total_travel_distance = 800.0
                             MockOptimizer.return_value.optimize.return_value = mock_result
 
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReassembler:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReassembler:
                                 # Raise exception AFTER method_name has been set
-                                MockReassembler.return_value.reassemble.side_effect = (
-                                    RuntimeError("Late failure after method_name set")
+                                MockReassembler.return_value.reassemble.side_effect = RuntimeError(
+                                    "Late failure after method_name set"
                                 )
 
                                 result = handler._process_file(test_file)
@@ -4299,9 +4325,7 @@ class TestDebounceBehavior:
         test_file.write_text("IN;SP;\n")
 
         with patch.object(Path, "exists", return_value=True):
-            with patch.object(
-                Path, "stat", side_effect=OSError("stat failed")
-            ):
+            with patch.object(Path, "stat", side_effect=OSError("stat failed")):
                 handler._enqueue_file(test_file)
 
         assert test_file not in handler._pending_files
@@ -4338,9 +4362,7 @@ class TestDebounceBehavior:
         mock_process.assert_called_once_with(test_file)
         assert test_file not in handler._pending_files
 
-    def test_check_pending_files_skips_recently_modified(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_pending_files_skips_recently_modified(self, tmp_path: Path) -> None:
         """Test that a file whose mtime has advanced is not processed and is re-stamped."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -4387,9 +4409,7 @@ class TestDebounceBehavior:
         mock_process.assert_not_called()
         assert missing not in handler._pending_files
 
-    def test_check_pending_files_keeps_files_with_stat_oserror(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_pending_files_keeps_files_with_stat_oserror(self, tmp_path: Path) -> None:
         """Test that an OSError from stat keeps the entry pending for retry.
 
         On Windows, a file that is still being written may raise PermissionError
@@ -4418,9 +4438,7 @@ class TestDebounceBehavior:
         mock_process.assert_not_called()
         assert test_file in handler._pending_files
 
-    def test_check_pending_files_skips_locked_files(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_pending_files_skips_locked_files(self, tmp_path: Path) -> None:
         """Test that a locked file is skipped but kept pending for retry."""
         import os
         import time
@@ -4449,9 +4467,7 @@ class TestDebounceBehavior:
         # File remains pending so the next poll can retry
         assert test_file in handler._pending_files
 
-    def test_check_pending_files_processes_file_after_lock_released(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_pending_files_processes_file_after_lock_released(self, tmp_path: Path) -> None:
         """Test that a file is processed once the lock is released."""
         import os
         import time
@@ -4511,9 +4527,7 @@ class TestDebounceBehavior:
         mock_process.assert_not_called()
         assert test_file not in handler._pending_files
 
-    def test_check_pending_files_keeps_files_inside_debounce_window(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_pending_files_keeps_files_inside_debounce_window(self, tmp_path: Path) -> None:
         """Test that files modified within debounce_seconds are kept pending."""
         from plt_optimizer.cli.watch import PLTFileHandler
 
@@ -4536,9 +4550,7 @@ class TestDebounceBehavior:
         mock_process.assert_not_called()
         assert test_file in handler._pending_files
 
-    def test_check_pending_files_logs_processing_errors(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_pending_files_logs_processing_errors(self, tmp_path: Path) -> None:
         """Test that an exception during _process_file is logged but loop continues."""
         import os
         import time
@@ -4724,9 +4736,7 @@ class TestAtomicOutputWrites:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 handler._process_file(test_file)
@@ -4763,9 +4773,7 @@ class TestAtomicOutputWrites:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 assert handler._process_file(test_file) is True
@@ -4814,9 +4822,7 @@ class TestAtomicOutputWrites:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 handler._process_file(test_file)
@@ -4853,14 +4859,10 @@ class TestAtomicOutputWrites:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
-                                with patch(
-                                    "plt_optimizer.cli.watch.os.replace"
-                                ) as mock_replace:
+                                with patch("plt_optimizer.cli.watch.os.replace") as mock_replace:
                                     handler._process_file(test_file)
 
         # Should only call os.replace once for the optimized file
@@ -4898,26 +4900,20 @@ class TestAtomicOutputWrites:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 with patch(
                                     "plt_optimizer.cli.watch.os.replace",
                                     side_effect=OSError("replace not supported"),
                                 ):
-                                    with patch(
-                                        "plt_optimizer.cli.watch.shutil.move"
-                                    ) as mock_move:
+                                    with patch("plt_optimizer.cli.watch.shutil.move") as mock_move:
                                         handler._process_file(test_file)
 
         mock_move.assert_called_once()
         handler._text_logger.warning.assert_called()
 
-    def test_process_file_cleans_up_temp_on_write_failure(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_cleans_up_temp_on_write_failure(self, tmp_path: Path) -> None:
         """Test that a partial temp file is removed when the writer raises."""
         handler = self._make_handler(tmp_path)
 
@@ -4943,9 +4939,7 @@ class TestAtomicOutputWrites:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 # Simulate a partial temp file present from a failed write
@@ -4965,9 +4959,7 @@ class TestAtomicOutputWrites:
         assert not temp_path.exists()
         assert result is False
 
-    def test_process_file_warns_when_temp_dir_cannot_be_created(
-        self, tmp_path: Path
-    ) -> None:
+    def test_process_file_warns_when_temp_dir_cannot_be_created(self, tmp_path: Path) -> None:
         """Test that temp dir creation failure is logged as a warning, not fatal."""
         handler = self._make_handler(tmp_path)
         self._writer_patch(handler)
@@ -4987,15 +4979,11 @@ class TestAtomicOutputWrites:
                 with patch("plt_optimizer.cli.watch.MetricsCalculator"):
                     with patch("plt_optimizer.cli.watch.Chunker") as MockChunker:
                         MockChunker.return_value.chunk.return_value = [MagicMock()]
-                        with patch(
-                            "plt_optimizer.cli.watch.OptimizerEngine"
-                        ) as MockOpt:
+                        with patch("plt_optimizer.cli.watch.OptimizerEngine") as MockOpt:
                             MockOpt.return_value.optimize.return_value = MagicMock(
                                 total_travel_distance=800.0
                             )
-                            with patch(
-                                "plt_optimizer.cli.watch.Reassembler"
-                            ) as MockReasm:
+                            with patch("plt_optimizer.cli.watch.Reassembler") as MockReasm:
                                 MockReasm.return_value.reassemble.return_value = mock_doc
 
                                 with patch.object(
@@ -5022,9 +5010,7 @@ class TestAtomicOutputWrites:
         assert fallback_path.exists()
         assert not fallback_temp.exists()
 
-    def test_unprocessed_fallback_logs_error_when_copy_fails(
-        self, tmp_path: Path
-    ) -> None:
+    def test_unprocessed_fallback_logs_error_when_copy_fails(self, tmp_path: Path) -> None:
         """Test that a fallback copy failure is logged but doesn't crash."""
         handler = self._make_handler(tmp_path)
 
@@ -5043,9 +5029,7 @@ class TestAtomicOutputWrites:
         assert result is False
         handler._text_logger.error.assert_called()
 
-    def test_unprocessed_fallback_uses_shutil_move_when_replace_fails(
-        self, tmp_path: Path
-    ) -> None:
+    def test_unprocessed_fallback_uses_shutil_move_when_replace_fails(self, tmp_path: Path) -> None:
         """Test that the fallback copy path falls back to shutil.move on OSError."""
         handler = self._make_handler(tmp_path)
 
@@ -5059,9 +5043,7 @@ class TestAtomicOutputWrites:
                 "plt_optimizer.cli.watch.os.replace",
                 side_effect=OSError("replace failed"),
             ):
-                with patch(
-                    "plt_optimizer.cli.watch.shutil.move"
-                ) as mock_move:
+                with patch("plt_optimizer.cli.watch.shutil.move") as mock_move:
                     handler._process_file(test_file)
 
         mock_move.assert_called_once()
@@ -5083,10 +5065,14 @@ class TestParseArgsDebounceSeconds:
         """Test that --debounce-seconds 5.0 sets 5.0."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", "/some/path",
-            "--debounce-seconds", "5.0",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                "/some/path",
+                "--debounce-seconds",
+                "5.0",
+            ]
+        )
 
         assert cmd._args.debounce_seconds == 5.0
 
@@ -5101,12 +5087,18 @@ class TestParseArgsDebounceSeconds:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-            "--debounce-seconds", "7.5",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+                "--debounce-seconds",
+                "7.5",
+            ]
+        )
         cmd._text_logger = MagicMock()
         cmd._metrics_logger = MagicMock()
 
@@ -5199,31 +5191,17 @@ class TestProcessFileTempCleanupAndArchiveGaps:
         with ExitStack() as stack:
             mock_parser = stack.enter_context(patch.object(handler, "_parser"))
             mock_parser.parse_file.return_value = mock_doc
-            mock_profiler = stack.enter_context(
-                patch("plt_optimizer.cli.watch.Profiler")
-            )
+            mock_profiler = stack.enter_context(patch("plt_optimizer.cli.watch.Profiler"))
             mock_profiler.return_value.profile.return_value = MagicMock(
                 is_structural=False, baseline_extent=10.0
             )
-            mock_metrics = stack.enter_context(
-                patch("plt_optimizer.cli.watch.MetricsCalculator")
-            )
-            mock_metrics.return_value.calculate_original_travel_distance.return_value = (
-                1000.0
-            )
-            mock_chunker = stack.enter_context(
-                patch("plt_optimizer.cli.watch.Chunker")
-            )
+            mock_metrics = stack.enter_context(patch("plt_optimizer.cli.watch.MetricsCalculator"))
+            mock_metrics.return_value.calculate_original_travel_distance.return_value = 1000.0
+            mock_chunker = stack.enter_context(patch("plt_optimizer.cli.watch.Chunker"))
             mock_chunker.return_value.chunk.return_value = [MagicMock()]
-            mock_opt = stack.enter_context(
-                patch("plt_optimizer.cli.watch.OptimizerEngine")
-            )
-            mock_opt.return_value.optimize.return_value = MagicMock(
-                total_travel_distance=800.0
-            )
-            mock_reasm = stack.enter_context(
-                patch("plt_optimizer.cli.watch.Reassembler")
-            )
+            mock_opt = stack.enter_context(patch("plt_optimizer.cli.watch.OptimizerEngine"))
+            mock_opt.return_value.optimize.return_value = MagicMock(total_travel_distance=800.0)
+            mock_reasm = stack.enter_context(patch("plt_optimizer.cli.watch.Reassembler"))
             mock_reasm.return_value.reassemble.return_value = mock_doc
             return handler._process_file(test_file)
 
@@ -5436,11 +5414,16 @@ class TestProcessExistingFilesIterdirFailure:
         watch_dir.mkdir()
 
         with patch.object(WatchCommand, "_setup_logging"):
-            cmd = WatchCommand(args=[
-                "--watch-dir", str(watch_dir),
-                "--output-dir", str(tmp_path / "output"),
-                "--log-dir", str(tmp_path / "logs"),
-            ])
+            cmd = WatchCommand(
+                args=[
+                    "--watch-dir",
+                    str(watch_dir),
+                    "--output-dir",
+                    str(tmp_path / "output"),
+                    "--log-dir",
+                    str(tmp_path / "logs"),
+                ]
+            )
             cmd._text_logger = MagicMock()
             cmd._metrics_logger = MagicMock()
 
@@ -5489,7 +5472,6 @@ class TestRunFunctionEntry:
         mock_run.assert_called_once()
 
 
-
 class TestParseArgsEnsembleOptions:
     """Tests for the --ensemble-timeout and --same-row-preference CLI arguments."""
 
@@ -5506,11 +5488,16 @@ class TestParseArgsEnsembleOptions:
         """--ensemble-timeout 30 and --same-row-preference 2.5 are parsed."""
         from plt_optimizer.cli.watch import WatchCommand
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", "/some/path",
-            "--ensemble-timeout", "30",
-            "--same-row-preference", "2.5",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                "/some/path",
+                "--ensemble-timeout",
+                "30",
+                "--same-row-preference",
+                "2.5",
+            ]
+        )
 
         assert cmd._args.ensemble_timeout == 30.0
         assert cmd._args.same_row_preference == 2.5
@@ -5526,13 +5513,20 @@ class TestParseArgsEnsembleOptions:
         output_dir.mkdir()
         log_dir.mkdir()
 
-        cmd = WatchCommand(args=[
-            "--watch-dir", str(watch_dir),
-            "--output-dir", str(output_dir),
-            "--log-dir", str(log_dir),
-            "--ensemble-timeout", "4.5",
-            "--same-row-preference", "3.0",
-        ])
+        cmd = WatchCommand(
+            args=[
+                "--watch-dir",
+                str(watch_dir),
+                "--output-dir",
+                str(output_dir),
+                "--log-dir",
+                str(log_dir),
+                "--ensemble-timeout",
+                "4.5",
+                "--same-row-preference",
+                "3.0",
+            ]
+        )
         cmd._text_logger = MagicMock()
         cmd._metrics_logger = MagicMock()
 

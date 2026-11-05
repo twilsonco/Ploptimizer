@@ -478,8 +478,7 @@ class TestPackedPlateDataclass:
     def test_packed_label_is_frozen(self) -> None:
         """PackedLabel should be immutable."""
         label = ResolvedLabel(
-            id="x", count=1, width=1.0, height=1.0, margin=0.0,
-            h_margin=0.0, v_margin=0.0
+            id="x", count=1, width=1.0, height=1.0, margin=0.0, h_margin=0.0, v_margin=0.0
         )
         packed = PackedLabel(
             label_id="x_0", x=0.0, y=0.0, width=1.0, height=1.0, rotated=False, source_label=label
@@ -1666,9 +1665,7 @@ class TestMaterialGrouping:
         assert by_id["p_a"].material == "wb"
         assert by_id["p_b"].material == "wb(uv)"
         assert all(lab.source_label.material == "wb" for lab in by_id["p_a"].labels)
-        assert all(
-            lab.source_label.material == "wb(uv)" for lab in by_id["p_b"].labels
-        )
+        assert all(lab.source_label.material == "wb(uv)" for lab in by_id["p_b"].labels)
 
     def test_material_less_plate_claim_is_exclusive(self) -> None:
         """One material-less plate cannot serve two material groups."""
@@ -1830,9 +1827,7 @@ class TestMaterialDemoExample:
         assert len(by_id["scrap_uv"].labels) == 4
         for plate in plates:
             assert plate.material is not None
-            assert {
-                packed.source_label.material for packed in plate.labels
-            } == {plate.material}
+            assert {packed.source_label.material for packed in plate.labels} == {plate.material}
 
 
 def _make_round_label(
@@ -1853,9 +1848,7 @@ class TestRoundLabelPacking:
     @staticmethod
     def _used_width(plates: list[PackedPlate]) -> float:
         """Right-most engraved extent (device frame: x is frame-invariant)."""
-        return max(
-            packed.x + packed.width for plate in plates for packed in plate.labels
-        )
+        return max(packed.x + packed.width for plate in plates for packed in plate.labels)
 
     @staticmethod
     def _used_height(plates: list[PackedPlate]) -> float:
@@ -1897,9 +1890,7 @@ class TestRoundLabelPacking:
         y_min = packed.y - plate.top_clearance
         # Shrink by a hair: rectpack packs labels *touching*, and shapely
         # counts shared boundaries as an intersection.
-        return shapely_box(x_min, y_min, x_min + packed.width, y_min + packed.height).buffer(
-            -1e-9
-        )
+        return shapely_box(x_min, y_min, x_min + packed.width, y_min + packed.height).buffer(-1e-9)
 
     def test_round_labels_pack_through_the_ellipse_pipeline(self) -> None:
         labels = [_make_round_label("c0", 2.0, 2.0, count=4)]
@@ -1987,9 +1978,7 @@ class TestRoundLabelPacking:
             PlateSpec(id="a", width=12.0, height=8.0),
             PlateSpec(id="b", width=12.0, height=8.0),
         ]
-        labels = [
-            dataclasses.replace(_make_round_label("p", 3.0, 3.0, count=2), plate_id="b")
-        ]
+        labels = [dataclasses.replace(_make_round_label("p", 3.0, 3.0, count=2), plate_id="b")]
         plates = generate_layout(labels, plates_spec)
         assert {plate.plate_id for plate in plates} == {"b"}
         assert len(plates[0].labels) == 2
@@ -2306,9 +2295,7 @@ class TestSimpleLayout:
             PlateSpec(id="grid", width=24.0, height=6.0, layout=LayoutMode.COLUMNS_SIMPLE),
             PlateSpec(id="bin", width=24.0, height=16.0),
         ]
-        plates = generate_layout(
-            labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS
-        )
+        plates = generate_layout(labels, plates_spec, allow_rotation=False, layout=LayoutMode.ROWS)
 
         assert [p.plate_id for p in plates] == ["grid", "bin"]
         # The simple plate fills exactly: 6 per column x 8 columns = 48.
@@ -2322,7 +2309,9 @@ class TestSimpleLayout:
     def test_simple_plate_applies_edge_clearances(self) -> None:
         """Clearances shift simple placements exactly like rectpack ones."""
         labels = [_make_label(label_id="lbl", width=2.0, height=2.0, count=3)]
-        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=0.5, top_clearance=0.25)]
+        plates_spec = [
+            PlateSpec(id="p1", width=24.0, height=16.0, left_clearance=0.5, top_clearance=0.25)
+        ]
         plates = generate_layout(
             labels, plates_spec, allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
         )
@@ -2371,9 +2360,7 @@ class TestSimpleLayout:
     def test_simple_round_labels_keep_the_ellipse_pipeline(self) -> None:
         """Round labels are exempt: they pack through the ellipse engine."""
         labels = [_make_round_label("c0", 3.0, 3.0, count=4)]
-        plates = generate_layout(
-            labels, self._scrap(), layout=LayoutMode.COLUMNS_SIMPLE
-        )
+        plates = generate_layout(labels, self._scrap(), layout=LayoutMode.COLUMNS_SIMPLE)
 
         assert len(plates) == 1
         assert len(plates[0].labels) == 4
@@ -2420,7 +2407,9 @@ class TestPackSimpleGridUnit:
     """Direct unit coverage of the simple grid engine's edges."""
 
     @staticmethod
-    def _entry(index: int, width: float, height: float) -> tuple[float, float, tuple[str, object, float, int]]:
+    def _entry(
+        index: int, width: float, height: float
+    ) -> tuple[float, float, tuple[str, object, float, int]]:
         return (width, height, (f"e{index}", None, width, index))
 
     def test_rejects_non_simple_mode(self) -> None:

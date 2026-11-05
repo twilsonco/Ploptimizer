@@ -259,7 +259,7 @@ class TestGenerateSubcommand:
         spec_file = tmp_path / "cli_spec.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: \"Café Sign #3 (2x4) — " + "long" * 12 + "\"\n"
+            '  job_name: "Café Sign #3 (2x4) — ' + "long" * 12 + '"\n'
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1363,9 +1363,10 @@ class TestGenerateRun:
         # The published policy is what a spawned worker reads back.
         assert os.environ[LOG_LEVEL_ENV_VAR] == str(logging.WARNING)
         assert os.environ[LOG_CONSOLE_ENV_VAR] == "stderr"
-        assert Path(os.environ[LOG_FILE_ENV_VAR]) == (
-            tmp_path / "logs_generate" / "generate.log"
-        ).absolute()
+        assert (
+            Path(os.environ[LOG_FILE_ENV_VAR])
+            == (tmp_path / "logs_generate" / "generate.log").absolute()
+        )
 
     # ------------------------------------------------------------------
     # run(): parse-stage error handling
@@ -1417,9 +1418,7 @@ class TestGenerateRun:
         assert list((tmp_path / "out" / "plt").glob("*.plt"))
 
         report = json.loads(
-            (tmp_path / "out" / "generation_report" / "report.json").read_text(
-                encoding="utf-8"
-            )
+            (tmp_path / "out" / "generation_report" / "report.json").read_text(encoding="utf-8")
         )
         assert report["summary"]["plates"] == 0
         assert report["summary"]["labels"] == 1
@@ -1991,9 +1990,7 @@ class TestGenerateRun:
         # default plates must overflow rather than abort.
         assert run(args) == 0
         report = json.loads(
-            (tmp_path / "out" / "generation_report" / "report.json").read_text(
-                encoding="utf-8"
-            )
+            (tmp_path / "out" / "generation_report" / "report.json").read_text(encoding="utf-8")
         )
         assert report["summary"]["plates"] == 0
         assert len(report["outputs"]["plates"]) >= 2

@@ -309,8 +309,10 @@ def profile_one_spec(
         for stat in snapshot.statistics("lineno")[: args.top]:
             lines.append(f"  {stat}")
         (spec_out / f"{stem}.mem.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        print(f"\n--- memory: {stem}: peak {peak / 1024 / 1024:.1f} MiB "
-              f"(report: {spec_out / (stem + '.mem.txt')}) ---")
+        print(
+            f"\n--- memory: {stem}: peak {peak / 1024 / 1024:.1f} MiB "
+            f"(report: {spec_out / (stem + '.mem.txt')}) ---"
+        )
         row["peak_mem_mib"] = round(peak / 1024 / 1024, 1)
 
     for name in stage_order:
@@ -325,9 +327,7 @@ def _plt_manifest(output_dir: Path) -> Dict[str, str]:
     """sha256 of every produced PLT, keyed by path relative to *output_dir*."""
     manifest: Dict[str, str] = {}
     for path in sorted(output_dir.rglob("*.plt")):
-        manifest[str(path.relative_to(output_dir))] = hashlib.sha256(
-            path.read_bytes()
-        ).hexdigest()
+        manifest[str(path.relative_to(output_dir))] = hashlib.sha256(path.read_bytes()).hexdigest()
     return manifest
 
 
@@ -599,9 +599,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     preserved = _append_csv(csv_path, rows, fresh=args.fresh)
 
-    stage_keys = [
-        key for key in (rows[0] if rows else {}) if str(key).startswith("stage_")
-    ]
+    stage_keys = [key for key in (rows[0] if rows else {}) if str(key).startswith("stage_")]
     print(f"\n=== wall-clock summary (median of {max(1, args.repeats)}) ===")
     header = f"{'spec':<48} {'wall_s':>8} {'cpu_s':>8}"
     print(header)
@@ -611,14 +609,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("\n=== summed stage seconds (last timed run) ===")
         print(f"{'spec':<48}" + "".join(f"{k[6:-2]:>16}" for k in stage_keys))
         for row in rows:
-            print(
-                f"{row['spec']:<48}"
-                + "".join(f"{row.get(k, 0.0):>16.2f}" for k in stage_keys)
-            )
-    print(
-        f"\nSummary CSV: {csv_path} "
-        f"(history: {len(preserved)} prior row(s) + {len(rows)} new)"
-    )
+            print(f"{row['spec']:<48}" + "".join(f"{row.get(k, 0.0):>16.2f}" for k in stage_keys))
+    print(f"\nSummary CSV: {csv_path} (history: {len(preserved)} prior row(s) + {len(rows)} new)")
     return 0
 
 

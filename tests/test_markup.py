@@ -618,6 +618,7 @@ class TestCrossingSpans:
         assert reparsed.strikethrough_flags == styled.strikethrough_flags
         assert reparsed.small_caps_flags == styled.small_caps_flags
         assert separators == (PLAIN, PLAIN)
+
     def test_crossing_with_custom_brackets(self) -> None:
         """Crossing spans parse under a non-default bracket pair."""
         raw = "«s»Always «sc»vacuum«/s» line«/sc»"
@@ -1014,12 +1015,8 @@ class TestSupSubParse:
 
     def test_bounds_are_inclusive(self) -> None:
         """The [-1.0, 1.0] endpoints parse."""
-        assert parse_markup("<sup:-1>x</sup>").sup_sub_values[0] == SupSub(
-            SUP_DIRECTION, -1.0
-        )
-        assert parse_markup("<sub:1>x</sub>").sup_sub_values[0] == SupSub(
-            SUB_DIRECTION, 1.0
-        )
+        assert parse_markup("<sup:-1>x</sup>").sup_sub_values[0] == SupSub(SUP_DIRECTION, -1.0)
+        assert parse_markup("<sub:1>x</sub>").sup_sub_values[0] == SupSub(SUB_DIRECTION, 1.0)
 
     def test_mismatched_close_is_a_hard_error(self) -> None:
         """<sup>...</sub> aborts (</sub> closes a tag that was never opened)."""
@@ -1687,6 +1684,7 @@ class TestCutterWords:
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.cutter == 0.06 for sep in separators)
 
+
 class TestOriginalCutterRegistry:
     """The <oc> registry entry (the original-cutter flag tag)."""
 
@@ -2025,7 +2023,9 @@ class TestKernMarkers:
         words = split_styled_words(styled)
         assert [word.text for word in words] == ["foo", "AB", "bar"]
         assert serialize_word(words[1], "<", ">", "<+>", "<->") == "A<+>B"
-        reparsed = parse_markup(serialize_word(words[1], "<", ">", "<+>", "<->"), kern_pos="<+>", kern_neg="<->")
+        reparsed = parse_markup(
+            serialize_word(words[1], "<", ">", "<+>", "<->"), kern_pos="<+>", kern_neg="<->"
+        )
         assert reparsed.kern_values == (0, 1)
 
     def test_custom_brackets_marker(self) -> None:

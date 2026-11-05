@@ -65,7 +65,12 @@ OUTPUT_DIR = Path(__file__).resolve().parent
 # reference by installing one skill (Hermes copies files referenced by name
 # from a SKILL.md).
 REF_SKILL_REFERENCES = (
-    REPO_ROOT / "docs" / "skills" / "engraving-jobs" / "engraving-job-complete-reference" / "references"
+    REPO_ROOT
+    / "docs"
+    / "skills"
+    / "engraving-jobs"
+    / "engraving-job-complete-reference"
+    / "references"
 )
 JOB_SPEC_JSON = REF_SKILL_REFERENCES / "job_spec.schema.json"
 JOB_CONFIG_JSON = REF_SKILL_REFERENCES / "job_config.schema.json"
@@ -501,15 +506,15 @@ _FALLBACK_NOTES: dict[str, str] = {
     "missing envelopes). 1.0 = the left glyph's own width.",
     "DEFAULT_HTML_BRACKETS": "Delimiter pair for the inline markup syntax (`<i>` italic and future "
     "tags): an even-length string whose first half is the left delimiter and "
-    "second half the right (`\"<>\"` -> `<` / `>`). Text that legitimately "
+    'second half the right (`"<>"` -> `<` / `>`). Text that legitimately '
     "contains chevrons opts out by declaring a pair absent from its data; a "
     "bracketed body that is not a registered tag engraves verbatim. The forward "
     "slash is only special inside the delimiters (`</i>`), never elsewhere. "
     "See `plt_optimizer.generate.markup`.",
     "DEFAULT_H_MARGIN": "Horizontal margin fall back to margin, then the default. "
-    "Both are None to indicate \"unset\"; resolution logic fills them in.",
+    'Both are None to indicate "unset"; resolution logic fills them in.',
     "DEFAULT_V_MARGIN": "Vertical margin fall back to margin, then the default. "
-    "Both are None to indicate \"unset\"; resolution logic fills them in.",
+    'Both are None to indicate "unset"; resolution logic fills them in.',
     "DEFAULT_ITALIC_ANGLE": "Slant angle (degrees) for italic markup: PLT-extracted glyphs (and TTF "
     "glyphs with no native italic face) are sheared about the baseline, "
     "$x' = x + y * tan(angle)$, so the baseline stays fixed and the glyph "
@@ -591,7 +596,7 @@ _FALLBACK_NOTES: dict[str, str] = {
     " relief is enabled (see `center_text_by_band`); with the relief off nothing"
     " would adjust the descenders, so ink centering is kept. Label-level only --"
     " centering is a property of the stacked block, never of one line, so the"
-    " field is deliberately absent from `TextLine`/`TextAttributes`."
+    " field is deliberately absent from `TextLine`/`TextAttributes`.",
 }
 
 
@@ -1226,14 +1231,14 @@ def build_job_config_markdown() -> str:
         "`job-config.json` is the shop tier of the generate pipeline: its",
         "values are injected as the top-most (job/plate) layer of the cascade,",
         "so every label may still override them, and a field set to `null` (or",
-        "omitted) means \"no configured default\" — the code fallback applies.",
+        'omitted) means "no configured default" — the code fallback applies.',
         "Precedence: job YAML > `job-config.json` > code fallback. All units",
         "are **inches**. Every key is validated at load against",
         "[`job_config.schema.json`](job_config.schema.json) (this file's source",
         "of truth): unknown keys and out-of-range values fail the run with",
         "every problem listed at once.",
         "",
-        "Add `\"$schema\": \"./docs/skills/engraving-jobs/engraving-job-complete-reference/references/job_config.schema.json\"`",
+        'Add `"$schema": "./docs/skills/engraving-jobs/engraving-job-complete-reference/references/job_config.schema.json"`',
         "to a config file to get per-field hover documentation in a JSON-aware",
         "editor (the path is relative to the config file; for a config kept",
         "outside the repo, copy the schema beside it or use a `file:` URI).",
@@ -1256,9 +1261,7 @@ def build_job_config_markdown() -> str:
         lines += [f"### {_CONFIG_GROUP_TITLES[group]}", "", table_for(list(fields)), ""]
 
     enum_names = [name for name in _ENUM_ORDER if name in defs and "enum" in defs[name]]
-    enum_names += sorted(
-        name for name in defs if "enum" in defs[name] and name not in enum_names
-    )
+    enum_names += sorted(name for name in defs if "enum" in defs[name] and name not in enum_names)
     lines += [
         "## Enums",
         "",

@@ -210,9 +210,7 @@ class TestMappingHeaderBlocks:
     def test_name_block_uses_the_default_face(self) -> None:
         """The font-name block is the default-face render, not the symbol face."""
         name_block, subtitle_block = script.mapping_header_blocks("Wingdings")
-        alpha = script._render_default_font_block(
-            "Wingdings", script.MAPPING_HEADER_NAME_HEIGHT
-        )
+        alpha = script._render_default_font_block("Wingdings", script.MAPPING_HEADER_NAME_HEIGHT)
         symbol = script._render_in_showcase_font(
             "Wingdings", "Wingdings", script.MAPPING_HEADER_NAME_HEIGHT
         )

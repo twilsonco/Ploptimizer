@@ -89,7 +89,9 @@ class TestGeneratedArtifacts:
 
     def test_job_config_schema_json_is_up_to_date(self) -> None:
         """job_config.schema.json matches JobDefaults.model_json_schema()."""
-        _assert_current(ARTIFACTS_DIR / "job_config.schema.json", generator.build_job_config_schema())
+        _assert_current(
+            ARTIFACTS_DIR / "job_config.schema.json", generator.build_job_config_schema()
+        )
 
     def test_job_spec_markdown_is_up_to_date(self) -> None:
         """The model-derived part of JOB_SPEC.md matches a fresh render.

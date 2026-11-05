@@ -43,16 +43,16 @@ def parse_headers_txt(headers_path: Path) -> dict:
             # Extract name (everything before [units])
             name_parts = []
             idx = 0
-            while idx < len(parts) and not parts[idx].startswith('['):
+            while idx < len(parts) and not parts[idx].startswith("["):
                 name_parts.append(parts[idx])
                 idx += 1
 
-            name = ' '.join(name_parts)
-            underscored_name = name.replace(' ', '_')
+            name = " ".join(name_parts)
+            underscored_name = name.replace(" ", "_")
 
             # Extract units (inside brackets)
             units = None
-            if idx < len(parts) and parts[idx].startswith('['):
+            if idx < len(parts) and parts[idx].startswith("["):
                 units = parts[idx][1:-1]  # Remove brackets
                 idx += 1
 
@@ -64,16 +64,16 @@ def parse_headers_txt(headers_path: Path) -> dict:
             idx += 1
 
             # Parse type-specific default
-            if param_type == 'bool':
-                default = default_str.lower() == 'true'
+            if param_type == "bool":
+                default = default_str.lower() == "true"
                 min_val = None
                 max_val = None
-            elif param_type == 'int':
+            elif param_type == "int":
                 default = int(default_str)
                 min_val = int(parts[idx])
                 max_val = int(parts[idx + 1])
                 idx += 2
-            elif param_type == 'float':
+            elif param_type == "float":
                 default = float(default_str)
                 min_val = float(parts[idx])
                 max_val = float(parts[idx + 1])
@@ -82,12 +82,12 @@ def parse_headers_txt(headers_path: Path) -> dict:
                 raise ValueError(f"Unknown type: {param_type}")
 
             headers[underscored_name] = {
-                'name': name,
-                'type': param_type,
-                'default': default,
-                'min': min_val,
-                'max': max_val,
-                'units': units,
+                "name": name,
+                "type": param_type,
+                "default": default,
+                "min": min_val,
+                "max": max_val,
+                "units": units,
             }
 
     return headers
@@ -104,9 +104,9 @@ def group_plt_files(headers_dir: Path) -> dict:
     """
     groups = defaultdict(list)
 
-    for plt_file in headers_dir.glob('*.plt'):
+    for plt_file in headers_dir.glob("*.plt"):
         # Extract name and value, e.g. "dwell time 50.plt" -> ("dwell time", "50")
-        name_match = re.match(r'^(.+?)\s+([^\s]+)\.plt$', plt_file.name)
+        name_match = re.match(r"^(.+?)\s+([^\s]+)\.plt$", plt_file.name)
         if not name_match:
             continue
 
@@ -132,15 +132,19 @@ def extract_command_from_diff(file1: Path, file2: Path) -> str:
         The command prefix (e.g., "VS", "ZO124,", "ZU")
     """
     result = subprocess.run(
-        ['diff', '-u', str(file1), str(file2)],
+        ["diff", "-u", str(file1), str(file2)],
         capture_output=True,
         text=True,
     )
 
     # Extract lines that were removed (-) and added (+), skip diff headers
-    diff_lines = result.stdout.split('\n')
-    removed_lines = [ln[1:].strip() for ln in diff_lines if ln.startswith('-') and not ln.startswith('---')]
-    added_lines = [ln[1:].strip() for ln in diff_lines if ln.startswith('+') and not ln.startswith('+++')]
+    diff_lines = result.stdout.split("\n")
+    removed_lines = [
+        ln[1:].strip() for ln in diff_lines if ln.startswith("-") and not ln.startswith("---")
+    ]
+    added_lines = [
+        ln[1:].strip() for ln in diff_lines if ln.startswith("+") and not ln.startswith("+++")
+    ]
 
     # We should have exactly one removed and one added line
     if len(removed_lines) != 1 or len(added_lines) != 1:
@@ -154,9 +158,9 @@ def extract_command_from_diff(file1: Path, file2: Path) -> str:
     line2 = added_lines[0]
 
     # Remove trailing semicolon
-    if line1.endswith(';'):
+    if line1.endswith(";"):
         line1 = line1[:-1]
-    if line2.endswith(';'):
+    if line2.endswith(";"):
         line2 = line2[:-1]
 
     # Find common prefix, but stop at HPGL command boundaries (comma)
@@ -166,7 +170,7 @@ def extract_command_from_diff(file1: Path, file2: Path) -> str:
         if c1 == c2:
             prefix_len += 1
             # Stop after a comma (command parameter separator)
-            if c1 == ',':
+            if c1 == ",":
                 break
         else:
             break
@@ -175,9 +179,7 @@ def extract_command_from_diff(file1: Path, file2: Path) -> str:
 
     # Ensure we got a valid command
     if not prefix or len(prefix) < 2:
-        raise ValueError(
-            f"Could not extract command from diff:\n{line1};\nvs\n{line2};"
-        )
+        raise ValueError(f"Could not extract command from diff:\n{line1};\nvs\n{line2};")
 
     return prefix
 
@@ -222,7 +224,7 @@ def build_tool_options(headers: dict, commands: dict) -> dict:
     # Build reverse mapping from original names to underscored names
     name_mapping = {}
     for underscored_name, header_info in headers.items():
-        original_name = header_info['name']
+        original_name = header_info["name"]
         name_mapping[original_name] = underscored_name
 
     tool_options = {}
@@ -236,31 +238,31 @@ def build_tool_options(headers: dict, commands: dict) -> dict:
         underscored_name = name_mapping[original_name]
         header_info = headers[underscored_name]
 
-        param_type = header_info['type']
-        default = header_info['default']
+        param_type = header_info["type"]
+        default = header_info["default"]
 
         # Build dual defaults (text and borders_holes use same default)
         dual_default = {
-            'text': default,
-            'borders_holes': default,
+            "text": default,
+            "borders_holes": default,
         }
 
         option = {
-            'name': original_name,
-            'description': '',
-            'command': command,
-            'type': param_type,
-            'default': dual_default,
+            "name": original_name,
+            "description": "",
+            "command": command,
+            "type": param_type,
+            "default": dual_default,
         }
 
         # Add units if present
-        if header_info['units']:
-            option['units'] = header_info['units']
+        if header_info["units"]:
+            option["units"] = header_info["units"]
 
         # Add bounds for int/float types
-        if param_type in ('int', 'float'):
-            option['min'] = header_info['min']
-            option['max'] = header_info['max']
+        if param_type in ("int", "float"):
+            option["min"] = header_info["min"]
+            option["max"] = header_info["max"]
 
         tool_options[underscored_name] = option
 
@@ -277,9 +279,9 @@ def update_job_config(job_config_path: Path, tool_options: dict) -> None:
     with open(job_config_path) as f:
         config = json.load(f)
 
-    config['tool_options'] = tool_options
+    config["tool_options"] = tool_options
 
-    with open(job_config_path, 'w') as f:
+    with open(job_config_path, "w") as f:
         json.dump(config, f, indent=2)
 
     print(f"\n✓ Updated {job_config_path} with {len(tool_options)} tool options")
@@ -288,9 +290,9 @@ def update_job_config(job_config_path: Path, tool_options: dict) -> None:
 def main():
     """Main extraction and update flow."""
     repo_root = Path(__file__).parent
-    headers_dir = repo_root / 'examples' / 'plt headers'
-    headers_file = headers_dir / 'headers.txt'
-    job_config_file = repo_root / 'job-config.json'
+    headers_dir = repo_root / "examples" / "plt headers"
+    headers_file = headers_dir / "headers.txt"
+    job_config_file = repo_root / "job-config.json"
 
     print("=" * 60)
     print("PLT Headers Extraction")
@@ -327,5 +329,5 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     exit(main())

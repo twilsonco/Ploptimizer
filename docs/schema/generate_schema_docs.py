@@ -178,8 +178,7 @@ def format_fonts_list() -> list[str]:
     )
 
     lines = [
-        "**Available Fonts** "
-        f"(default when unset: {font_registry.DEFAULT_FONT_NAME}):",
+        f"**Available Fonts** (default when unset: {font_registry.DEFAULT_FONT_NAME}):",
         "",
         f"- PLT-extracted ({len(plt_fonts)}) — rendered arc-native, arcs "
         "preserved end-to-end (fonts/VP-EL-fonts/catalog/):",
@@ -212,26 +211,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate tool_options documentation from job-config.json"
     )
+    parser.add_argument("--show", action="store_true", help="Show formatted documentation")
     parser.add_argument(
-        '--show',
-        action='store_true',
-        help='Show formatted documentation'
+        "--show-python-code",
+        action="store_true",
+        help="Show Python docstring code ready for copy-paste into schema.py",
     )
     parser.add_argument(
-        '--show-python-code',
-        action='store_true',
-        help='Show Python docstring code ready for copy-paste into schema.py'
+        "--show-fonts",
+        action="store_true",
+        help="List every valid font name (PLT-extracted keys + TTF basenames)",
     )
     parser.add_argument(
-        '--show-fonts',
-        action='store_true',
-        help='List every valid font name (PLT-extracted keys + TTF basenames)'
-    )
-    parser.add_argument(
-        '--config',
+        "--config",
         type=Path,
-        default=Path('job-config.json'),
-        help='Path to job-config.json (default: job-config.json)'
+        default=Path("job-config.json"),
+        help="Path to job-config.json (default: job-config.json)",
     )
 
     args = parser.parse_args()
@@ -253,7 +248,7 @@ def main() -> int:
         print(f"❌ Error loading {args.config}: {e}", file=sys.stderr)
         return 1
 
-    tool_options = config.get('tool_options', {})
+    tool_options = config.get("tool_options", {})
 
     if args.show_python_code:
         print("Append these lines to the description=(...) string in JobSpec.tool_options:")
@@ -285,5 +280,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

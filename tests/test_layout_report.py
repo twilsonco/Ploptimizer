@@ -13,9 +13,7 @@ from plt_optimizer.generate.layout_report import format_layout_report, has_layou
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
 
-def _line(
-    text: str, line_spacing: float = 0.0, alignment: str = "center"
-) -> ResolvedTextLine:
+def _line(text: str, line_spacing: float = 0.0, alignment: str = "center") -> ResolvedTextLine:
     """Build a minimal resolved text line with the given requested spacing."""
     return ResolvedTextLine(
         text=text,
@@ -577,7 +575,6 @@ class TestCutterMarkupFindings:
         assert has_layout_findings([resolved], {"l1": rendered}) is False
 
 
-
 class TestScaleMarkupFindings:
     """A ``<scale:N>`` run's factor range is a report finding."""
 
@@ -590,10 +587,7 @@ class TestScaleMarkupFindings:
         text = "\n".join(lines)
 
         # 0.5 * 0.3in nominal = 0.15in of text -> the ladder's 0.015 rung.
-        assert (
-            "'Hello Small' scaled 0.500-1.000 (run cutter 0.015in, "
-            "line cutter 0.030in)" in text
-        )
+        assert "'Hello Small' scaled 0.500-1.000 (run cutter 0.015in, line cutter 0.030in)" in text
         assert has_layout_findings([resolved], {"l1": rendered}) is True
 
     def test_uniform_range_prints_one_factor(self) -> None:
@@ -660,8 +654,7 @@ class TestSupSubMarkupFindings:
         # d = 0.5 -> shift 1 - d/2 = 0.75 for the run; 0.5 * 0.3in nominal =
         # 0.15in of text -> the ladder's 0.015 rung.
         assert (
-            "'1st' sup/sub shift 0.000-0.750 cap (run cutter 0.015in, "
-            "line cutter 0.030in)" in text
+            "'1st' sup/sub shift 0.000-0.750 cap (run cutter 0.015in, line cutter 0.030in)" in text
         )
         assert has_layout_findings([resolved], {"l1": rendered}) is True
 
@@ -681,9 +674,7 @@ class TestSupSubMarkupFindings:
 
         text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
 
-        assert (
-            "'up' sup/sub shift 0.750 cap (run cutter 0.015in, line cutter 0.030in)" in text
-        )
+        assert "'up' sup/sub shift 0.750 cap (run cutter 0.015in, line cutter 0.030in)" in text
 
     def test_shift_only_run_keeps_the_line_cutter(self) -> None:
         """<sup:0.3> shifts without scaling: the run cutter is the line's."""
@@ -693,8 +684,7 @@ class TestSupSubMarkupFindings:
         text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
 
         assert (
-            "'1st' sup/sub shift 0.000-0.300 cap (run cutter 0.030in, "
-            "line cutter 0.030in)" in text
+            "'1st' sup/sub shift 0.000-0.300 cap (run cutter 0.030in, line cutter 0.030in)" in text
         )
 
     def test_sup_finding_strips_markup(self) -> None:
@@ -710,18 +700,14 @@ class TestSupSubMarkupFindings:
         """supersubscript_downscale 1.0 leaves the run unscaled (line cutter)."""
         from dataclasses import replace as dc_replace
 
-        line = dc_replace(
-            _line("up").with_markup("<sup>up</sup>"), supersubscript_downscale=1.0
-        )
+        line = dc_replace(_line("up").with_markup("<sup>up</sup>"), supersubscript_downscale=1.0)
         resolved, rendered = _label("l1", [line])
 
         text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
 
         # d = 1.0 -> shift 1 - d/2 = 0.5 (the glyph's centre rides the
         # capline) and no downscale, so the run keeps the line's own tool.
-        assert (
-            "'up' sup/sub shift 0.500 cap (run cutter 0.030in, line cutter 0.030in)" in text
-        )
+        assert "'up' sup/sub shift 0.500 cap (run cutter 0.030in, line cutter 0.030in)" in text
 
 
 class TestFontMarkupFindings:
@@ -742,10 +728,7 @@ class TestFontMarkupFindings:
 
         # Wingdings (S4) at 0.3in nominal: the boldness ladder snaps to the
         # 0.015 rung, so the run cutter is 0.015 vs the line's 0.03.
-        assert (
-            "'Hello abcd' font Wingdings (run cutter 0.015in, "
-            "line cutter 0.030in)" in text
-        )
+        assert "'Hello abcd' font Wingdings (run cutter 0.015in, line cutter 0.030in)" in text
         assert has_layout_findings([resolved], {"l1": rendered}) is True
 
     def test_font_finding_strips_markup(self) -> None:
@@ -806,10 +789,7 @@ class TestHoleAdjustFindings:
         resolved, rendered = _label("holes", [_line("TEXT")])
         resolved = dc_replace(
             resolved,
-            holes=[
-                ResolvedHoleSpec(diameter=diameter, location="left")
-                for diameter in diameters
-            ],
+            holes=[ResolvedHoleSpec(diameter=diameter, location="left") for diameter in diameters],
             hole_adjust_for_cutter=adjust,
             hole_cutter_diameter=cutter,
         )
@@ -820,9 +800,7 @@ class TestHoleAdjustFindings:
         """A 0.1in hole with a 0.015in cutter prints 0.100in -> 0.085in."""
         resolved, rendered = self._hole_label((0.1,))
 
-        text = "\n".join(
-            format_layout_report([resolved], {"holes": rendered}, full=True)
-        )
+        text = "\n".join(format_layout_report([resolved], {"holes": rendered}, full=True))
 
         assert "Holes 0.100in -> 0.085in (cutter 0.015in)" in text
 
@@ -865,9 +843,7 @@ class TestHoleAdjustFindings:
         """A clamped hole prints the emittable floor, not a negative size."""
         resolved, rendered = self._hole_label((0.01,))
 
-        text = "\n".join(
-            format_layout_report([resolved], {"holes": rendered}, full=True)
-        )
+        text = "\n".join(format_layout_report([resolved], {"holes": rendered}, full=True))
 
         # 2 * (1 plotter unit) = 2/1016 = 0.00197in -> prints 0.002in.
         assert "Holes 0.010in -> 0.002in (cutter 0.015in)" in text
@@ -876,9 +852,7 @@ class TestHoleAdjustFindings:
         """The finding names the cutter that produced the engraved size."""
         resolved, rendered = self._hole_label((0.1,), cutter=0.03)
 
-        text = "\n".join(
-            format_layout_report([resolved], {"holes": rendered}, full=True)
-        )
+        text = "\n".join(format_layout_report([resolved], {"holes": rendered}, full=True))
 
         assert "Holes 0.100in -> 0.070in (cutter 0.030in)" in text
 
