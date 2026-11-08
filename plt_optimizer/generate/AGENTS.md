@@ -9,35 +9,40 @@ device scale, the Python 3.8 / Windows 7 constraint). This file is the component
 schemas, drift-pinned by `tests/test_job_spec_docs.py`); derivations and measurements live in the
 owning module's docstring (cited at each section head); operator guidance lives in the skill tree's
 `semantics.md` family. What lives here is what exists nowhere else: **invariants, pipeline ordering,
-cross-file impact, test pins.** Never restate a field description; never copy a `job-config.json`
-value (say "the shop value").
-inline markup framework and every tag in `markup.TAG_REGISTRY` - the registry is the source of truth
-for membership, never re-list tags/counts here); [`collision/AGENTS.md`](collision/AGENTS.md)
-(text-hole avoidance + cutter-compensated holes: detection, phases, relief threading);
-[`packing/AGENTS.md`](packing/AGENTS.md) (plate-space toolpath optimization + bin-packing: rotation,
-fill order, clearances, material, ellipse, rounded-rect); [`../cli/AGENTS.md`](../cli/AGENTS.md)
-(the CLI surface). `§Section` = a heading here; cross-file pointers name the file.
+cross-file impact, test pins.** Never restate a field description; never copy a `job-config.json` value (say "the shop value").
+
+Sub-contracts in this directory tree - read them when touching those modules:
+
+- [`markup/AGENTS.md`](markup/AGENTS.md) - the inline markup framework and every tag registered in
+  `markup.TAG_REGISTRY` (the registry is the source of truth for membership; never re-list tags or counts here).
+- [`collision/AGENTS.md`](collision/AGENTS.md) - text-hole collision avoidance + cutter-compensated
+  drill holes (detection, phases, relief threading).
+- [`packing/AGENTS.md`](packing/AGENTS.md) - plate-space toolpath optimization + bin-packing
+  (rotation, fill order, clearances, material, ellipse, rounded-rect).
+- [`../cli/AGENTS.md`](../cli/AGENTS.md) - the CLI surface.
+
+Cross-references use `§Section` for a heading in this file and name the file for a heading in another contract.
 
 ## YAML Job Specification & Label Generation Schema
 
 ### Overview
 
 `schema.py` defines the data contract for YAML-spec label generation; all models are
-  Pydantic and inherit typed bases supporting cascading attributes.
+Pydantic and inherit typed bases supporting cascading attributes.
 
 **Strict schema (every model forbids unknown fields).** All 12 spec/config models set
-  `model_config = ConfigDict(extra="forbid")` (on the `HoleSpec`/`TextAttributes`/
-  `PlateSpec` roots - inheritance covers the rest - and on `JobDefaults`). A misspelled key
-  at any tier (job, label, content line, list block/item, plate, hole) fails loudly at
-  `parse_yaml()` with its exact dotted path: a field the user typed is a field the user
-  expects to engrave, so silent ignoring is never acceptable. The free-form `tool_options`
-  *value* is unaffected (its keys are engraver option names), but its `JobDefaults`
-  **metadata entries** are gated by `validate_tool_options_metadata`: non-empty `command` (no
-  `;`), a `bool`/`int`/`float` `type`, a `default` (scalar, dual `text`/`borders_holes`,
-  or an explicit `null` layer to omit that PLT type), numeric `min`/`max` with `min <= max`,
+`model_config = ConfigDict(extra="forbid")` (on the `HoleSpec`/`TextAttributes`/
+`PlateSpec` roots - inheritance covers the rest - and on `JobDefaults`). A misspelled key
+at any tier (job, label, content line, list block/item, plate, hole) fails loudly at
+`parse_yaml()` with its exact dotted path: a field the user typed is a field the user
+expects to engrave, so silent ignoring is never acceptable. The free-form `tool_options`
+*value* is unaffected (its keys are engraver option names), but its `JobDefaults`
+**metadata entries** are gated by `validate_tool_options_metadata`: non-empty `command` (no
+`;`), a `bool`/`int`/`float` `type`, a `default` (scalar, dual `text`/`borders_holes`,
+or an explicit `null` layer to omit that PLT type), numeric `min`/`max` with `min <= max`, and a snake_case key.
 Every problem is reported in one `JobConfigError` at `load_job_config()` - these shapes used
-  to crash mid-export, emit a header with no command prefix, or silently drop a cutter option
-  - and `JobDefaults.font` is canonicalized with the same `normalize_font_name` rule the spec
+to crash mid-export, emit a header with no command prefix, or silently drop a cutter option
+- and `JobDefaults.font` is canonicalized with the same `normalize_font_name` rule the spec
   tiers use. Pinned by `tests/test_job_config.py::TestToolOptionsMetadataValidation` and
   `tests/test_schema.py::TestStrictUnknownFields`; the generated JSON schemas carry the
   structural contract as `additionalProperties: false` (`tests/test_job_spec_docs.py`).
@@ -122,22 +127,21 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
   `underline_offset_fraction` · `underline_break_clearance_fraction` (both / cap height, 0.0) ·
   `underline_break_spaces` · `strikethrough_break_spaces` (false) · `strikethrough_offset_fraction`
   (`None` = cap-band midline, a **derived** default) · `v_center_chars` (`''` = off; shop value).
-- `sc_scale` (`[0.2, 1.0]`, 0.7) → §Small Caps Fonts.
+- `sc_scale` (`[0.2, 1.0]`, fallback 0.7) → §Small Caps Fonts.
 - `max_h_compress` (`[0, 1]`; 0.0 = disabled; **required** when a config is in play) ·
-  `h_compress_global` (false) · `h_compress_global_same_height_only` (true) → §Horizontal Text
-  Compression, §Per-Label Shared Horizontal Compression.
+  `h_compress_global` (false) · `h_compress_global_same_height_only` (true) → §Horizontal Text Compression, §Per-Label Shared Horizontal Compression.
 - `optimize_line_content` (false) · `optimize_line_content_max_lines` (`ge=1`; **unset = no growth**,
   growth-only, one value per group) → §Word-Level Line-Content Reflow, §Growth cap.
 - `cutter_size` (`gt=0.0`, snapped to the inventory; `None` = automatic) - **no config tier**, so it can
   never become a legal shop default; a tool whose engraved width reaches `text_height` raises
   `CutterSizeError` → §Physical vs. effective cutter diameter.
-- `cutter_buffer_text` (0.0, shop value) - kerf buffer added to a text cutter's physical diameter to get
+- `cutter_buffer_text` (fallback 0.0, shop value) - kerf buffer added to a text cutter's physical diameter to get
   the engraved width · `cutter_buffer_routing` - the same buffer on the boundary/drill-hole cutter:
   **label → job → shop value** (parity on text lines + plates). Both honor explicit 0.0 → §Physical vs. effective cutter diameter.
 - `cutter_downsize` (true) · `max_cutter_downsizes` (`ge=0`, 1, 0 disables) · `cutter_downsize_global`
   (true) · `cutter_downsize_global_job_wide` (false) → §Compression-Driven Cutter Downsizing.
-- `target_boldness_factor` (`[0.05, 0.30]`, 0.14) · `multistroke_overlap_ratio` (`[0.1, 0.5]`, 0.25 - the
-  gap-free floor) → §Multi-Stroke (Bold) PLT Fonts · `bold_boldness_multiplier` (`[1.0, 4.0]`, 1.5, the
+- `target_boldness_factor` (`[0.05, 0.30]`, fallback 0.14) · `multistroke_overlap_ratio` (`[0.1, 0.5]`,
+  fallback 0.25 - the gap-free floor) → §Multi-Stroke (Bold) PLT Fonts · `bold_boldness_multiplier` (`[1.0, 4.0]`, fallback 1.5, the
   `<b>` boost) → [`markup/AGENTS.md`](markup/AGENTS.md) "Bold Markup".
 - `enforce_cap_line` (true; strictly pre-markup) → §Alphanumeric Cap-Line Enforcement ·
   `arc_preserve_compression` (true; `False` restores polygonized output bit-identically) → §Arc-Preserving Non-Uniform Transforms.
@@ -153,7 +157,7 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
 - `width`/`height` (`gt=0.0`) - **required** at label or job level (no auto-sizing); a `round` label
   needs only one (the other fills to a circle).
 - `type` (`rect`; `round` = ellipse with semi-axes `width/2`, `height/2`) ·
-  `rounded_rectangle_fraction` (`[0, 1]`, 0.0 = sharp; superellipse quadrants) ·
+  `rounded_rectangle_fraction` (`[0, 1]`, fallback 0.0 = sharp; superellipse quadrants) ·
   `rounded_rectangle_proportional` (false) - the latter two cascade **job → plate → label** →
   [`packing/AGENTS.md`](packing/AGENTS.md) "Circular / Elliptical Labels", "Rounded-Rectangle Labels".
 - `margin` (the axis-specific fallback; **required** when configured; declaring it **suppresses the
@@ -162,7 +166,7 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
 - Hole geometry, all **label → job** (parity), contract in
   [`collision/AGENTS.md`](collision/AGENTS.md): `hole_margin` (**required**) · `min_hole_margin` (the
   floor it may be reduced to; `None` = collision avoidance disabled) ·
-  `hole_text_collision_distance` (air between the engraved text and hole strokes; 0.15; explicit 0.0
+  `hole_text_collision_distance` (air between the engraved text and hole strokes; fallback 0.15; explicit 0.0
   honored - strokes may touch, never overlap) · `holes` (a label value **replaces** the job list; `[]`
   suppresses; `corners`/`sides` expand at validation via `HOLE_LOCATION_GROUPS`) ·
   `adjust_h_center_for_single_side_hole` (true) · `hole_adjust_for_cutter` (true; engraved diameter =
@@ -175,7 +179,7 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
   packing): `use_baseline_spacing` (true) → §Baseline-to-Baseline Line Spacing · `v_center_by_content`
   (false; inert while the relief is off) → §Baseline-to-Capline Band Centering ·
   `auto_descending_character_adjustment` (true) · `descending_character_v_scale` (`[0.2, 1.0]`, 0.5) ·
-  `descending_character_raise` (`[0, 1]`, 0.7 - a fraction of the glyph's **own descender depth**) ·
+  `descending_character_raise` (`[0, 1]`, fallback 0.7 - a fraction of the glyph's **own descender depth**) ·
   `descending_character_clearance` (`ge=0.0`, 0.0 - a **unitless factor of the engraved-stroke floor**,
   never inches) · `descending_character_reciprocal_scale` (`[0.2, 1.0]`, 0.5 - `1.0` forbids the
   reciprocal half = the historical one-sided relief, bit-identically) → §Automatic Descending-Character Relief.
@@ -253,16 +257,14 @@ All numeric fields support Pydantic `ge`/`gt`/`le` validators; use `job.labels` 
 ### Horizontal Text Compression
 
 Over-wide lines are compressed **horizontally only** (glyphs + spacing scale together; Y
-  untouched) so they respect the inner content area. Opt-in via `max_h_compress` (0.0 =
-  disabled; **required** when a config is in play): `resolution.compute_horizontal_scale()` is
-  the pure factor math, clamped to `[1 - max_h_compress, 1.0]`, and
-  `label_renderer.compress_line_to_width()` applies it per line in `_render_positioned_lines`
-  (reached via `_render_text_local_with_bounds` and `_render_text_lines_by_pen`) **before**
-  centering. A line that already fits is never modified; unresolvable overflow logs a WARNING.
-  The *applied* scale is report-only - `RenderedLabel.compression_by_line` → §Applied Layout
-  Reporting. Interlocks: §Per-Label Shared Horizontal Compression (label-wide scale),
-  §Compression-Driven Cutter Downsizing (scale → tool), §Arc-Preserving Non-Uniform Transforms
-  (scale → arcs).
+untouched) so they respect the inner content area. Opt-in via `max_h_compress` (0.0 =
+disabled; **required** when a config is in play): `resolution.compute_horizontal_scale()` is
+the pure factor math, clamped to `[1 - max_h_compress, 1.0]`, and
+`label_renderer.compress_line_to_width()` applies it per line in `_render_positioned_lines`
+(reached via `_render_text_local_with_bounds` and `_render_text_lines_by_pen`) **before**
+centering. A line that already fits is never modified; unresolvable overflow logs a WARNING.
+The *applied* scale is report-only - `RenderedLabel.compression_by_line` → §Applied Layout Reporting. Interlocks: §Per-Label Shared Horizontal Compression (label-wide scale),
+§Compression-Driven Cutter Downsizing (scale → tool), §Arc-Preserving Non-Uniform Transforms (scale → arcs).
 
 ### Arc-Preserving Non-Uniform Transforms (`arc_fit`, `arc_preserve_compression`)
 
@@ -280,8 +282,7 @@ segments (verified to 1e-15) and meet with equal tangents (**C0 + G1**); **strok
 (only the segment count *within* a stroke grows; the relief splices via `replaced_strokes`, the
 capline clamp rebuilds the block); the swept-box over-measure is ≤0.00022in, so `bounds()`,
 `compression_by_line`, kerning and collision are unaffected; and all three maps have positive
-determinant, so a fitted arc's sweep sign equals the source's (`_sweep_sign_ok` declines on
-disagreement).
+determinant, so a fitted arc's sweep sign equals the source's (`_sweep_sign_ok` declines on disagreement).
 
 - **The escape hatch is exact**: `arc_preserve_compression` (fallback true, **not**
   `REQUIRED_WHEN_UNCONFIGURED`) lands on `ResolvedTextLine`; `False` restores the historical
@@ -332,8 +333,7 @@ too - the contract keys off the character, not the font family.
   silhouette → [`markup/AGENTS.md`](markup/AGENTS.md) "Transform ordering".
 - Applied inside the render walk so the block, bbox **and both profile envelopes** transform together
   (kerning measures the clamped silhouette): PLT in `_walk_line` after `_glyph_entry`, keyed by the
-  font frame's `normalized_ref_height`, with the Y-only scale arc-refit → §Arc-Preserving Non-Uniform
-  Transforms; TTF right after the normalization scale, before `_apply_small_caps`/`_apply_italic`/
+  font frame's `normalized_ref_height`, with the Y-only scale arc-refit → §Arc-Preserving Non-Uniform Transforms; TTF right after the normalization scale, before `_apply_small_caps`/`_apply_italic`/
   `_apply_glyph_scales`/`_apply_baseline_shifts`, via per-glyph contour slicing (the `with_words` gate
   routes clamped lines to exact slicing - the signature matcher cannot match clamped glyphs).
 - A geometry transform only: it never moves `nominal_text_height`/`toolpath_text_height`, the cutter,
@@ -468,18 +468,18 @@ disables it for that line; `max_cutter_downsizes: 0` disables the mechanism.
   swaps land in `cutter_downsize_by_line` and log a WARNING. Lines with an explicit
   `cutter_size`, `cutter_downsize: false`, `max_cutter_downsizes: 0`, `max_h_compress: 0.0`
 , or `cutter_downsize_global: false` are never touched - in either direction. Job-wide
-  sharing exists because on many-single-line-labels jobs per-label sharing is inert
-  (same-height labels split across two per-cutter layers whenever their compressions straddle
-  the midpoint); it runs only when a downsized line enables `cutter_downsize_global_job_wide`
-  (so the default stays bit-identical) and requires `cutter_downsize_global` true.
+sharing exists because on many-single-line-labels jobs per-label sharing is inert
+(same-height labels split across two per-cutter layers whenever their compressions straddle
+the midpoint); it runs only when a downsized line enables `cutter_downsize_global_job_wide`
+(so the default stays bit-identical) and requires `cutter_downsize_global` true.
 - **Scope guards (free no-ops):** no `available_cutters` inventory (the ladder is the shop's
   real tool list), no eligible line, every line's budget `0.0`. `export_per_cutter_plts`
   gained an `available_cutters` kwarg (default `None` ⇒ inert ⇒ bit-identical), threaded by
   the CLI and `scripts/run_integration_test.py`; `next_smaller_cutter`/
   `should_downsize_cutter` (with a `1e-12` tie guard) stay matplotlib-free in `resolution.py`
 . Each swap logs a WARNING naming label id, line index, text, scale and both cutters.
-  **Accepted staleness:** the vertical-spacing solvers size against the *original* toolpath
-  height; the render-time `fit_line_spacing_to_margins` re-clamp preserves margins.
+**Accepted staleness:** the vertical-spacing solvers size against the *original* toolpath
+height; the render-time `fit_line_spacing_to_margins` re-clamp preserves margins.
 - **Pins:** `tests/test_cutter_downsize.py` (incl. `TestJobWideSharing`); fixtures
   `tests_deps/cutter_downsize_job.yaml` (`TestCutterDownsizeDemoExample`),
   `tests_deps/cutter_downsize_global_job.yaml` (`TestCutterDownsizeGlobalDemoExample`),
@@ -519,8 +519,7 @@ every other *eligible* line of the same `nominal_text_height` **within the same 
 DP and derivation: **`line_content.py` module docstring**. Consecutive lines that enable reflow
 (fallback false) may **redistribute whole words** so the group reaches equal rendered width (equal
 *distance*, not character count) and the label needs less compression. Word order is never changed -
-only the line breaks, like LaTeX paragraph filling. A disabled line breaks the group; a word may
-travel across the whole group.
+only the line breaks, like LaTeX paragraph filling. A disabled line breaks the group; a word may travel across the whole group.
 
 - `apply_line_content_reflow` is an **export pre-pass** running *first* in `export_per_cutter_plts`,
   before both compression passes, so they see the reflowed text and measure the reflowed widths
@@ -594,8 +593,8 @@ keeps its shape. Each item line carries `marker_text`, `align_group_id` (one fre
 - **Hanging indent** (`apply_list_marker_layout`, the **first** export pre-pass, before
   `reflow`): `indent_left` = the group's max marker width (lazy `measure_line_natural_width`
 , cached per typography) + `list_marker_gap_fraction * toolpath_text_height`. A free no-op
-  when no line carries a marker; the renderer derives a per-line floor when `indent_left` is
-  unset, so a direct `render_label_to_plt` call never overlaps them.
+when no line carries a marker; the renderer derives a per-line floor when `indent_left` is
+unset, so a direct `render_label_to_plt` call never overlaps them.
 - **A list block aligns as one unit** (alignment width = the widest total extent, marker
   column + text, so markers form one flush column); Phase 2a of `_render_positioned_lines`
   runs compression (A), group widths (B) and alignment (C) as **separate loops**, and a
@@ -617,8 +616,8 @@ keeps its shape. Each item line carries `marker_text`, `align_group_id` (one fre
   `placeholder: true` is rejected on a list item.
 - **Pins:** `tests/test_list_counter.py`, `tests/test_list_layout.py`, `tests/test_list_render.py`
 , `TestListResolution` (`test_resolution.py`), `TestListItemGrowth` (`test_line_content.py`),
-  `TestListMarkerFindings` (`test_layout_report.py`); fixture `tests_deps/list_job.yaml`
-  (`tests/test_phase3_export.py::TestListDemoExample`).
+`TestListMarkerFindings` (`test_layout_report.py`); fixture `tests_deps/list_job.yaml`
+(`tests/test_phase3_export.py::TestListDemoExample`).
 
 ### Baseline-to-Baseline Line Spacing (`use_baseline_spacing`)
 
@@ -655,13 +654,13 @@ code fallback (also the `ResolvedLabel` dataclass default).
 ### Automatic Descending-Character Relief (`auto_descending_character_adjustment`)
 
 The swept-ink model, the `required` formula, the box-model critique, the `g` -into-`i` crook
-  example, the `GlyphBox`/`DescenderFix` types and the solver entry points (`required_gap`,
-  `measure_glyph_gaps`, `colliding_partners`, `propose_ramp`, `reciprocal_scale_y` +
-  `recip_ink`, `ramp_for_measured`, `ramp_ink`, `merge_ramps`): **`descender_adjust.py`**
+example, the `GlyphBox`/`DescenderFix` types and the solver entry points (`required_gap`,
+`measure_glyph_gaps`, `colliding_partners`, `propose_ramp`, `reciprocal_scale_y` +
+`recip_ink`, `ramp_for_measured`, `ramp_ink`, `merge_ramps`): **`descender_adjust.py`**
 ; the fixpoint and phase slot: `label_renderer._apply_descender_relief`. The distance
-  primitives (`ink_gap`, `polyline_gap`, `InkGrid`, `bbox_gap`) live in dependency-free
-  `geometry.py`; the box pre-filters are exact because the box gap is a lower bound on the
-  ink distance inside (pinned by randomized brute-force equivalence tests).
+primitives (`ink_gap`, `polyline_gap`, `InkGrid`, `bbox_gap`) live in dependency-free
+`geometry.py`; the box pre-filters are exact because the box gap is a lower bound on the
+ink distance inside (pinned by randomized brute-force equivalence tests).
 - **Trigger: the true 2D swept-ink distance** - a circle whose diameter is the required
   clearance rolled along the descending glyph's **sub-baseline ink** - against
   `0.5 * (cutter_upper + cutter_lower) * (1 + descending_character_clearance)`, the
@@ -723,10 +722,10 @@ The swept-ink model, the `required` formula, the box-model critique, the `g` -in
   cache-cleared recompute, LRU bounds, render bit-identity).
 - **Reporting:** `RenderedLabel.descender_adjustments_by_line` (`{line_index: (DescenderFix,
 ...)}`, only lines with a relief) → `layout_report.py` findings; a reciprocal record
-  (`raise_amount` always `0.0`) prints `shares relief, top-down scale...`. `_LineEntry` is
-  **unchanged** (the relief never touches the collision-detection tuple-unpack). INFO per
-  glyph, WARNING per spacing growth, WARNING per unresolvable border shortfall.
-  **Accepted staleness:** the resolution-time spacing solvers size against the *original* descender extents.
+(`raise_amount` always `0.0`) prints `shares relief, top-down scale...`. `_LineEntry` is
+**unchanged** (the relief never touches the collision-detection tuple-unpack). INFO per
+glyph, WARNING per spacing growth, WARNING per unresolvable border shortfall.
+**Accepted staleness:** the resolution-time spacing solvers size against the *original* descender extents.
 - **Pins:** `tests/test_descender_adjust.py` + fixtures
   `tests_deps/descender_adjust_job.yaml` (`TestDescenderAdjustDemoExample`: `border` covers
   the bottom-border trigger, `reciprocal`/`reciprocal_off` pin the reciprocal half),
@@ -837,8 +836,7 @@ is engraved without appearing in the YAML spec, and are reported **reporting-onl
 downstream consumes them for geometry): **horizontal compression** (both mechanisms are render-time -
 `resolve_job_spec()` resolves only the *budget*; the effective scale is collision × margin) and
 **vertical line spacing** (the requested `line_spacing` is clamped by `fit_line_spacing_to_margins`).
-A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsize_by_line`
-→ §Compression-Driven Cutter Downsizing.
+A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsize_by_line` → §Compression-Driven Cutter Downsizing.
 
 - `_LineEntry` (`label_renderer.py`) is a `NamedTuple`
   `(line_index, line_text, bounds, compression_scale, line_spacing)`: the margin scale is measured by
@@ -988,17 +986,17 @@ references abort, and unpinned labels with no unpinned plate left abort with a d
 plates.
 
 A field cascades only through the tiers its description names; the tiers are authoritative,
-  this list is not. **Only `None` means unset at a tier** - a zero-width explicit value (`0`,
-  `0.0`, `false`, `""`, `[]`) is a *value* and must survive to render, and a per-tier
-  replacement is a full replacement, never a merge (declaring any label-level `font` replaces
-  the entire job-level font string, which is how a label opts out of a job-level ` SC`
-  variant). So `hole_margin` 's label -> job -> default chain and every explicit-0.0 case in
-  the index above are one rule, not dozens. Code fallbacks live in `schema.py`/
-  `resolution.py`, shop values in `job-config.json`, and
-  **neither is copied into this file** - a config key's *presence* is a fact, its value is
-  not. `REQUIRED_WHEN_UNCONFIGURED` names the fields that must come from the config or the
-  spec -> §Job Defaults Config. The one field that never cascades is `text_color` ->
-  §Stroke-Color Toolpath Splitting.
+this list is not. **Only `None` means unset at a tier** - a zero-width explicit value (`0`,
+`0.0`, `false`, `""`, `[]`) is a *value* and must survive to render, and a per-tier
+replacement is a full replacement, never a merge (declaring any label-level `font` replaces
+the entire job-level font string, which is how a label opts out of a job-level ` SC`
+variant). So `hole_margin` 's label -> job -> default chain and every explicit-0.0 case in
+the index above are one rule, not dozens. Code fallbacks live in `schema.py`/
+`resolution.py`, shop values in `job-config.json`, and
+**neither is copied into this file** - a config key's *presence* is a fact, its value is
+not. `REQUIRED_WHEN_UNCONFIGURED` names the fields that must come from the config or the
+spec -> §Job Defaults Config. The one field that never cascades is `text_color` ->
+§Stroke-Color Toolpath Splitting.
 
 ### Stroke-Color Toolpath Splitting (`text_color`)
 
