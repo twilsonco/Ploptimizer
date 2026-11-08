@@ -107,6 +107,46 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 
 ## `docs/` prose
 
+- **Component `AGENTS.md` files are routing indexes, not manuals.** Per-field
+  semantics live in the `Field(description=...)` strings of `schema.py` /
+  `job_config.py` (generated into `JOB_SPEC.md` + the JSON schemas), design
+  derivations and measurements live in the owning module's docstring, operator
+  guidance lives in the skill tree's `semantics.md` family. A component contract
+  states what exists nowhere else - invariants, pipeline ordering, cross-file
+  impact, test pins - and LINKS to the canonical home for everything else. When
+  a section cites its module docstring, do not re-paste the derivation into the
+  contract; restating a third copy is how the contracts grew to outnumber the
+  code they describe.
+- **No component contract hardcodes a `job-config.json` VALUE** (extending the
+  generator-prose rule below to the AGENTS.md files), and no contract re-lists
+  `_JOB_LAYER_FIELDS` membership or `markup.TAG_REGISTRY` membership. Both move
+  with the code, and a hand-copied list is stale the moment it is written: the
+  pre-cleanup `generate/AGENTS.md` carried a field list missing ~15 live config
+  keys, a tag count off by three, and four shop values that had been retuned
+  (it claimed `cutter_buffer_text` "ships 0.005" while the config said 0.015).
+  State the code fallback; say "the shop value" for the config.
+- **Component `AGENTS.md` files are routing indexes, not manuals.** Per-field
+  semantics live in the `Field(description=...)` strings of `schema.py` /
+  `job_config.py` (generated into `JOB_SPEC.md` + the JSON schemas), design
+  derivations and measurements live in the owning module's docstring, and
+  operator guidance lives in the skill tree's `semantics.md` family. A component
+  contract states what exists nowhere else - invariants, pipeline ordering,
+  cross-file impact, test pins - and LINKS out for everything else. When a
+  section opens with "Module docstring: `x.py`", do NOT re-paste that
+  docstring's derivation into the contract; a third copy of the same design
+  story is how `generate/AGENTS.md` grew to 2,487 lines (171 KB) against a
+  100-200 line sibling, and rot is proportional to copies, not to content.
+- **No component contract hardcodes a `job-config.json` VALUE** (the rule above
+  covers generator prose; this covers the AGENTS.md files), and no contract
+  re-lists `_JOB_LAYER_FIELDS` membership or `markup.TAG_REGISTRY` membership.
+  All three move with the code and no test pins them: the pre-cleanup
+  `generate/AGENTS.md` carried a hand-copied config key list missing ~15 live
+  keys, a tag count off by three ("all 11 tags" over 14 registered), and four
+  retuned shop values stated as current (`cutter_buffer_text` 0.005 vs the
+  config's 0.015, `cutter_buffer_routing` 0.045 vs 0.060,
+  `hole_text_collision_distance` 0.1 vs 0.15, `sc_scale` 0.7 vs 0.8). State the
+  CODE fallback; say "the shop value" for the config, and name the collection
+  (`_JOB_LAYER_FIELDS`, `TAG_REGISTRY`) instead of enumerating it.
 - `README_DEV.md` - developer guide (install, Win7 setup, usage, testing,
   troubleshooting). Points at the component AGENTS.md files for the job-spec
   schema.
