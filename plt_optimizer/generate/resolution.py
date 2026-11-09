@@ -623,6 +623,16 @@ DEFAULT_ROUNDED_RECTANGLE_FRACTION: float = 0.0
 # edge determines it).
 DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL: bool = False
 
+# Fallbacks for the relief engraving cascade (see
+# :attr:`plt_optimizer.generate.schema.LabelAttributes.relief_engraving`).
+# Relief is opt-in (``False``), the detail preset resolves to ``"medium"``
+# (the shop's configured default), and the border is engraved edge-to-edge
+# (``False`` -- the observed EngraveLab reference behavior).
+DEFAULT_RELIEF_ENGRAVING: bool = False
+DEFAULT_RELIEF_ENGRAVING_QUALITY: str = "medium"
+RELIEF_ENGRAVING_QUALITIES: frozenset[str] = frozenset({"coarse", "medium", "fine"})
+DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER: bool = False
+
 # The corner exponent of a superellipse |x/rx|^n + |y/ry|^n = 1 that produces
 # a sharp rectangle in the limit (fraction -> 0 => n -> infinity). Used by the
 # renderer when the fraction is 0 (the sharp path never samples a patch, so
@@ -2443,6 +2453,31 @@ class ResolvedLabel:
             `align_margin_adjust_global` cascade, label -> job ->
             `job-config.json`) moves only the colliding line. Set by the
             resolution engine.
+        relief_engraving: Engrave this label in relief (from the
+            `relief_engraving` cascade, job -> plate -> label): the material
+            around the engraved stroke silhouette is rastered away so the
+            text survives as a raised island; the label's normal text strokes
+            are not emitted and drill holes are filled over. The relief
+            cutter ladder is selected at export time from
+            :attr:`relief_engraving_cutters` (explicit, bypasses the shop
+            inventory) or from :attr:`relief_engraving_quality` against the
+            label's engrave-region geometry. See
+            :mod:`plt_optimizer.generate.relief`.
+        relief_engraving_quality: Detail preset (`"coarse"` / `"medium"` /
+            `"fine"`, from the `relief_engraving_quality` cascade, default
+            `"medium"`) -- the maximum number of cutters the relief ladder
+            may use. Inert when :attr:`relief_engraving_cutters` is set.
+        relief_engraving_cutters: Explicit relief cutter ladder in inches,
+            largest first (from the `relief_engraving_cutters` cascade;
+            empty = unset). Each value is used as the EXACT engraved width of
+            one relief pass: no inventory snap and no `cutter_buffer_text`
+            apply, so a job reproduces a reference toolpath regardless of the
+            shop inventory.
+        relief_engraving_preserve_border: Keep the label border as a raised
+            ridge excluded from the relief engrave region (from the
+            `relief_engraving_preserve_border` cascade, default `False` =
+            the relief fills edge-to-edge and the coarsest relief cutter
+            engraves the border outline inset by its radius).
         cutter_downsize_by_line: Mapping of line index to the `(original,
             final)` cutter diameters in inches for lines whose *automatic*
             cutter was reduced by the compression-driven cutter reduction
@@ -2624,6 +2659,10 @@ class ResolvedLabel:
     adjust_h_center_for_single_side_hole: bool = False
     hole_adjust_for_cutter: bool = DEFAULT_HOLE_ADJUST_FOR_CUTTER
     align_margin_adjust_global: bool = DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
+    relief_engraving: bool = DEFAULT_RELIEF_ENGRAVING
+    relief_engraving_quality: str = DEFAULT_RELIEF_ENGRAVING_QUALITY
+    relief_engraving_cutters: tuple[float, ...] = ()
+    relief_engraving_preserve_border: bool = DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER
 
     @property
     def effective_hole_cutter_diameter(self) -> float:
@@ -5550,6 +5589,45 @@ def _resolve_label(
     else:
         label_align_margin_adjust_global = DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
 
+    # Relief engraving cascade (job -> plate -> label; the plate tier is
+    # applied to pinned labels by the JobSpec validator, so at resolution
+    # the label already carries its plate's value when pinned). Only `None`
+    # means unset; an explicit `false` / `"coarse"` / `[]` is a value. The
+    # cutter ladder itself is selected at export (it needs the rendered
+    # engrave-region geometry); resolution only lands the configuration.
+    label_relief_engraving: bool = DEFAULT_RELIEF_ENGRAVING
+    if label_input.relief_engraving is not None:
+        label_relief_engraving = label_input.relief_engraving
+    elif job.relief_engraving is not None:
+        label_relief_engraving = job.relief_engraving
+
+    label_relief_quality: str = DEFAULT_RELIEF_ENGRAVING_QUALITY
+    if label_input.relief_engraving_quality is not None:
+        label_relief_quality = label_input.relief_engraving_quality
+    elif job.relief_engraving_quality is not None:
+        label_relief_quality = job.relief_engraving_quality
+
+    label_relief_cutters: tuple[float, ...] = ()
+    if label_input.relief_engraving_cutters is not None:
+        label_relief_cutters = tuple(label_input.relief_engraving_cutters)
+    elif job.relief_engraving_cutters is not None:
+        label_relief_cutters = tuple(job.relief_engraving_cutters)
+
+    label_relief_preserve_border: bool = DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER
+    if label_input.relief_engraving_preserve_border is not None:
+        label_relief_preserve_border = label_input.relief_engraving_preserve_border
+    elif job.relief_engraving_preserve_border is not None:
+        label_relief_preserve_border = job.relief_engraving_preserve_border
+
+    # Relief fills the whole label: the margins only exist to keep text out
+    # of the plate border area, which relief does not engrave. Zero them so
+    # the rendered ink keeps its natural width (margin-fit compression
+    # would shrink the raised islands under their engraved width).
+    if label_relief_engraving:
+        label_margin = 0.0
+        label_h_margin = 0.0
+        label_v_margin = 0.0
+
     # Snap the boundary/hole cutter to the shop inventory (next size down,
     # else next size up). The physical tool: the `*_bh_*.plt` file name.
     requested_hole_cutter = (
@@ -5799,10 +5877,21 @@ def _resolve_label(
         shape_type=label_shape,
         rounded_rectangle_fraction=label_rounded_fraction,
         rounded_rectangle_proportional=label_rounded_proportional,
+        relief_engraving=label_relief_engraving,
+        relief_engraving_quality=label_relief_quality,
+        relief_engraving_cutters=label_relief_cutters,
+        relief_engraving_preserve_border=label_relief_preserve_border,
     )
 
-    # Compute and apply hole-aware shifts after the label is constructed
+    # Compute and apply hole-aware shifts after the label is constructed.
+    # Relief labels fill over their drill holes (the holes are not engraved),
+    # so the hole-aware centering shift is inert for them: force it to zero
+    # so the relief frame stays the plain label box and the plate transform
+    # of the fill content is a pure centering of the symmetric fill box.
     v_shift, h_shift = _compute_hole_aware_shifts(resolved)
+    if resolved.relief_engraving:
+        v_shift = 0.0
+        h_shift = 0.0
     return replace(
         resolved,
         hole_aware_vertical_shift_inches=v_shift,
@@ -5812,6 +5901,7 @@ def _resolve_label(
 
 def build_cutter_pen_map(
     resolved_labels: Sequence[ResolvedLabel],
+    extra_layers: Sequence[tuple[float, str]] = (),
 ) -> dict[tuple[float, str], int]:
     """Map each distinct text (cutter, color) layer to an HPGL pen number.
 
@@ -5848,6 +5938,12 @@ def build_cutter_pen_map(
     Args:
         resolved_labels: Fully resolved labels whose text lines carry
             `cutter_diameter` and `text_color` values.
+        extra_layers: Additional `(cutter, color)` layers to reserve pens
+            for -- relief engraving ladders, whose cutter set is selected at
+            export time from the rendered geometry (so it cannot be derived
+            from the text lines here). A relief pen that no relief geometry
+            lands on stays empty, and the per-cutter writer skips empty
+            pen groups, so over-reserving candidates is free.
 
     Returns:
         Mapping of `(cutter diameter (inches), text color)` to pen
@@ -5860,6 +5956,7 @@ def build_cutter_pen_map(
     """
     layers = sorted(
         {layer for label in resolved_labels for line in label.content for layer in line.used_layers}
+        | set(extra_layers)
     )
     pen_map: dict[tuple[float, str], int] = {}
     for index, layer in enumerate(layers):

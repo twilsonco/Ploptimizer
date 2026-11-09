@@ -60,6 +60,9 @@ the docs byte-pin; everything above is derived purely from the model.
 | `type` | LabelShape \| null | null (unset) | — | Default label boundary shape: 'rect' (historical) or 'round' (ellipse/circle). Job layer; labels that omit it inherit this. |
 | `rounded_rectangle_fraction` | float \| null | null (unset) | >=0 <=1 | Default rectangular-border corner rounding fraction in [0.0, 1.0] (job layer; 0.0 = sharp rectangle). Superellipse-quadrant corners with continuously varying curvature; the rounding spans 'fraction' of the shorter edge. Unset falls back to 0.0. |
 | `rounded_rectangle_proportional` | bool \| null | null (unset) | — | Default proportional corner rounding (job layer). True applies `rounded_rectangle_fraction` proportionately to width and height; false (the default) uses one identical rounding distance on every side (the shorter edge determines it). Unset falls back to false. |
+| `relief_engraving` | bool \| null | null (unset) | — | Default relief engraving permission (job layer; cascades job -> plate -> label). True engraves labels in relief: the material around the engraved stroke silhouette is rastered away so the text survives as a raised island; the normal text strokes are not emitted and drill holes are filled over. Unset falls back to false. |
+| `relief_engraving_quality` | `coarse` \| `medium` \| `fine` \| null | null (unset) | — | Default relief engraving detail preset (job layer; cascades job -> plate -> label): the maximum number of cutters a relief ladder uses - 'coarse' 1 (largest cutter that engraves every region without skipping a text interior hole), 'medium' 2 (largest inventory cutter for the background + finest for counters and corners), 'fine' 3 (largest + an intermediate cutter that fits at least one stroke inside every interior text hole + finest in inventory). Unset falls back to 'medium'. Inert when `relief_engraving_cutters` is specified on the label. |
+| `relief_engraving_preserve_border` | bool \| null | null (unset) | — | Default relief border handling (job layer; cascades job -> plate -> label). False (the default, the EngraveLab reference behavior) raster-fills the whole label edge to edge and the coarsest relief cutter engraves the border outline inset by its radius; true keeps the label border band as a raised ridge, excluded from the engrave region. Unset falls back to false. |
 
 ### Fonts and Cap Line
 
@@ -402,6 +405,9 @@ excluded from the docs byte-pin.
 | `type` | LabelShape \| null | — | unset | label-geometry |
 | `rounded_rectangle_fraction` | float \| null | `0.0` | **set** | label-geometry |
 | `rounded_rectangle_proportional` | bool \| null | `False` | **set** | label-geometry |
+| `relief_engraving` | bool \| null | `False` | **set** | label-geometry |
+| `relief_engraving_quality` | `coarse` \| `medium` \| `fine` \| null | `'medium'` | **set** | label-geometry |
+| `relief_engraving_preserve_border` | bool \| null | `False` | **set** | label-geometry |
 | `plate_width` | float \| null | `24.0` | **set** | plates-layout-and-packing |
 | `plate_height` | float \| null | `16.0` | **set** | plates-layout-and-packing |
 | `left_clearance` | float \| null | — | **set** | plates-layout-and-packing |

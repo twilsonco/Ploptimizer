@@ -385,6 +385,7 @@ THEMES: Tuple[Theme, ...] = (
             "sizing a label or its margins",
             "making rounded-rectangle labels",
             "text spills outside the border",
+            "engraving a label in relief (raised text)",
         ),
         keywords=(
             "width",
@@ -395,6 +396,7 @@ THEMES: Tuple[Theme, ...] = (
             "border",
             "auto-size",
             "geometry",
+            "relief",
         ),
         fields=(
             "width",
@@ -405,6 +407,10 @@ THEMES: Tuple[Theme, ...] = (
             "type",
             "rounded_rectangle_fraction",
             "rounded_rectangle_proportional",
+            "relief_engraving",
+            "relief_engraving_quality",
+            "relief_engraving_cutters",
+            "relief_engraving_preserve_border",
         ),
         enums=("LabelShape",),
         pitfalls=(
@@ -420,6 +426,16 @@ THEMES: Tuple[Theme, ...] = (
             "`rounded_rectangle_fraction` spans that fraction of the SHORTER edge "
             "(superellipse corners, no fillet curvature jump); "
             "`rounded_rectangle_proportional: true` applies it per-axis instead.",
+            "`relief_engraving: true` raises the text as islands (the material around "
+            "the engraved stroke silhouette is raster-filled away, the normal text "
+            "strokes are not emitted and drill holes are filled over). The relief "
+            "ladder is automatic from `relief_engraving_quality` (`coarse` 1 cutter / "
+            "`medium` 2 / `fine` 3, largest-first, progressively finer for counters "
+            "and corners) - `relief_engraving_cutters: [0.06, 0.005]` overrides it "
+            "with exact engraved widths that bypass `tools.json` entirely. "
+            "`relief_engraving_preserve_border: true` keeps the label border as a "
+            "raised ridge instead of engraving it. All four cascade job -> plate -> "
+            "label, so some labels can be relief and others not.",
         ),
         see_also=("cascade-and-config", "holes-and-collision", "line-stacking-and-reflow"),
         fragments=(

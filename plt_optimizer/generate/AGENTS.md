@@ -1137,8 +1137,9 @@ shop-level JSON companion to `tools.json` (default path `job-config.json`, selec
   by `vectorize`/`cli/generate`, the `cli/optimize` CLI, and `core/pipeline.py`.
 - Stage names are a stable contract consumed by `scripts/profile_generate.py`
   (`STAGE_LINE_PATTERN`): `parse`, `resolve` (`cli/generate.py`), and `reflow`,
-  `cutter_downsize`, `h_compress`, `layout_render_pack`, `assemble_split`,
+  `cutter_downsize`, `h_compress`, `layout_render_pack`, `relief`, `assemble_split`,
   `optimize_layer`, `plots`, `default_plots` (`vectorize.export_per_cutter_plts`);
+  `relief` fires once per job (only when a label enables relief engraving);
   `optimize_layer`/`assemble_split` fire per plate/layer (the harness sums repeats). Format
   pinned by `tests/test_stage_timers.py` - changing it must update the regex + harness together.
 - Timers are log-only (zero behavior change); the module logger is `_LOG` so the

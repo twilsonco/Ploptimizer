@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Optional, Union
+from typing import Annotated, Any, Literal, Optional, Union
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -1548,6 +1548,34 @@ class LabelAttributes(TextAttributes):
             + PLATE_PARITY_TAIL
         ),
     )
+    relief_engraving: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false."
+            + PLATE_PARITY_TAIL
+        ),
+    )
+    relief_engraving_quality: Optional[Literal["coarse", "medium", "fine"]] = Field(
+        default=None,
+        description=(
+            "Relief engraving detail preset: the maximum number of cutters a relief pass ladder may use - `coarse` 1 (the largest cutter that engraves every region of the label without skipping a text interior hole), `medium` 2 (the largest inventory cutter for the open background, the finest tool for counters and corners: a time saver over `coarse`), `fine` 3 (largest background cutter, an intermediate cutter that fits at least one full raster stroke inside every interior text hole, and the finest tool in inventory). Selection collapses gracefully when the inventory or the artwork admits fewer cutters. Inert when `relief_engraving_cutters` is specified. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then medium."
+            + PLATE_PARITY_TAIL
+        ),
+    )
+    relief_engraving_cutters: Optional[list[Annotated[float, Field(gt=0.0)]]] = Field(
+        default=None,
+        description=(
+            "Explicit relief cutter ladder in inches, largest first (e.g. `[0.06, 0.005]`). Each value is used as the exact engraved width of one relief pass: the list completely bypasses `tools.json` (no inventory snap, no `cutter_buffer_text`), so a job reproduces a reference toolpath regardless of the shop inventory. Inert overrides `relief_engraving_quality`. Each diameter must be > 0; a value that cannot fit anywhere is a no-op pass. Cascades job -> plate -> label (never text lines); a lower tier's list replaces the inherited one entirely; unset (`null`) selects the automatic preset behavior."
+            + PLATE_PARITY_TAIL
+        ),
+    )
+    relief_engraving_preserve_border: Optional[bool] = Field(
+        default=None,
+        description=(
+            "With `relief_engraving` enabled: false (the default, the EngraveLab reference behavior) raster-fills the whole label, edge to edge, and the coarsest relief cutter engraves the border outline inset by its own radius (the plate-cut border in the borders/holes file is unchanged). true keeps the label border as a raised ridge: the border band (the boundary/hole cutter's engraved width, offset by the coarsest relief cutter radius) is excluded from the engrave region. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false."
+            + PLATE_PARITY_TAIL
+        ),
+    )
 
     @field_validator("material")
     @classmethod
@@ -2435,6 +2463,42 @@ class PlateSpec(BaseModel):
         + "Cascades job -> plate; unset (`null`) falls back to `job-config.json` "
         "then `true`. Requires a replacement file.",
     )
+    relief_engraving: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Relief engraving permission; cascades job -> plate -> pinned label "
+            "(a label's own value wins; an explicit `null` counts as unset). "
+            "See the label-level `relief_engraving` field for semantics."
+        ),
+    )
+    relief_engraving_quality: Optional[Literal["coarse", "medium", "fine"]] = Field(
+        default=None,
+        description=(
+            "Relief engraving detail preset; cascades job -> plate -> pinned "
+            "label (a label's own value wins; an explicit `null` counts as "
+            "unset). See the label-level `relief_engraving_quality` field for "
+            "semantics."
+        ),
+    )
+    relief_engraving_cutters: Optional[list[Annotated[float, Field(gt=0.0)]]] = Field(
+        default=None,
+        description=(
+            "Explicit relief cutter ladder in inches, largest first; cascades "
+            "job -> plate -> pinned label (a label's own list replaces the "
+            "inherited one; an explicit `null` counts as unset). Each diameter "
+            "must be > 0. See the label-level `relief_engraving_cutters` field "
+            "for semantics."
+        ),
+    )
+    relief_engraving_preserve_border: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Keep the label border as a raised ridge during relief engraving; "
+            "cascades job -> plate -> pinned label (a label's own value wins; "
+            "an explicit `null` counts as unset). See the label-level "
+            "`relief_engraving_preserve_border` field for semantics."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod
@@ -3167,6 +3231,57 @@ class JobSpec(LabelAttributes):
                 if label.replacement_text_file is None:
                     updated_labels.append(label)
                     continue
+                source = plate_values.get(label.plate_id or "")
+                fill = {}
+                for name in fields:
+                    inherited = getattr(source, name) if source is not None else None
+                    if inherited is None:
+                        inherited = getattr(self, name)
+                    if inherited is not None and getattr(label, name) is None:
+                        fill[name] = inherited
+                updated_labels.append(label.model_copy(update=fill) if fill else label)
+            self.labels = updated_labels
+
+        return self
+
+    @model_validator(mode="after")
+    def _apply_relief_cascades(self) -> JobSpec:
+        """Cascade the relief engraving fields job -> plate -> label.
+
+        Mirrors :meth:`_apply_replacement_cascades`: a value declared on the
+        lower tier always wins, and an explicit `null` counts as unset
+        (inherit). Plates inherit the job-level values; labels inherit their
+        pinned plate's value when present (`LabelSpec.plate_id`) and
+        otherwise the job-level value. The relief tier is the one place a
+        plate-level value applies to labels: the relief is a per-label
+        engraving mode, so the plate it packs onto (declared by `plate_id`)
+        supplies the inherited value; unpinned labels (unbounded mode) inherit
+        the job tier directly.
+
+        Returns:
+            Self for method chaining.
+        """
+        fields = (
+            "relief_engraving",
+            "relief_engraving_quality",
+            "relief_engraving_cutters",
+            "relief_engraving_preserve_border",
+        )
+        if self.plates is not None:
+            updated_plates: list[PlateSpec] = []
+            for plate in self.plates:
+                fill: dict[str, Any] = {
+                    name: getattr(self, name)
+                    for name in fields
+                    if getattr(self, name) is not None and getattr(plate, name) is None
+                }
+                updated_plates.append(plate.model_copy(update=fill) if fill else plate)
+            self.plates = updated_plates
+
+        if self.labels:
+            plate_values = {plate.id: plate for plate in self.plates or []}
+            updated_labels: list[LabelSpec] = []
+            for label in self.labels:
                 source = plate_values.get(label.plate_id or "")
                 fill = {}
                 for name in fields:

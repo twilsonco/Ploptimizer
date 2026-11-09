@@ -997,6 +997,42 @@ class JobDefaults(BaseModel):
             "to false."
         ),
     )
+    relief_engraving: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default relief engraving permission (job layer; cascades job -> "
+            "plate -> label). True engraves labels in relief: the material "
+            "around the engraved stroke silhouette is rastered away so the "
+            "text survives as a raised island; the normal text strokes are "
+            "not emitted and drill holes are filled over. Unset falls back "
+            "to false."
+        ),
+    )
+    relief_engraving_quality: Optional[Literal["coarse", "medium", "fine"]] = Field(
+        default=None,
+        description=(
+            "Default relief engraving detail preset (job layer; cascades job "
+            "-> plate -> label): the maximum number of cutters a relief "
+            "ladder uses - 'coarse' 1 (largest cutter that engraves every "
+            "region without skipping a text interior hole), 'medium' 2 "
+            "(largest inventory cutter for the background + finest for "
+            "counters and corners), 'fine' 3 (largest + an intermediate "
+            "cutter that fits at least one stroke inside every interior text "
+            "hole + finest in inventory). Unset falls back to 'medium'. Inert "
+            "when `relief_engraving_cutters` is specified on the label."
+        ),
+    )
+    relief_engraving_preserve_border: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default relief border handling (job layer; cascades job -> plate "
+            "-> label). False (the default, the EngraveLab reference "
+            "behavior) raster-fills the whole label edge to edge and the "
+            "coarsest relief cutter engraves the border outline inset by its "
+            "radius; true keeps the label border band as a raised ridge, "
+            "excluded from the engrave region. Unset falls back to false."
+        ),
+    )
     plate_width: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -1223,6 +1259,9 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "type",
     "rounded_rectangle_fraction",
     "rounded_rectangle_proportional",
+    "relief_engraving",
+    "relief_engraving_quality",
+    "relief_engraving_preserve_border",
     "left_clearance",
     "top_clearance",
     "auto_line_spacing_interline_to_top_bottom_ratio",

@@ -3247,6 +3247,67 @@
           "description": "Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. When the avoidance switches a colliding line to `center`, the unswitched same-alignment lines are additionally flushed onto the switched lines' final anchored edge. Flushness is a guarantee: a shared slide that pushes a line's far end past the content area is absorbed by horizontal compression, and a line whose `max_h_compress` budget cannot absorb it fails the job. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored. Accepted on plates for schema parity only.",
           "title": "Align Margin Adjust Global"
         },
+        "relief_engraving": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
+          "title": "Relief Engraving"
+        },
+        "relief_engraving_quality": {
+          "anyOf": [
+            {
+              "enum": [
+                "coarse",
+                "medium",
+                "fine"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relief engraving detail preset: the maximum number of cutters a relief pass ladder may use - `coarse` 1 (the largest cutter that engraves every region of the label without skipping a text interior hole), `medium` 2 (the largest inventory cutter for the open background, the finest tool for counters and corners: a time saver over `coarse`), `fine` 3 (largest background cutter, an intermediate cutter that fits at least one full raster stroke inside every interior text hole, and the finest tool in inventory). Selection collapses gracefully when the inventory or the artwork admits fewer cutters. Inert when `relief_engraving_cutters` is specified. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then medium. Accepted on plates for schema parity only.",
+          "title": "Relief Engraving Quality"
+        },
+        "relief_engraving_cutters": {
+          "anyOf": [
+            {
+              "items": {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit relief cutter ladder in inches, largest first (e.g. `[0.06, 0.005]`). Each value is used as the exact engraved width of one relief pass: the list completely bypasses `tools.json` (no inventory snap, no `cutter_buffer_text`), so a job reproduces a reference toolpath regardless of the shop inventory. Inert overrides `relief_engraving_quality`. Each diameter must be > 0; a value that cannot fit anywhere is a no-op pass. Cascades job -> plate -> label (never text lines); a lower tier's list replaces the inherited one entirely; unset (`null`) selects the automatic preset behavior. Accepted on plates for schema parity only.",
+          "title": "Relief Engraving Cutters"
+        },
+        "relief_engraving_preserve_border": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With `relief_engraving` enabled: false (the default, the EngraveLab reference behavior) raster-fills the whole label, edge to edge, and the coarsest relief cutter engraves the border outline inset by its own radius (the plate-cut border in the borders/holes file is unchanged). true keeps the label border as a raised ridge: the border band (the boundary/hole cutter's engraved width, offset by the coarsest relief cutter radius) is excluded from the engrave region. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
+          "title": "Relief Engraving Preserve Border"
+        },
         "id": {
           "description": "Unique identifier for this label specification.",
           "title": "Id",
@@ -4319,6 +4380,67 @@
           "default": null,
           "description": "Allow whitespace-only lines in a replacement text file to produce blank labels with no drill holes. When enabled (true), such lines produce instances with empty content and no holes (even if the label definition specifies holes). When disabled (false), blank lines are dropped with a warning. Cascades job -> plate; unset (`null`) falls back to `job-config.json` then `true`. Requires a replacement file.",
           "title": "Replacement Text File Allow Blank Lines"
+        },
+        "relief_engraving": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relief engraving permission; cascades job -> plate -> pinned label (a label's own value wins; an explicit `null` counts as unset). See the label-level `relief_engraving` field for semantics.",
+          "title": "Relief Engraving"
+        },
+        "relief_engraving_quality": {
+          "anyOf": [
+            {
+              "enum": [
+                "coarse",
+                "medium",
+                "fine"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relief engraving detail preset; cascades job -> plate -> pinned label (a label's own value wins; an explicit `null` counts as unset). See the label-level `relief_engraving_quality` field for semantics.",
+          "title": "Relief Engraving Quality"
+        },
+        "relief_engraving_cutters": {
+          "anyOf": [
+            {
+              "items": {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit relief cutter ladder in inches, largest first; cascades job -> plate -> pinned label (a label's own list replaces the inherited one; an explicit `null` counts as unset). Each diameter must be > 0. See the label-level `relief_engraving_cutters` field for semantics.",
+          "title": "Relief Engraving Cutters"
+        },
+        "relief_engraving_preserve_border": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keep the label border as a raised ridge during relief engraving; cascades job -> plate -> pinned label (a label's own value wins; an explicit `null` counts as unset). See the label-level `relief_engraving_preserve_border` field for semantics.",
+          "title": "Relief Engraving Preserve Border"
         }
       },
       "required": [
@@ -6077,6 +6199,67 @@
       "default": null,
       "description": "Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. When the avoidance switches a colliding line to `center`, the unswitched same-alignment lines are additionally flushed onto the switched lines' final anchored edge. Flushness is a guarantee: a shared slide that pushes a line's far end past the content area is absorbed by horizontal compression, and a line whose `max_h_compress` budget cannot absorb it fails the job. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored. Accepted on plates for schema parity only.",
       "title": "Align Margin Adjust Global"
+    },
+    "relief_engraving": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
+      "title": "Relief Engraving"
+    },
+    "relief_engraving_quality": {
+      "anyOf": [
+        {
+          "enum": [
+            "coarse",
+            "medium",
+            "fine"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Relief engraving detail preset: the maximum number of cutters a relief pass ladder may use - `coarse` 1 (the largest cutter that engraves every region of the label without skipping a text interior hole), `medium` 2 (the largest inventory cutter for the open background, the finest tool for counters and corners: a time saver over `coarse`), `fine` 3 (largest background cutter, an intermediate cutter that fits at least one full raster stroke inside every interior text hole, and the finest tool in inventory). Selection collapses gracefully when the inventory or the artwork admits fewer cutters. Inert when `relief_engraving_cutters` is specified. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then medium. Accepted on plates for schema parity only.",
+      "title": "Relief Engraving Quality"
+    },
+    "relief_engraving_cutters": {
+      "anyOf": [
+        {
+          "items": {
+            "exclusiveMinimum": 0.0,
+            "type": "number"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Explicit relief cutter ladder in inches, largest first (e.g. `[0.06, 0.005]`). Each value is used as the exact engraved width of one relief pass: the list completely bypasses `tools.json` (no inventory snap, no `cutter_buffer_text`), so a job reproduces a reference toolpath regardless of the shop inventory. Inert overrides `relief_engraving_quality`. Each diameter must be > 0; a value that cannot fit anywhere is a no-op pass. Cascades job -> plate -> label (never text lines); a lower tier's list replaces the inherited one entirely; unset (`null`) selects the automatic preset behavior. Accepted on plates for schema parity only.",
+      "title": "Relief Engraving Cutters"
+    },
+    "relief_engraving_preserve_border": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "With `relief_engraving` enabled: false (the default, the EngraveLab reference behavior) raster-fills the whole label, edge to edge, and the coarsest relief cutter engraves the border outline inset by its own radius (the plate-cut border in the borders/holes file is unchanged). true keeps the label border as a raised ridge: the border band (the boundary/hole cutter's engraved width, offset by the coarsest relief cutter radius) is excluded from the engrave region. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
+      "title": "Relief Engraving Preserve Border"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

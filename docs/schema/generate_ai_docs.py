@@ -166,6 +166,9 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "type",
         "rounded_rectangle_fraction",
         "rounded_rectangle_proportional",
+        "relief_engraving",
+        "relief_engraving_quality",
+        "relief_engraving_preserve_border",
     ),
     "fonts-and-capline": ("text_height", "font", "sc_scale", "enforce_cap_line"),
     "glyph-spacing-and-kerning": (
@@ -555,6 +558,23 @@ _FALLBACK_NOTES: dict[str, str] = {
     "`rounded_rectangle_fraction` cascade resolves to unset (see "
     ":attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_fraction`). "
     "`0.0` is the sharp rectangle, bit-identical to the historical border.",
+    "DEFAULT_RELIEF_ENGRAVING": "Fallback relief-engraving permission when the "
+    "`relief_engraving` cascade resolves to unset at every tier (see "
+    ":attr:`plt_optimizer.generate.schema.LabelAttributes.relief_engraving`). "
+    "`False` = the label engraves normally (text strokes as grooves).",
+    "DEFAULT_RELIEF_ENGRAVING_QUALITY": "Fallback relief detail preset when the "
+    "`relief_engraving_quality` cascade resolves to unset at every tier (see "
+    ":attr:`plt_optimizer.generate.schema.LabelAttributes.relief_engraving_quality`). "
+    "`'medium'` = a two-cutter ladder (largest background cutter + the finest "
+    "tool for counters and corners). Inert when `relief_engraving_cutters` is "
+    "specified.",
+    "DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER": "Fallback relief border mode when "
+    "the `relief_engraving_preserve_border` cascade resolves to unset at every "
+    "tier (see "
+    ":attr:`plt_optimizer.generate.schema.LabelAttributes.relief_engraving_preserve_border`). "
+    "`False` = the relief fills the label edge to edge and the coarsest relief "
+    "cutter engraves the border outline inset by its own radius (the EngraveLab "
+    "reference behavior).",
     "DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL": "Fallback proportional-rounding flag when the "
     "`rounded_rectangle_proportional` cascade resolves to unset (see "
     ":attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_proportional`). "
