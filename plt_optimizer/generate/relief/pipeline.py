@@ -143,13 +143,15 @@ def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon]
 
     - border-touching (outer) components erode by the cutter RADIUS (the
       tool edge reaches the label edge tangentially);
-    - enclosed (interior: text counters) components erode by the FULL
-      DIAMETER (the outline then sits one diameter off the centerlines,
-      and the ``d/2`` skin between it and the island is the next cutter's
-      rest strip).
-    - every sharp convex corner of the core is FILLETED at the tool radius
-      (`_fillet_convex_corners`): EngraveLab's outline corners are quarter
-      arcs centered on the core corner, r = d/2 (reference
+    - enclosed (interior: text counters) components erode by the RADIUS on
+      their sides and by the FULL DIAMETER on the floor (the reference's
+      "A" counter triangle: sides at the island edges minus r, base at the
+      crossbar island edge 606.53u minus d = 545.566u), and their corners
+      stay SHARP - the reference counter outline is a plain triangle, no
+      fillet arcs (see :func:`_clip_counter_floor`).
+    - every sharp convex corner of an OUTER core is FILLETED at the tool
+      radius (`_fillet_convex_corners`): EngraveLab's outline corners are
+      quarter arcs centered on the core corner, r = d/2 (reference
       ``AA30.480,985.520``), which shapely's negative buffer leaves sharp.
 
     Args:
@@ -167,10 +169,55 @@ def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon]
         core = _fillet_convex_corners(comp.buffer(-r, quad_segs=256, join_style=1), r)
         outer_cores.extend(core)
     for comp in regions.interior:
-        interior_cores.extend(
-            _fillet_convex_corners(comp.buffer(-r, quad_segs=256, join_style=1), r)
-        )
+        eroded = comp.buffer(-r, quad_segs=256, join_style=1)
+        interior_cores.extend(_clip_counter_floor(eroded, d))
     return outer_cores, interior_cores
+
+
+def _clip_counter_floor(geom: BaseGeometry, d: float) -> List[Polygon]:
+    """Clip a counter core's floor edge to the full-diameter erosion.
+
+    The reference's counter fill (coarse, the "A" hole) is a triangle whose
+    SIDES sit at the island edges eroded by the cutter RADIUS but whose
+    BASE sits at the floor island edge minus the FULL DIAMETER
+    (606.53 − 60.96 = 545.566u): the tool must clear a full diameter of
+    the raised bar below, only a radius from the slanted sides. The floor
+    is the bbox edge with the widest intersection with the core (the
+    crossbar side; the "A" apex side is a point, the leg sides are
+    slanted). Erode that edge the extra ``d - r`` (the radius erosion
+    already ran) and keep the rest of the core untouched. Sharp corners
+    are preserved (no fillet discs on interior cores).
+
+    Args:
+        geom: The radius-eroded counter core.
+        d: The cutter's effective diameter.
+
+    Returns:
+        The floor-clipped polygons (``[]`` when the clip empties the core).
+    """
+    if geom.is_empty:
+        return []
+    x0, y0, x1, y1 = geom.bounds
+    span = max(x1 - x0, y1 - y0)
+    probe = max(1e-9, span * 1e-3)
+    edge_spans = [
+        geom.intersection(LineString([(x0, y0 + probe), (x1, y0 + probe)])).length,
+        geom.intersection(LineString([(x0, y1 - probe), (x1, y1 - probe)])).length,
+        geom.intersection(LineString([(x0 + probe, y0), (x0 + probe, y1)])).length,
+        geom.intersection(LineString([(x1 - probe, y0), (x1 - probe, y1)])).length,
+    ]
+    floor = max(range(4), key=lambda index: edge_spans[index])
+    if edge_spans[floor] <= probe:
+        return region_polygons(geom)  # degenerate: no measurable floor edge
+    extra = d / 2.0  # d - r with r = d / 2: the full-diameter floor total
+    pad = span + 1.0
+    boxes = (
+        shapely_box(x0 - pad, y0 + extra, x1 + pad, y1 + pad),  # floor at min-y
+        shapely_box(x0 - pad, y0 - pad, x1 + pad, y1 - extra),  # floor at max-y
+        shapely_box(x0 + extra, y0 - pad, x1 + pad, y1 + pad),  # floor at min-x
+        shapely_box(x0 - pad, y0 - pad, x1 - extra, y1 + pad),  # floor at max-x
+    )
+    return region_polygons(geom.intersection(boxes[floor]))
 
 
 def _fillet_convex_corners(geom: BaseGeometry, radius: float) -> List[Polygon]:
