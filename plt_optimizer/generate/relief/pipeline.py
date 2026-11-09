@@ -6,11 +6,11 @@ The stage loop (per cutter, largest effective diameter first):
   cutter RADIUS (border-touching: the tool edge reaches the label edge
   tangentially; enclosed counters: the fill runs inside the counter edge),
 - the fill region for this cutter: every component's core minus ALL
-  earlier cutters' coverage (coverage = the stroke envelopes: every
-  fill/outline polyline dilated by ``d/2`` -- the row disks, not the full
-  core dilation, so the ``d/2`` margin band an outline engraved stays
-  rest for the next, finer cutter to re-clean, exactly as the EngraveLab
-  references do),
+  earlier cutters' coverage (coverage = the stroke envelopes: every fill
+  row dilated by its radius ``d/2`` and every outline ring dilated by
+  ``d/2 - r_next`` -- the row disks, not the full core dilation, so the
+  skin band off an engraved outline stays rest for the next, finer cutter
+  to re-clean, exactly as the EngraveLab references do),
 - KNOWN (b) DIVERGENCE (measured, documented, tracked): the reference's
   13-row fine chains along the "A" legs run INSIDE the leg islands
   (EngraveLab's raster core is the glyph CENTERLINE minus d/2), while our
@@ -33,12 +33,10 @@ translation) carries relief content exactly like text chunks.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from shapely.geometry import LineString, Polygon
-from shapely.geometry import Point as ShapelyPoint
 from shapely.geometry import box as shapely_box
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
@@ -142,17 +140,19 @@ def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon]
     rows span the full-diameter-eroded triangle inset 12.192 = pitch/2):
 
     - border-touching (outer) components erode by the cutter RADIUS (the
-      tool edge reaches the label edge tangentially);
+      tool edge reaches the label edge tangentially); the box corners stay
+      SHARP (the reference coarse ring is the plain square
+      ``PU30.48,30.48 ... 985.52`` - the corner ``AA30.48`` arcs in the
+      references belong to the FINE stage, radius ``r_c - r_f`` around the
+      coarse corner, task 3), and concave wrap corners round at r (the
+      island cap arcs: the "A" apex, the leg ends - buffer round joins +
+      :func:`arcify.fit_circular_runs` reproduce them);
     - enclosed (interior: text counters) components erode by the RADIUS on
       their sides and by the FULL DIAMETER on the floor (the reference's
       "A" counter triangle: sides at the island edges minus r, base at the
       crossbar island edge 606.53u minus d = 545.566u), and their corners
       stay SHARP - the reference counter outline is a plain triangle, no
       fillet arcs (see :func:`_clip_counter_floor`).
-    - every sharp convex corner of an OUTER core is FILLETED at the tool
-      radius (`_fillet_convex_corners`): EngraveLab's outline corners are
-      quarter arcs centered on the core corner, r = d/2 (reference
-      ``AA30.480,985.520``), which shapely's negative buffer leaves sharp.
 
     Args:
         regions: The label's engrave regions.
@@ -166,8 +166,7 @@ def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon]
     outer_cores: List[Polygon] = []
     interior_cores: List[Polygon] = []
     for comp in regions.outer:
-        core = _fillet_convex_corners(comp.buffer(-r, quad_segs=256, join_style=1), r)
-        outer_cores.extend(core)
+        outer_cores.extend(region_polygons(comp.buffer(-r, quad_segs=256, join_style=1)))
     for comp in regions.interior:
         eroded = comp.buffer(-r, quad_segs=256, join_style=1)
         interior_cores.extend(_clip_counter_floor(eroded, d))
@@ -220,62 +219,6 @@ def _clip_counter_floor(geom: BaseGeometry, d: float) -> List[Polygon]:
     return region_polygons(geom.intersection(boxes[floor]))
 
 
-def _fillet_convex_corners(geom: BaseGeometry, radius: float) -> List[Polygon]:
-    """Round every sharp convex corner of a core with the cutter radius.
-
-    Shapely's negative buffer keeps ERODED polygon convex corners sharp
-    (the offset lines intersect). The EngraveLab references cut them as
-    quarter arcs centered on the corner at the tool radius (box outline
-    corners: ``AA30.480,985.520`` = center (30.48,985.52)u, the inset
-    core corner, r = 30.48u = d/2; the counter apex arcs the same way --
-    a tool center must stay a full radius from the raised corner it
-    wraps). Subtracting the corner disc produces exactly that boundary,
-    and :func:`fit_circular_runs` emits it as one native AA arc.
-
-    Args:
-        geom: The eroded core (Polygon/MultiPolygon/empty).
-        radius: Fillet radius (the cutter radius).
-
-    Returns:
-        Filleted polygons.
-    """
-    if geom.is_empty:
-        return []
-    polys = list(geom.geoms) if geom.geom_type.startswith("Multi") else [geom]
-    cuts: List[BaseGeometry] = []
-    for poly in polys:
-        rings = [poly.exterior] + list(poly.interiors)
-        for ring in rings:
-            pts = list(ring.coords)
-            # Exterior convex = left turns of a CCW ring; interior ring
-            # windings are reversed, so flip the expected sign.
-            convex_sign = 1.0 if ring is poly.exterior else -1.0
-            n = len(pts) - 1  # drop the repeated closing vertex
-            for i in range(n):
-                a = pts[(i - 1) % n]
-                b = pts[i]
-                c = pts[(i + 1) % n]
-                cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
-                if cross * convex_sign <= 1e-12:
-                    continue
-                v1 = (b[0] - a[0], b[1] - a[1])
-                v2 = (c[0] - b[0], c[1] - b[1])
-                ang1 = math.atan2(v1[1], v1[0])
-                ang2 = math.atan2(v2[1], v2[0])
-                turn = ang2 - ang1
-                while turn > math.pi:
-                    turn -= 2.0 * math.pi
-                while turn < -math.pi:
-                    turn += 2.0 * math.pi
-                if abs(turn) < math.radians(20.0):
-                    continue  # gentle corner: shapely's arc handles it
-                cuts.append(ShapelyPoint(b[0], b[1]).buffer(radius, quad_segs=256, join_style=1))
-    if not cuts:
-        return list(polys)
-    eroded = unary_union(polys).difference(unary_union(cuts))
-    return region_polygons(eroded)
-
-
 def _rest_region(
     cores: Sequence[BaseGeometry],
     coverage: Sequence[BaseGeometry],
@@ -303,55 +246,17 @@ def _rest_region(
     return region_polygons(rest)
 
 
-def _tabbed_cores(
-    cores: Sequence[Polygon], r: float, bounds: Tuple[float, float, float, float]
-) -> List[Polygon]:
-    """Add the box-corner tabs and fillet discs to border cores.
-
-    The reference's outline ring runs straight to the label edge and
-    turns the box corners on a quarter arc centered on the core corner
-    (``AA30.480,985.520``): a tool center sits at the inset core corner
-    (x0+r, y0+r) and must stay r from the plate edges. The eroded core's
-    (sharp) corner is UNIONED with the corner tab square and SUBTRACTED
-    with a disc of radius r centered on the core corner -- producing the
-    quarter-arc boundary the fillet+AA pass then emits.
-
-    Args:
-        cores: Raw eroded border-touching cores.
-        r: The cutter radius.
-        bounds: ``(x0, y0, x1, y1)`` of the engrave box.
-
-    Returns:
-        Tabbed/filleted polygons for the outline path.
-    """
-    x0, y0, x1, y1 = bounds
-    union = unary_union(list(cores))
-    if union.is_empty:
-        return []
-    tabbed = union
-    for cx, cy, sx, sy in (
-        (x0, y0, 1, 1),
-        (x1, y0, -1, 1),
-        (x0, y1, 1, -1),
-        (x1, y1, -1, -1),
-    ):
-        tab = shapely_box(cx, cy, cx + sx * 2.0 * r, cy + sy * 2.0 * r)
-        tabbed = tabbed.union(tab)
-        disc = ShapelyPoint(cx + sx * r, cy + sy * r).buffer(r, quad_segs=256, join_style=1)
-        tabbed = tabbed.difference(disc)
-    return region_polygons(tabbed.intersection(shapely_box(x0, y0, x1, y1)))
-
-
 def _coverage_of(
-    strokes: Sequence[Sequence[Point]], d: float, engrave: BaseGeometry
+    strokes: Sequence[Sequence[Point]], radius: float, engrave: BaseGeometry
 ) -> BaseGeometry:
-    """The stroke envelope (rows/outlines dilated by the tool radius).
+    """The swept envelope of ``strokes`` dilated by ``radius``.
 
     Clipped to the engrave region: raised island material survives relief,
     so swept area that overlaps an island is not "removed" material.
     """
-    r = d / 2.0
-    geoms = [LineString(points).buffer(r, quad_segs=64) for points in strokes if len(points) >= 2]
+    geoms = [
+        LineString(points).buffer(radius, quad_segs=64) for points in strokes if len(points) >= 2
+    ]
     if not geoms:
         return Polygon()
     return unary_union(geoms).intersection(engrave)
@@ -390,13 +295,22 @@ def generate_relief_passes(
     if regions.engrave.is_empty:
         return []
     passes: List[ReliefPass] = []
+    # Two coverage layers per stage (measured from the references): the FILL
+    # rows sweep a band their full width (dilated by r - the skin a row's
+    # capsule cannot reach is the outline's job), while an OUTLINE ring is
+    # dilated only by (r - r_next): the (r_next) skin off the outline is the
+    # next, finer cutter's rest strip - the reference's fine pit rings and
+    # box corner arcs (r_c - r_f from the coarse outline sweep, lines at the
+    # finer core) fall out of this geometry. The last stage dilates its
+    # outline by the full r (nothing follows).
     coverage: List[BaseGeometry] = []
     total_chunks = 0
     pitch_fraction = 1.0 - overlap_percent / 100.0
-    for cutter in ladder:
+    for index, cutter in enumerate(ladder):
         d = cutter.effective
         r = d / 2.0
         pitch = d * pitch_fraction
+        r_next = ladder[index + 1].effective / 2.0 if index + 1 < len(ladder) else 0.0
         outer_cores, interior_cores = _cores(regions, cutter)
         # Fill (measured against the references):
         # - border components engrave the RAW core rect minus earlier FILL
@@ -417,12 +331,12 @@ def generate_relief_passes(
         fill_points = active.fill(rest_fill, pitch, anchor=grid_anchor) + active.fill(
             rest_interior, pitch
         )
-        # Outline: the tabbed core ring (straight runs to the label edge,
-        # quarter arcs centered on the core corners -- the reference's
-        # AA30.480,985.520), minus prior coverage.
-        tabbed = _tabbed_cores(outer_cores, r, regions.engrave.bounds)
-        rest_outer_tabbed = _rest_region(tabbed, coverage)
-        outline_points = active.outline(rest_outer_tabbed) + active.outline(rest_interior)
+        # Outline: the RAW eroded outer core ring (sharp box corners at the
+        # radius inset - the reference coarse ring is the plain square
+        # PU30.48...985.52; the island-cap arcs come from the round-join
+        # buffer), minus prior coverage.
+        rest_outer = _rest_region(outer_cores, coverage)
+        outline_points = active.outline(rest_outer) + active.outline(rest_interior)
         strokes: List[ReliefStroke] = []
         for points in fill_points:
             if len(points) >= 2:
@@ -432,9 +346,12 @@ def generate_relief_passes(
                 strokes.append(ReliefStroke(stroke=_stroke_from_ring(ring), is_outline=True))
         if not strokes:
             continue
-        # Staged coverage = the full swept envelope (fill rows AND outline
-        # rings dilated by d/2): the proven coverage-equivalence model
-        # (the fine pass engraves only the material nothing reached).
+        # Staged coverage: fill rows dilated by r (their full sweep) plus
+        # outline rings dilated by (r - r_next) -- the finer cutter's rest
+        # strip off the outline. Fill-then-outline at every stage: the
+        # reference's 13-row fine strips run straight through the coarse
+        # outline sweep and re-cut the skin, and the fine pit rings /
+        # box-corner arcs land at (r_c - r_f) from the coarse outline.
         # KNOWN (b) DIVERGENCE: the reference's 13-row fine chains along
         # the "A" legs run INSIDE the leg islands (EngraveLab's raster
         # core is the glyph CENTERLINE minus d/2, so its fine cut reaches
@@ -442,7 +359,8 @@ def generate_relief_passes(
         # eroded core mirrors that band outside the island. Reproducing
         # the reference strips exactly requires a centerline-distance
         # core model -- tracked, not silently attempted.
-        coverage.append(_coverage_of(fill_points + outline_points, d, regions.engrave))
+        coverage.append(_coverage_of(fill_points, r, regions.engrave))
+        coverage.append(_coverage_of(outline_points, r - r_next, regions.engrave))
         total_chunks += len(strokes)
         passes.append(ReliefPass(cutter=cutter, strokes=tuple(strokes)))
     if total_chunks > _MAX_CHUNK_WARNING and logger is not None:

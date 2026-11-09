@@ -24,7 +24,8 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   `label_ink` (per-stroke polylines + widths from `RenderedLabel.text_chunks`),
   `stroke_to_points` (arc flattening, `tol` in inches). Components classify
   as `outer` (touch the box boundary - erode by the radius) vs `interior`
-  (enclosed counters - erode by the radius; the pass-floor test is what stops
+  (enclosed counters - erode by the radius on the sides, by the full
+  diameter on the floor edge, kept sharp; the pass-floor test is what stops
   a coarse cutter from skipping a counter).
 - `cutters.py` - `ReliefCutter(physical, effective)` (effective drives ALL
   geometry; physical names the file/pen; relief neglects
@@ -40,7 +41,8 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   boundary rings. `SSweepFiller`: scanlines at `pitch` (passed in by the
   pipeline: `d * (1 - relief_engraving_stroke_overlap_percent/100)`, 60%
   default = the reference `0.4 * d`) anchored at
-  each region's bbox bottom + pitch (reference grid), row ENDS inset
+  each region's bbox bottom, rows at `miny + k*pitch` for `k >= 1`
+  (strictly interior - no bbox-edge rows), row ENDS inset
   `end_inset_fraction * pitch` (1.25 default = d/2: capsule caps land tangent
   to the core, never into islands; 0.5 = the reference's counter-strip inset),
   rows grouped into x-continuous LANES (`_lanes`, interval overlap across
@@ -94,16 +96,19 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   the 60.0 default = `0.4 * effective_diameter` (24.384u @ 0.06, 2.032u @
   0.005 - exact in the references).
 - Border-core row grid: anchored at the core bbox (the inset rect)
-  `y0 + k*pitch` INCLUDING the bbox edges - edge rows full span, zero
-  inset (the `30.48`/`985.52` tab rows), interior rows inset
+  `y0 + k*pitch` for `k >= 1` - strictly interior rows (measured: NO rows
+  on the bbox edges at `30.48`/`985.52`), every row inset
   `end_inset_fraction * pitch` (`0.5` -> the `[42.672, 973.328]` spans);
-  counters keep the classic `miny + k*pitch` grid (no edge rows).
-- Border: outer components erode by the RADIUS; the plate/label border line
-  the coarsest cutter engraves sits at the radius inset (tool edge tangent to
-  the label edge).
-- Counter outlines sit at the eroded core boundary; the `d/2` skin from there
-  to the island edge is the NEXT (finer) cutter's rest strip (the reference's
-  fine pass re-cuts it, fill-then-outline).
+  counters keep the same per-region `miny + k*pitch` grid.
+- Border: outer components erode by the RADIUS and keep SHARP corners (the
+  reference coarse ring is the plain square `PU30.48,30.48 ... 985.52`, no
+  box-corner arcs; the `AA30.48` arcs belong to the FINE stage at radius
+  `r_c - r_f` around the coarse corner). Concave wrap corners round at r
+  (the island caps: the "A" apex, the leg ends - round-join buffer +
+  arcify, matches the references).
+- Counter cores erode by the RADIUS on the sides and the FULL DIAMETER on
+  the floor edge (the widest bbox edge), sharp corners: the "A" counter
+  triangle base at 606.53 - 60.96 = 545.566u.
 - Coverage equivalence (not stroke identity) is the loose test contract - see
   `tests/test_relief_export.py` thresholds and `tests/relief_coverage.py`;
   the STRICT layer is the stroke chamfer

@@ -24,24 +24,23 @@ class TestSSweepFill:
         ys = sorted({round(y, 6) for stroke in strokes for _x, y in stroke})
         # Per-region grid: rows start one pitch above the floor, every row
         # inset by the default pitch/2 = 0.125 (the anchored border grid
-        # adds full-span edge rows -- test_anchor_grid_has_edge_rows).
+        # shares the rule -- test_anchor_grid_has_no_edge_rows).
         assert ys == [0.25, 0.5, 0.75]
         xs = [x for stroke in strokes for x, _y in stroke]
         assert min(xs) == pytest.approx(0.125)
         assert max(xs) == pytest.approx(0.875)
 
-    def test_anchor_grid_has_edge_rows(self) -> None:
-        """The reference border grid: edge rows at the bbox boundary, full
-        span, zero inset (the 30.48/985.52 tab rows); interior rows inset."""
+    def test_anchor_grid_has_no_edge_rows(self) -> None:
+        """The reference border grid: strictly interior rows at y0 + k*pitch
+        (NO rows on the bbox edges -- measured absent in the coarse
+        reference), every row inset; the outline ring owns the boundary."""
         filler = SSweepFiller()
         strokes = filler.fill([SQUARE], 0.25, anchor=(0.0, 0.0, 1.0, 1.0))
         ys = sorted({round(y, 6) for stroke in strokes for _x, y in stroke})
-        assert ys == [0.0, 0.25, 0.5, 0.75, 1.0]
-        edge = [x for stroke in strokes for x, y in stroke if y < 1e-9 or y > 1.0 - 1e-9]
-        assert min(edge) == pytest.approx(0.0)
-        assert max(edge) == pytest.approx(1.0)
-        interior = [x for stroke in strokes for x, y in stroke if 1e-9 < y < 1.0 - 1e-9]
-        assert min(interior) == pytest.approx(0.125)
+        assert ys == [0.25, 0.5, 0.75]
+        xs = [x for stroke in strokes for x, _y in stroke]
+        assert min(xs) == pytest.approx(0.125)
+        assert max(xs) == pytest.approx(0.875)
 
     def test_contiguous_serpentine_single_stroke(self) -> None:
         filler = SSweepFiller()
@@ -50,8 +49,8 @@ class TestSSweepFill:
         stroke = strokes[0]
         assert stroke[0][1] == pytest.approx(0.25)
         # 3 rows x (start, end) + explicit vertical links (per-region
-        # grid; the anchored border grid adds full-span edge rows --
-        # test_anchor_grid_has_edge_rows).
+        # grid; the anchored border grid is strictly interior --
+        # test_anchor_grid_has_no_edge_rows).
         assert len(stroke) == 6
 
     def test_split_regions_chain_independently(self) -> None:

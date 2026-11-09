@@ -8,12 +8,11 @@ outline after -- the order the EngraveLab references engrave in). The
 demonstrated by ``examples/plt_relief_engraving/A_relief_s-sweep_*.plt``:
 
 - horizontal scanlines at ``pitch`` spacing: with an ``anchor`` (the
-  border fill, the reference grid) rows sit at ``anchor.y0 + k*pitch``
-  INCLUDING the bbox edges -- the edge rows span the full core width with
-  zero inset (the reference's 30.48/985.52 tab rows), interior rows inset
-  ``end_inset_fraction * pitch``; without an anchor each region's grid
-  starts one pitch above its own floor (counters, the classic
-  ``(miny + k*pitch)`` rule),
+  border fill, the reference grid) rows sit at ``anchor.y0 + k*pitch`` for
+  ``k >= 1``: strictly interior rows (the reference has NO rows on the
+  bbox edges), every row inset ``end_inset_fraction * pitch``; without an
+  anchor each region's grid starts one pitch above its own floor (counters,
+  the classic ``(miny + k*pitch)`` rule),
 - every scanline interval inset by ``pitch / 2`` (the reference's span
   inset),
 - rows are grouped into x-continuous LANES and serpentine-chained per
@@ -67,9 +66,9 @@ class RasterFiller(Protocol):
             regions: Fill regions (label-local inches, +y up).
             pitch: Row spacing in inches.
             anchor: Optional ``(x0, y0, x1, y1)`` global row-grid frame:
-                rows sit at ``y0 + k*pitch`` through ``y1`` (the reference
-                grid spans the core bbox edges, the edge rows full span
-                with zero inset, interior rows inset
+                rows sit at ``y0 + k*pitch`` through ``y1`` for ``k >= 1``
+                (strictly interior, the reference border grid: NO rows on
+                the bbox edges, every row inset
                 ``end_inset_fraction * pitch``); each region contributes
                 the grid-line intervals inside it. ``None`` anchors per
                 region (its own bbox).
@@ -106,33 +105,23 @@ def _row_grid(
     bounds: Tuple[float, float, float, float],
     pitch: float,
     end_inset_fraction: float,
-    edge_rows: bool = True,
 ) -> List[Tuple[float, float]]:
-    """The row grid over a bbox: ``(y, end_inset)`` lines.
+    """The row grid over a bbox: ``(y, end_inset)`` lines, descending.
 
-    Anchored (``edge_rows=True``, the reference border grid): rows sit at
-    ``y0 + k*pitch`` INCLUDING both bbox edges (the edge rows span the
-    full core width with zero inset -- the reference's ``y=30.48`` /
-    ``y=985.52`` tab rows), interior rows inset
-    ``end_inset_fraction * pitch``. Per-region grids (counters, the
-    default when no anchor is given) start one pitch above the floor with
-    every row inset, as before.
+    Rows sit at ``y1 - k*pitch`` for ``k >= 1`` (the reference grid, in
+    device units ``miny + k*pitch``: the label-local TOP = the device
+    bottom, so it descends; strictly interior, NO rows on the bbox edges -
+    measured absent in the coarse reference at 30.48/985.52), every row
+    inset ``end_inset_fraction * pitch``. The per-region grids (counters,
+    the classic ``(miny + k*pitch)`` rule on the apex side) and the
+    anchored border grid share this rule.
     """
-    x0, y0, x1, y1 = bounds
+    _x0, y0, _x1, y1 = bounds
     lines: List[Tuple[float, float]] = []
-    if edge_rows:
-        count = int(math.floor((y1 - y0) / pitch + 1e-9))
-        for k in range(count + 1):
-            y = y0 + k * pitch
-            edge = k == 0 or y >= y1 - 1e-9
-            lines.append((y, 0.0 if edge else end_inset_fraction * pitch))
-        if not math.isclose(lines[-1][0], y1, abs_tol=1e-9):
-            lines.append((y1, 0.0))
-        return lines
-    y = y0 + pitch
-    while y <= y1 - 1e-9:
+    y = y1 - pitch
+    while y >= y0 + 1e-9:
         lines.append((y, end_inset_fraction * pitch))
-        y += pitch
+        y -= pitch
     return lines
 
 
@@ -229,7 +218,6 @@ class SSweepFiller:
         regions: Sequence[Polygon],
         pitch: float,
         anchor: Optional[Tuple[float, float, float, float]] = None,
-        edge_rows: bool = True,
     ) -> List[List[Point]]:
         """Raster-fill each region with chained serpentine strokes.
 
@@ -238,25 +226,23 @@ class SSweepFiller:
             pitch: Row spacing in inches (> 0).
             anchor: Optional global row-grid frame ``(x0, y0, x1, y1)``:
                 one shared grid at ``y0 + k*pitch`` through ``y1`` (the
-                reference grid spans the core bbox: the edge rows sit on
-                the boundary full-span with zero inset, interior rows are
-                inset ``end_inset_fraction * pitch``). ``None`` anchors the
+                reference border grid: strictly interior rows, NO rows on
+                the bbox edges, every row inset
+                ``end_inset_fraction * pitch``). ``None`` anchors the
                 grid to each region's own bbox.
-            edge_rows: With an anchor, include the two full-span bbox-edge
-                rows (the reference's tab rows). Counters pass ``False``.
 
         Returns:
             Strokes: one vertex list per contiguous pen-down polyline.
         """
         if pitch <= 0.0:
             raise ValueError(f"raster pitch must be > 0, got {pitch!r}")
-        grid = _row_grid(anchor, pitch, self.end_inset_fraction, edge_rows) if anchor else None
+        grid = _row_grid(anchor, pitch, self.end_inset_fraction) if anchor else None
         strokes: List[List[Point]] = []
         for region in regions:
             lines = (
                 grid
                 if grid is not None
-                else _row_grid(region.bounds, pitch, self.end_inset_fraction, edge_rows=False)
+                else _row_grid(region.bounds, pitch, self.end_inset_fraction)
             )
             strokes.extend(self._fill_region(region, pitch, lines))
         return strokes
@@ -296,6 +282,9 @@ class SSweepFiller:
                 lo, hi = x_lo + inset, x_hi - inset
                 if hi - lo >= self.min_pass_fraction * pitch:
                     rows.append(_Interval(y=y, x_min=lo, x_max=hi))
+        # The grid descends from the bbox top (the device-miny anchor); the
+        # lane walk and serpentine parity consume rows bottom-to-top.
+        rows.sort(key=lambda row: (row.y, row.x_min))
         strokes: List[List[Point]] = []
         for lane in _lanes(rows):
             strokes.extend(self._chain_lane(region, lane))

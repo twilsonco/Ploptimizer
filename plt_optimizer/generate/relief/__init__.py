@@ -44,11 +44,11 @@ units/inch):
   ``relief_engraving_stroke_overlap_percent`` default 60.0, i.e.
   ``0.4 * cutter diameter`` (24.384u for 0.06in,
   2.032u for 0.005in -- exact in both reference files);
-- border outline inset = cutter radius (plate box engraved 30.48..985.52
-  by the 0.06 cutter);
-- every component's core erodes by the cutter RADIUS (outer: the tool edge
-  reaches the label edge tangentially; counter: the fill/outline chain
-  runs inside the counter's island edge, the ``d/2`` skin to the island
-  engraves in the NEXT, finer cutter's clean pass -- the reference's fine
-  counter outline sits one radius off the island boundary);
+- border outline inset = cutter radius (plate box engraved as a sharp
+  square at 30.48..985.52 by the 0.06 cutter -- no corner arcs; the fine
+  stage adds the r_c-r_f corner/pit arcs);
+- outer components erode by the cutter RADIUS (the tool edge reaches the
+  label edge tangentially); interior counters erode by the RADIUS on the
+  sides and the FULL DIAMETER on the floor (the reference's "A" counter
+  triangle base sits at the crossbar island edge minus d), kept SHARP;
 """
