@@ -2,9 +2,12 @@
 
 The stage loop (per cutter, largest effective diameter first):
 
-- each engrave component's tool-center CORE: every component erodes by the
-  cutter RADIUS (border-touching: the tool edge reaches the label edge
-  tangentially; enclosed counters: the fill runs inside the counter edge),
+- each engrave component's tool-center CORE: border-touching components
+  erode by the cutter RADIUS (the tool edge reaches the label edge
+  tangentially, corners SHARP - the island caps round via the round-join
+  buffer); enclosed counters erode by the RADIUS on the sides and by the
+  FULL DIAMETER on the floor edge (``_clip_counter_floor``), kept sharp,
+  and are re-cleaned from their full core at every stage,
 - the fill region for this cutter: every component's core minus ALL
   earlier cutters' coverage (coverage = the stroke envelopes: every fill
   row dilated by its radius ``d/2`` and every outline ring dilated by

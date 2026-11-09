@@ -54,10 +54,16 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   `examples/plt_relief_engraving/A_relief_spiral_*.plt`) implement the
   Protocol without touching `pipeline.py`.
 - `pipeline.py` - stage loop: per cutter (largest first) core = comp erosion
-  (radius), rest = core minus ALL prior stroke coverage (`_coverage_of`: rows/outlines
-  dilated by `d/2`, clipped to the engrave region - swept area over an island
-  removes no material), fill then outline per rest region, coverage feeds the
-  next stage; every contiguous fill stroke / outline ring is one chunk.
+  (outer by radius, sharp corners; counters by radius on the sides, full
+  diameter on the floor - `_clip_counter_floor`, sharp corners), rest = core
+  minus ALL prior stroke coverage (`_coverage_of`: FILL rows dilated by their
+  radius, OUTLINE rings by `r - r_next` - the finer cutter's rest strip off
+  an outline sweep, all clipped to the engrave region - swept area over an
+  island removes no material), fill then outline per rest region, coverage
+  feeds the next stage; every contiguous fill stroke / outline ring is one
+  chunk. The (r - r_next) staging is what makes the reference's fine box
+  corner arcs (centered on the coarse corners, r_c - r_f) and the pit rings
+  at the coarse core corners fall out of pure shapely round joins.
   `overlap_percent` (from `relief_engraving_stroke_overlap_percent`) sets the
   pitch. KNOWN (b) divergence (documented, tracked): the reference's 13-row
   fine chains along the "A" legs run INSIDE the leg islands (EngraveLab's

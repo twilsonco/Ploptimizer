@@ -41,9 +41,12 @@ R_COARSE = 0.06 / 2
 R_FINE = 0.005 / 2
 PITCH_COARSE = 0.4 * 0.06
 # Coverage-equivalence tolerances (measured; see module docstring).
-SYMDIFF_BAND = 0.035
-INTRUSION_TOL = 0.05  # row caps on diagonal legs graze raised edges (measured 0.042)
-UNCOVERED_TOL = 0.06
+# Re-measured after the stroke-parity II fixes (sharp cores, full-diameter
+# counter floor, (r - r_next) outline staging): coarse symdiff 0.24%/0.0%,
+# fine missing 0.0%, intrusion 0.0005 sq in, uncovered 0.011%.
+SYMDIFF_BAND = 0.01
+INTRUSION_TOL = 0.01  # row caps on diagonal legs graze raised edges (measured 0.0005)
+UNCOVERED_TOL = 0.01
 
 
 def _tools() -> Dict:
@@ -164,22 +167,25 @@ class TestReliefSimpleCoverage:
         extra = ours.difference(ref.buffer(tol)).area
         assert missing <= SYMDIFF_BAND * ref.area, missing
         assert extra <= SYMDIFF_BAND * ref.area, extra
-        # The tabbed/tab-row grid (measured from the references: rows
-        # 30.48..985.52 incl. full-span edge rows) covers the corner tabs
-        # the older interior-anchored grid left uncut; re-measured 2026-11
-        # at 2.1% of the reference area.
-        assert abs(ours.area - ref.area) <= 0.025 * ref.area
+        # Measured after the stroke-parity II fixes: the sharp-square
+        # border core + strictly interior row grid land the area inside
+        # 0.3% of the reference (rows 54.864..981.456, ring
+        # PU30.48...985.52).
+        assert abs(ours.area - ref.area) <= 0.01 * ref.area
 
     def test_fine_coverage_matches_reference(self, relief_export: dict) -> None:
         ref, ours = relief_export["ref_fine"], relief_export["fine"]
         tol = 0.6 * PITCH_COARSE
         missing = ref.difference(ours.buffer(tol)).area
-        assert missing <= 0.4 * ref.area, missing
+        # The (r - r_next) outline staging leaves the reference's fine
+        # corner/pit/strip skins as rest: measured 0.0% missing (and the
+        # stroke compare matches all 19 reference strokes within 1u).
+        assert missing <= 0.05 * ref.area, missing
         # The fine cutter is a small rest/envelope pass. The full-core
-        # counter re-clean + the d/2 outline-skin strips (the reference's
-        # 13-row chains) over-cover ~3x the reference's thin fine area;
-        # the material UNION stays inside the combined band below.
-        assert 0.0005 <= ours.area <= 0.06
+        # counter re-clean over-covers ~4x the reference's thin fine area
+        # (2 extra counter strokes in the stroke compare; the material
+        # UNION stays inside the combined band).
+        assert 0.0005 <= ours.area <= 0.03
 
     def test_islands_survive(self, relief_export: dict) -> None:
         combined = relief_export["coarse"].union(relief_export["fine"])
@@ -281,54 +287,80 @@ class TestReliefArcOutlines:
     caps, the pocket corner radii) not the proprietary phases.
     """
 
-    def test_coarse_box_corner_arcs(self, relief_export: dict) -> None:
-        arcs = _arcs(_file(relief_export["files"], "60_txt_"))
-        corners = []
-        for cx, cy in ((30.48, 30.48), (985.52, 30.48), (30.48, 985.52), (985.52, 985.52)):
-            hits = [
-                a
-                for a in arcs
-                if math.isclose(a.center.x, cx, abs_tol=2.0)
-                and math.isclose(a.center.y, cy, abs_tol=2.0)
-                and math.isclose(a.radius, 30.48, abs_tol=2.0)
-            ]
-            corners.append(len(hits))
-        # The ring is split by the fill coverage into per-row chains, so
-        # each corner carries one arc per chain that touches it.
-        assert corners == [4, 4, 4, 4], corners
+    def test_coarse_box_corners_are_sharp(self, relief_export: dict) -> None:
+        """The coarse border ring is the SHARP square PU30.48...985.52.
 
-    def test_fine_counter_corner_arcs(self, relief_export: dict) -> None:
-        arcs = _arcs(_file(relief_export["files"], "5_txt_"))
-        # Fine counter structure (measured): fillet arcs at the counter
-        # tip (508,375) and the base corners (430,574)/(586,574), the bar
-        # underside corners (404,640)/(612,640), and the coarse
-        # counter-core corner arcs re-cut by the fine ring ((454,668)/
-        # (562,668)/(412,697)/(604,697) in the island-edge core -- the
-        # reference's (470.577,545.566) apex AA in its centerline core:
-        # same structure, phase gap documented).
-        tip = [a for a in arcs if math.dist((a.center.x, a.center.y), (508.0, 375.0)) < 6.0]
-        assert tip, "fine counter tip arc missing"
-        base_corners = [
+        Measured from the reference: no box-corner arcs at the coarse
+        stage (the ``AA30.48`` corner arcs belong to the FINE stage,
+        radius r_c - r_f -- test_fine_corner_and_pit_arcs); the only coarse
+        arcs are the island-tip caps (test_island_tip_caps_are_arcs).
+        """
+        arcs = _arcs(_file(relief_export["files"], "60_txt_"))
+        box_corner_arcs = [
             a
             for a in arcs
-            if 27.0 <= a.radius <= 34.0
-            and any(
-                math.dist((a.center.x, a.center.y), (cx, cy)) < 6.0
-                for cx, cy in ((454, 668), (562, 668), (412, 697), (604, 697))
+            if any(
+                math.isclose(a.center.x, cx, abs_tol=2.0)
+                and math.isclose(a.center.y, cy, abs_tol=2.0)
+                for cx, cy in (
+                    (30.48, 30.48),
+                    (985.52, 30.48),
+                    (30.48, 985.52),
+                    (985.52, 985.52),
+                )
             )
         ]
-        assert len(base_corners) >= 4, len(base_corners)
+        assert not box_corner_arcs
+
+    def test_fine_corner_and_pit_arcs(self, relief_export: dict) -> None:
+        """Fine outline arcs (measured from the reference fine file).
+
+        Box corners: ``AA30.480,30.480,74.607`` - arcs centered ON the
+        coarse core corners, radius (r_c - r_f) = 27.94u, joining the fine
+        core lines at [2.54, 1013.46]. Pits: the same construction at the
+        coarse core's corner points (423.203,667.486)/(592.747,667.486)
+        (crossbar underside x leg side core). Both fall out of the
+        (r - r_next) outline coverage dilation; the endpoint chord
+        quantum (+0.25u in the reference, sweeping it 74.6-90 deg) is
+        sub-plotter-unit and documented, not chased.
+        """
+        arcs = _arcs(_file(relief_export["files"], "5_txt_"))
+        box = [
+            a
+            for a in arcs
+            if any(
+                math.dist((a.center.x, a.center.y), (cx, cy)) < 2.0
+                for cx, cy in (
+                    (30.48, 30.48),
+                    (985.52, 30.48),
+                    (30.48, 985.52),
+                    (985.52, 985.52),
+                )
+            )
+            and 25.0 <= a.radius <= 30.0
+        ]
+        assert len(box) == 4, len(box)
+        pits = [
+            a
+            for a in arcs
+            if any(
+                math.dist((a.center.x, a.center.y), (cx, cy)) < 2.0
+                for cx, cy in ((423.203, 667.486), (592.747, 667.486))
+            )
+            and 25.0 <= a.radius <= 30.0
+        ]
+        assert len(pits) == 2, len(pits)
 
     def test_island_tip_caps_are_arcs(self, relief_export: dict) -> None:
         arcs = _arcs(_file(relief_export["files"], "60_txt_"))
-        # The outline ring wraps the raised "A" tips at the skeleton
-        # corners: (332.922,731.520), (683.078,731.520) (apex/bar junctions,
-        # reference sweep 180) and (507.868,281.280) (leg tip, sweep 137.5).
-        # Our round-join fillet centers the arc ON the corner at the tool
-        # radius (the reference widens by the notch angle: r = d/2 /
-        # sin(theta/2)) -- the STRUCTURE (an AA arc at every raised tip,
-        # centered on the tip) is pinned; the radius model gap is
-        # documented.
+        # The outline ring wraps the raised "A" tips: (332.922,731.520),
+        # (683.078,731.520) (apex/bar junctions, reference sweep 180) and
+        # (507.868,281.280) (leg tip, sweep 137.5), radius 60.96 = d.
+        # These caps come from the round-join core buffer (dilated-cap
+        # geometry), which centers the arc on the core corner at r; the
+        # reference widens it by the notch angle (r = d/2 / sin(theta/2))
+        # -- the STRUCTURE (an AA arc at every raised tip, centered on the
+        # tip, sweep >= 90) is pinned; the radius model gap is documented.
         for cx, cy in ((332.922, 731.52), (683.078, 731.52), (507.868, 281.28)):
             hits = [
                 a
