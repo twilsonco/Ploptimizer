@@ -110,9 +110,27 @@ per-cutter PLT file name in the same view quotes the nominal tool. See
   ink over the fixed inch drafting grid (`gridlines`/`show_axes`/
   `show_title` behave as in `plot_plt_document`).
 
+## `stroke_compare.py` (strict stroke-level PLT comparison)
+
+The relief equivalence contract has two layers: the **coverage** tests
+(material removed, loose) and the **stroke** comparison (this module,
+strict). `parse_strokes(path)` -> sampled pen-down runs (arcs flattened,
+inches, parsed device frame); `compare_files(ours, ref, tol, sample)` ->
+`ComparisonReport` with bidirectional chamfer: a reference stroke whose mean
+sample distance exceeds `tol` is MISSING, an our-side stroke exceeding it is
+EXTRA (matched pairs report mean/max error). Stroke order/chaining/pen
+routing are irrelevant (the TSP routes differently). Default `tol` =
+`PLOTTER_UNIT` (1/1016 in). Pure stdlib + core parser (NO matplotlib,
+NO shapely) - import-safe on the Win7 runtime; the plotting wrapper is
+`scripts/compare_relief_strokes.py` (dev-only, lazy matplotlib). The frame
+convention matches `tests/relief_coverage.py`: compare as parsed, no
+mirroring (established: the plate transform maps label geometry into the
+reference plotter frame).
+
 ## Tests
 
 `tests/test_diagnostics.py` (re-export surface), `tests/test_plotter.py`
 (`TestPlotPhysicalStrokes`), `tests/test_stroke_geometry.py` (expansion
-geometry). Output examples land in `examples_diag_output/`
+geometry), `tests/test_stroke_compare.py` (chamfer classification + the
+script CLI). Output examples land in `examples_diag_output/`
 via `examples/run_diagnostics.py` (user-facing demo).
