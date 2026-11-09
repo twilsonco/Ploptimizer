@@ -19,6 +19,9 @@ Sub-contracts in this directory tree - read them when touching those modules:
   drill holes (detection, phases, relief threading).
 - [`packing/AGENTS.md`](packing/AGENTS.md) - plate-space toolpath optimization + bin-packing
   (rotation, fill order, clearances, material, ellipse, rounded-rect).
+- [`relief/AGENTS.md`](relief/AGENTS.md) - relief engraving (raised islands): engrave-region geometry,
+  cutter ladders, the pluggable raster filler (S-Sweep), the stage loop and the export glue
+  (`relief_engraving*` fields, the `relief` stage in `export_per_cutter_plts`).
 - [`../cli/AGENTS.md`](../cli/AGENTS.md) - the CLI surface.
 
 Cross-references use `§Section` for a heading in this file and name the file for a heading in another contract.
@@ -137,7 +140,9 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
   `CutterSizeError` → §Physical vs. effective cutter diameter.
 - `cutter_buffer_text` (fallback 0.0, shop value) - kerf buffer added to a text cutter's physical diameter to get
   the engraved width · `cutter_buffer_routing` - the same buffer on the boundary/drill-hole cutter:
-  **label → job → shop value** (parity on text lines + plates). Both honor explicit 0.0 → §Physical vs. effective cutter diameter.
+  **label → job → shop value** (parity on text lines + plates). Both honor explicit 0.0 → §Physical vs. effective
+  cutter diameter. **Relief engraving neglects `cutter_buffer_text` under all circumstances** (islands are the
+  ink swept by the physical tool) → [`relief/AGENTS.md`](relief/AGENTS.md).
 - `cutter_downsize` (true) · `max_cutter_downsizes` (`ge=0`, 1, 0 disables) · `cutter_downsize_global`
   (true) · `cutter_downsize_global_job_wide` (false) → §Compression-Driven Cutter Downsizing.
 - `target_boldness_factor` (`[0.05, 0.30]`, fallback 0.14) · `multistroke_overlap_ratio` (`[0.1, 0.5]`,
@@ -175,6 +180,11 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
 - `material` - free-form stock name (trimmed, case-insensitive); labels sharing a material pack together
   and a plate never mixes materials. job → label, job → plate (an explicit plate value wins) →
   [`packing/AGENTS.md`](packing/AGENTS.md) "Material-Aware Grouping".
+- Relief engraving knobs, all **job → plate → label, never text lines** (parity; labels render before
+  packing): `relief_engraving` (false) · `relief_engraving_quality` (`"medium"`; the preset ladder) ·
+  `relief_engraving_cutters` (exact-width bypass list, replaces the preset) ·
+  `relief_engraving_preserve_border` (false) → [`relief/AGENTS.md`](relief/AGENTS.md). Relief neglects
+  `cutter_buffer_text` under all circumstances and zeroes the label margins (the ink IS the island).
 - Stacking block knobs, all **job → plate → label, never text lines** (parity; labels render before
   packing): `use_baseline_spacing` (true) → §Baseline-to-Baseline Line Spacing · `v_center_by_content`
   (false; inert while the relief is off) → §Baseline-to-Capline Band Centering ·

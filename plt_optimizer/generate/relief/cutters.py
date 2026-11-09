@@ -50,8 +50,10 @@ class ReliefCutter:
 
     Attributes:
         physical: Tool identity (file-name token, pen key) in inches.
-        effective: The width it engraves (physical + kerf buffer; equal to
-            physical for bypass-list cutters). Drives ALL relief geometry.
+        effective: The width it engraves. Relief engraving neglects
+            ``cutter_buffer_text`` under all circumstances, so effective
+            == physical for every relief cutter (bypass list and presets
+            alike). Drives ALL relief geometry.
     """
 
     physical: float
@@ -132,21 +134,22 @@ def select_relief_cutters(
     quality: str,
     regions: EngraveRegions,
     available_cutters: Sequence[float],
-    cutter_buffer: float = 0.0,
     logger: object = None,
 ) -> List[ReliefCutter]:
     """Select the relief cutter ladder for one label's regions.
+
+    Relief engraving neglects ``cutter_buffer_text`` under all
+    circumstances, so preset tools run at their PHYSICAL diameter
+    (effective == physical, exactly like bypass-list values).
 
     Args:
         quality: ``"coarse"`` / ``"medium"`` / ``"fine"``.
         regions: The label's engrave regions.
         available_cutters: The shop inventory (physical diameters, inches).
-        cutter_buffer: The label's ``cutter_buffer_text`` kerf buffer added
-            to physical tools for the effective width.
         logger: Optional logger for the WARNING fallbacks.
 
     Returns:
-        The ladder, largest EFFECTIVE diameter first (deduplicated).
+        The ladder, largest diameter first (deduplicated).
 
     Raises:
         ValueError: When the inventory is empty.
@@ -156,7 +159,7 @@ def select_relief_cutters(
         raise ValueError("relief cutter selection requires a non-empty cutter inventory")
 
     def _cutter(physical: float) -> ReliefCutter:
-        return ReliefCutter(physical=physical, effective=physical + cutter_buffer)
+        return ReliefCutter(physical=physical, effective=physical)
 
     def _warn(message: str) -> None:
         log = getattr(logger, "warning", None)
@@ -198,7 +201,7 @@ def select_relief_cutters(
     largest, smallest = _cutter(inventory[0]), _cutter(inventory[-1])
     if quality == "coarse":
         for physical in inventory:
-            if _admissible(physical + cutter_buffer):
+            if _admissible(physical):
                 return _finish([_cutter(physical)])
         _warn(
             "relief quality 'coarse': no inventory cutter engraves every region of the "

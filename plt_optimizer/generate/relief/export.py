@@ -86,7 +86,6 @@ def _plan_ladder(
     label: ResolvedLabel,
     regions: EngraveRegions,
     available_cutters: Sequence[float],
-    cutter_buffer: float,
     logger: Optional[TextLogger],
 ) -> Tuple[ReliefCutter, ...]:
     """The label's relief cutter ladder: the bypass list, else the preset.
@@ -96,13 +95,10 @@ def _plan_ladder(
         regions: The label's engrave regions (preset admissibility reads
             them; the bypass list does not).
         available_cutters: The shop inventory (inches).
-        cutter_buffer: The label's widest text kerf buffer -- the
-            physical-to-effective shift for preset-selected tools (bypass
-            values are exact engraved widths, per the schema contract).
         logger: Optional logger.
 
     Returns:
-        The ladder, largest effective first (empty when unselectable).
+        The ladder, largest diameter first (empty when unselectable).
     """
     if label.relief_engraving_cutters:
         return bypass_relief_cutters(label.relief_engraving_cutters)
@@ -119,7 +115,6 @@ def _plan_ladder(
             label.relief_engraving_quality,
             regions,
             available_cutters,
-            cutter_buffer=cutter_buffer,
             logger=logger,
         )
     )
@@ -279,7 +274,7 @@ def apply_relief_to_plates(
             rendered = rendered_labels_map.get(label.id)
             if rendered is None:
                 continue
-            ink = label_ink(rendered, pen_widths_for_label(dict(layer_by_pen), label))
+            ink = label_ink(rendered, pen_widths_for_label(dict(layer_by_pen)))
             # The ink's Y center in the render frame: the label box (and
             # every centering shift) rides it -- the plate transform centers
             # the text pen on the label, so the relief fill box is centered
@@ -308,8 +303,10 @@ def apply_relief_to_plates(
                 border_band=border_band,
                 box_y_center=c_text,
             )
-            cutter_buffer = max((line.cutter_buffer for line in label.content), default=0.0)
-            ladder = _plan_ladder(label, regions, available_cutters, cutter_buffer, logger)
+            # Relief neglects cutter_buffer_text under all circumstances:
+            # the ladder runs on exact diameters (bypass list) and physical
+            # inventory tools (preset selection).
+            ladder = _plan_ladder(label, regions, available_cutters, logger)
             if not ladder:
                 continue
             passes = generate_relief_passes(

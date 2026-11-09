@@ -2,8 +2,10 @@
 
 The raised islands are the exact silhouette normal engraving would cut: every
 engraved stroke of the label (text, decorations, markers -- anything on a
-text pen) widened to its ENGRAVED width (centerline strokes buffer by
-`width / 2`; closed contours fill as polygons, TTF-style). The engrave region
+text pen) widened to its ENGRAVED width -- the PHYSICAL cutter diameter
+(relief neglects ``cutter_buffer_text`` under all circumstances; centerline
+strokes buffer by `width / 2`; closed contours fill as polygons, TTF-style).
+The engrave region
 is the label box (optionally inset for `relief_engraving_preserve_border`)
 minus the island union, in label-local inches (+y up, the
 ``TextChunkRecord`` frame, so the plate transform applies to relief strokes
@@ -280,34 +282,31 @@ def label_ink(
     """Extract the label's engraved ink polylines with their widths.
 
     Walks the rendered chunk records (all text pens) in label-local (+y up)
-    coordinates. Per-stroke widths come from
-    :attr:`TextChunkRecord.stroke_widths` when present (the ``<cb:D>``
-    map), falling back to the pen's effective engraved width.
+    coordinates. Widths are the pen's PHYSICAL cutter diameter only:
+    relief neglects ``cutter_buffer_text`` under all circumstances, so the
+    per-stroke :attr:`TextChunkRecord.stroke_widths` map (the ``<cb:D>``
+    buffer mechanism) is deliberately not consulted -- a per-character
+    buffer must not inflate the raised islands either.
 
     Args:
         rendered: The rendered label.
-        pen_widths: Mapping of text pen number to its effective engraved
-            width in inches (cutter + kerf buffer).
+        pen_widths: Mapping of text pen number to its PHYSICAL cutter
+            width in inches (relief neglects ``cutter_buffer_text``; see
+            :func:`plt_optimizer.generate.relief.pipeline.pen_widths_for_label`).
 
     Returns:
         ``(polyline, engraved width)`` pairs for the island builder.
     """
     ink: List[Tuple[List[Point], float]] = []
     for record in rendered.text_chunks:
-        fallback = pen_widths.get(record.pen, 0.0)
-        stroke_index = 0
+        width = pen_widths.get(record.pen, 0.0)
         for block in record.blocks:
             for stroke in block.strokes:
                 if stroke.is_empty:
-                    stroke_index += 1
                     continue
-                width = fallback
-                if stroke_index < len(record.stroke_widths):
-                    width = record.stroke_widths[stroke_index]
                 points = stroke_to_points(stroke)
                 if len(points) >= 2:
                     ink.append((points, width))
-                stroke_index += 1
     return ink
 
 

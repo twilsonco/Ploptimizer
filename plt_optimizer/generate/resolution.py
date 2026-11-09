@@ -4763,9 +4763,15 @@ def _resolve_content(
         # intentional 0.0 (legacy engraved = nominal) is honored, and only
         # `None` means unset. The buffer widens the tool into the width it
         # engraves (see :func:`effective_cutter_diameter`); the tool itself
-        # stays physical.
-        if line.cutter_buffer_text is not None:
-            line_cutter_buffer: float = line.cutter_buffer_text
+        # stays physical. Relief engraving neglects `cutter_buffer_text`
+        # under all circumstances (the raised islands are the ink swept by
+        # the PHYSICAL tool, and the reference toolpaths render with
+        # toolpath = nominal - physical), so a relief label resolves every
+        # line's buffer to 0.0 before anything measures it.
+        if label_input.relief_engraving:
+            line_cutter_buffer = 0.0
+        elif line.cutter_buffer_text is not None:
+            line_cutter_buffer = line.cutter_buffer_text
         elif label_input.cutter_buffer_text is not None:
             line_cutter_buffer = label_input.cutter_buffer_text
         elif job.cutter_buffer_text is not None:

@@ -1,8 +1,9 @@
 """End-to-end relief engraving equivalence tests (the docs/TODO goal).
 
 Contract: running ``tests_deps/relief/relief_simple.yaml`` (a fixture copy
-of the user spec, zero-kerf test config) reproduces the EngraveLab ground
-truth ``A_relief_s-sweep_coarse_stroke_0.06.plt`` +
+of the user spec, the shop ``job-config.json`` -- relief engraving neglects
+``cutter_buffer_text`` under all circumstances) reproduces the EngraveLab
+ground truth ``A_relief_s-sweep_coarse_stroke_0.06.plt`` +
 ``A_relief_s-sweep_fine_stroke_0.005.plt`` GEOMETRICALLY, not
 byte-for-byte: material removed (stroke envelopes dilated by the tool
 radius) agrees with the reference to within a raster-phase tolerance band
@@ -57,8 +58,8 @@ def _zero_buffer_config(tmp_path: Path) -> Path:
     return path
 
 
-def _run(tmp_path: Path, spec_name: str, plate_size=(1.0, 1.0)):
-    config = _zero_buffer_config(tmp_path)
+def _run(tmp_path: Path, spec_name: str, plate_size=(1.0, 1.0), config_path=None):
+    config = Path("job-config.json") if config_path is None else config_path
     spec_path = RELIEF / spec_name
     spec = parse_yaml(spec_path, job_config_path=config)
     spec = expand_job_spec(spec, spec_path)
@@ -71,7 +72,7 @@ def _run(tmp_path: Path, spec_name: str, plate_size=(1.0, 1.0)):
     result = vectorize.export_per_cutter_plts(
         labels,
         provided_plates=None,
-        output_dir=tmp_path / "out",
+        output_dir=tmp_path / f"out-{config_path.name if config_path else 'shop'}",
         job_id=Path(spec_name).stem,
         plots=False,
         available_cutters=tools["available_cutters"],
@@ -233,6 +234,21 @@ class TestReliefSimpleCoverage:
         tools = _tools()
         assert relief_export["labels"][0].relief_engraving_cutters == (0.06, 0.005)
         assert 0.005 not in tools["available_cutters"]
+
+    def test_relief_ignores_cutter_buffer(self, tmp_path: Path) -> None:
+        """Relief neglects cutter_buffer_text: shop config == zero-buffer fixture.
+
+        The raised-island ink must stay the PHYSICAL tool width (a shop kerf
+        buffer would inflate the islands and overshoot the engraved marks),
+        so the relief PLTs are byte-identical under both configs.
+        """
+        _labels, _result, shop_files = _run(tmp_path, "relief_simple.yaml")
+        zero = RELIEF / "relief_zero_buffer_job_config.json"
+        _labels, _result, zero_files = _run(tmp_path, "relief_simple.yaml", config_path=zero)
+        for token in ("60_txt_", "5_txt_"):
+            shop_text = _file(shop_files, token).read_text(encoding="utf-8")
+            zero_text = _file(zero_files, token).read_text(encoding="utf-8")
+            assert shop_text == zero_text, token
 
 
 class TestReliefAltLegs:

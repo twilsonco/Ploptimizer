@@ -37,7 +37,6 @@ from shapely.ops import unary_union
 from plt_optimizer.generate.relief.cutters import ReliefCutter
 from plt_optimizer.generate.relief.filler import RasterFiller, SSweepFiller, region_polygons
 from plt_optimizer.generate.relief.regions import EngraveRegions
-from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.text_geometry import LineSeg, Stroke
 from plt_optimizer.utils.logging import TextLogger
 
@@ -250,27 +249,21 @@ def generate_relief_passes(
 
 def pen_widths_for_label(
     layers: Dict[int, Tuple[float, str]],
-    label: ResolvedLabel,
 ) -> Dict[int, float]:
-    """Map each text pen of a label to its effective engraved width.
+    """Map each text pen of a label to its PHYSICAL cutter width.
+
+    Relief engraving neglects ``cutter_buffer_text`` under all
+    circumstances: the raised islands are the ink swept by the physical
+    tool, so a shop kerf buffer never inflates the island silhouette (a
+    buffered island pushes the raster past the engraved marks).
 
     Args:
         layers: Pen -> ``(physical cutter, color)`` (``layer_by_pen``).
-        label: The resolved label; its ``content`` lines supply
-            ``used_cutters`` / ``effective_used_cutters``.
 
     Returns:
-        Pen number -> engraved width in inches (physical + the widest kerf
-        buffer among the lines using that cutter).
+        Pen number -> physical cutter diameter in inches.
     """
-    buffers: Dict[float, float] = {}
-    for line in label.content:  # ResolvedTextLine
-        for physical, effective in zip(line.used_cutters, line.effective_used_cutters):
-            buffers[physical] = max(buffers.get(physical, 0.0), effective - physical)
-    widths: Dict[int, float] = {}
-    for pen, (cutter, _color) in layers.items():
-        widths[pen] = cutter + buffers.get(cutter, 0.0)
-    return widths
+    return {pen: cutter for pen, (cutter, _color) in layers.items()}
 
 
 __all__ = [

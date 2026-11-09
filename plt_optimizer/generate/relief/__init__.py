@@ -9,9 +9,11 @@ frame) as one or more cutter ladders:
 
 1. the engrave region ``R`` = label box - raised islands (:mod:`.regions`),
 2. the cutter ladder -- the explicit ``relief_engraving_cutters`` bypass
-   (values are exact engraved widths, no inventory snap, no kerf buffer) or
-   the ``relief_engraving_quality`` preset selection against the region
-   geometry (:mod:`.cutters`),
+   (values are exact engraved widths, no inventory snap) or the
+   ``relief_engraving_quality`` preset selection against the region
+   geometry (:mod:`.cutters`); relief neglects ``cutter_buffer_text``
+   under all circumstances, so preset tools engrave at their PHYSICAL
+   diameter (effective == physical, exactly like bypass values),
 3. per cutter, descending: the tool-center region
    ``(C - disk(e)) - prior coverage`` (``e = d/2`` for components touching
    the label border, ``e = d`` for enclosed components such as text

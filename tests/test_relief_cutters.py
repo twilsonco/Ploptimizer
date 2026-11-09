@@ -102,10 +102,12 @@ class TestSelectPresets:
         assert [c.physical for c in ladder] == [0.25, 0.005]
         assert any("falling back" in w.lower() for w in logger.warnings)
 
-    def test_buffer_shifts_effective(self) -> None:
+    def test_buffer_neglected(self) -> None:
+        # Relief engraving neglects cutter_buffer_text under all
+        # circumstances: preset tools engrave at their physical diameter.
         regions = _regions(_a_ink())
-        ladder = select_relief_cutters("medium", regions, [0.03, 0.06], cutter_buffer=0.015)
-        assert all(math.isclose(c.effective - c.physical, 0.015) for c in ladder)
+        ladder = select_relief_cutters("medium", regions, [0.03, 0.06])
+        assert all(math.isclose(c.effective, c.physical) for c in ladder)
 
     def test_unknown_quality_raises(self) -> None:
         regions = _regions(_a_ink())

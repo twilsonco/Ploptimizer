@@ -101,30 +101,10 @@ def _stroke_points(stroke):
 
 
 class TestPenWidthsForLabel:
-    """Pen -> engraved width uses the line buffers."""
+    """Pen -> engraved width uses the PHYSICAL cutter (buffer neglected)."""
 
-    def test_buffer_applied(self) -> None:
-        from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
-
-        line = ResolvedTextLine(
-            text="A",
-            nominal_text_height=0.5,
-            toolpath_text_height=0.44,
-            cutter_diameter=0.06,
-            cutter_buffer=0.015,
-            character_spacing=0.0,
-            line_spacing=0.0,
-        )
-        label = ResolvedLabel(
-            id="l1",
-            count=1,
-            width=1.0,
-            height=1.0,
-            margin=0.0,
-            h_margin=0.0,
-            v_margin=0.0,
-            content=[line],
-        )
-        widths = pen_widths_for_label({1: (0.06, "none"), 4: (0.03, "none")}, label)
-        assert widths[1] == pytest.approx(0.075)
+    def test_buffer_neglected(self) -> None:
+        layers = {1: (0.06, "none"), 4: (0.03, "none")}
+        widths = pen_widths_for_label(layers)
+        assert widths[1] == pytest.approx(0.06)
         assert widths[4] == pytest.approx(0.03)

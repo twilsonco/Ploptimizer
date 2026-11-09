@@ -8626,3 +8626,25 @@ class TestReliefEngravingCascade:
     def test_plain_label_keeps_margins(self) -> None:
         resolved = resolve_job_spec(self._job(margin=0.25))[0]
         assert resolved.h_margin == 0.25
+
+    def test_relief_neglects_cutter_buffer_text(self) -> None:
+        """Relief lines resolve cutter_buffer 0.0: toolpath = nominal - physical."""
+        plain = resolve_job_spec(
+            self._job(cutter_size=0.06, cutter_buffer_text=0.015),
+            available_cutters=[0.005, 0.06],
+        )[0]
+        assert plain.content[0].cutter_buffer == 0.015
+        assert plain.content[0].toolpath_text_height == pytest.approx(0.5 - 0.075)
+        relief = resolve_job_spec(
+            self._job(relief_engraving=True, cutter_size=0.06, cutter_buffer_text=0.015),
+            available_cutters=[0.005, 0.06],
+        )[0]
+        assert relief.content[0].cutter_buffer == 0.0
+        assert relief.content[0].toolpath_text_height == pytest.approx(0.5 - 0.06)
+
+    def test_plain_label_keeps_cutter_buffer_text(self) -> None:
+        resolved = resolve_job_spec(
+            self._job(label_relief_engraving=False, cutter_buffer_text=0.015),
+            available_cutters=[0.005, 0.06],
+        )[0]
+        assert resolved.content[0].cutter_buffer == 0.015

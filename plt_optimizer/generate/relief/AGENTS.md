@@ -27,7 +27,9 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   (enclosed counters - erode by the radius; the pass-floor test is what stops
   a coarse cutter from skipping a counter).
 - `cutters.py` - `ReliefCutter(physical, effective)` (effective drives ALL
-  geometry; physical names the file/pen), `bypass_relief_cutters` (the
+  geometry; physical names the file/pen; relief neglects
+  `cutter_buffer_text` under all circumstances, so effective == physical
+  for presets AND bypass values), `bypass_relief_cutters` (the
   `relief_engraving_cutters` list: exact engraved widths, no buffer, no
   inventory, descending), `select_relief_cutters` (preset ladder: coarse =
   largest admissible; medium = largest + smallest; fine = largest + middle
@@ -58,7 +60,10 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   `TextChunkRecord` per relief stroke on the relief pens, `plt_content` =
   border SP2 + relief sections (text pens and SP3 holes dropped),
   `band_center_offset_inches` forced so the plate transform centers the
-  symmetric fill box on the label). Relief strokes are emitted as LineSeg
+  symmetric fill box on the label; the ink fed to `label_ink` is widened by
+  the PHYSICAL cutter widths from `pen_widths_for_label` - a shop
+  `cutter_buffer_text` never inflates the islands). Relief strokes are
+  emitted as LineSeg
   chains in label-local +y-up inches (the `TextChunkRecord` frame) -
   rotation/slot/flip ride the normal `_label_transform`.
 
