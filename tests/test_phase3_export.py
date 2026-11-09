@@ -8011,12 +8011,19 @@ class TestReliefEngravingDemo:
         fine_text = fine.read_text(encoding="utf-8")
         assert "SP" in coarse_text and "PU" in coarse_text
         assert "SP" in fine_text and "PU" in fine_text
-        # The relief layers now cut native arcs (Task 5): box corners,
-        # island-tip caps, counter corners.
-        assert "AA" in coarse_text
-        assert coarse_text.count("AA") >= 4
-        # The box rows land at the radius-inset + pitch grid: 54.864 -> 55.
-        assert "PD43,961" in coarse_text.replace("973.328", "973") or "961" in coarse_text
+        # The relief layers cut native arcs (parity II): the coarse layer
+        # carries the 3 island-tip caps over the raised "A" (its border
+        # ring is the SHARP square PU30,30 - PD986,30 - ... with no
+        # AA), the fine layer the 4 box-corner arcs at r_c - r_f around
+        # the coarse corners + the 2 pit rings at the coarse core corners.
+        assert coarse_text.count("AA") == 3
+        assert "PU30,30;" in coarse_text
+        assert fine_text.count("AA") == 6
+        # The box rows land on the radius-inset grid: device
+        # 30.48 + k*pitch, k >= 1 (54.864 -> 55 ... 981.456 -> 981, the
+        # reference grid; no rows on the bbox edges at 30.48/985.52).
+        assert "PD43,55;" in coarse_text and "PD43,981;" in coarse_text
+        assert "PD43,30;" not in coarse_text and "PD43,986;" not in coarse_text
         assert coarse_text.count("PD") > 100
 
     def test_relief_suppresses_plain_text_and_holes(self, tmp_path: Path) -> None:
