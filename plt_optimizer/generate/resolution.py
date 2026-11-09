@@ -632,6 +632,9 @@ DEFAULT_RELIEF_ENGRAVING: bool = False
 DEFAULT_RELIEF_ENGRAVING_QUALITY: str = "medium"
 RELIEF_ENGRAVING_QUALITIES: frozenset[str] = frozenset({"coarse", "medium", "fine"})
 DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER: bool = False
+# Relief raster row overlap percent: 60.0 reproduces the EngraveLab
+# reference grid (row pitch = cutter diameter * (1 - overlap/100) = 0.4d).
+DEFAULT_RELIEF_ENGRAVING_STROKE_OVERLAP_PERCENT: float = 60.0
 
 # The corner exponent of a superellipse |x/rx|^n + |y/ry|^n = 1 that produces
 # a sharp rectangle in the limit (fraction -> 0 => n -> infinity). Used by the
@@ -2478,6 +2481,10 @@ class ResolvedLabel:
             `relief_engraving_preserve_border` cascade, default `False` =
             the relief fills edge-to-edge and the coarsest relief cutter
             engraves the border outline inset by its radius).
+        relief_engraving_stroke_overlap_percent: Relief raster row overlap
+            percent (from the `relief_engraving_stroke_overlap_percent`
+            cascade, default 60.0). Row pitch = cutter diameter *
+            (1 - overlap/100); 60.0 is the EngraveLab reference grid (0.4d).
         cutter_downsize_by_line: Mapping of line index to the `(original,
             final)` cutter diameters in inches for lines whose *automatic*
             cutter was reduced by the compression-driven cutter reduction
@@ -2663,6 +2670,7 @@ class ResolvedLabel:
     relief_engraving_quality: str = DEFAULT_RELIEF_ENGRAVING_QUALITY
     relief_engraving_cutters: tuple[float, ...] = ()
     relief_engraving_preserve_border: bool = DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER
+    relief_engraving_stroke_overlap_percent: float = DEFAULT_RELIEF_ENGRAVING_STROKE_OVERLAP_PERCENT
 
     @property
     def effective_hole_cutter_diameter(self) -> float:
@@ -5625,6 +5633,12 @@ def _resolve_label(
     elif job.relief_engraving_preserve_border is not None:
         label_relief_preserve_border = job.relief_engraving_preserve_border
 
+    label_relief_overlap: float = DEFAULT_RELIEF_ENGRAVING_STROKE_OVERLAP_PERCENT
+    if label_input.relief_engraving_stroke_overlap_percent is not None:
+        label_relief_overlap = label_input.relief_engraving_stroke_overlap_percent
+    elif job.relief_engraving_stroke_overlap_percent is not None:
+        label_relief_overlap = job.relief_engraving_stroke_overlap_percent
+
     # Relief fills the whole label: the margins only exist to keep text out
     # of the plate border area, which relief does not engrave. Zero them so
     # the rendered ink keeps its natural width (margin-fit compression
@@ -5887,6 +5901,7 @@ def _resolve_label(
         relief_engraving_quality=label_relief_quality,
         relief_engraving_cutters=label_relief_cutters,
         relief_engraving_preserve_border=label_relief_preserve_border,
+        relief_engraving_stroke_overlap_percent=label_relief_overlap,
     )
 
     # Compute and apply hole-aware shifts after the label is constructed.

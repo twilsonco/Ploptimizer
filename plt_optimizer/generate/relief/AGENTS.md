@@ -37,20 +37,31 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   - the rules and fallbacks are pinned by `tests/test_relief_cutters.py`).
 - `filler.py` - the pluggable pattern. `RasterFiller` Protocol:
   `fill(regions, pitch)` -> contiguous strokes, `outline(regions)` -> closed
-  boundary rings. `SSweepFiller`: scanlines at `pitch = 0.4 * d` anchored at
+  boundary rings. `SSweepFiller`: scanlines at `pitch` (passed in by the
+  pipeline: `d * (1 - relief_engraving_stroke_overlap_percent/100)`, 60%
+  default = the reference `0.4 * d`) anchored at
   each region's bbox bottom + pitch (reference grid), row ENDS inset
   `end_inset_fraction * pitch` (1.25 default = d/2: capsule caps land tangent
   to the core, never into islands; 0.5 = the reference's counter-strip inset),
-  serpentine chain continuation only while BOTH the link and the row traversal
-  stay inside the region (splits -> independent strokes, pen-up), outlines =
+  rows grouped into x-continuous LANES (`_lanes`, interval overlap across
+  rows) and serpentine-chained per lane with lane-local parity - split
+  regions (the "A" legs) keep the pen-down pitch-spaced connectors, the link
+  stays inside the region, a region split starts a new chain per lane),
+  outlines =
   exterior + interior rings. Future patterns (spiral:
   `examples/plt_relief_engraving/A_relief_spiral_*.plt`) implement the
   Protocol without touching `pipeline.py`.
-- `pipeline.py` - stage loop: per cutter (largest first) core = comp erosion,
-  rest = core minus ALL prior stroke coverage (`_coverage_of`: rows/outlines
+- `pipeline.py` - stage loop: per cutter (largest first) core = comp erosion
+  (radius), rest = core minus ALL prior stroke coverage (`_coverage_of`: rows/outlines
   dilated by `d/2`, clipped to the engrave region - swept area over an island
   removes no material), fill then outline per rest region, coverage feeds the
   next stage; every contiguous fill stroke / outline ring is one chunk.
+  `overlap_percent` (from `relief_engraving_stroke_overlap_percent`) sets the
+  pitch. KNOWN (b) divergence (documented, tracked): the reference's 13-row
+  fine chains along the "A" legs run INSIDE the leg islands (EngraveLab's
+  raster core is the glyph CENTERLINE minus d/2); our island-edge eroded core
+  mirrors that skin band outside the island - an exact strip match needs a
+  centerline-distance core model.
   Residuals > `_RESIDUAL_TOLERANCE` sq in log a WARNING (features narrower
   than the finest cutter); chunk-count guard `_MAX_CHUNK_WARNING`.
 - `export.py` - `relief_pen_layers` (candidate pens reserved pre-render -
@@ -69,15 +80,26 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
 
 ## Ground-truth constants (verified against the references, 1016 u/in)
 
-- Raster pitch = `0.4 * effective_diameter` (24.384u @ 0.06, 2.032u @ 0.005).
+- Raster pitch = `d * (1 - relief_engraving_stroke_overlap_percent/100)`;
+  the 60.0 default = `0.4 * effective_diameter` (24.384u @ 0.06, 2.032u @
+  0.005 - exact in the references).
 - Border: outer components erode by the RADIUS; the plate/label border line
   the coarsest cutter engraves sits at the radius inset (tool edge tangent to
   the label edge).
 - Counter outlines sit at the eroded core boundary; the `d/2` skin from there
   to the island edge is the NEXT (finer) cutter's rest strip (the reference's
   fine pass re-cuts it, fill-then-outline).
-- Coverage equivalence (not stroke identity) is the test contract - see
-  `tests/test_relief_export.py` thresholds and `tests/relief_coverage.py`.
+- Coverage equivalence (not stroke identity) is the loose test contract - see
+  `tests/test_relief_export.py` thresholds and `tests/relief_coverage.py`;
+  the STRICT layer is the stroke chamfer
+  (`plt_optimizer/diagnostics/stroke_compare.py`, driven by
+  `scripts/compare_relief_strokes.py`) - missing/extra/shifted strokes localize
+  exactly where we deviate from the references.
+- Relief engraving neglects `cutter_buffer_text` under all circumstances:
+  resolution zeroes the line buffer, ink widths are physical, presets run at
+  physical diameter (effective == physical), and the relief output is
+  byte-identical across shop/zero-buffer configs (pinned by
+  `tests/test_relief_export.py::test_relief_ignores_cutter_buffer`).
 
 ## Invariants
 
@@ -90,4 +112,5 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   generate export path). Match `generate/` typing/style (modern hints, strict
   mypy on `plt_optimizer/`).
 - `tests_deps/relief/` fixtures (reference PLTs + both YAMLs + the zero-buffer
-  test config) are frozen like all of `tests_deps/`.
+  test config, now the buffer-invariance control) are frozen like all of
+  `tests_deps/`.

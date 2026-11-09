@@ -4016,6 +4016,49 @@ class TestReliefEngravingFields:
         assert label.relief_engraving_quality is None
         assert label.relief_engraving_cutters is None
         assert label.relief_engraving_preserve_border is None
+        assert label.relief_engraving_stroke_overlap_percent is None
+
+    def test_overlap_percent_bounds(self) -> None:
+        # [0, 100): 0.0 (touching rows) is a value, 100 (zero pitch) is not.
+        label = LabelSpec(
+            id="l",
+            width=2.0,
+            height=1.0,
+            relief_engraving_stroke_overlap_percent=0.0,
+            content=[TextLine(text="X")],
+        )
+        assert label.relief_engraving_stroke_overlap_percent == 0.0
+        for bad in (100.0, 101.0, -0.1):
+            with pytest.raises(ValidationError, match="relief_engraving_stroke_overlap_percent"):
+                LabelSpec(
+                    id="l",
+                    width=2.0,
+                    height=1.0,
+                    relief_engraving_stroke_overlap_percent=bad,
+                    content=[TextLine(text="X")],
+                )
+
+    def test_overlap_percent_plate_parity_and_cascade(self) -> None:
+        plate = PlateSpec(
+            id="p", width=2.0, height=2.0, relief_engraving_stroke_overlap_percent=50.0
+        )
+        assert plate.relief_engraving_stroke_overlap_percent == 50.0
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            relief_engraving_stroke_overlap_percent=75.0,
+            labels=[
+                LabelSpec(id="l1", content=[TextLine(text="X")]),
+                LabelSpec(
+                    id="l2",
+                    relief_engraving_stroke_overlap_percent=40.0,
+                    content=[TextLine(text="X")],
+                ),
+            ],
+        )
+        assert job.labels[0].relief_engraving_stroke_overlap_percent == 75.0
+        assert job.labels[1].relief_engraving_stroke_overlap_percent == 40.0
 
     def test_quality_enum_validated(self) -> None:
         with pytest.raises(ValidationError, match="relief_engraving_quality"):

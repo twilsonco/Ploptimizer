@@ -93,6 +93,50 @@ class TestGenerateReliefPasses:
         regions = build_engrave_regions(1.0, 1.0, [], True, border_band=1.0)
         assert generate_relief_passes(regions, [ReliefCutter(0.06, 0.06)]) == []
 
+    def test_overlap_percent_scales_pitch(self) -> None:
+        regions = self._regions()
+        passes = generate_relief_passes(regions, [ReliefCutter(0.06, 0.06)], overlap_percent=50.0)
+        # pitch = 0.06 * (1 - 50/100) = 0.03.
+        ys = sorted(
+            {c.imag for s in passes[0].strokes if not s.is_outline for c in _stroke_points(s)}
+        )
+        diffs = {round(b - a, 6) for a, b in zip(ys, ys[1:]) if b - a > 1e-9}
+        assert any(math.isclose(d, 0.03, abs_tol=1e-4) for d in diffs)
+
+    def test_overlap_percent_bounds_raise(self) -> None:
+        regions = self._regions()
+        for bad in (100.0, -1.0):
+            with pytest.raises(ValueError, match="overlap"):
+                generate_relief_passes(regions, [ReliefCutter(0.06, 0.06)], overlap_percent=bad)
+
+    def test_staged_coverage_includes_outline_sweep(self) -> None:
+        """Coverage = fill AND outline envelopes (the proven model).
+
+        The fine pass engraves only material nothing swept: inside the
+        coarse core (fully swept) the fine fills nothing; its rest is the
+        corners/pockets/skins outside the coarse envelope. (A fill-only
+        coverage model over-engraves 32x the reference fine area --
+        measured, rejected.)
+        """
+        outer = [(0.3, -0.2), (0.7, -0.2), (0.7, 0.2), (0.3, 0.2), (0.3, -0.2)]
+        inner = [(0.45, -0.05), (0.55, -0.05), (0.55, 0.05), (0.45, 0.05), (0.45, -0.05)]
+        regions = build_engrave_regions(1.0, 1.0, [(outer, 0.1), (inner, 0.1)], False)
+        passes = generate_relief_passes(
+            regions, [ReliefCutter(0.06, 0.06), ReliefCutter(0.005, 0.005)]
+        )
+        fine = passes[1]
+        # The coarse swept the whole counter core (0.48..0.52 at center
+        # height): a horizontal fine row fully inside the swept core
+        # interior must not exist.
+        for stroke in fine.strokes:
+            if stroke.is_outline:
+                continue
+            pts = [(c.real, c.imag) for c in _stroke_points(stroke)]
+            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                if abs(y1 - y0) < 1e-9 and -0.04 < y0 < 0.04:
+                    lo, hi = min(x0, x1), max(x0, x1)
+                    assert not (0.485 < lo and hi < 0.515), (lo, hi, y0)
+
 
 def _stroke_points(stroke):
     yield stroke.stroke.pen_up

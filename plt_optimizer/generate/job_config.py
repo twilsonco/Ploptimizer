@@ -1033,6 +1033,17 @@ class JobDefaults(BaseModel):
             "excluded from the engrave region. Unset falls back to false."
         ),
     )
+    relief_engraving_stroke_overlap_percent: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        lt=100.0,
+        description=(
+            "Default relief raster row overlap percent (job layer; cascades "
+            "job -> plate -> label). Row pitch = cutter_diameter * "
+            "(1 - overlap/100); 60.0 reproduces the EngraveLab reference "
+            "grid (a 0.4d pitch). Unset falls back to 60.0."
+        ),
+    )
     plate_width: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -1262,6 +1273,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "relief_engraving",
     "relief_engraving_quality",
     "relief_engraving_preserve_border",
+    "relief_engraving_stroke_overlap_percent",
     "left_clearance",
     "top_clearance",
     "auto_line_spacing_interline_to_top_bottom_ratio",

@@ -103,7 +103,13 @@ def _scanline_passes(polygon: BaseGeometry, pitch: float) -> float:
     return best
 
 
-def _admissible_erosion(comp: Polygon, effective: float, interior: bool, skel_half: float) -> bool:
+def _admissible_erosion(
+    comp: Polygon,
+    effective: float,
+    interior: bool,
+    skel_half: float,
+    pitch_fraction: float = 0.4,
+) -> bool:
     """True when ``comp`` admits one full raster pass at this cutter size.
 
     Matches :func:`plt_optimizer.generate.relief.pipeline._cores`: every
@@ -116,6 +122,8 @@ def _admissible_erosion(comp: Polygon, effective: float, interior: bool, skel_ha
         interior: Enclosed counter component.
         skel_half: Half the widest engraved stroke width (reserved for
             future centerline-aware counter math).
+        pitch_fraction: Row pitch as a fraction of the diameter
+            (``1 - overlap/100``).
     """
     del skel_half, interior
     if effective <= 0.0:
@@ -123,7 +131,7 @@ def _admissible_erosion(comp: Polygon, effective: float, interior: bool, skel_ha
     erosion = comp.buffer(-effective / 2.0)
     if erosion.is_empty:
         return False
-    pitch = 0.4 * effective
+    pitch = pitch_fraction * effective
     longest = 0.0
     for polygon in region_polygons(erosion):
         longest = max(longest, _scanline_passes(polygon, pitch / _PASS_SCAN_PITCH))
@@ -135,6 +143,7 @@ def select_relief_cutters(
     regions: EngraveRegions,
     available_cutters: Sequence[float],
     logger: object = None,
+    overlap_percent: float = 60.0,
 ) -> List[ReliefCutter]:
     """Select the relief cutter ladder for one label's regions.
 
@@ -147,6 +156,9 @@ def select_relief_cutters(
         regions: The label's engrave regions.
         available_cutters: The shop inventory (physical diameters, inches).
         logger: Optional logger for the WARNING fallbacks.
+        overlap_percent: Raster row overlap percent (pitch = d *
+            (1 - overlap/100)); the pass-floor admissibility test scans
+            the same grid the fill will use.
 
     Returns:
         The ladder, largest diameter first (deduplicated).
@@ -157,6 +169,7 @@ def select_relief_cutters(
     inventory = sorted({float(c) for c in available_cutters if c > 0.0}, reverse=True)
     if not inventory:
         raise ValueError("relief cutter selection requires a non-empty cutter inventory")
+    pitch_fraction = 1.0 - overlap_percent / 100.0
 
     def _cutter(physical: float) -> ReliefCutter:
         return ReliefCutter(physical=physical, effective=physical)
@@ -168,11 +181,15 @@ def select_relief_cutters(
 
     def _admissible(effective: float) -> bool:
         outer_ok = all(
-            _admissible_erosion(comp, effective, interior=False, skel_half=skel_half)
+            _admissible_erosion(
+                comp, effective, interior=False, skel_half=skel_half, pitch_fraction=pitch_fraction
+            )
             for comp in regions.outer
         )
         interior_ok = all(
-            _admissible_erosion(comp, effective, interior=True, skel_half=skel_half)
+            _admissible_erosion(
+                comp, effective, interior=True, skel_half=skel_half, pitch_fraction=pitch_fraction
+            )
             for comp in regions.interior
         )
         return outer_ok and interior_ok
@@ -181,7 +198,9 @@ def select_relief_cutters(
         if not regions.interior:
             return False
         return all(
-            _admissible_erosion(comp, effective, interior=True, skel_half=skel_half)
+            _admissible_erosion(
+                comp, effective, interior=True, skel_half=skel_half, pitch_fraction=pitch_fraction
+            )
             for comp in regions.interior
         )
 

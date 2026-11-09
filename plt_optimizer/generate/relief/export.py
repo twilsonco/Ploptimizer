@@ -116,6 +116,7 @@ def _plan_ladder(
             regions,
             available_cutters,
             logger=logger,
+            overlap_percent=label.relief_engraving_stroke_overlap_percent,
         )
     )
 
@@ -314,6 +315,7 @@ def apply_relief_to_plates(
                 ladder,
                 logger=logger,
                 log_prefix=f"label {label.id}: ",
+                overlap_percent=label.relief_engraving_stroke_overlap_percent,
             )
             if not passes:
                 continue

@@ -1991,6 +1991,22 @@ class TestReliefEngravingConfigFields:
         assert "relief_engraving" in _JOB_LAYER_FIELDS
         assert "relief_engraving_quality" in _JOB_LAYER_FIELDS
         assert "relief_engraving_preserve_border" in _JOB_LAYER_FIELDS
+        assert "relief_engraving_stroke_overlap_percent" in _JOB_LAYER_FIELDS
+
+    def test_overlap_percent_injected_and_validated(self, tmp_path: Path) -> None:
+        config = json.loads(Path("job-config.json").read_text(encoding="utf-8"))
+        config["relief_engraving_stroke_overlap_percent"] = 50.0
+        path = tmp_path / "job-config.json"
+        path.write_text(json.dumps(config), encoding="utf-8")
+        spec = tmp_path / "job.yaml"
+        spec.write_text(
+            "job:\n  job_name: R\n  width: 2.0\n  height: 1.0\n  content:\n    - text: X\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec, job_config_path=path)
+        assert job.relief_engraving_stroke_overlap_percent == 50.0
+        with pytest.raises(ValidationError, match="relief_engraving_stroke_overlap_percent"):
+            JobDefaults(relief_engraving_stroke_overlap_percent=100.0)
 
     def test_injected_into_job_spec(self, tmp_path: Path) -> None:
         config = json.loads(Path("job-config.json").read_text(encoding="utf-8"))

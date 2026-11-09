@@ -62,6 +62,7 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_RELIEF_ENGRAVING,
     DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER,
     DEFAULT_RELIEF_ENGRAVING_QUALITY,
+    DEFAULT_RELIEF_ENGRAVING_STROKE_OVERLAP_PERCENT,
     DEFAULT_ROUNDED_RECTANGLE_FRACTION,
     DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL,
     DEFAULT_SC_SCALE,
@@ -8580,6 +8581,23 @@ class TestReliefEngravingCascade:
         assert resolved.relief_engraving_quality == DEFAULT_RELIEF_ENGRAVING_QUALITY
         assert resolved.relief_engraving_cutters == ()
         assert resolved.relief_engraving_preserve_border is DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER
+        assert (
+            resolved.relief_engraving_stroke_overlap_percent
+            == DEFAULT_RELIEF_ENGRAVING_STROKE_OVERLAP_PERCENT
+        )
+
+    def test_overlap_percent_cascades(self) -> None:
+        resolved = resolve_job_spec(
+            self._job(relief_engraving_stroke_overlap_percent=50.0),
+        )[0]
+        assert resolved.relief_engraving_stroke_overlap_percent == 50.0
+        resolved = resolve_job_spec(
+            self._job(
+                relief_engraving_stroke_overlap_percent=50.0,
+                label_relief_engraving_stroke_overlap_percent=80.0,
+            ),
+        )[0]
+        assert resolved.relief_engraving_stroke_overlap_percent == 80.0
 
     def test_job_cascades(self) -> None:
         resolved = resolve_job_spec(

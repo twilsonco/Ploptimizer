@@ -1576,6 +1576,15 @@ class LabelAttributes(TextAttributes):
             + PLATE_PARITY_TAIL
         ),
     )
+    relief_engraving_stroke_overlap_percent: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        lt=100.0,
+        description=(
+            "With `relief_engraving` enabled: percent overlap between adjacent relief raster rows. The row pitch is `cutter_diameter * (1 - overlap/100)`: 60.0 (the EngraveLab reference grid) gives a 0.4d pitch - a 0.036in overlap for a 0.06in cutter, 0.003in for a 0.005in cutter. Higher values engrave denser (more rows, more travel); 0.0 leaves rows merely touching. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 60.0."
+            + PLATE_PARITY_TAIL
+        ),
+    )
 
     @field_validator("material")
     @classmethod
@@ -2499,6 +2508,17 @@ class PlateSpec(BaseModel):
             "`relief_engraving_preserve_border` field for semantics."
         ),
     )
+    relief_engraving_stroke_overlap_percent: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        lt=100.0,
+        description=(
+            "Relief raster row overlap percent; cascades job -> plate -> "
+            "pinned label (a label's own value wins; an explicit `null` "
+            "counts as unset). Must be in [0.0, 100.0). See the label-level "
+            "`relief_engraving_stroke_overlap_percent` field for semantics."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod
@@ -3266,6 +3286,7 @@ class JobSpec(LabelAttributes):
             "relief_engraving_quality",
             "relief_engraving_cutters",
             "relief_engraving_preserve_border",
+            "relief_engraving_stroke_overlap_percent",
         )
         if self.plates is not None:
             updated_plates: list[PlateSpec] = []

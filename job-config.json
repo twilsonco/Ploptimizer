@@ -55,6 +55,7 @@
   "relief_engraving": false,
   "relief_engraving_quality": "medium",
   "relief_engraving_preserve_border": false,
+  "relief_engraving_stroke_overlap_percent": 60.0,
   "use_baseline_spacing": true,
   "v_center_by_content": false,
   "auto_descending_character_adjustment": true,

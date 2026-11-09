@@ -99,7 +99,7 @@ JobSpec (job-level defaults)
 └── PlateSpec (material sheet definitions)
 ```
 
-The field set is `TextAttributes` (51) + the `LabelAttributes` additions (21) in `schema.py`; this is
+The field set is `TextAttributes` (51) + the `LabelAttributes` additions (22) in `schema.py`; this is
 a **routing index** (tiers, code fallback, owning section), never a restatement of the `description`
 strings. `parity` = accepted on `PlateSpec` for schema parity only, not applied at plate level (labels
 render before packing). "shop value" = the `job-config.json` entry - hand-tuned, never cited

@@ -411,6 +411,7 @@ THEMES: Tuple[Theme, ...] = (
             "relief_engraving_quality",
             "relief_engraving_cutters",
             "relief_engraving_preserve_border",
+            "relief_engraving_stroke_overlap_percent",
         ),
         enums=("LabelShape",),
         pitfalls=(
@@ -434,7 +435,10 @@ THEMES: Tuple[Theme, ...] = (
             "and corners) - `relief_engraving_cutters: [0.06, 0.005]` overrides it "
             "with exact engraved widths that bypass `tools.json` entirely. "
             "`relief_engraving_preserve_border: true` keeps the label border as a "
-            "raised ridge instead of engraving it. All four cascade job -> plate -> "
+            "raised ridge instead of engraving it. "
+            "`relief_engraving_stroke_overlap_percent` (default 60.0) sets the "
+            "raster row pitch $d \\cdot (1 - overlap/100)$ - raise it for a "
+            "denser, smoother floor. All five cascade job -> plate -> "
             "label, so some labels can be relief and others not.",
         ),
         see_also=("cascade-and-config", "holes-and-collision", "line-stacking-and-reflow"),

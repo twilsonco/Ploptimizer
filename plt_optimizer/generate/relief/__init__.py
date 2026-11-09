@@ -15,18 +15,23 @@ frame) as one or more cutter ladders:
    under all circumstances, so preset tools engrave at their PHYSICAL
    diameter (effective == physical, exactly like bypass values),
 3. per cutter, descending: the tool-center region
-   ``(C - disk(e)) - prior coverage`` (``e = d/2`` for components touching
-   the label border, ``e = d`` for enclosed components such as text
-   counters), raster-filled by the pluggable :class:`.filler.RasterFiller`
-   (S-Sweep serpentine, row pitch ``0.4 * d``, contiguous links), and
-   outlined by a clean pass ONCE the fill of each region is done (fill
+   ``(C - disk(e)) - prior coverage`` for border-touching components
+   (``e = d/2``), the FULL core for enclosed counters (the reference's
+   fine pass re-cuts the whole counter), raster-filled by the pluggable
+   :class:`.filler.RasterFiller` (S-Sweep serpentine, row pitch
+   ``d * (1 - overlap/100)`` -- 60% overlap = the reference ``0.4 * d``
+   grid -- contiguous per-lane links), and outlined by a clean pass ONCE
+   the fill of each region is done (fill
    first, outline after -- the outline squares off the raster's scalloped
    edge),
-4. finer cutters repeat on the rest material the previous coverage left
-   (morphological identity: ``(R - disk(r1)) + disk(r2) = R - disk(r1-r2)``
-   for disks, so the coarse pass over an enclosed counter leaves a
-   ``d/2``-wide skin for the next cutter, and concave corners + sharp
-   pockets for the finest one).
+ 4. finer cutters repeat on the rest material the previous coverage left
+    (morphological identity: ``(R - disk(r1)) + disk(r2) = R - disk(r1-r2)``
+    for disks, so the coarse pass over an enclosed counter leaves a
+    ``d/2``-wide skin for the next cutter, and concave corners + sharp
+    pockets for the finest one). KNOWN DIVERGENCE (b): the reference's
+    13-row fine chains along the "A" legs run INSIDE the leg islands
+    (EngraveLab's raster core is the glyph CENTERLINE minus d/2); our
+    island-edge eroded core mirrors that band outside the island.
 
 Geometry runs on shapely (a core dependency, already used on the generate
 path by ``packing/ellipse_packer``); the module is matplotlib-free.
@@ -35,14 +40,15 @@ Ground truth: ``examples/plt_relief_engraving/A_relief_s-sweep_*.plt``
 (EngraveLab). Derived constants verified against the references (1016
 units/inch):
 
-- raster row pitch = ``0.4 * cutter diameter`` (24.384u for 0.06in,
+- raster row pitch = ``d * (1 - overlap/100)`` with
+  ``relief_engraving_stroke_overlap_percent`` default 60.0, i.e.
+  ``0.4 * cutter diameter`` (24.384u for 0.06in,
   2.032u for 0.005in -- exact in both reference files);
 - border outline inset = cutter radius (plate box engraved 30.48..985.52
   by the 0.06 cutter);
-- enclosed-counter fill boundary = erosion by the FULL diameter (the "A"
-  counter outline base sits at the bar centerline - 60.96u = one 0.06in
-  diameter; its dilation by the radius reaches the raised island edge
-  exactly, leaving the ``d/2`` strip between that outline and the island
-  for the next cutter -- the fine reference fills exactly those strips and
-  the corner pockets).
+- every component's core erodes by the cutter RADIUS (outer: the tool edge
+  reaches the label edge tangentially; counter: the fill/outline chain
+  runs inside the counter's island edge, the ``d/2`` skin to the island
+  engraves in the NEXT, finer cutter's clean pass -- the reference's fine
+  counter outline sits one radius off the island boundary);
 """

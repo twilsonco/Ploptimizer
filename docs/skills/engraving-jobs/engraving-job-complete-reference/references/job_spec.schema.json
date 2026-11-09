@@ -3257,7 +3257,7 @@
             }
           ],
           "default": null,
-          "description": "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
+          "description": "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The `cutter_buffer_text` kerf buffer is neglected for relief engraving under all circumstances: the islands are the ink swept by the PHYSICAL text cutters, so a shop buffer never inflates them past the engraved marks. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
           "title": "Relief Engraving"
         },
         "relief_engraving_quality": {
@@ -3307,6 +3307,21 @@
           "default": null,
           "description": "With `relief_engraving` enabled: false (the default, the EngraveLab reference behavior) raster-fills the whole label, edge to edge, and the coarsest relief cutter engraves the border outline inset by its own radius (the plate-cut border in the borders/holes file is unchanged). true keeps the label border as a raised ridge: the border band (the boundary/hole cutter's engraved width, offset by the coarsest relief cutter radius) is excluded from the engrave region. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
           "title": "Relief Engraving Preserve Border"
+        },
+        "relief_engraving_stroke_overlap_percent": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 100.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With `relief_engraving` enabled: percent overlap between adjacent relief raster rows. The row pitch is `cutter_diameter * (1 - overlap/100)`: 60.0 (the EngraveLab reference grid) gives a 0.4d pitch - a 0.036in overlap for a 0.06in cutter, 0.003in for a 0.005in cutter. Higher values engrave denser (more rows, more travel); 0.0 leaves rows merely touching. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 60.0. Accepted on plates for schema parity only.",
+          "title": "Relief Engraving Stroke Overlap Percent"
         },
         "id": {
           "description": "Unique identifier for this label specification.",
@@ -4441,6 +4456,21 @@
           "default": null,
           "description": "Keep the label border as a raised ridge during relief engraving; cascades job -> plate -> pinned label (a label's own value wins; an explicit `null` counts as unset). See the label-level `relief_engraving_preserve_border` field for semantics.",
           "title": "Relief Engraving Preserve Border"
+        },
+        "relief_engraving_stroke_overlap_percent": {
+          "anyOf": [
+            {
+              "exclusiveMaximum": 100.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Relief raster row overlap percent; cascades job -> plate -> pinned label (a label's own value wins; an explicit `null` counts as unset). Must be in [0.0, 100.0). See the label-level `relief_engraving_stroke_overlap_percent` field for semantics.",
+          "title": "Relief Engraving Stroke Overlap Percent"
         }
       },
       "required": [
@@ -6210,7 +6240,7 @@
         }
       ],
       "default": null,
-      "description": "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
+      "description": "Engrave the label in relief: instead of cutting the text strokes as grooves, the material AROUND the engraved stroke silhouette is rastered away so the text survives as a raised island of the exact stroke width normal engraving would cut. The `cutter_buffer_text` kerf buffer is neglected for relief engraving under all circumstances: the islands are the ink swept by the PHYSICAL text cutters, so a shop buffer never inflates them past the engraved marks. The normal text strokes are not emitted; drill holes are ignored (filled over). The passes use the relief cutter set selected automatically from `relief_engraving_quality` (largest admissible tool first, progressively finer tools for the corners and interior holes it cannot reach) or the explicit `relief_engraving_cutters` list when given. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
       "title": "Relief Engraving"
     },
     "relief_engraving_quality": {
@@ -6260,6 +6290,21 @@
       "default": null,
       "description": "With `relief_engraving` enabled: false (the default, the EngraveLab reference behavior) raster-fills the whole label, edge to edge, and the coarsest relief cutter engraves the border outline inset by its own radius (the plate-cut border in the borders/holes file is unchanged). true keeps the label border as a raised ridge: the border band (the boundary/hole cutter's engraved width, offset by the coarsest relief cutter radius) is excluded from the engrave region. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then false. Accepted on plates for schema parity only.",
       "title": "Relief Engraving Preserve Border"
+    },
+    "relief_engraving_stroke_overlap_percent": {
+      "anyOf": [
+        {
+          "exclusiveMaximum": 100.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "With `relief_engraving` enabled: percent overlap between adjacent relief raster rows. The row pitch is `cutter_diameter * (1 - overlap/100)`: 60.0 (the EngraveLab reference grid) gives a 0.4d pitch - a 0.036in overlap for a 0.06in cutter, 0.003in for a 0.005in cutter. Higher values engrave denser (more rows, more travel); 0.0 leaves rows merely touching. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 60.0. Accepted on plates for schema parity only.",
+      "title": "Relief Engraving Stroke Overlap Percent"
     },
     "job_name": {
       "description": "Human-readable name for this job.",

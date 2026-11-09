@@ -2,19 +2,25 @@
 
 The stage loop (per cutter, largest effective diameter first):
 
-- each engrave component's tool-center CORE: the border-touching (outer)
-  components erode by the cutter RADIUS (the tool edge reaches the label
-  edge tangentially), the enclosed (interior: text counters) components
-  erode by ``d - skeleton_width / 2`` -- negative when the cutter is
-  smaller than the surrounding island (the counter core then expands past
-  its island boundary, into the strip the previous cutter outlined),
-- the rest region for this cutter = its core minus ALL earlier cutters'
-  coverage (coverage = the stroke envelopes: every fill/outline polyline
-  dilated by ``d/2`` -- the row disks, not the full core dilation, so the
-  ``d/2`` margin band an outline engraved stays rest for the next, finer
-  cutter to re-clean, exactly as the EngraveLab references do),
-- the rest is raster-filled by the pluggable filler, then each region's
-  boundary is emitted as clean outline strokes (fill first, outline after),
+- each engrave component's tool-center CORE: every component erodes by the
+  cutter RADIUS (border-touching: the tool edge reaches the label edge
+  tangentially; enclosed counters: the fill runs inside the counter edge),
+- the fill region for this cutter: every component's core minus ALL
+  earlier cutters' coverage (coverage = the stroke envelopes: every
+  fill/outline polyline dilated by ``d/2`` -- the row disks, not the full
+  core dilation, so the ``d/2`` margin band an outline engraved stays
+  rest for the next, finer cutter to re-clean, exactly as the EngraveLab
+  references do),
+- KNOWN (b) DIVERGENCE (measured, documented, tracked): the reference's
+  13-row fine chains along the "A" legs run INSIDE the leg islands
+  (EngraveLab's raster core is the glyph CENTERLINE minus d/2), while our
+  island-edge eroded core mirrors that skin band outside the island.
+  Reproducing the strips exactly requires a centerline-distance core
+  model -- a core rework, not silently attempted here.
+- the regions are raster-filled by the pluggable filler at
+  ``pitch = d * (1 - overlap/100)`` (``relief_engraving_stroke_overlap_percent``,
+  60.0 = the reference 0.4d grid), then each region's boundary is emitted
+  as clean outline strokes (fill first, outline after),
 - one contiguous fill stroke / one outline ring = one chunk (the TSP node),
 - the final uncovered remainder is logged (a WARNING when it is more than
   sub-plotter-unit dust), which means the artwork has features narrower
@@ -41,14 +47,6 @@ from plt_optimizer.generate.text_geometry import LineSeg, Stroke
 from plt_optimizer.utils.logging import TextLogger
 
 Point = Tuple[float, float]
-
-#: Core dilation fraction: the EngraveLab reference raster centers run
-#: ~0.55*d past the engrave boundary into the raised islands (the bar/leg
-#: strips), leaving the island a raised core of about one third of its
-#: engraved width. 0.06 box rows: [42.672, 973.328] = inset 12.192 from
-#: the 30.48 radius-erosion; 0.06 counter rows end at leg centerline -77.4u
-#: = island edge + 33.6u = +0.55d into the band.
-_CORE_DILATE_FRACTION = 0.55
 
 #: Residual (uncovered) engrave area, in square inches, tolerated silently
 #: (skin the finest cutter cannot remove at its own d/2 boundary is
@@ -186,6 +184,7 @@ def generate_relief_passes(
     filler: Optional[RasterFiller] = None,
     logger: Optional[TextLogger] = None,
     log_prefix: str = "",
+    overlap_percent: float = 60.0,
 ) -> List[ReliefPass]:
     """Run the cutter ladder over the regions and emit the chunk strokes.
 
@@ -195,10 +194,19 @@ def generate_relief_passes(
         filler: The raster pattern engine (default :class:`SSweepFiller`).
         logger: Optional logger for the selection/residual report.
         log_prefix: Prefix for log lines (e.g. ``[label 3]``).
+        overlap_percent: Adjacent-row overlap percent; the raster pitch is
+            ``d * (1 - overlap/100)`` (60.0 = the reference 0.4d grid).
 
     Returns:
         One :class:`ReliefPass` per cutter that had geometry to engrave.
+
+    Raises:
+        ValueError: When ``overlap_percent`` is outside ``[0, 100)``.
     """
+    if not 0.0 <= overlap_percent < 100.0:
+        raise ValueError(
+            f"relief stroke overlap percent must be in [0, 100), got {overlap_percent!r}"
+        )
     active = filler if filler is not None else SSweepFiller()
     if regions.engrave.is_empty:
         return []
@@ -207,10 +215,18 @@ def generate_relief_passes(
     passes: List[ReliefPass] = []
     coverage: List[BaseGeometry] = []
     total_chunks = 0
+    pitch_fraction = 1.0 - overlap_percent / 100.0
     for cutter in ladder:
         d = cutter.effective
-        pitch = 0.4 * d
+        pitch = d * pitch_fraction
         outer_cores, interior_cores = _cores(regions, cutter)
+        # Border-touching components engrave only the material NO earlier
+        # cutter's FILL capsule reached. Counting an earlier cutter's
+        # OUTLINE sweep as coverage is what dropped the 13-row strip
+        # chains along the "A" legs in the reference comparison: the
+        # outline leaves a d/2 skin band that the NEXT, finer cutter
+        # re-cuts (fill-then-outline at every stage, the reference's
+        # fine chains run straight through the coarse outline sweep).
         rest_outer = _rest_region(outer_cores, coverage)
         rest_interior = _rest_region(interior_cores, coverage)
         rest = rest_outer + rest_interior
@@ -227,6 +243,16 @@ def generate_relief_passes(
                 strokes.append(ReliefStroke(stroke=_stroke_from_points(ring), is_outline=True))
         if not strokes:
             continue
+        # Staged coverage = the full swept envelope (fill rows AND outline
+        # rings dilated by d/2): the proven coverage-equivalence model
+        # (the fine pass engraves only the material nothing reached).
+        # KNOWN (b) DIVERGENCE: the reference's 13-row fine chains along
+        # the "A" legs run INSIDE the leg islands (EngraveLab's raster
+        # core is the glyph CENTERLINE minus d/2, so its fine cut reaches
+        # from centerline-2.54u to centerline-30.48u); our island-edge
+        # eroded core mirrors that band outside the island. Reproducing
+        # the reference strips exactly requires a centerline-distance
+        # core model -- tracked, not silently attempted.
         coverage.append(_coverage_of(fill_points + outline_points, d, regions.engrave))
         total_chunks += len(strokes)
         passes.append(ReliefPass(cutter=cutter, strokes=tuple(strokes)))

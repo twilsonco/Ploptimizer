@@ -169,6 +169,7 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "relief_engraving",
         "relief_engraving_quality",
         "relief_engraving_preserve_border",
+        "relief_engraving_stroke_overlap_percent",
     ),
     "fonts-and-capline": ("text_height", "font", "sc_scale", "enforce_cap_line"),
     "glyph-spacing-and-kerning": (
@@ -575,6 +576,12 @@ _FALLBACK_NOTES: dict[str, str] = {
     "`False` = the relief fills the label edge to edge and the coarsest relief "
     "cutter engraves the border outline inset by its own radius (the EngraveLab "
     "reference behavior).",
+    "DEFAULT_RELIEF_ENGRAVING_STROKE_OVERLAP_PERCENT": "Fallback relief raster "
+    "row overlap percent when the `relief_engraving_stroke_overlap_percent` "
+    "cascade resolves to unset at every tier (see "
+    ":attr:`plt_optimizer.generate.schema.LabelAttributes.relief_engraving_stroke_overlap_percent`). "
+    "`60.0` = the EngraveLab reference grid (row pitch $d \\cdot (1 - "
+    "overlap/100)$ = $0.4d$).",
     "DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL": "Fallback proportional-rounding flag when the "
     "`rounded_rectangle_proportional` cascade resolves to unset (see "
     ":attr:`plt_optimizer.generate.schema.LabelAttributes.rounded_rectangle_proportional`). "
