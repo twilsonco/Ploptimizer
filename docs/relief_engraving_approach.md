@@ -72,3 +72,5 @@ pocket_polytree = clipper.execute(
 ```
 
 From there, the resulting `pocket_polytree` contours can be fed directly into an S-sweep line clipper or an offset loop generator to produce the final G-code toolpaths.
+
+For more details, please see the [Clipper2](https://www.angusj.com/clipper2/Docs/Overview.htm) website and the [pyclipr](https://github.com/drlukeparry/pyclipr) documentation.

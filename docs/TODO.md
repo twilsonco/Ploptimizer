@@ -50,4 +50,5 @@
     - Regarding stroke optimization, each contiguous raster/fill stroke will be a single "chunk". The outline around each raster/filled region will also be treated as a separate "chunk" for optimization purposes. All the chunks can then be optimized to reduce rapid travel distance and do each raster/fill region in the most efficient order.
   - During research/planning for this substantial feature, We'll include web research for CNC relief engraving techniques, optimal cutter selection strategies, and rastering algorithms to ensure efficient and high-quality engraving results.
 - [ ] Add spiral rastering pattern for relief engraving. See `examples/plt_relief_engraving/A_relief_spiral_coarse_stroke_0.06.plt` and `examples/plt_relief_engraving/A_relief_spiral_fine_stroke_0.005.plt` for reference.
+- [ ] Add "island" rastering for relief engraving. See `examples/plt_relief_engraving/A_relief_island_coarse_stroke_0.06.plt` and `examples/plt_relief_engraving/A_relief_island_fine_stroke_0.005.plt` for reference.
 - [ ] Optimize unit tests so they complete faster. Let's aim for 120s or less for the entire test suite.
