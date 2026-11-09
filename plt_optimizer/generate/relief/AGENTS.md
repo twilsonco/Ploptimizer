@@ -64,6 +64,12 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   centerline-distance core model.
   Residuals > `_RESIDUAL_TOLERANCE` sq in log a WARNING (features narrower
   than the finest cutter); chunk-count guard `_MAX_CHUNK_WARNING`.
+- `arcify.py` - `fit_circular_runs(ring_points)`: groups a ring polyline's
+  same-sign turn runs and replaces provably-circular runs (Kasa fit, radius
+  bound, per-vertex deviation bound, sweep floor, >= 4 points so a single
+  sharp miter vertex never arcifies) with one native `ArcSeg`; chains close
+  tip-to-tail through each arc's DERIVED end. Unit tests
+  `tests/test_relief_arcify.py`.
 - `export.py` - `relief_pen_layers` (candidate pens reserved pre-render -
   unused pens produce no files) and `apply_relief_to_plates` (runs after
   layout/pack: builds regions from the rendered ink, plans the ladder, replaces
@@ -74,8 +80,12 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   symmetric fill box on the label; the ink fed to `label_ink` is widened by
   the PHYSICAL cutter widths from `pen_widths_for_label` - a shop
   `cutter_buffer_text` never inflates the islands). Relief strokes are
-  emitted as LineSeg
-  chains in label-local +y-up inches (the `TextChunkRecord` frame) -
+  emitted as mixed LineSeg/ArcSeg chains in label-local +y-up inches (the
+  `TextChunkRecord` frame; `arcify.fit_circular_runs` rebuilds the outline
+  rings' circular runs as native `PD;AA{cx},{cy},{sweep}` arcs - erosion
+  corners at the tool radius, semicircle caps over the raised text/markup
+  tips, concentric glyph-arc offsets; fill rows stay straight, the
+  reference rows are straight) -
   rotation/slot/flip ride the normal `_label_transform`.
 
 ## Ground-truth constants (verified against the references, 1016 u/in)

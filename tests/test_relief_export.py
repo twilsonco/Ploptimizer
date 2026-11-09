@@ -19,6 +19,7 @@ means tightening the model, not the test.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Dict
 
@@ -249,6 +250,90 @@ class TestReliefSimpleCoverage:
             shop_text = _file(shop_files, token).read_text(encoding="utf-8")
             zero_text = _file(zero_files, token).read_text(encoding="utf-8")
             assert shop_text == zero_text, token
+
+
+def _arcs(path: Path) -> list:
+    """All arc segments of a PLT (core-parsed, plotter units)."""
+    from plt_optimizer.core.models import ArcSegment
+
+    doc = PLTParser().parse_file(path)
+    return [
+        seg for stroke in doc.stroke_paths for seg in stroke.segments if isinstance(seg, ArcSegment)
+    ]
+
+
+class TestReliefArcOutlines:
+    """(c): outline rings cut NATIVE arcs (PD;AA) where the reference does.
+
+    The reference draws every rounded corner of the fill outlines as a
+    single AA command (box corners at the tool radius, semicircle caps
+    over the raised text tips); the old model emitted chord chains. Our
+    core is the island-edge model, so exact centers differ from
+    EngraveLab's centerline model on the counter arcs -- the assertions
+    pin the STRUCTURE (the reference's box-corner arcs, the island-tip
+    caps, the pocket corner radii) not the proprietary phases.
+    """
+
+    def test_coarse_box_corner_arcs(self, relief_export: dict) -> None:
+        arcs = _arcs(_file(relief_export["files"], "60_txt_"))
+        corners = []
+        for cx, cy in ((30.48, 30.48), (985.52, 30.48), (30.48, 985.52), (985.52, 985.52)):
+            hits = [
+                a
+                for a in arcs
+                if math.isclose(a.center.x, cx, abs_tol=2.0)
+                and math.isclose(a.center.y, cy, abs_tol=2.0)
+                and math.isclose(a.radius, 30.48, abs_tol=2.0)
+            ]
+            corners.append(len(hits))
+        assert corners == [1, 1, 1, 1], corners
+
+    def test_fine_box_corner_arc_radii(self, relief_export: dict) -> None:
+        arcs = _arcs(_file(relief_export["files"], "5_txt_"))
+        # Corner pockets' inner corners: the coarse core-corner arc
+        # (center (30.48,30.48), r = 30.48) swept by the fine tool. The
+        # pocket boundary is the coarse capsule dilation and the ring is
+        # split by the row caps, so the fitted circles land one radius
+        # out on the ring (centers (61,30), (30,61) ...) -- arcs centered
+        # within a cutter radius of the corner with r 24..34 certify the
+        # arcified pocket (reference: one AA per corner at (30.48,30.48)
+        # r 27.94; the center model gap is the documented island-edge vs
+        # centerline difference).
+        corners = ((30.48, 30.48), (985.52, 30.48), (30.48, 985.52), (985.52, 985.52))
+        for cx, cy in corners:
+            hits = [
+                a
+                for a in arcs
+                if 24.0 <= a.radius <= 34.0
+                and math.dist((a.center.x, a.center.y), (cx, cy)) <= 33.0
+            ]
+            assert hits, f"no pocket arc near corner ({cx},{cy})"
+
+    def test_island_tip_caps_are_arcs(self, relief_export: dict) -> None:
+        arcs = _arcs(_file(relief_export["files"], "60_txt_"))
+        # The outline ring wraps the raised "A" tips at the skeleton
+        # corners: (332.922,731.520), (683.078,731.520) (apex/bar junctions,
+        # reference sweep 180) and (507.868,281.280) (leg tip, sweep 137.5).
+        # Our round-join fillet centers the arc ON the corner at the tool
+        # radius (the reference widens by the notch angle: r = d/2 /
+        # sin(theta/2)) -- the STRUCTURE (an AA arc at every raised tip,
+        # centered on the tip) is pinned; the radius model gap is
+        # documented.
+        for cx, cy in ((332.922, 731.52), (683.078, 731.52), (507.868, 281.28)):
+            hits = [
+                a
+                for a in arcs
+                if math.isclose(a.center.x, cx, abs_tol=15.0)
+                and math.isclose(a.center.y, cy, abs_tol=15.0)
+                and abs(a.sweep_angle) >= 90.0
+            ]
+            assert hits, f"tip cap arc missing near ({cx:.1f},{cy:.1f})"
+
+    def test_no_degenerate_huge_arcs(self, relief_export: dict) -> None:
+        """The fitter must not turn straight edges into 1000-unit arcs."""
+        for token in ("60_txt_", "5_txt_"):
+            for arc in _arcs(_file(relief_export["files"], token)):
+                assert arc.radius < 400.0, arc.radius
 
 
 class TestReliefAltLegs:
