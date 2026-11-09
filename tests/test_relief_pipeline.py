@@ -109,6 +109,43 @@ class TestGenerateReliefPasses:
             with pytest.raises(ValueError, match="overlap"):
                 generate_relief_passes(regions, [ReliefCutter(0.06, 0.06)], overlap_percent=bad)
 
+    def test_fine_never_recuts_the_swept_counter_center(self) -> None:
+        """Counters are REST-ONLY at fine stages (user-reported waste).
+
+        The coarse pass sweeps the counter core fully (rows + outline,
+        dilated); the fine must find NOTHING to cut mid-counter - it
+        engraves only corner pockets the coarse cannot reach. The old
+        full-core re-clean model filled the whole hole twice, wasting
+        time where the coarse cutter already cleared.
+        """
+        box = [(0.0, 0.0), (0.0, 1.0)]
+        outer = [(0.2, -0.12), (0.8, -0.12), (0.8, 0.12), (0.2, 0.12), (0.2, -0.12)]
+        hole = [(0.3, -0.06), (0.7, -0.06), (0.7, 0.06), (0.3, 0.06), (0.3, -0.06)]
+        regions = build_engrave_regions(1.0, 1.0, [(outer, 0.1), (hole, 0.1), (box, 0.1)], False)
+        passes = generate_relief_passes(
+            regions, [ReliefCutter(0.06, 0.06), ReliefCutter(0.005, 0.005)]
+        )
+        fine = passes[1]
+        for stroke in fine.strokes:
+            if stroke.is_outline:
+                continue
+            pts = [(c.real, c.imag) for c in _stroke_points(stroke)]
+            xs = [x for x, _y in pts]
+            ys = [y for _x, y in pts]
+            inside_counter = (
+                min(xs) > 0.32 and max(xs) < 0.68 and min(ys) > -0.05 and max(ys) < 0.05
+            )
+            assert not inside_counter, "fine fill re-cut the coarse-swept counter center"
+        # The coarse pass DOES fill the counter (control).
+        coarse_in = [
+            s
+            for s in passes[0].strokes
+            if not s.is_outline
+            and all(0.32 < c.real < 0.68 for c in _stroke_points(s))
+            and all(-0.05 < c.imag < 0.05 for c in _stroke_points(s))
+        ]
+        assert coarse_in, "coarse must fill the counter"
+
     def test_staged_coverage_includes_outline_sweep(self) -> None:
         """Coverage = fill AND outline envelopes (the proven model).
 

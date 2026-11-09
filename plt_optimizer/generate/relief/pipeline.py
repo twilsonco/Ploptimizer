@@ -5,9 +5,9 @@ The stage loop (per cutter, largest effective diameter first):
 - each engrave component's tool-center CORE: border-touching components
   erode by the cutter RADIUS (the tool edge reaches the label edge
   tangentially, corners SHARP - the island caps round via the round-join
-  buffer); enclosed counters erode by the RADIUS on the sides and by the
-  FULL DIAMETER on the floor edge (``_clip_counter_floor``), kept sharp,
-  and are re-cleaned from their full core at every stage,
+  buffer); enclosed counters erode by their OWN RADIUS on the sides and by
+  ``r_coarse + r_k`` on the floor edge (``_clip_counter_floor``), kept
+  sharp,
 - the fill region for this cutter: every component's core minus ALL
   earlier cutters' coverage (coverage = the stroke envelopes: every fill
   row dilated by its radius ``d/2`` and every outline ring dilated by
@@ -135,7 +135,9 @@ def _stroke_from_ring(ring: Sequence[Point]) -> Stroke:
     return Stroke(pen_up=start, segments=tuple(segments))
 
 
-def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon], List[Polygon]]:
+def _cores(
+    regions: EngraveRegions, cutter: ReliefCutter, floor_diameter: float
+) -> Tuple[List[Polygon], List[Polygon]]:
     """This cutter's tool-center areas, (outer, interior).
 
     Matches the reference row geometry (the 0.06 box rows span
@@ -150,16 +152,20 @@ def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon]
       coarse corner, task 3), and concave wrap corners round at r (the
       island cap arcs: the "A" apex, the leg ends - buffer round joins +
       :func:`arcify.fit_circular_runs` reproduce them);
-    - enclosed (interior: text counters) components erode by the RADIUS on
-      their sides and by the FULL DIAMETER on the floor (the reference's
-      "A" counter triangle: sides at the island edges minus r, base at the
-      crossbar island edge 606.53u minus d = 545.566u), and their corners
-      stay SHARP - the reference counter outline is a plain triangle, no
-      fillet arcs (see :func:`_clip_counter_floor`).
+    - enclosed (interior: text counters) components erode by the cutter's
+      OWN RADIUS on their sides (the fill/outline chain runs at the island
+      edges minus r_k) and by ``r_coarse + r_k`` on the floor: the coarse
+      stage erodes its own diameter (base 606.53 - d_c = 545.566u), the
+      fine stage floor stops at 573.5u = 606.53 - (r_c + r_f), leaving the
+      raised bar's top skin UNcut at the center. Their corners stay SHARP
+      - the reference counter outline is a plain triangle, no fillet arcs
+      (see :func:`_clip_counter_floor`).
 
     Args:
         regions: The label's engrave regions.
         cutter: The current cutter.
+        floor_diameter: The coarsest ladder cutter's effective diameter; the
+            counter floor erodes by this RADIUS plus the current cutter's.
 
     Returns:
         ``(outer cores, interior cores)``.
@@ -172,27 +178,30 @@ def _cores(regions: EngraveRegions, cutter: ReliefCutter) -> Tuple[List[Polygon]
         outer_cores.extend(region_polygons(comp.buffer(-r, quad_segs=256, join_style=1)))
     for comp in regions.interior:
         eroded = comp.buffer(-r, quad_segs=256, join_style=1)
-        interior_cores.extend(_clip_counter_floor(eroded, d))
+        interior_cores.extend(_clip_counter_floor(eroded, floor_diameter / 2.0))
     return outer_cores, interior_cores
 
 
-def _clip_counter_floor(geom: BaseGeometry, d: float) -> List[Polygon]:
-    """Clip a counter core's floor edge to the full-diameter erosion.
+def _clip_counter_floor(geom: BaseGeometry, extra: float) -> List[Polygon]:
+    """Clip a counter core's floor edge to the coarse-radius extra depth.
 
     The reference's counter fill (coarse, the "A" hole) is a triangle whose
-    SIDES sit at the island edges eroded by the cutter RADIUS but whose
-    BASE sits at the floor island edge minus the FULL DIAMETER
-    (606.53 − 60.96 = 545.566u): the tool must clear a full diameter of
-    the raised bar below, only a radius from the slanted sides. The floor
-    is the bbox edge with the widest intersection with the core (the
-    crossbar side; the "A" apex side is a point, the leg sides are
-    slanted). Erode that edge the extra ``d - r`` (the radius erosion
-    already ran) and keep the rest of the core untouched. Sharp corners
-    are preserved (no fillet discs on interior cores).
+    SIDES sit at the island edges eroded by the cutter RADIUS, while the
+    FLOOR erodes by the current cutter's radius PLUS the COARSEST cutter's
+    radius: the coarse stage lands its base at 606.53 - d_c = 545.566u, the
+    fine stage floor at 606.53 - (r_c + r_f) = 573.5u. The bar's top skin
+    below the coarse base stays raised (un-cut) at the center: the fine
+    cutter only engraves the corner pockets its predecessor cannot reach
+    (the rest model subtracts the coarse sweeps elsewhere). The floor is
+    the bbox edge with the widest intersection with the core (the crossbar
+    side; the "A" apex side is a point, the leg sides are slanted). Erode
+    that edge the ``extra`` radius on top of the radius erosion already
+    applied. Sharp corners are preserved (no fillet discs on interior
+    cores).
 
     Args:
         geom: The radius-eroded counter core.
-        d: The cutter's effective diameter.
+        extra: The additional floor erosion (the coarsest cutter's radius).
 
     Returns:
         The floor-clipped polygons (``[]`` when the clip empties the core).
@@ -211,7 +220,6 @@ def _clip_counter_floor(geom: BaseGeometry, d: float) -> List[Polygon]:
     floor = max(range(4), key=lambda index: edge_spans[index])
     if edge_spans[floor] <= probe:
         return region_polygons(geom)  # degenerate: no measurable floor edge
-    extra = d / 2.0  # d - r with r = d / 2: the full-diameter floor total
     pad = span + 1.0
     boxes = (
         shapely_box(x0 - pad, y0 + extra, x1 + pad, y1 + pad),  # floor at min-y
@@ -314,31 +322,32 @@ def generate_relief_passes(
         r = d / 2.0
         pitch = d * pitch_fraction
         r_next = ladder[index + 1].effective / 2.0 if index + 1 < len(ladder) else 0.0
-        outer_cores, interior_cores = _cores(regions, cutter)
-        # Fill (measured against the references):
-        # - border components engrave the RAW core rect minus earlier FILL
-        #   capsules: the d/2 skins an earlier OUTLINE swept are rest for
-        #   the finer cutter (fill-then-outline at every stage -- the
-        #   reference's 13-row fine strips run straight through the coarse
-        #   outline sweep),
-        # - enclosed counters are re-cleaned from their FULL core at every
-        #   stage (the reference's fine counter chains cross the coarse
-        #   sweep: 13 rows in the "A" counter corner).
-        rest_fill = _rest_region(outer_cores, coverage)
-        rest_interior = region_polygons(unary_union(interior_cores)) if interior_cores else []
-        rest = rest_fill + rest_interior
+        outer_cores, interior_cores = _cores(regions, cutter, ladder[0].effective)
+        # Fill and outline both run on the REST model (measured against
+        # the references): cores minus prior coverage (earlier FILL
+        # capsules dilated by r, earlier OUTLINE rings by r - r_next).
+        # On the border this leaves the d/2 skins an outline swept plus
+        # the corner pockets (the reference's fine strips run straight
+        # through the coarse outline sweep). In enclosed counters it
+        # leaves exactly the CORNER wedges the coarse tool cannot enter:
+        # the reference's fine counter strokes are the three corners of
+        # the "A" hole (top crotch 372.4..429.3, base corners
+        # x 429.7..466.8 / 557.3..586.2, y 539..573.5) and nothing
+        # mid-hole - the coarse fill already cleared the center.
+        rest_outer = _rest_region(outer_cores, coverage)
+        rest_interior = _rest_region(interior_cores, coverage)
+        rest = rest_outer + rest_interior
         if not rest:
             continue
         gx0, gy0, gx1, gy1 = regions.engrave.bounds
         grid_anchor = (gx0 + r, gy0 + r, gx1 - r, gy1 - r)
-        fill_points = active.fill(rest_fill, pitch, anchor=grid_anchor) + active.fill(
+        fill_points = active.fill(rest_outer, pitch, anchor=grid_anchor) + active.fill(
             rest_interior, pitch
         )
         # Outline: the RAW eroded outer core ring (sharp box corners at the
         # radius inset - the reference coarse ring is the plain square
         # PU30.48...985.52; the island-cap arcs come from the round-join
         # buffer), minus prior coverage.
-        rest_outer = _rest_region(outer_cores, coverage)
         outline_points = active.outline(rest_outer) + active.outline(rest_interior)
         strokes: List[ReliefStroke] = []
         for points in fill_points:

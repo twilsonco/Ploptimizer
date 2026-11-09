@@ -54,8 +54,8 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   `examples/plt_relief_engraving/A_relief_spiral_*.plt`) implement the
   Protocol without touching `pipeline.py`.
 - `pipeline.py` - stage loop: per cutter (largest first) core = comp erosion
-  (outer by radius, sharp corners; counters by radius on the sides, full
-  diameter on the floor - `_clip_counter_floor`, sharp corners), rest = core
+  (outer by radius, sharp corners; counters by own radius on the sides,
+  `r_coarse + r_k` on the floor - `_clip_counter_floor`, sharp corners), rest = core
   minus ALL prior stroke coverage (`_coverage_of`: FILL rows dilated by their
   radius, OUTLINE rings by `r - r_next` - the finer cutter's rest strip off
   an outline sweep, all clipped to the engrave region - swept area over an
@@ -112,9 +112,20 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
   `r_c - r_f` around the coarse corner). Concave wrap corners round at r
   (the island caps: the "A" apex, the leg ends - round-join buffer +
   arcify, matches the references).
-- Counter cores erode by the RADIUS on the sides and the FULL DIAMETER on
-  the floor edge (the widest bbox edge), sharp corners: the "A" counter
-  triangle base at 606.53 - 60.96 = 545.566u.
+- Counter cores erode by the cutter's OWN RADIUS on the sides and by
+  `r_coarse + r_k` on the floor edge (the widest bbox edge), sharp corners:
+  the coarse "A" base at 606.53 - 60.96 = 545.566u, the fine floor at
+  606.53 - (30.48 + 2.54) = 573.51u - the bar-top skin stays raised at the
+  hole center (the fine cuts only the corner pockets, never re-clears the
+  center the coarse already swept).
+- Counters are REST-ONLY like the border (no full-core re-clean at finer
+  stages): the fine fills exactly the corner wedges the coarse sweep
+  (fill ⊕ r, outline ⊕ (r - r_next)) cannot reach. Measured reference fine
+  counter strokes = the three corners of the "A" hole: top crotch
+  y 372.4..429.3, base-left x 429.7..466.8, base-right x 557.3..586.2,
+  both base corners y 539..573.5 (= coarse base 545.566 + 27.94 dilation).
+  Re-cutting the whole hole with the fine cutter wastes time mid-hole
+  where the 0.06 already cleared (user-reported, fixed).
 - Coverage equivalence (not stroke identity) is the loose test contract - see
   `tests/test_relief_export.py` thresholds and `tests/relief_coverage.py`;
   the STRICT layer is the stroke chamfer

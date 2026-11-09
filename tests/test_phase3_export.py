@@ -8014,11 +8014,14 @@ class TestReliefEngravingDemo:
         # The relief layers cut native arcs (parity II): the coarse layer
         # carries the 3 island-tip caps over the raised "A" (its border
         # ring is the SHARP square PU30,30 - PD986,30 - ... with no
-        # AA), the fine layer the 4 box-corner arcs at r_c - r_f around
-        # the coarse corners + the 2 pit rings at the coarse core corners.
+        # AA at the corners); the fine layer the 4 box-corner arcs + 2
+        # pit rings at r_c - r_f around the coarse corners, and the 3
+        # counter-corner arcs (the reference's
+        # AA470.577,545.566,95.841 etc. - the dilated coarse core corners
+        # between the corner pockets the rest-only fine pass engraves).
         assert coarse_text.count("AA") == 3
         assert "PU30,30;" in coarse_text
-        assert fine_text.count("AA") == 6
+        assert fine_text.count("AA") == 9
         # The box rows land on the radius-inset grid: device
         # 30.48 + k*pitch, k >= 1 (54.864 -> 55 ... 981.456 -> 981, the
         # reference grid; no rows on the bbox edges at 30.48/985.52).

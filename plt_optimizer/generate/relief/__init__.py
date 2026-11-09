@@ -15,15 +15,17 @@ frame) as one or more cutter ladders:
    under all circumstances, so preset tools engrave at their PHYSICAL
    diameter (effective == physical, exactly like bypass values),
 3. per cutter, descending: the tool-center region
-   ``(C - disk(e)) - prior coverage`` for border-touching components
-   (``e = d/2``), the FULL core for enclosed counters (the reference's
-   fine pass re-cuts the whole counter), raster-filled by the pluggable
+   ``core - prior coverage`` (earlier fill rows dilated by their radius,
+   earlier outline rings by ``r - r_next``) for every component,
+   raster-filled by the pluggable
    :class:`.filler.RasterFiller` (S-Sweep serpentine, row pitch
    ``d * (1 - overlap/100)`` -- 60% overlap = the reference ``0.4 * d``
    grid -- contiguous per-lane links), and outlined by a clean pass ONCE
    the fill of each region is done (fill
    first, outline after -- the outline squares off the raster's scalloped
-   edge),
+   edge; in an enclosed counter the rest is exactly the corner wedges the
+   coarser cutter cannot enter -- the reference's fine pass cuts only the
+   three corners of the "A" hole, not the center the 0.06 already cleared),
  4. finer cutters repeat on the rest material the previous coverage left
     (morphological identity: ``(R - disk(r1)) + disk(r2) = R - disk(r1-r2)``
     for disks, so the coarse pass over an enclosed counter leaves a

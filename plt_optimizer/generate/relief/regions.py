@@ -53,11 +53,12 @@ class EngraveRegions:
         engrave: The engrave region: ``box - islands``.
         interior: The engrave components NOT touching the box boundary
             (text counters like the "A" hole): their core erodes by the
-            cutter RADIUS on the sides and by the FULL DIAMETER on the
-            floor edge (the reference's "A" counter triangle: base at the
-            crossbar island edge minus d, sides at the leg island edges
-            minus r; see ``pipeline._clip_counter_floor``), and stays
-            sharp-cornered (the counter outline is a plain triangle).
+            cutter RADIUS on the sides and by ``r_coarse + r_k`` on the
+            floor edge (the reference's "A" counter: the coarse base at the
+            crossbar island edge minus d_c, the fine floor at minus
+            (r_c + r_f), sides at the leg island edges minus the own r; see
+            ``pipeline._clip_counter_floor``), and stays sharp-cornered (the
+            counter outline is a plain triangle).
         outer: The engrave components touching the box boundary (the
             background): these erode by the cutter RADIUS per pass (the
             tool edge reaches the label edge tangentially).

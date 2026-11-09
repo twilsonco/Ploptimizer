@@ -177,15 +177,15 @@ class TestReliefSimpleCoverage:
         ref, ours = relief_export["ref_fine"], relief_export["fine"]
         tol = 0.6 * PITCH_COARSE
         missing = ref.difference(ours.buffer(tol)).area
-        # The (r - r_next) outline staging leaves the reference's fine
-        # corner/pit/strip skins as rest: measured 0.0% missing (and the
-        # stroke compare matches all 19 reference strokes within 1u).
-        assert missing <= 0.05 * ref.area, missing
-        # The fine cutter is a small rest/envelope pass. The full-core
-        # counter re-clean over-covers ~4x the reference's thin fine area
-        # (2 extra counter strokes in the stroke compare; the material
-        # UNION stays inside the combined band).
-        assert 0.0005 <= ours.area <= 0.03
+        # The (r - r_next) outline staging + rest-only counters leave the
+        # fine pass cutting exactly the skins/corner pockets the coarse
+        # cannot reach (measured 19% missing at the coverage tol: the base
+        # corner pockets land 33u high of the reference's, tracking OUR
+        # font's crossbar crotch height - glyph geometry, not the model).
+        assert missing <= 0.25 * ref.area, missing
+        # The fine area now matches the reference's thin pass (measured
+        # 1.07x - the full-core re-clean over-covered ~4x).
+        assert 0.0005 <= ours.area <= 0.01
 
     def test_islands_survive(self, relief_export: dict) -> None:
         combined = relief_export["coarse"].union(relief_export["fine"])
@@ -319,10 +319,15 @@ class TestReliefArcOutlines:
         coarse core corners, radius (r_c - r_f) = 27.94u, joining the fine
         core lines at [2.54, 1013.46]. Pits: the same construction at the
         coarse core's corner points (423.203,667.486)/(592.747,667.486)
-        (crossbar underside x leg side core). Both fall out of the
-        (r - r_next) outline coverage dilation; the endpoint chord
-        quantum (+0.25u in the reference, sweeping it 74.6-90 deg) is
-        sub-plotter-unit and documented, not chased.
+        (crossbar underside x leg side core). Counter corners: the
+        reference's ``AA470.577,545.566,95.841``/``AA507.911,449.483,
+        122.109``/``AA545.302,545.566,95.870`` - dilated coarse counter
+        core corners between the three corner pockets the rest-only fine
+        counter pass engraves (ours centers on OUR font's counter
+        corners). All fall out of the (r - r_next) outline coverage
+        dilation; the endpoint chord quantum (+0.25u in the reference,
+        sweeping 74.6-90 deg) is sub-plotter-unit and documented, not
+        chased.
         """
         arcs = _arcs(_file(relief_export["files"], "5_txt_"))
         box = [
@@ -350,6 +355,21 @@ class TestReliefArcOutlines:
             and 25.0 <= a.radius <= 30.0
         ]
         assert len(pits) == 2, len(pits)
+        # Counter-corner arcs: radius (r_c - r_f), centers on the coarse
+        # counter core corners (font phase: ours differ from the
+        # reference's absolute centers, same construction + radius).
+        counter = [
+            a
+            for a in arcs
+            if 25.0 <= a.radius <= 30.0
+            and 400.0 < a.center.x < 650.0
+            and 400.0 < a.center.y < 700.0
+            and not any(
+                math.dist((a.center.x, a.center.y), (cx, cy)) < 2.0
+                for cx, cy in ((423.203, 667.486), (592.747, 667.486))
+            )
+        ]
+        assert len(counter) == 3, len(counter)
 
     def test_island_tip_caps_are_arcs(self, relief_export: dict) -> None:
         arcs = _arcs(_file(relief_export["files"], "60_txt_"))
