@@ -175,7 +175,10 @@ class TestReliefSimpleCoverage:
         tol = 0.6 * PITCH_COARSE
         missing = ref.difference(ours.buffer(tol)).area
         assert missing <= 0.4 * ref.area, missing
-        # The fine cutter is a small rest/envelope pass.
+        # The fine cutter is a small rest/envelope pass. The full-core
+        # counter re-clean + the d/2 outline-skin strips (the reference's
+        # 13-row chains) over-cover ~3x the reference's thin fine area;
+        # the material UNION stays inside the combined band below.
         assert 0.0005 <= ours.area <= 0.06
 
     def test_islands_survive(self, relief_export: dict) -> None:

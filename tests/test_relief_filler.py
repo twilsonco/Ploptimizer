@@ -22,8 +22,10 @@ class TestSSweepFill:
         strokes = filler.fill([SQUARE], 0.25)
         assert strokes, "square must raster"
         ys = sorted({round(y, 6) for stroke in strokes for _x, y in stroke})
+        # Per-region grid: rows start one pitch above the floor, every row
+        # inset by the default pitch/2 = 0.125 (the anchored border grid
+        # adds full-span edge rows -- test_anchor_grid_has_edge_rows).
         assert ys == [0.25, 0.5, 0.75]
-        # Interior rows inset by the default pitch/2 = 0.125.
         xs = [x for stroke in strokes for x, _y in stroke]
         assert min(xs) == pytest.approx(0.125)
         assert max(xs) == pytest.approx(0.875)
@@ -47,8 +49,8 @@ class TestSSweepFill:
         assert len(strokes) == 1
         stroke = strokes[0]
         assert stroke[0][1] == pytest.approx(0.25)
-        # 3 rows x (start, end) + explicit vertical links (per-region grid
-        # has no bbox-edge rows; the anchored border grid does, tested in
+        # 3 rows x (start, end) + explicit vertical links (per-region
+        # grid; the anchored border grid adds full-span edge rows --
         # test_anchor_grid_has_edge_rows).
         assert len(stroke) == 6
 
@@ -133,8 +135,8 @@ class TestSSweepFill:
     def test_end_inset_fraction(self) -> None:
         filler = SSweepFiller(end_inset_fraction=1.25)
         strokes = filler.fill([SQUARE], 0.25)
-        xs = [x for stroke in strokes for x, _y in stroke]
-        assert min(xs) == pytest.approx(0.3125)  # 0 + pitch * 1.25
+        interior_xs = [x for stroke in strokes for x, y in stroke if 1e-9 < y < 1.0 - 1e-9]
+        assert min(interior_xs) == pytest.approx(0.3125)  # pitch * 1.25
 
     def test_no_island_intrusion(self) -> None:
         square = Polygon([(0.2, 0.2), (0.8, 0.2), (0.8, 0.8), (0.2, 0.8)])
