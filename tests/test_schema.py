@@ -4005,3 +4005,98 @@ class TestStrictUnknownFields:
         """Known-field updates through model_copy keep working (no friction)."""
         label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
         assert label.model_copy(update={"count": 4}).count == 4
+
+
+class TestReliefEngravingFields:
+    """relief_engraving / quality / cutters / preserve_border fields."""
+
+    def test_defaults_are_unset(self) -> None:
+        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        assert label.relief_engraving is None
+        assert label.relief_engraving_quality is None
+        assert label.relief_engraving_cutters is None
+        assert label.relief_engraving_preserve_border is None
+
+    def test_quality_enum_validated(self) -> None:
+        with pytest.raises(ValidationError, match="relief_engraving_quality"):
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                relief_engraving_quality="ultra",
+                content=[TextLine(text="X")],
+            )
+
+    def test_cutters_positive_validated(self) -> None:
+        with pytest.raises(ValidationError, match="relief_engraving_cutters"):
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                relief_engraving_cutters=[0.06, 0.0],
+                content=[TextLine(text="X")],
+            )
+
+    def test_plate_parity_accepts_relief_fields(self) -> None:
+        plate = PlateSpec(id="p", width=2.0, height=2.0, relief_engraving=True)
+        assert plate.relief_engraving is True
+
+    def test_job_cascades_to_labels(self) -> None:
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            relief_engraving=True,
+            relief_engraving_quality="fine",
+            relief_engraving_cutters=[0.06, 0.005],
+            labels=[LabelSpec(id="l", content=[TextLine(text="X")])],
+        )
+        label = job.labels[0]
+        assert label.relief_engraving is True
+        assert label.relief_engraving_quality == "fine"
+        assert label.relief_engraving_cutters == [0.06, 0.005]
+
+    def test_label_wins_over_job(self) -> None:
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            relief_engraving=True,
+            relief_engraving_quality="fine",
+            labels=[
+                LabelSpec(
+                    id="l",
+                    relief_engraving=False,
+                    relief_engraving_quality="coarse",
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = job.labels[0]
+        assert label.relief_engraving is False
+        assert label.relief_engraving_quality == "coarse"
+
+    def test_pinned_plate_cascades_to_label(self) -> None:
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            plates=[PlateSpec(id="p", width=2.0, height=2.0, relief_engraving_quality="medium")],
+            labels=[
+                LabelSpec(id="l", plate_id="p", content=[TextLine(text="X")]),
+                LabelSpec(id="m", content=[TextLine(text="X")]),
+            ],
+        )
+        assert job.labels[0].relief_engraving_quality == "medium"
+        assert job.labels[1].relief_engraving_quality is None
+
+    def test_plate_beats_job_for_pinned_label(self) -> None:
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            relief_engraving_quality="coarse",
+            plates=[PlateSpec(id="p", width=2.0, height=2.0, relief_engraving_quality="fine")],
+            labels=[LabelSpec(id="l", plate_id="p", content=[TextLine(text="X")])],
+        )
+        assert job.labels[0].relief_engraving_quality == "fine"

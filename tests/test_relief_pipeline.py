@@ -1,0 +1,130 @@
+"""Unit tests for the relief stage loop (relief/pipeline.py)."""
+
+from __future__ import annotations
+
+import math
+from typing import List
+
+import pytest
+
+from plt_optimizer.generate.relief.cutters import ReliefCutter
+from plt_optimizer.generate.relief.pipeline import (
+    generate_relief_passes,
+    pen_widths_for_label,
+)
+from plt_optimizer.generate.relief.regions import build_engrave_regions
+
+
+class _Logger:
+    def __init__(self) -> None:
+        self.warnings: List[str] = []
+        self.infos: List[str] = []
+
+    def warning(self, message: str) -> None:
+        self.warnings.append(message)
+
+    def info(self, message: str) -> None:
+        self.infos.append(message)
+
+
+SQUARE_RING = [(0.4, -0.1), (0.6, -0.1), (0.6, 0.1), (0.4, 0.1), (0.4, -0.1)]
+BOX = [(0.0, 0.0), (0.0, 1.0)]
+
+
+class TestGenerateReliefPasses:
+    """Stage model: fill-then-outline, coverage, rest strips."""
+
+    def _regions(self):
+        return build_engrave_regions(1.0, 1.0, [(SQUARE_RING, 0.1), (BOX, 0.1)], False)
+
+    def test_single_cutter_fills_and_outlines(self) -> None:
+        regions = self._regions()
+        passes = generate_relief_passes(regions, [ReliefCutter(0.06, 0.06)])
+        assert len(passes) == 1
+        strokes = passes[0].strokes
+        fills = [s for s in strokes if not s.is_outline]
+        outlines = [s for s in strokes if s.is_outline]
+        assert fills and outlines
+        # Fill strokes precede the outlines within a pass.
+        kinds = [s.is_outline for s in strokes]
+        assert kinds == sorted(kinds)
+        # Outlines are closed rings.
+        for outline in outlines:
+            bounds = outline.stroke.bounds()
+            assert bounds is not None
+            pts = [outline.stroke.pen_up] + [seg.end for seg in outline.stroke.segments]
+            assert math.isclose(pts[0].real, pts[-1].real, abs_tol=1e-9)
+            assert math.isclose(pts[0].imag, pts[-1].imag, abs_tol=1e-9)
+
+    def test_fine_cleans_coarse_rest(self) -> None:
+        regions = self._regions()
+        ladder = [ReliefCutter(0.06, 0.06), ReliefCutter(0.005, 0.005)]
+        passes = generate_relief_passes(regions, ladder)
+        assert len(passes) == 2
+        # The fine cutter's fill pitch is 0.4 * 0.005 = 0.002.
+        fine = passes[1]
+        ys = sorted({c.imag for s in fine.strokes if not s.is_outline for c in _stroke_points(s)})
+        diffs = {round(b - a, 6) for a, b in zip(ys, ys[1:]) if b - a > 1e-9}
+        assert any(math.isclose(d, 0.002, abs_tol=1e-4) for d in diffs)
+
+    def test_cutter_larger_than_the_label(self) -> None:
+        # A cutter whose radius erosion empties every component produces
+        # no geometry at all (the label is untouched, no pass emitted).
+        regions = self._regions()
+        passes = generate_relief_passes(regions, [ReliefCutter(4.0, 4.0)])
+        assert passes == []
+
+    def test_residual_warning(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from plt_optimizer.generate.relief import pipeline as pipeline_module
+
+        monkeypatch.setattr(pipeline_module, "_RESIDUAL_TOLERANCE", 1e-9)
+        # A hair-thin counter the ladder cannot fully cover leaves skin,
+        # which at a microscopic tolerance triggers the warning.
+        outer = [(0.3, -0.2), (0.7, -0.2), (0.7, 0.2), (0.3, 0.2), (0.3, -0.2)]
+        inner = [(0.495, -0.005), (0.505, -0.005), (0.505, 0.005), (0.495, 0.005), (0.495, -0.005)]
+        regions = build_engrave_regions(1.0, 1.0, [(outer, 0.1), (inner, 0.1)], False)
+        logger = _Logger()
+        generate_relief_passes(
+            regions, [ReliefCutter(0.06, 0.06), ReliefCutter(0.005, 0.005)], logger=logger
+        )
+        assert any("unengraved" in w for w in logger.warnings)
+
+    def test_empty_regions_no_passes(self) -> None:
+        regions = build_engrave_regions(1.0, 1.0, [], True, border_band=1.0)
+        assert generate_relief_passes(regions, [ReliefCutter(0.06, 0.06)]) == []
+
+
+def _stroke_points(stroke):
+    yield stroke.stroke.pen_up
+    for seg in stroke.stroke.segments:
+        yield seg.end
+
+
+class TestPenWidthsForLabel:
+    """Pen -> engraved width uses the line buffers."""
+
+    def test_buffer_applied(self) -> None:
+        from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+
+        line = ResolvedTextLine(
+            text="A",
+            nominal_text_height=0.5,
+            toolpath_text_height=0.44,
+            cutter_diameter=0.06,
+            cutter_buffer=0.015,
+            character_spacing=0.0,
+            line_spacing=0.0,
+        )
+        label = ResolvedLabel(
+            id="l1",
+            count=1,
+            width=1.0,
+            height=1.0,
+            margin=0.0,
+            h_margin=0.0,
+            v_margin=0.0,
+            content=[line],
+        )
+        widths = pen_widths_for_label({1: (0.06, "none"), 4: (0.03, "none")}, label)
+        assert widths[1] == pytest.approx(0.075)
+        assert widths[4] == pytest.approx(0.03)

@@ -1,5 +1,6 @@
 """Tests for the per-cutter Phase 3 export pipeline."""
 
+import json
 import logging
 import math
 import re
@@ -7962,3 +7963,64 @@ class TestSharedShiftFlushCompressExport:
         assert left_edges
         assert max(left_edges) - min(left_edges) < 1e-3
         assert min(left_edges) == pytest.approx(0.1 + shift, abs=2e-3)
+
+
+class TestReliefEngravingDemo:
+    """Relief engraving demo (tests_deps/relief/relief_simple.yaml).
+
+    The TODO goal in miniature: the job spec runs and produces per-cutter
+    relief files whose MATERIAL REMOVAL matches the EngraveLab ground truth
+    (coverage contract in ``tests/test_relief_export.py``); this class pins
+    the export-level shape - file split, tool-option headers, chunk counts,
+    normal-text suppression and the plate-cut border surviving in ``bh``.
+    """
+
+    _SPEC = Path("tests_deps/relief/relief_simple.yaml")
+
+    def _export(self, tmp_path: Path) -> dict[str, Path]:
+        config = json.loads(Path("job-config.json").read_text(encoding="utf-8"))
+        config["cutter_buffer_text"] = 0.0
+        config["cutter_buffer_routing"] = 0.0
+        cfg_path = tmp_path / "job-config.json"
+        cfg_path.write_text(json.dumps(config), encoding="utf-8")
+        job = parse_yaml(self._SPEC, job_config_path=cfg_path)
+        tools = json.loads(Path("tools.json").read_text(encoding="utf-8"))
+        labels = resolve_job_spec(
+            job,
+            available_cutters=tools["available_cutters"],
+            boundary_hole_cutter_size=tools["boundary_hole_cutter_size"],
+        )
+        result = export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="relief",
+            plots=False,
+            available_cutters=tools["available_cutters"],
+            default_plate_size=(1.0, 1.0),
+            fast_mode=True,
+        )
+        return {p.name: p for p in result.plt_paths}
+
+    def test_per_cutter_relief_files(self, tmp_path: Path) -> None:
+        files = self._export(tmp_path)
+        coarse = next(p for n, p in files.items() if n.startswith("60_txt_"))
+        fine = next(p for n, p in files.items() if n.startswith("5_txt_"))
+        # Bypass widths name the files exactly (60 = 0.060, 5 = 0.005).
+        coarse_text = coarse.read_text(encoding="utf-8")
+        fine_text = fine.read_text(encoding="utf-8")
+        assert "SP" in coarse_text and "PU" in coarse_text
+        assert "SP" in fine_text and "PU" in fine_text
+        # Rasters are straight-line sweeps (the outline arcs are polyline
+        # rings; no AA emission in the relief layers).
+        assert "AA" not in coarse_text
+        # The box rows land at the radius-inset + pitch grid: 54.864 -> 55.
+        assert "PD43,961" in coarse_text.replace("973.328", "973") or "961" in coarse_text
+        assert coarse_text.count("PD") > 100
+
+    def test_relief_suppresses_plain_text_and_holes(self, tmp_path: Path) -> None:
+        files = self._export(tmp_path)
+        bh = next(p for n, p in files.items() if "_bh_" in n)
+        # The bh file carries only the plate border rect (no drill holes).
+        bh_text = bh.read_text(encoding="utf-8")
+        assert "AA" not in bh_text

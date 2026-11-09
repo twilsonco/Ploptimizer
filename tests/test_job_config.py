@@ -1982,3 +1982,44 @@ class TestToolOptionsGateRuntimeEffect:
         path = _write_config(tmp_path, _tool_options_config(42))
         with pytest.raises(JobConfigError):
             load_job_config(path)
+
+
+class TestReliefEngravingConfigFields:
+    """relief defaults live in the config layer (shop value, never pinned)."""
+
+    def test_fields_are_job_layer(self) -> None:
+        assert "relief_engraving" in _JOB_LAYER_FIELDS
+        assert "relief_engraving_quality" in _JOB_LAYER_FIELDS
+        assert "relief_engraving_preserve_border" in _JOB_LAYER_FIELDS
+
+    def test_injected_into_job_spec(self, tmp_path: Path) -> None:
+        config = json.loads(Path("job-config.json").read_text(encoding="utf-8"))
+        config.update(
+            {
+                "relief_engraving": True,
+                "relief_engraving_quality": "fine",
+                "relief_engraving_preserve_border": True,
+            }
+        )
+        path = tmp_path / "job-config.json"
+        path.write_text(json.dumps(config), encoding="utf-8")
+        spec = tmp_path / "job.yaml"
+        spec.write_text(
+            "job:\n  job_name: R\n  width: 2.0\n  height: 1.0\n  content:\n    - text: X\n",
+            encoding="utf-8",
+        )
+        job = parse_yaml(spec, job_config_path=path)
+        assert job.relief_engraving is True
+        assert job.relief_engraving_quality == "fine"
+        assert job.relief_engraving_preserve_border is True
+
+    def test_quality_enum_validated(self) -> None:
+        with pytest.raises(ValidationError, match="relief_engraving_quality"):
+            JobDefaults(relief_engraving_quality="ultra")
+
+    def test_no_cutter_list_config_tier(self) -> None:
+        """relief_engraving_cutters has no config layer (per-job bypass)."""
+        assert "relief_engraving_cutters" not in _JOB_LAYER_FIELDS
+        assert not hasattr(JobDefaults, "model_fields") or (
+            "relief_engraving_cutters" not in JobDefaults.model_fields
+        )

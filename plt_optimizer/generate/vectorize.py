@@ -962,8 +962,15 @@ def export_per_cutter_plts(
 
     # Pen == (cutter, color): assign one HPGL pen per distinct text
     # cutter/color layer so the assembled plate can be split into
-    # per-layer files after assembly.
-    pen_map = build_cutter_pen_map(resolved_labels)
+    # per-layer files after assembly. Relief labels pre-reserve their
+    # candidate cutter pens (the ladder itself is selected after rendering,
+    # see the relief stage below); unused pens stay empty and are skipped.
+    from plt_optimizer.generate.relief.export import relief_pen_layers
+
+    pen_map = build_cutter_pen_map(
+        resolved_labels,
+        extra_layers=relief_pen_layers(resolved_labels, available_cutters or ()),
+    )
     layer_by_pen = {pen: layer for layer, pen in pen_map.items()}
 
     # Job-level boundary/hole cutter (all labels share the job-resolved
@@ -1022,6 +1029,28 @@ def export_per_cutter_plts(
 
     plt_dir = output_dir / "plt"
     plt_dir.mkdir(parents=True, exist_ok=True)
+
+    # Relief engraving stage (after render/pack, before assembly + per-cutter
+    # split): relief labels' ink becomes raised islands, the label is
+    # raster-filled by a cutter ladder, and the label's render is replaced
+    # by the relief chunk records (the normal text strokes are suppressed
+    # and drill holes are filled over). The relief pens' preview widths are
+    # merged into pen_widths so the PDF proofs draw the true engraved width.
+    relief_pen_widths: dict[int, float] = {}
+    if any(label.relief_engraving for label in resolved_labels):
+        from plt_optimizer.generate.relief.export import apply_relief_to_plates
+
+        with stage_timer("relief", _LOG, timings=stage_timings):
+            relief_pen_widths = apply_relief_to_plates(
+                packed_plates,
+                rendered_labels_map,
+                layer_by_pen,
+                pen_map,
+                available_cutters or (),
+                logger=logger,
+            )
+    for pen, width in relief_pen_widths.items():
+        pen_widths[pen] = max(pen_widths.get(pen, 0.0), width)
 
     result = PerCutterExport(
         output_dir=output_dir.resolve(),

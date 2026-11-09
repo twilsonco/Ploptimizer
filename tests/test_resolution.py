@@ -59,6 +59,9 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_MULTISTROKE_OVERLAP_RATIO,
     DEFAULT_OPTIMIZE_LINE_CONTENT,
     DEFAULT_OPTIMIZE_LINE_CONTENT_MAX_LINES,
+    DEFAULT_RELIEF_ENGRAVING,
+    DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER,
+    DEFAULT_RELIEF_ENGRAVING_QUALITY,
     DEFAULT_ROUNDED_RECTANGLE_FRACTION,
     DEFAULT_ROUNDED_RECTANGLE_PROPORTIONAL,
     DEFAULT_SC_SCALE,
@@ -8551,3 +8554,75 @@ class TestMultiStrokeLadderBufferContract:
                 # The ideal drops below the floor, so the floor wins: identical cutter.
                 assert compensated.cutter == pytest.approx(plain.cutter)
                 assert compensated.clamped is True
+
+
+class TestReliefEngravingCascade:
+    """relief fields cascade label -> job -> config -> defaults."""
+
+    @staticmethod
+    def _job(**levels: object) -> JobSpec:
+        job_kwargs = {key: value for key, value in levels.items() if not key.startswith("label_")}
+        label_kwargs = {
+            key[len("label_") :]: value for key, value in levels.items() if key.startswith("label_")
+        }
+        return JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            text_height=0.5,
+            **job_kwargs,  # type: ignore[arg-type]
+            labels=[LabelSpec(id="lbl", **label_kwargs, content=[TextLine(text="A")])],  # type: ignore[arg-type]
+        )
+
+    def test_defaults(self) -> None:
+        resolved = resolve_job_spec(self._job())[0]
+        assert resolved.relief_engraving is DEFAULT_RELIEF_ENGRAVING
+        assert resolved.relief_engraving_quality == DEFAULT_RELIEF_ENGRAVING_QUALITY
+        assert resolved.relief_engraving_cutters == ()
+        assert resolved.relief_engraving_preserve_border is DEFAULT_RELIEF_ENGRAVING_PRESERVE_BORDER
+
+    def test_job_cascades(self) -> None:
+        resolved = resolve_job_spec(
+            self._job(
+                relief_engraving=True,
+                relief_engraving_quality="fine",
+                relief_engraving_cutters=[0.06, 0.005],
+                relief_engraving_preserve_border=True,
+            )
+        )[0]
+        assert resolved.relief_engraving is True
+        assert resolved.relief_engraving_quality == "fine"
+        assert resolved.relief_engraving_cutters == (0.06, 0.005)
+        assert resolved.relief_engraving_preserve_border is True
+
+    def test_label_wins(self) -> None:
+        resolved = resolve_job_spec(self._job(relief_engraving=True, label_relief_engraving=False))[
+            0
+        ]
+        assert resolved.relief_engraving is False
+
+    def test_explicit_false_label_beats_true_job(self) -> None:
+        resolved = resolve_job_spec(
+            self._job(
+                relief_engraving=True,
+                relief_engraving_quality="fine",
+                label_relief_engraving=False,
+                label_relief_engraving_quality="coarse",
+            )
+        )[0]
+        assert resolved.relief_engraving is False
+        assert resolved.relief_engraving_quality == "coarse"
+
+    def test_relief_zeros_margins_and_hole_shift(self) -> None:
+        """Relief labels ignore margins (no compression) and drill holes."""
+        resolved = resolve_job_spec(
+            self._job(relief_engraving=True, margin=0.25),
+            available_cutters=[0.005, 0.06],
+        )[0]
+        assert resolved.h_margin == 0.0
+        assert resolved.v_margin == 0.0
+        assert resolved.hole_aware_vertical_shift_inches == 0.0
+
+    def test_plain_label_keeps_margins(self) -> None:
+        resolved = resolve_job_spec(self._job(margin=0.25))[0]
+        assert resolved.h_margin == 0.25
