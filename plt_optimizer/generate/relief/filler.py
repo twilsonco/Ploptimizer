@@ -11,13 +11,14 @@ demonstrated by ``examples/plt_relief_engraving/A_relief_s-sweep_*.plt``:
   bottom (``y = miny + pitch`` upward, the reference grid),
 - every scanline interval inset by ``pitch / 2`` (the reference's span
   inset),
-- rows chained into contiguous strokes: the link from a row's exit to the
-  next row's entry is pen-down when the connecting segment stays inside the
-  region (the reference's diagonal "down-and-right" links), a pen-up rapid
+- rows are grouped into x-continuous LANES and serpentine-chained per
+  lane: the link from a row's exit to the lane's next row entry is
+  pen-down when the connecting segment stays inside the region (the
+  reference's pitch-spaced vertical/diagonal connectors), a pen-up rapid
   otherwise,
-- a region that splits (as the "A" legs diverge) becomes independent stroke
-  chains, while the region's outline stays one contiguous ring per boundary
-  loop (the TODO contract),
+- a region that splits (as the "A" legs diverge) yields one lane per side,
+  each its own stroke chain with connectors, while the region's outline
+  stays one contiguous ring per boundary loop (the TODO contract),
 - the outline = the fill region's boundary rings (exterior + interior), each
   ring a closed stroke.
 
@@ -29,7 +30,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Protocol, Sequence, Tuple, runtime_checkable
+from typing import List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
@@ -111,6 +112,40 @@ def _row_intervals(region: Polygon, y: float) -> List[Tuple[float, float]]:
     return intervals
 
 
+def _lanes(rows: List[_Interval]) -> List[List[_Interval]]:
+    """Group scanline intervals into x-continuous lanes (per region side).
+
+    Walks the rows in ascending y; each interval joins the still-open lane
+    (a lane whose last row is the immediately lower row) whose x-range
+    overlaps it the most (strict overlap), else opens a new lane. A lane
+    closes when a row has no overlapping interval -- a split hands both
+    sides their own lane, a merge converges into the best-overlapping one.
+
+    Args:
+        rows: The region's kept intervals, ascending y (ties sorted by x).
+
+    Returns:
+        Lanes, each a list of intervals in ascending y, ordered by lane
+        creation.
+    """
+    lanes: List[List[_Interval]] = []
+    for row in rows:
+        best: Optional[List[_Interval]] = None
+        best_overlap = 0.0
+        for lane in lanes:
+            last = lane[-1]
+            if last.y >= row.y - 1e-9:
+                continue  # lane already consumed at this row
+            overlap = min(row.x_max, last.x_max) - max(row.x_min, last.x_min)
+            if overlap > best_overlap:
+                best, best_overlap = lane, overlap
+        if best is not None:
+            best.append(row)
+        else:
+            lanes.append([row])
+    return lanes
+
+
 class SSweepFiller:
     """S-Sweep: serpentine scanline raster with contiguous chaining.
 
@@ -156,7 +191,18 @@ class SSweepFiller:
         return strokes
 
     def _fill_region(self, region: Polygon, pitch: float) -> List[List[Point]]:
-        """Chain one region's scanlines into strokes (see :meth:`fill`)."""
+        """Chain one region's scanlines into strokes (see :meth:`fill`).
+
+        Rows are grouped into LANES: a chain of scanline intervals whose
+        x-ranges overlap consecutive rows. A region that splits (the "A"
+        legs diverging) yields one lane per side, and each lane
+        serpentine-chains independently -- the pitch-spaced vertical/
+        diagonal link from a row's exit to the next row's entry is part of
+        the stroke (pen-down, exactly like the reference). Chaining by
+        GLOBAL y-order row index interleaves the lanes at a split, every
+        link crosses the island, and each row degrades to an isolated
+        stroke -- the connector loss the reference comparison exposed.
+        """
         minx, miny, maxx, maxy = region.bounds
         rows: List[_Interval] = []
         # Reference row grid: the first pass sits one pitch above the region
@@ -174,10 +220,26 @@ class SSweepFiller:
                     rows.append(_Interval(y=y, x_min=lo, x_max=hi))
             y += pitch
         strokes: List[List[Point]] = []
+        for lane in _lanes(rows):
+            strokes.extend(self._chain_lane(region, lane))
+        return [stroke for stroke in strokes if len(stroke) >= 2]
+
+    def _chain_lane(self, region: Polygon, lane: List[_Interval]) -> List[List[Point]]:
+        """Serpentine one lane's rows into contiguous strokes.
+
+        Args:
+            region: The fill polygon (link containment guard).
+            lane: The lane's rows in ascending y.
+
+        Returns:
+            One vertex list per pen-down chain.
+        """
+        strokes: List[List[Point]] = []
         current: List[Point] = []
-        # Serpentine direction: row index parity flips the x traversal order
-        # and the per-row interval order.
-        for index, row in enumerate(rows):
+        # Serpentine direction: lane-local row index parity flips the
+        # traversal order, so consecutive rows meet at the SAME x end and
+        # the pitch-spaced link is a short vertical/diagonal segment.
+        for index, row in enumerate(lane):
             left_to_right = index % 2 == 0
             start = (row.x_min, row.y) if left_to_right else (row.x_max, row.y)
             end = (row.x_max, row.y) if left_to_right else (row.x_min, row.y)
@@ -196,7 +258,7 @@ class SSweepFiller:
                 current = [start, end]
         if current:
             strokes.append(current)
-        return [stroke for stroke in strokes if len(stroke) >= 2]
+        return strokes
 
     def outline(self, regions: Sequence[Polygon]) -> List[List[Point]]:
         """Return each region's boundary rings as closed strokes.

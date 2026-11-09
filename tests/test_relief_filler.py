@@ -48,6 +48,58 @@ class TestSSweepFill:
             xs = [x for x, _y in stroke]
             assert max(xs) - min(xs) < 0.6
 
+    def test_wedge_split_side_lanes_keep_connectors(self) -> None:
+        """ONE region splitting (the "A" legs diverging) chains each side.
+
+        The wedge (apex below, widening upward) cuts the square into a
+        full-width lane below y=0.4 and left/right lanes above it. Per-side
+        rows must stay a SINGLE pen-down chain with the pitch-spaced
+        connector between consecutive rows (the reference's vertical/
+        diagonal links) -- not isolated strokes.
+        """
+        wedge = Polygon([(0.5, 0.4), (1.0, 1.0), (0.0, 1.0)])
+        region = SQUARE.difference(wedge)
+        filler = SSweepFiller()
+        pitch = 0.1
+        strokes = filler.fill([region], pitch)
+
+        # Rows 0.5..0.7 exist on both sides; 0.8/0.9 drop at the inset
+        # floor near the apex side. Left lane (full-width rows 0.1..0.4
+        # continuing on the left side) and right lane (0.5..0.7).
+        def chain_with(y: float, side_x: float):
+            hits = [
+                s
+                for s in strokes
+                if any(abs(py - y) < 1e-9 and (px < side_x) == (side_x < 0.5) for px, py in s)
+            ]
+            assert len(hits) == 1, f"row y={y} side x<{side_x} not in exactly one stroke"
+            return hits[0]
+
+        left_chain = chain_with(0.5, 0.45)
+        ys_left = {round(y, 6) for _x, y in left_chain}
+        assert {0.5, 0.6, 0.7} <= ys_left, "left lane rows must chain into one stroke"
+        right_chain = chain_with(0.5, 0.55)
+        ys_right = {round(y, 6) for _x, y in right_chain}
+        assert {0.5, 0.6, 0.7} <= ys_right, "right lane rows must chain into one stroke"
+        # Every consecutive pair inside a lane chain is a row (horizontal,
+        # dy=0) or a pitch-spaced link (dy=pitch, x follows the interval
+        # edges -- the reference's diagonal connectors): never a multi-pitch
+        # skip, never a vertical jump off the grid.
+        for stroke in (left_chain, right_chain):
+            for (_x0, y0), (_x1, y1) in zip(stroke, stroke[1:]):
+                dy = abs(y1 - y0)
+                assert min(dy, abs(dy - pitch)) < 1e-9, (
+                    "chain segments must be rows (dy=0) or pitch links (dy=pitch)"
+                )
+
+    def test_unsplit_output_unchanged_by_lanes(self) -> None:
+        # A square region: the lane grouping is a no-op (single lane,
+        # global parity == lane parity), the chain is one stroke.
+        filler = SSweepFiller()
+        strokes = filler.fill([SQUARE], 0.1)
+        assert len(strokes) == 1
+        assert len(strokes[0]) == 2 * len({round(y, 6) for _x, y in strokes[0]})
+
     def test_min_pass_floor(self) -> None:
         # A triangle so thin at the apex that rows drop below the floor.
         triangle = Polygon([(0.0, 0.0), (1.0, 0.0), (0.5, 0.05)])
