@@ -7,8 +7,13 @@ outline after -- the order the EngraveLab references engrave in). The
 (spiral, offset contour, ...); :class:`SSweepFiller` implements the S-Sweep
 demonstrated by ``examples/plt_relief_engraving/A_relief_s-sweep_*.plt``:
 
-- horizontal scanlines at ``pitch`` spacing, anchored at the region's bbox
-  bottom (``y = miny + pitch`` upward, the reference grid),
+- horizontal scanlines at ``pitch`` spacing: with an ``anchor`` (the
+  border fill, the reference grid) rows sit at ``anchor.y0 + k*pitch``
+  INCLUDING the bbox edges -- the edge rows span the full core width with
+  zero inset (the reference's 30.48/985.52 tab rows), interior rows inset
+  ``end_inset_fraction * pitch``; without an anchor each region's grid
+  starts one pitch above its own floor (counters, the classic
+  ``(miny + k*pitch)`` rule),
 - every scanline interval inset by ``pitch / 2`` (the reference's span
   inset),
 - rows are grouped into x-continuous LANES and serpentine-chained per
@@ -50,12 +55,24 @@ class RasterFiller(Protocol):
     so the relief pipeline (and tests) can drive them with plain polygons.
     """
 
-    def fill(self, regions: Sequence[Polygon], pitch: float) -> List[List[Point]]:
+    def fill(
+        self,
+        regions: Sequence[Polygon],
+        pitch: float,
+        anchor: Optional[Tuple[float, float, float, float]] = None,
+    ) -> List[List[Point]]:
         """Produce the contiguous raster strokes for ``regions``.
 
         Args:
             regions: Fill regions (label-local inches, +y up).
             pitch: Row spacing in inches.
+            anchor: Optional ``(x0, y0, x1, y1)`` global row-grid frame:
+                rows sit at ``y0 + k*pitch`` through ``y1`` (the reference
+                grid spans the core bbox edges, the edge rows full span
+                with zero inset, interior rows inset
+                ``end_inset_fraction * pitch``); each region contributes
+                the grid-line intervals inside it. ``None`` anchors per
+                region (its own bbox).
 
         Returns:
             One point list per contiguous stroke (polyline vertices in
@@ -83,6 +100,40 @@ class _Interval:
     y: float
     x_min: float
     x_max: float
+
+
+def _row_grid(
+    bounds: Tuple[float, float, float, float],
+    pitch: float,
+    end_inset_fraction: float,
+    edge_rows: bool = True,
+) -> List[Tuple[float, float]]:
+    """The row grid over a bbox: ``(y, end_inset)`` lines.
+
+    Anchored (``edge_rows=True``, the reference border grid): rows sit at
+    ``y0 + k*pitch`` INCLUDING both bbox edges (the edge rows span the
+    full core width with zero inset -- the reference's ``y=30.48`` /
+    ``y=985.52`` tab rows), interior rows inset
+    ``end_inset_fraction * pitch``. Per-region grids (counters, the
+    default when no anchor is given) start one pitch above the floor with
+    every row inset, as before.
+    """
+    x0, y0, x1, y1 = bounds
+    lines: List[Tuple[float, float]] = []
+    if edge_rows:
+        count = int(math.floor((y1 - y0) / pitch + 1e-9))
+        for k in range(count + 1):
+            y = y0 + k * pitch
+            edge = k == 0 or y >= y1 - 1e-9
+            lines.append((y, 0.0 if edge else end_inset_fraction * pitch))
+        if not math.isclose(lines[-1][0], y1, abs_tol=1e-9):
+            lines.append((y1, 0.0))
+        return lines
+    y = y0 + pitch
+    while y <= y1 - 1e-9:
+        lines.append((y, end_inset_fraction * pitch))
+        y += pitch
+    return lines
 
 
 def _row_intervals(region: Polygon, y: float) -> List[Tuple[float, float]]:
@@ -173,24 +224,49 @@ class SSweepFiller:
         self.min_pass_fraction = min_pass_fraction
         self.end_inset_fraction = end_inset_fraction
 
-    def fill(self, regions: Sequence[Polygon], pitch: float) -> List[List[Point]]:
+    def fill(
+        self,
+        regions: Sequence[Polygon],
+        pitch: float,
+        anchor: Optional[Tuple[float, float, float, float]] = None,
+        edge_rows: bool = True,
+    ) -> List[List[Point]]:
         """Raster-fill each region with chained serpentine strokes.
 
         Args:
             regions: Fill regions (label-local inches, +y up).
             pitch: Row spacing in inches (> 0).
+            anchor: Optional global row-grid frame ``(x0, y0, x1, y1)``:
+                one shared grid at ``y0 + k*pitch`` through ``y1`` (the
+                reference grid spans the core bbox: the edge rows sit on
+                the boundary full-span with zero inset, interior rows are
+                inset ``end_inset_fraction * pitch``). ``None`` anchors the
+                grid to each region's own bbox.
+            edge_rows: With an anchor, include the two full-span bbox-edge
+                rows (the reference's tab rows). Counters pass ``False``.
 
         Returns:
             Strokes: one vertex list per contiguous pen-down polyline.
         """
         if pitch <= 0.0:
             raise ValueError(f"raster pitch must be > 0, got {pitch!r}")
+        grid = _row_grid(anchor, pitch, self.end_inset_fraction, edge_rows) if anchor else None
         strokes: List[List[Point]] = []
         for region in regions:
-            strokes.extend(self._fill_region(region, pitch))
+            lines = (
+                grid
+                if grid is not None
+                else _row_grid(region.bounds, pitch, self.end_inset_fraction, edge_rows=False)
+            )
+            strokes.extend(self._fill_region(region, pitch, lines))
         return strokes
 
-    def _fill_region(self, region: Polygon, pitch: float) -> List[List[Point]]:
+    def _fill_region(
+        self,
+        region: Polygon,
+        pitch: float,
+        grid: Optional[Sequence[Tuple[float, float]]] = None,
+    ) -> List[List[Point]]:
         """Chain one region's scanlines into strokes (see :meth:`fill`).
 
         Rows are grouped into LANES: a chain of scanline intervals whose
@@ -202,23 +278,24 @@ class SSweepFiller:
         GLOBAL y-order row index interleaves the lanes at a split, every
         link crosses the island, and each row degrades to an isolated
         stroke -- the connector loss the reference comparison exposed.
+
+        Args:
+            region: The fill polygon.
+            pitch: Row spacing (inches) -- used for the per-region grid
+                when ``grid`` is None and for the pass floor.
+            grid: Optional shared ``(y, end_inset)`` row lines.
         """
-        minx, miny, maxx, maxy = region.bounds
         rows: List[_Interval] = []
-        # Reference row grid: the first pass sits one pitch above the region
-        # floor (0.06 box: rows at inset+pitch ... top). Row ENDS inset by
-        # ``end_inset_fraction`` of the pitch: 0.5 = the reference's span
-        # inset (counter strips), 1.25 = half the tool diameter (border
-        # regions: the capsule cap lands on the core boundary, tangent to
-        # the raised islands; the box-edge skin goes to the outline ring).
-        y = miny + pitch
-        while y <= maxy - 1e-9:
+        lines = (
+            list(grid)
+            if grid is not None
+            else _row_grid(region.bounds, pitch, self.end_inset_fraction)
+        )
+        for y, inset in lines:
             for x_lo, x_hi in _row_intervals(region, y):
-                inset = self.end_inset_fraction * pitch
                 lo, hi = x_lo + inset, x_hi - inset
                 if hi - lo >= self.min_pass_fraction * pitch:
                     rows.append(_Interval(y=y, x_min=lo, x_max=hi))
-            y += pitch
         strokes: List[List[Point]] = []
         for lane in _lanes(rows):
             strokes.extend(self._chain_lane(region, lane))

@@ -93,6 +93,11 @@ file split. Ground truth: `examples/plt_relief_engraving/A_relief_s-sweep_*.plt`
 - Raster pitch = `d * (1 - relief_engraving_stroke_overlap_percent/100)`;
   the 60.0 default = `0.4 * effective_diameter` (24.384u @ 0.06, 2.032u @
   0.005 - exact in the references).
+- Border-core row grid: anchored at the core bbox (the inset rect)
+  `y0 + k*pitch` INCLUDING the bbox edges - edge rows full span, zero
+  inset (the `30.48`/`985.52` tab rows), interior rows inset
+  `end_inset_fraction * pitch` (`0.5` -> the `[42.672, 973.328]` spans);
+  counters keep the classic `miny + k*pitch` grid (no edge rows).
 - Border: outer components erode by the RADIUS; the plate/label border line
   the coarsest cutter engraves sits at the radius inset (tool edge tangent to
   the label edge).

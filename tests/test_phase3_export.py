@@ -8011,9 +8011,10 @@ class TestReliefEngravingDemo:
         fine_text = fine.read_text(encoding="utf-8")
         assert "SP" in coarse_text and "PU" in coarse_text
         assert "SP" in fine_text and "PU" in fine_text
-        # Rasters are straight-line sweeps (the outline arcs are polyline
-        # rings; no AA emission in the relief layers).
-        assert "AA" not in coarse_text
+        # The relief layers now cut native arcs (Task 5): box corners,
+        # island-tip caps, counter corners.
+        assert "AA" in coarse_text
+        assert coarse_text.count("AA") >= 4
         # The box rows land at the radius-inset + pitch grid: 54.864 -> 55.
         assert "PD43,961" in coarse_text.replace("973.328", "973") or "961" in coarse_text
         assert coarse_text.count("PD") > 100

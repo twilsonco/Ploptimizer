@@ -23,10 +23,23 @@ class TestSSweepFill:
         assert strokes, "square must raster"
         ys = sorted({round(y, 6) for stroke in strokes for _x, y in stroke})
         assert ys == [0.25, 0.5, 0.75]
-        # Row ends inset by the default pitch/2 = 0.125.
+        # Interior rows inset by the default pitch/2 = 0.125.
         xs = [x for stroke in strokes for x, _y in stroke]
         assert min(xs) == pytest.approx(0.125)
         assert max(xs) == pytest.approx(0.875)
+
+    def test_anchor_grid_has_edge_rows(self) -> None:
+        """The reference border grid: edge rows at the bbox boundary, full
+        span, zero inset (the 30.48/985.52 tab rows); interior rows inset."""
+        filler = SSweepFiller()
+        strokes = filler.fill([SQUARE], 0.25, anchor=(0.0, 0.0, 1.0, 1.0))
+        ys = sorted({round(y, 6) for stroke in strokes for _x, y in stroke})
+        assert ys == [0.0, 0.25, 0.5, 0.75, 1.0]
+        edge = [x for stroke in strokes for x, y in stroke if y < 1e-9 or y > 1.0 - 1e-9]
+        assert min(edge) == pytest.approx(0.0)
+        assert max(edge) == pytest.approx(1.0)
+        interior = [x for stroke in strokes for x, y in stroke if 1e-9 < y < 1.0 - 1e-9]
+        assert min(interior) == pytest.approx(0.125)
 
     def test_contiguous_serpentine_single_stroke(self) -> None:
         filler = SSweepFiller()
@@ -34,7 +47,9 @@ class TestSSweepFill:
         assert len(strokes) == 1
         stroke = strokes[0]
         assert stroke[0][1] == pytest.approx(0.25)
-        # 3 rows x (start, end) with explicit vertical link points.
+        # 3 rows x (start, end) + explicit vertical links (per-region grid
+        # has no bbox-edge rows; the anchored border grid does, tested in
+        # test_anchor_grid_has_edge_rows).
         assert len(stroke) == 6
 
     def test_split_regions_chain_independently(self) -> None:

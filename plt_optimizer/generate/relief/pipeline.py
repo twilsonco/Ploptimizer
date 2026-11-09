@@ -39,6 +39,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from shapely.geometry import LineString, Polygon
 from shapely.geometry import Point as ShapelyPoint
+from shapely.geometry import box as shapely_box
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
@@ -255,6 +256,45 @@ def _rest_region(
     return region_polygons(rest)
 
 
+def _tabbed_cores(
+    cores: Sequence[Polygon], r: float, bounds: Tuple[float, float, float, float]
+) -> List[Polygon]:
+    """Add the box-corner tabs and fillet discs to border cores.
+
+    The reference's outline ring runs straight to the label edge and
+    turns the box corners on a quarter arc centered on the core corner
+    (``AA30.480,985.520``): a tool center sits at the inset core corner
+    (x0+r, y0+r) and must stay r from the plate edges. The eroded core's
+    (sharp) corner is UNIONED with the corner tab square and SUBTRACTED
+    with a disc of radius r centered on the core corner -- producing the
+    quarter-arc boundary the fillet+AA pass then emits.
+
+    Args:
+        cores: Raw eroded border-touching cores.
+        r: The cutter radius.
+        bounds: ``(x0, y0, x1, y1)`` of the engrave box.
+
+    Returns:
+        Tabbed/filleted polygons for the outline path.
+    """
+    x0, y0, x1, y1 = bounds
+    union = unary_union(list(cores))
+    if union.is_empty:
+        return []
+    tabbed = union
+    for cx, cy, sx, sy in (
+        (x0, y0, 1, 1),
+        (x1, y0, -1, 1),
+        (x0, y1, 1, -1),
+        (x1, y1, -1, -1),
+    ):
+        tab = shapely_box(cx, cy, cx + sx * 2.0 * r, cy + sy * 2.0 * r)
+        tabbed = tabbed.union(tab)
+        disc = ShapelyPoint(cx + sx * r, cy + sy * r).buffer(r, quad_segs=256, join_style=1)
+        tabbed = tabbed.difference(disc)
+    return region_polygons(tabbed.intersection(shapely_box(x0, y0, x1, y1)))
+
+
 def _coverage_of(
     strokes: Sequence[Sequence[Point]], d: float, engrave: BaseGeometry
 ) -> BaseGeometry:
@@ -302,30 +342,40 @@ def generate_relief_passes(
     active = filler if filler is not None else SSweepFiller()
     if regions.engrave.is_empty:
         return []
-    border_fraction = active.min_pass_fraction if isinstance(active, SSweepFiller) else 0.25
-    border_filler = SSweepFiller(min_pass_fraction=border_fraction, end_inset_fraction=1.25)
     passes: List[ReliefPass] = []
     coverage: List[BaseGeometry] = []
     total_chunks = 0
     pitch_fraction = 1.0 - overlap_percent / 100.0
     for cutter in ladder:
         d = cutter.effective
+        r = d / 2.0
         pitch = d * pitch_fraction
         outer_cores, interior_cores = _cores(regions, cutter)
-        # Border-touching components engrave only the material NO earlier
-        # cutter's FILL capsule reached. Counting an earlier cutter's
-        # OUTLINE sweep as coverage is what dropped the 13-row strip
-        # chains along the "A" legs in the reference comparison: the
-        # outline leaves a d/2 skin band that the NEXT, finer cutter
-        # re-cuts (fill-then-outline at every stage, the reference's
-        # fine chains run straight through the coarse outline sweep).
-        rest_outer = _rest_region(outer_cores, coverage)
-        rest_interior = _rest_region(interior_cores, coverage)
-        rest = rest_outer + rest_interior
+        # Fill (measured against the references):
+        # - border components engrave the RAW core rect minus earlier FILL
+        #   capsules: the d/2 skins an earlier OUTLINE swept are rest for
+        #   the finer cutter (fill-then-outline at every stage -- the
+        #   reference's 13-row fine strips run straight through the coarse
+        #   outline sweep),
+        # - enclosed counters are re-cleaned from their FULL core at every
+        #   stage (the reference's fine counter chains cross the coarse
+        #   sweep: 13 rows in the "A" counter corner).
+        rest_fill = _rest_region(outer_cores, coverage)
+        rest_interior = region_polygons(unary_union(interior_cores)) if interior_cores else []
+        rest = rest_fill + rest_interior
         if not rest:
             continue
-        fill_points = border_filler.fill(rest_outer, pitch) + active.fill(rest_interior, pitch)
-        outline_points = border_filler.outline(rest_outer) + active.outline(rest_interior)
+        gx0, gy0, gx1, gy1 = regions.engrave.bounds
+        grid_anchor = (gx0 + r, gy0 + r, gx1 - r, gy1 - r)
+        fill_points = active.fill(rest_fill, pitch, anchor=grid_anchor) + active.fill(
+            rest_interior, pitch
+        )
+        # Outline: the tabbed core ring (straight runs to the label edge,
+        # quarter arcs centered on the core corners -- the reference's
+        # AA30.480,985.520), minus prior coverage.
+        tabbed = _tabbed_cores(outer_cores, r, regions.engrave.bounds)
+        rest_outer_tabbed = _rest_region(tabbed, coverage)
+        outline_points = active.outline(rest_outer_tabbed) + active.outline(rest_interior)
         strokes: List[ReliefStroke] = []
         for points in fill_points:
             if len(points) >= 2:
