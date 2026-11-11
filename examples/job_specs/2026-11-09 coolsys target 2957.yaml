@@ -2,23 +2,30 @@ job:
     job_name: coolsys target 2957
     font: helv1
     labels:
-        - id: "1x3"
-          material: bw
-          height: 1
-          width: 3
-          text_height: 0.5
-          holes:
-            - location: sides
-          replacement_text_file: 2026-11-09 coolsys target 2957 1x3.txt
-        - id: round
-          material: wb(uv)
-          type: round
-          height: 2
-          text_height: 0.2
-          line_spacing: 0.2
-          holes:
-            - location: top
-          replacement_text_file: 2026-11-09 coolsys target 2957 round.txt
+        # - id: "1x3"
+        #   material: bw
+        #   height: 1
+        #   width: 3
+        #   text_height: 0.5
+        #   holes:
+        #     - location: sides
+        #   replacement_text_file: 2026-11-09 coolsys target 2957 1x3.txt
+        # - id: "2x3 t2957"
+        #   material: bw
+        #   height: 2
+        #   width: 3
+        #   text_height: 0.375
+        #   holes:
+        #     - location: sides
+        #   replacement_text_file: 2026-11-09 coolsys target 2957 2x3.txt
+        # - id: "2x3 wm5101"
+        #   material: bw
+        #   height: 2
+        #   width: 3
+        #   text_height: 0.5
+        #   holes:
+        #     - location: sides
+        #   replacement_text_file: 2026-11-09 coolsys walmart 5101 2x3.txt
         - id: round walmart 1827
           material: wb(uv)
           type: round
@@ -28,3 +35,12 @@ job:
           holes:
             - location: top
           replacement_text_file: 2026-11-09 coolsys walmart 1827 round.txt
+        - id: round walmart 3620
+          material: wb(uv)
+          type: round
+          height: 2
+          text_height: 0.2
+          line_spacing: 0.2
+          holes:
+            - location: top
+          replacement_text_file: 2026-11-09 coolsys walmart 3620 round.txt
