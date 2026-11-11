@@ -3,10 +3,14 @@
 - [x] Add relief engraving support
   - A ground truth example has been created with EngraveLab and provided:
     - `examples/plt_relief_engraving/A_no_relief.plt` is the toolpath for a capital "A" centered on a 1x1 plate using single-stroke dino font, 1/2" text height (0.44" with a 0.06" cutter).
+    - `examples/plt_relief_engraving/A_relief_outline_only_no_fill.plt` is the same "A" but with the single-stroke replaced with the outline of the text using the 0.06" cutter that would have been used to do a normal engraving of the "A"
     - The relief version takes two different cutters, a coarse one for the background and a fine one for the details. Only one cutter could have been used, but EngraveLab provided the option to specify a main and a fine cutter.
     - `examples/plt_relief_engraving/A_relief_s-sweep_coarse_stroke_0.06.plt` is the toolpath for the coarse stroke of the relief engraving using a 0.06" cutter. A larger cutter, e.g. a 0.125" cutter, wasn't used because the "A"'s hole is so small that the larger cutter couldn't be used at all.
     - `examples/plt_relief_engraving/A_relief_s-sweep_fine_stroke_0.005.plt` is the toolpath for the fine stroke of the relief engraving using a 0.06" cutter. This includes the corners of the plate, as well as the interior corners of the "A" (the three corners of the triangular hole, and the two corners of the "A"'s outer shape).
-    - `examples/job_specs/relief_simple.yaml` is a job spec yaml that should reproduce the two reference toolpaths for the relief engraving.
+    - `examples/plt_relief_engraving/A_relief_s-sweep_0.005-only.plt` is the toolpath for the relief engraving using only the 0.005" cutter for all of the raster-fill, rather than just the corners where the 0.06" cutter couldn't reach.
+    - `examples/job_specs/relief_simple.yaml` is a job spec yaml that should reproduce `examples/plt_relief_engraving/A_relief_s-sweep_coarse_stroke_0.06.plt` and `examples/plt_relief_engraving/A_relief_s-sweep_fine_stroke_0.005.plt`
+    - `examples/job_specs/relief_simple_0.005-only.yaml` that should reproduce `examples/plt_relief_engraving/A_relief_s-sweep_0.005-only.plt`
+    - `examples/job_specs/no_relief_simple.yaml` which reproduces `examples/plt_relief_engraving/A_no_relief.plt`
     - **GOAL: Your goal for this implementation is to be able to run the job spec in `examples/job_specs/relief_simple.yaml` and reproduce the reference toolpaths for the relief engraving. Not byte-for-byte, but our toolpaths should be geometricaly equivalent. Do not stop development until that goal is achieved.**
       - For geometric comparison, we will compare the actual strokes of our output to those of the provided reference toolpaths.
   - Our implementation will take inspiration from this ground truth, but ours will be simpler to use.
