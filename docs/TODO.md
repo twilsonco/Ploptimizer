@@ -1,6 +1,6 @@
 # TODO List
 
-- [x] Add relief engraving support
+- [ ] Add relief engraving support
   - A ground truth example has been created with EngraveLab and provided:
     - `examples/plt_relief_engraving/A_no_relief.plt` is the toolpath for a capital "A" centered on a 1x1 plate using single-stroke dino font, 1/2" text height (0.44" with a 0.06" cutter).
     - `examples/plt_relief_engraving/A_relief_outline_only_no_fill.plt` is the same "A" but with the single-stroke replaced with the outline of the text using the 0.06" cutter that would have been used to do a normal engraving of the "A"
