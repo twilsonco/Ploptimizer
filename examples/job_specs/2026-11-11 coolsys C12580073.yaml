@@ -1,0 +1,39 @@
+job:
+  job_name: coolsys C12580073
+  font: helv1
+  material: bw
+  labels:
+    - id: "2x3"
+      height: 2
+      width: 3
+      text_height: 0.5
+      holes:
+        - location: sides
+      replacement_text_file: 2026-11-11 coolsys C12580073 2x3.txt
+    - id: "3x5"
+      height: 3
+      width: 5
+      text_height: 0.25
+      holes:
+        - location: corners
+      content:
+        - text: "REFRIGERANT: 1300 LBS R744"
+        - text: "REFRIGERANT OIL: 13 GALLONS POE"
+        - text: "COOLSYS"
+        - text: "145 S STATE COLLEGE BLVD. #200"
+        - text: "BREA, CA"
+        - text: "START UP:   5/28/2026"
+    - id: "1x3 GO616"
+      height: 1
+      width: 3
+      text_height: 0.5
+      holes:
+        - location: sides
+      replacement_text_file: 2026-11-11 coolsys GO616 1x3.txt
+
+REFRIGERANT: 1300 LBS R744
+REFRIGERANT OIL: 13 GALLONS POE
+COOLSYS
+145 S STATE COLLEGE BLVD. #200
+BREA,CA
+START UP:   5/28/2026

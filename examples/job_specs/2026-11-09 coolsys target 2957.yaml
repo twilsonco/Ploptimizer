@@ -26,15 +26,15 @@ job:
         #   holes:
         #     - location: sides
         #   replacement_text_file: 2026-11-09 coolsys walmart 5101 2x3.txt
-        # - id: round walmart 1827
-        #   material: wb(uv)
-        #   type: round
-        #   height: 2
-        #   text_height: 0.2
-        #   line_spacing: 0.2
-        #   holes:
-        #     - location: top
-        #   replacement_text_file: 2026-11-09 coolsys walmart 1827 round.txt
+        - id: round walmart 1827
+          material: wb(uv)
+          type: round
+          height: 2
+          text_height: 0.2
+          line_spacing: 0.2
+          holes:
+              - location: top
+          replacement_text_file: 2026-10-29 coolsys walmart 1827.txt
         # - id: round walmart 3620
         #   material: wb(uv)
         #   type: round
