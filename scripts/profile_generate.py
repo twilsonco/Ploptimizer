@@ -69,6 +69,10 @@ if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
 
 from plt_optimizer.utils.stage_timing import STAGE_LINE_PATTERN  # noqa: E402
 
+# The module docstring is `str | None` to a type checker (and a plain-script
+# `exec` of this file can leave it unset); argparse wants a real string.
+_DOC: str = __doc__ or ""
+
 # ---------------------------------------------------------------------------
 # Benchmark set: the five specs covering the pipeline's feature surface.
 # ---------------------------------------------------------------------------
@@ -504,7 +508,7 @@ def _collect_specs(values: Sequence[str]) -> List[Path]:
 def build_parser() -> argparse.ArgumentParser:
     """Build the argparse parser for the profiling harness."""
     parser = argparse.ArgumentParser(
-        description=__doc__.splitlines()[0],
+        description=_DOC.splitlines()[0],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
