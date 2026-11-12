@@ -8,7 +8,8 @@ runner's Phase 3.6 is pinned without matplotlib.
 
 from __future__ import annotations
 
-from plt_optimizer.generate.label_renderer import DescenderFix, RenderedLabel
+from plt_optimizer.generate.descender_adjust import DescenderFix
+from plt_optimizer.generate.label_renderer import RenderedLabel
 from plt_optimizer.generate.layout_report import format_layout_report, has_layout_findings
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
