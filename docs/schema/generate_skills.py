@@ -679,13 +679,14 @@ THEMES: Tuple[Theme, ...] = (
     Theme(
         name="inline-markup",
         title="Inline Markup Tags",
-        core="Fourteen in-text tags: style, scale, font, cutter, color, center, kerf buffer.",
+        core="Fifteen in-text tags: style, scale, font, cutter, color, center, kerf buffer, dynamic space.",
         use_when=(
             "styling part of a line",
             "mixing fonts or cutters inside one line",
             "splitting strokes by color",
             "superscripts, units, serial prefixes",
             "widening the kerf buffer on part of a line",
+            "spreading words across the full width of a line",
         ),
         keywords=(
             "markup",
@@ -700,6 +701,9 @@ THEMES: Tuple[Theme, ...] = (
             "cutter_buffer_text",
             "kerf",
             "buffer",
+            "space",
+            "dynamic spacing",
+            "justified",
         ),
         fields=(
             "html_brackets",

@@ -68,8 +68,9 @@ rebuilding raw markup.
   round-trips). `<u>` (see Inline Underline below) is the second shipped tag:
   `Style.underline` + `register_tag("u", ...)`, and nested `<i>...<u>...</u>
   ...</i>` composes (every transformation applies to its runs, in stack order).
-  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb` (each tag registers
-  last so every earlier tag's serialization stays bit-identical). The font tag
+  The registry order is `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb,
+  space` (each tag registers last so every earlier tag's serialization stays
+  bit-identical; `space` is last for that reason). The font tag
   (`<f:font name>`, see Inline Font Selection below) is the one tag whose
   argument needs pipeline knowledge (the font catalog): `parse_markup` accepts
   an injected `font_resolver` (raw name -> canonical name, `ValueError` for
@@ -1492,7 +1493,95 @@ line's configured buffer to zero). A bare `<cb>` without the argument is
 - Unit tests: `TestCutterBufferRegistry` / `TestCutterBufferParse` /
   `TestCutterBufferSerialize` / `TestCutterBufferWords`
   (`tests/test_markup.py`), `TestInlineCutterBufferOverrides`
-  (`tests/test_resolution.py`). (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
+  (`tests/test_resolution.py`).
+
+### Inline Dynamic Space (`<space>`)
+
+`<space>` (and `<space:X>`) is the fifteenth shipped markup tag and the ONLY
+self-closing one: it marks ONE gap whose width is at least `X` normal spaces and
+which then absorbs whatever room the line's alignment box leaves, so the words
+ride the box's margins. `hello<space>world` puts `hello` on the left margin and
+`world` on the right; `<space>world` is the exact equivalent of right-aligning
+`world`; `world<space>` pulls the text to the left margin. No schema field, no
+`job-config.json` key, no cascade — the value rides the tag (the `<scale:N>`
+precedent).
+
+- **Self-closing**: `TagSpec.self_closing` + `SELF_CLOSING_MARKER = "\x00space"`.
+  `parse_markup` emits a marker `Run` whose text is the marker string and whose
+  `Style.dynamic_space` carries the width. There is no close form (`</space>` is
+  literal text, and the closer scan skips self-closing names, so an open
+  `<space>` never swallows the rest of the line). `serialize_runs` re-emits it
+  inside the run's open tags exactly like the kern markers, so
+  `<i>foo<space>bar</i>` round-trips and the reflow gives every word its own
+  copy.
+- **Optional float argument, `X >= 0.0`**, bare `<space>` == `<space:1.0>`.
+  Unlike `<scale:N>` / `<c:D>`, a missing argument is NOT literal text. `X` is
+  the gap's minimum in FRACTIONS of one normal space advance of that line
+  (`space_width_fraction * toolpath_text_height + character_spacing` — the same
+  figure the PLT walk advances for a space, so it rescales with the line and
+  keeps word groups 1:1).
+- **The sentinel is load-bearing**: `Style.dynamic_space: float` defaults to
+  `UNSET_SPACE_FRACTION = -1.0`, NOT `0.0`, because `0.0` is a legal minimum
+  (`<space:0>` collapses a gap). Any gate written as `> 0` / truthiness makes
+  `<space:0>` indistinguishable from "unmarked" and the gap silently keeps its
+  natural space. `StyledText.dynamic_space_fractions` and
+  `ResolvedTextLine.dynamic_space_fractions` are per-`plain_text`, `()` when no
+  marker.
+- **The gap law** (`label_renderer._space_slot_gaps`):
+  `gap_i = X_i * advance + fill * X_i / sum(X)`. A zero minimum absorbs NO fill;
+  all-zero minima leave the fill as slack; a negative fill (a line wider than
+  its box) contributes nothing — the minima stand alone and the TEXT pays, never
+  the reverse.
+- **The shift model** (`_space_slot_weights`, `_space_char_shifts`,
+  `_apply_space_expand`): a slot's cursor delta is `gap - advance` (the natural
+  render already advanced one space there) and each glyph group rides the PREFIX
+  SUM of the deltas to its left, so the ink's left edge stays where the natural
+  render put it and its right edge lands on the box. Expansion is a pure
+  X-translate of the stroke groups — `AA` arcs stay native (no refit, no
+  flattening), the pen layers, stroke widths, word groups and the 1:1
+  character/glyph partition are untouched. It runs at the END of the natural
+  render (after `_measure_glyph_boxes`, before `_apply_underline`), so an
+  underline spanning the gap draws through it as through a normal space.
+- **Markers speak the partition's own language** (`_space_slot_indices`): both
+  renderers EXCLUDE spaces from the per-glyph groups (`_glyph_chars`), so a
+  marker owns no group and takes the index of the first glyph to its RIGHT — a
+  leading marker has slot `0` (shifts every glyph: right-alignment), a trailing
+  marker has slot `glyph_count` (shifts nothing: the slack opens behind the
+  ink). A minimum written on a NON-space character reserves no gap (the renderer
+  draws that character and advances by its own width) and is skipped — counting
+  it would break the 1:1 marker/slot pairing and silently decline the whole
+  line.
+- **The box is the line's own**: `align_box = inner_width - 2*h_margin` less the
+  line's indent column, less a collision edge margin, capped by the global shared
+  scale. NEVER the plate margins — `h_margin` is content-relative, and per-label
+  collision slide, list indent, shared scale and the global compressor all move
+  it. A list item's BODY fills the body box: `_marker_body_box` subtracts the
+  marker column from the box AND the natural ink (from the measured marker ink,
+  never the `list_marker_gap_fraction` floor), so markers stay in one flush
+  column and the bodies end on the group's right edge. The half-cutter kerf
+  insets belong to Pass A's COMPRESSION budget, not to this box — counting them
+  twice pushes the ink a half cutter past the far margin.
+- **`<space>` always wins over compression**: Pass A reserves
+  `extra = sum((X - 1) * advance)` out of the text's
+  `compression_available_width` and Pass A2 fills
+  `fill = box - natural - extra`, so the ink lands on the box for EVERY
+  minimum (`<space:2>` in a roomy box is a FLOOR, not an overflow). A minimum
+  wider than the box overflows by design and the text compresses by its own
+  `max_h_compress` permission.
+- **Inert where there is no box to fill**: `marker_text` lines, `plate` fields,
+  PLT glyph definitions and plain (unstyled) text. A marker whose line has no
+  room logs a warning and engraves its own minimum. Like every other tag it adds
+  no ink, no holes, no relief regions, and never moves `nominal_text_height`,
+  the cutter, the pen map or the file names.
+- **Reflow**: the marker character IS an ordinary space in `plain_text`, so it is
+  a legal soft-break point; the tag survives tokenization/serialization and each
+  resulting line expands to its own box.
+- Unit tests: `TestSpaceRegistry` / `TestSpaceParse` / `TestSpaceSerialize` /
+  `TestSpaceWords` (`tests/test_markup.py`), `TestDynamicSpaceGeometry` +
+  `TestDynamicSpaceRender` (`tests/test_label_renderer.py`). Reflow, layout-report
+  and PLT-export units are tracked in `docs/TODO.md`.
+
+### Manual Kerning (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
 
 Manual kerning is the framework's one **non-tag** markup feature: the
 cascading `kern_pos_string` / `kern_neg_string` fields name *marker strings*

@@ -1,6 +1,6 @@
 ---
 name: inline-markup
-description: 'Fourteen in-text tags: style, scale, font, cutter, color, center, kerf buffer. Use when: styling part of a line; mixing fonts or cutters inside one line; splitting strokes by color; superscripts, units, serial prefixes; widening the kerf buffer on part of a line. Keywords: markup, italic, bold, underline, superscript, scale, small caps, text_color, cb, cutter_buffer_text, kerf, buffer.'
+description: 'Fifteen in-text tags: style, scale, font, cutter, color, center, kerf buffer, dynamic space. Use when: styling part of a line; mixing fonts or cutters inside one line; splitting strokes by color; superscripts, units, serial prefixes; widening the kerf buffer on part of a line; spreading words across the full width of a line. Keywords: markup, italic, bold, underline, superscript, scale, small caps, text_color, cb, cutter_buffer_text, kerf, buffer, space, dynamic spacing, justified.'
 version: 1.0.0
 metadata:
   hermes:
@@ -17,6 +17,7 @@ metadata:
 - splitting strokes by color
 - superscripts, units, serial prefixes
 - widening the kerf buffer on part of a line
+- spreading words across the full width of a line
 
 ## Fields
 

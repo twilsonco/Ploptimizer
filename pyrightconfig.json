@@ -1,0 +1,54 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/schemas/pyrightconfig.schema.json",
+  "include": ["plt_optimizer"],
+  "exclude": [
+    "tests",
+    "tests_deps",
+    "scripts",
+    "docs",
+    "examples",
+    "fonts",
+    "installer",
+    "**/__pycache__",
+    "**/.venv",
+    "**/.probe"
+  ],
+  "defineConstants": {},
+  "pythonVersion": "3.8",
+  "pythonPlatform": "All",
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "warning",
+  "reportMissingTypeStubs": "none",
+  "stubPath": ".",
+  "typeCheckingSampleFile": "off",
+  "reportUnusedImport": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownDeclarationType": "none",
+  "reportUntypedFunctionDecorator": "none",
+  "reportUntypedClassDecorator": "none",
+  "reportPrivateUsage": "none",
+  "reportImplicitOverride": "none",
+  "reportUnnecessaryComparison": "none",
+  "reportUnnecessaryContains": "none",
+  "reportUnnecessaryIsInstance": "none",
+  "reportUnusedFunction": "none",
+  "executionEnvironments": [
+    {
+      "root": "plt_optimizer/generate",
+      "pythonVersion": "3.10"
+    },
+    {
+      "root": "plt_optimizer/diagnostics",
+      "pythonVersion": "3.10"
+    },
+    {
+      "root": "plt_optimizer/ui",
+      "pythonVersion": "3.10"
+    }
+  ]
+}

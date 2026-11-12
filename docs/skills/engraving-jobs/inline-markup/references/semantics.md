@@ -26,9 +26,9 @@ cross a content-line boundary, and nest.
 - Parsing runs at resolution time, so markup errors surface with the other
   spec-level validation errors.
 
-## The fourteen tags
+## The fifteen tags
 
-Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb`.
+Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb, space`.
 
 | Tag | Effect | Tuning fields |
 |---|---|---|
@@ -45,6 +45,7 @@ Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb`.
 | `<vc>…</vc>` | Vertical centering of the run's characters against the line's `v_center_chars` set (e.g. center a serial against digits) | `v_center_chars` |
 | `<tc:color>…</tc>` | Stroke color for the run: the run splits into a SEPARATE per-color toolpath (and its own PLT file). `none` = the default stroke. Line-level whole-line color is the `text_color` field (same enum) | `text_color` |
 | `<cb:D>…</cb>` | Kerf buffer for the run: `D` inches REPLACES the line's cascaded `cutter_buffer_text` for the wrapped characters (the width the tool actually engraves, `cutter + buffer`). `D` is a mandatory float in `[0.0, 1.0]` — a bare `<cb>` engraves literally (the `<c:>` rule) and `0.0` explicitly zeroes the buffer for the span. Pure width modifier: no inventory snap, no new pen, no extra PLT file | `cutter_buffer_text` |
+| `<space>` (self-closing — there is no `</space>`) | Dynamic gap: minimum `X` normal space advances (`<space:X>`, float ≥ 0.0, a bare `<space>` = `1.0`) that then absorbs the line's leftover room, so the words ride the line's OWN alignment box: `hello<space>world` puts `hello` on the left margin and `world` on the right, `<space>world` is right-aligning `world`, `world<space>` rides the left margin, `<space:0>` collapses the gap. Always WINS over compression (the text pays). Pure geometry: no new pen, no new ink, no cutter/height change | — |
 
 ## Interactions that bite
 
