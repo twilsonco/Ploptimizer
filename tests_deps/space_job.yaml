@@ -7,17 +7,22 @@
 #
 #   l1  bare <space> mid-line, left-aligned (the default): margin to margin
 #   l2  plain twin of l1
-#   l3  leading <space>: right-aligns RIGHT with no <c:right>
-#   l4  <c:right> twin of l3
-#   l5  trailing <space>: rides the left margin, slack behind the ink
-#   l6  plain twin of l5
-#   l7  <space:0>: collapses the gap to the plain space advance
-#   l8  plain twin of l7
-#   l9  <space> nested in <u>: the underline spans the gap
-#   l10 plain twin of l9
-#   l11 two lines, each marked: line 0 has no slack (keeps its minimum and
+#   l3  <space:0> mid-line: the ROOMY-regime pair of l1 (a floor below 1.0 is
+#       inert when the line has room, so l3 == l1 ink for ink)
+#   l4  <space> nested in <u>: the underline spans the gap
+#   l5  plain <u> twin of l4
+#   l6  two gaps in one line
+#   l7  leading <space>: right-aligns RIGHT with no <c:right>
+#   l8  trailing <space>: rides the left margin, slack behind the ink
+#   l9  plain CENTER twin (the unmarked reference for l7/l8's placement)
+#   l10 two lines, each marked: line 0 has no slack (keeps its minimum and
 #       overflows the box), line 1 has all of it (margin to margin)
-#   l12 <space:3> on a box-wide line: the floor wins, no fill is left
+#   l11 plain twin of l10
+#   l12 <space> inside a <scale:2> run
+#   l13 plain twin of l12
+#   l14/l15/l16 the TIGHT trio (width 2.5, max_h_compress 0.7): the hierarchy
+#       -- <space:0> gives ground the bare <space> keeps, and its text is
+#       squeezed less for it
 #
 # Every label is `width: 3.0` / `height: 1.0` at the 0.1 job margin, so the
 # text box is [0.1, 2.9] in label-local inches for every line: the marked
@@ -27,100 +32,90 @@
 # this sample lives in tests_deps/ only when a test reads it directly).
 job:
   job_name: "Space Tag Fixture"
-  width: 3.0
-  height: 1.0
-  margin: 0.1
+  width: 6
+  height: 2
+  layout: columns-simple
   text_height: 0.5
-  line_spacing: 0.15
-  auto_descending_character_adjustment: false
   font: Dino
-  plates:
-    - id: plate_1
-      width: 24.0
-      height: 16.0
   labels:
     - id: l1
-      font: Dino
-      width: 3.0
-      height: 1.0
       content:
         - text: "GG<space>GG"
 
     - id: l2
-      font: Dino
-      width: 3.0
-      height: 1.0
       content:
         - text: "GG GG"
 
     - id: l3
-      font: Dino
-      width: 3.0
-      height: 1.0
-      content:
-        - text: "<space>RIGHT"
-
-    - id: l4
-      font: Dino
-      width: 3.0
-      height: 1.0
-      content:
-        - text: "RIGHT"
-          text_h_alignment: right
-
-    - id: l5
-      font: Dino
-      width: 3.0
-      height: 1.0
-      content:
-        - text: "LEFT<space>"
-
-    - id: l6
-      font: Dino
-      width: 3.0
-      height: 1.0
-      content:
-        - text: "LEFT"
-
-    - id: l7
-      font: Dino
-      width: 3.0
-      height: 1.0
       content:
         - text: "GG<space:0>GG"
 
-    - id: l8
-      font: Dino
-      width: 3.0
-      height: 1.0
-      content:
-        - text: "GG GG"
-
-    - id: l9
-      font: Dino
-      width: 3.0
-      height: 1.0
+    - id: l4
       content:
         - text: "<u>GG<space>GG</u>"
 
-    - id: l10
-      font: Dino
-      width: 3.0
-      height: 1.0
+    - id: l5
       content:
         - text: "<u>GG GG</u>"
 
-    - id: l11
-      font: Dino
-      width: 3.0
-      height: 1.0
+    - id: l6
+      content:
+        - text: "GG<space>GG<space>GG"
+
+    - id: l7
+      content:
+        - text: "<space>RIGHT"
+
+    - id: l8
+      content:
+        - text: "LEFT<space>"
+
+    - id: l9
+      content:
+        - text: "CENTER"
+
+    - id: l10
       content:
         - text: "AAAA<space>BBBB"
         - text: "DD<space>EE"
 
-    - id: l12
-      font: Dino
-      width: 3.0
-      height: 1.0
+    - id: l11
       content:
-        - text: "S<scale:3>3</scale>YY<space>ZZ"
+        - text: "AAAA BBBB"
+        - text: "DD EE"
+
+    - id: l12
+      content:
+        - text: "S<scale:2>3</scale>YY<space>ZZ"
+
+    - id: l13
+      content:
+        - text: "S<scale:2>3</scale>YY ZZ"
+
+    # ---- compression trio: the TIGHT regime, where the HIERARCHY lives.
+    # width 2.5 -> box 2.25, far under the 5.516in these words need, so the
+    # line is margin-fit compressed (to 0.7, the deepest the trio permits).
+    # Margin-fit compression, NOT the shared scale: a global scale multiplies
+    # EVERY line by the same factor, so a short line ends up compressed AND
+    # roomy and its gaps never contract. In this regime the gaps pay FIRST:
+    #   l15 (bare <space>) == l16 (plain twin) -- a marked space is the normal
+    #       case, so the reservation changes nothing, bit for bit;
+    #   l14 (<space:0>) is NARROWER by the advance the gap gave up, because the
+    #       floor let the gap contract before the text was squeezed.
+    - id: l14
+      width: 2.5
+      max_h_compress: 0.7
+      content:
+        - text: "AAAAAA<space:0>BBBBBB"
+
+    - id: l15
+      width: 2.5
+      max_h_compress: 0.7
+      content:
+        - text: "AAAAAA<space>BBBBBB"
+
+    - id: l16
+      width: 2.5
+      max_h_compress: 0.7
+      content:
+        - text: "AAAAAA BBBBBB"

@@ -5,12 +5,11 @@ import logging
 import math
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
-from plt_optimizer.generate.packing.layout import LayoutMode
 from plt_optimizer.generate.resolution import (
     LineContentConfigError,
     ResolvedLabel,
@@ -19,11 +18,14 @@ from plt_optimizer.generate.resolution import (
     resolve_job_spec,
 )
 from plt_optimizer.generate.schema import (
+    JobSpec,
     LabelSpec,
+    LayoutMode,
     PlateSpec,
     TextLine,
     parse_yaml,
 )
+from plt_optimizer.generate.text_geometry import TextBlock
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
     _format_cutter,
@@ -35,6 +37,25 @@ from plt_optimizer.generate.vectorize import (
     _parse_plt_stem,
     export_per_cutter_plts,
 )
+
+
+def _bounds(block: Any) -> Tuple[float, float, float, float]:
+    """A test-side non-``None`` ``TextBlock.bounds()`` (empty blocks are a test failure).
+
+    ``TextBlock.bounds()`` is ``Optional`` because an empty block has no ink;
+    every call site here measures real glyph geometry, so ``None`` is a test
+    failure. Guarding it in one place keeps the subscript sites typed without
+    weakening any assertion.
+    """
+    bounds: Optional[Tuple[float, float, float, float]] = block.bounds()
+    assert bounds is not None
+    return bounds
+
+
+def _inches(value: Optional[float]) -> float:
+    """A test-side non-``None`` cascade dimension (unset is a test failure)."""
+    assert value is not None
+    return value
 
 
 class TestExportAndOptimizePhase3:
@@ -237,9 +258,11 @@ class TestExportAndOptimizePhase3:
         job = parse_yaml("tests_deps/test123_spec.yaml")
         resolved_labels = resolve_job_spec(job)
 
-        captured: dict[str, list[tuple[float, float]]] = {}
+        captured: Dict[str, List[Tuple[float, Any]]] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+        def _fake_plot(
+            layers: Any, output_path: Any = None, show_plot: bool = False, **kwargs: Any
+        ) -> None:
             captured[Path(output_path).name] = [
                 (layer.width_inches, layer.alpha) for layer in layers
             ]
@@ -295,11 +318,19 @@ class TestExportAndOptimizePhase3:
         simple_calls: list[str] = []
         physical_calls: list[str] = []
 
-        def _fake_simple(document, output_path=None, show_plot=False, simple_mode=False, **kwargs):
+        def _fake_simple(
+            document: Any,
+            output_path: Any = None,
+            show_plot: bool = False,
+            simple_mode: bool = False,
+            **kwargs: Any,
+        ) -> None:
             assert simple_mode is True
             simple_calls.append(Path(output_path).name)
 
-        def _fake_physical(layers, output_path=None, show_plot=False, **kwargs):
+        def _fake_physical(
+            layers: Any, output_path: Any = None, show_plot: bool = False, **kwargs: Any
+        ) -> None:
             physical_calls.append(Path(output_path).name)
 
         with patch(
@@ -982,7 +1013,7 @@ class TestTextColorDemoExample:
     gaining their 1-letter suffixes.
     """
 
-    def _resolve(self) -> object:
+    def _resolve(self) -> List[ResolvedLabel]:
         """Parse and resolve the stroke-color demo job."""
         from plt_optimizer.generate.schema import parse_yaml
 
@@ -1220,7 +1251,7 @@ class TestCutterSizeDemoExample:
         assert math.isclose(auto.cutter_diameter, 0.06)
 
         label_line = by_id["label_cutter"].content[0]
-        assert math.isclose(label_line.cutter_size, 0.045)
+        assert math.isclose(_inches(label_line.cutter_size), 0.045)
         assert math.isclose(label_line.cutter_diameter, 0.045)
         assert math.isclose(label_line.toolpath_text_height, 0.5 - 0.045)
 
@@ -1246,12 +1277,15 @@ class TestCutterSizeDemoExample:
         from plt_optimizer.generate.resolution import CutterSizeError
 
         job = parse_yaml(Path("tests_deps/cutter_size_job.yaml"))
+        # ``LabelSpec.content`` is ``list[ContentEntry]``; pydantic coerces the
+        # plain ``TextLine`` into one, so the list is annotated ``Any``.
+        content: List[Any] = [TextLine(text="X", cutter_size=0.5)]
         job.labels = [
             LabelSpec(
                 id="too_big",
                 width=3.0,
                 height=1.0,
-                content=[TextLine(text="X", cutter_size=0.5)],
+                content=content,
             )
         ]
         with pytest.raises(CutterSizeError, match="no material to engrave"):
@@ -1326,7 +1360,7 @@ class TestMultistrokeDemoExample:
         """An explicit cutter_size on a multi-stroke font wins verbatim."""
         line = self._resolve()["explicit_cutter"].content[0]
         assert math.isclose(line.cutter_diameter, 0.09)
-        assert math.isclose(line.cutter_size, 0.09)
+        assert math.isclose(_inches(line.cutter_size), 0.09)
 
     def test_nominal_height_untouched(self) -> None:
         """Every ladder cutter keeps the nominal height (vertical fit)."""
@@ -3248,7 +3282,9 @@ class TestUnderlineDemoExample:
         return entries[0].bounds
 
     @staticmethod
-    def _line_render(label: ResolvedLabel):
+    def _line_render(
+        label: ResolvedLabel,
+    ) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]], Tuple[Tuple[int, ...], ...]]:
         """Render the label's single text line (block + glyph partition)."""
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
@@ -3481,8 +3517,8 @@ class TestBoldDemoExample:
         """Dino (S1, auto 0.060) bolds to the next rung 0.090; nominal kept."""
         line = self._resolve()["plt_bold"].content[0]
         assert math.isclose(line.cutter_diameter, 0.06)
-        assert math.isclose(line.bold_cutter_diameter, 0.09)
-        assert math.isclose(line.bold_toolpath_text_height, 0.5 - 0.09)
+        assert math.isclose(_inches(line.bold_cutter_diameter), 0.09)
+        assert math.isclose(_inches(line.bold_toolpath_text_height), 0.5 - 0.09)
         # The uniform centerline scale: (0.5-0.09)/(0.5-0.06).
         assert math.isclose(line._bold_glyph_scale(), (0.5 - 0.09) / (0.5 - 0.06))
         # The nominal height is untouched (vertical fit math).
@@ -3499,7 +3535,7 @@ class TestBoldDemoExample:
         """Avenge5 (S5) plain 0.020, bold ladder at 0.14*1.5=0.21 -> 0.045."""
         line = self._resolve()["plt_multistroke"].content[0]
         assert math.isclose(line.cutter_diameter, 0.02)
-        assert math.isclose(line.bold_cutter_diameter, 0.045)
+        assert math.isclose(_inches(line.bold_cutter_diameter), 0.045)
 
     def test_multistroke_multiplier_clamps_to_ceiling(
         self, caplog: pytest.LogCaptureFixture
@@ -3507,7 +3543,7 @@ class TestBoldDemoExample:
         """A 3.0 multiplier (0.14*3=0.42) clamps to 0.30 -> bold 0.090, WARNING."""
         with caplog.at_level("WARNING"):
             line = self._resolve()["plt_multistroke_clamped"].content[0]
-        assert math.isclose(line.bold_cutter_diameter, 0.09)
+        assert math.isclose(_inches(line.bold_cutter_diameter), 0.09)
         assert "clamped" in caplog.text
 
     def test_multistroke_multiplier_one_is_inert(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -3552,7 +3588,7 @@ class TestBoldDemoExample:
         so the half-decrease raise cancels both.
         """
         line = self._resolve()["plt_bold"].content[0]
-        expected = (line.bold_cutter_diameter - line.cutter_diameter) / 2
+        expected = (_inches(line.bold_cutter_diameter) - _inches(line.cutter_diameter)) / 2
         assert math.isclose(expected, 0.015)
         assert line.baseline_raises == (0.0,) * 6 + (expected,) * 4 + (0.0,) * 6
 
@@ -3581,7 +3617,9 @@ class TestBoldDemoExample:
         bold_bottom, bold_top = box_of_first_bold(bold_line)
         plain_bottom, plain_top = box_of_first_bold(plain_line)
         scale = bold_line._bold_glyph_scale()
-        raise_in = (bold_line.bold_cutter_diameter - bold_line.cutter_diameter) / 2
+        raise_in = (
+            _inches(bold_line.bold_cutter_diameter) - _inches(bold_line.cutter_diameter)
+        ) / 2
         # The exact transform: scale about the baseline, then raise.
         assert bold_bottom == pytest.approx(scale * plain_bottom + raise_in, abs=1e-9)
         assert bold_top == pytest.approx(scale * plain_top + raise_in, abs=1e-9)
@@ -3627,7 +3665,7 @@ class TestBoldDemoExample:
         # -(bold_cutter + offset), deeper than the plain centerline. The
         # offset term is the cap-height fraction resolved to inches.
         plain_y = -(line.cutter_diameter + line.underline_offset_inches)
-        bold_y = -(line.bold_cutter_diameter + line.underline_offset_inches)
+        bold_y = -(_inches(line.bold_cutter_diameter) + line.underline_offset_inches)
         assert strokes
         for stroke in strokes:
             y = stroke.segments[0].start.imag
@@ -3639,9 +3677,11 @@ class TestBoldDemoExample:
         result = self._export(tmp_path)
         line = result.rendered_labels["lockstep"].source_label.content[0]
         assert math.isclose(line.cutter_diameter, 0.045)
-        assert math.isclose(line.bold_cutter_diameter, 0.06)
+        assert math.isclose(_inches(line.bold_cutter_diameter), 0.06)
         # Bold stays exactly one rung above the final plain cutter.
-        assert math.isclose(line.bold_cutter_diameter - line.cutter_diameter, 0.015)
+        assert math.isclose(
+            _inches(line.bold_cutter_diameter) - _inches(line.cutter_diameter), 0.015
+        )
 
     def test_lockstep_plain_control_steps_only_plain(self, tmp_path: Path) -> None:
         """The no-bold control steps only its plain cutter (0.060 -> 0.045)."""
@@ -4469,7 +4509,9 @@ class TestStrikethroughDemoExample:
         return entries[0].bounds
 
     @staticmethod
-    def _line_render(label: ResolvedLabel):
+    def _line_render(
+        label: ResolvedLabel,
+    ) -> Tuple[TextBlock, Optional[List[Tuple[str, List[int]]]], Tuple[Tuple[int, ...], ...]]:
         """Render the label's single text line (block + glyph partition)."""
         from plt_optimizer.generate.label_renderer import (
             TextChunkMode,
@@ -5703,7 +5745,7 @@ class TestEllipseDemoExample:
             labels, job.plates, allow_rotation=job.allow_rotation, layout=job.layout
         )
 
-        def shape_of(packed) -> object:
+        def shape_of(packed: Any) -> Any:
             """The placement's collision geometry in the plate's usable frame."""
             label = packed.source_label
             x_min = packed.x - 0.0  # no plate clearance in this fixture
@@ -6063,7 +6105,7 @@ class TestHoleAdjustForCutterDemoExample:
         )
 
     @staticmethod
-    def _hole_radii_inches(rendered_labels: dict, label_id: str) -> list[float]:
+    def _hole_radii_inches(rendered_labels: Dict[str, Any], label_id: str) -> List[float]:
         """One drill-hole arc radius per distinct hole centre, in inches.
 
         Each hole emits four quarter-arcs sharing one centre, so the arcs are
@@ -6369,8 +6411,8 @@ class TestVCenterDemoExample:
         centers = self._centers(line)
         assert centers["A"] == pytest.approx(0.22, abs=1e-3)
         assert block.bounds() is not None
-        assert block.bounds()[1] == pytest.approx(0.0, abs=1e-3)
-        assert block.bounds()[3] == pytest.approx(0.44, abs=1e-3)
+        assert _bounds(block)[1] == pytest.approx(0.0, abs=1e-3)
+        assert _bounds(block)[3] == pytest.approx(0.44, abs=1e-3)
 
     def test_the_selection_is_per_character(self, tmp_path: Path) -> None:
         """Only the tagged colon centres; the plain hyphens stay low."""
@@ -6532,7 +6574,7 @@ class TestKernDemoExample:
         )
 
         block, _words, _glyphs = _render_line_block(label.content[0], TextChunkMode.LINE)
-        bounds = block.bounds()
+        bounds = _bounds(block)
         return bounds[2] - bounds[0]
 
     @staticmethod
@@ -6566,7 +6608,8 @@ class TestKernDemoExample:
         assert wide.kern_values == (0, 1)
         assert wide.has_kern is True
         # 0.1 * cap (0.44in toolpath) = 0.044in on the V.
-        assert wide.kern_shifts_inches == (0.0, pytest.approx(0.044))
+        shifts: Tuple[Any, ...] = wide.kern_shifts_inches
+        assert shifts == (0.0, pytest.approx(0.044))
 
         plain = by_id["plt_wide_plain"].content[0]
         assert plain.plain_text == "AV"
@@ -6957,7 +7000,7 @@ class TestTextColorMarkupDemoExample:
     produces.
     """
 
-    def _resolve(self) -> list:
+    def _resolve(self) -> List[ResolvedLabel]:
         """Parse and resolve the inline stroke-color demo job."""
         from plt_optimizer.generate.schema import parse_yaml
 
@@ -7022,6 +7065,7 @@ class TestTextColorMarkupDemoExample:
         from plt_optimizer.generate.markup import MarkupError
         from plt_optimizer.generate.schema import JobSpec, LabelSpec, TextLine
 
+        content: List[Any] = [TextLine(text="<tc:x>A</tc>")]
         spec = JobSpec(
             job_name="J",
             labels=[
@@ -7029,7 +7073,7 @@ class TestTextColorMarkupDemoExample:
                     id="l",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="<tc:x>A</tc>")],
+                    content=content,
                 )
             ],
         )
@@ -7079,16 +7123,24 @@ class TestPreviewColors:
     """Colored combined `all_*.pdf` proof previews (material + pen colors)."""
 
     @staticmethod
-    def _capture(tmp_path: Path, yaml_path: str, job_id: str, **export_kwargs) -> dict:
+    def _capture(
+        tmp_path: Path, yaml_path: str, job_id: str, **export_kwargs: Any
+    ) -> Dict[str, Any]:
         """Export a fixture with plot_physical_strokes patched; return capture."""
         from unittest.mock import patch
 
         job = parse_yaml(yaml_path)
         resolved_labels = resolve_job_spec(job)
 
-        captured: dict = {}
+        captured: Dict[str, Any] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, fills=(), **kwargs):
+        def _fake_plot(
+            layers: Any,
+            output_path: Any = None,
+            show_plot: bool = False,
+            fills: Tuple[Any, ...] = (),
+            **kwargs: Any,
+        ) -> None:
             captured[Path(output_path).name] = {
                 "layers": [(layer.width_inches, layer.alpha, layer.facecolor) for layer in layers],
                 "fills": [(fill.color, fill.alpha) for fill in fills],
@@ -7227,11 +7279,11 @@ class TestCutterBufferDemoExample:
 
     _SPEC = Path("tests_deps/cutter_buffer_job.yaml")
 
-    def _labels(self):
+    def _labels(self) -> Dict[str, ResolvedLabel]:
         """Resolve the fixture (no inventory: the ideal cutters apply)."""
         return {label.id: label for label in resolve_job_spec(parse_yaml(self._SPEC))}
 
-    def _export(self, tmp_path: Path, job_id: str = "cb", **export_kwargs):
+    def _export(self, tmp_path: Path, job_id: str = "cb", **export_kwargs: Any) -> PerCutterExport:
         """Export the fixture, returning the result."""
         job = parse_yaml(self._SPEC)
         return export_per_cutter_plts(
@@ -7362,7 +7414,13 @@ class TestCutterBufferDemoExample:
         labels = resolve_job_spec(job)
         captured: dict[str, list[float]] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, fills=(), **kwargs):
+        def _fake_plot(
+            layers: Any,
+            output_path: Any = None,
+            show_plot: bool = False,
+            fills: Tuple[Any, ...] = (),
+            **kwargs: Any,
+        ) -> None:
             captured[Path(output_path).name] = [layer.width_inches for layer in layers]
 
         with patch(
@@ -7391,8 +7449,8 @@ class TestCutterBufferDemoExample:
         # The combined proof carries both widths (text pen + structural pens).
         all_plots = {n: w for n, w in captured.items() if n.startswith("all_")}
         assert all_plots
-        widths = {round(w, 6) for ws in all_plots.values() for w in ws}
-        assert {0.060, 0.064, 0.070, 0.080} <= widths
+        all_widths = {round(w, 6) for ws in all_plots.values() for w in ws}
+        assert {0.060, 0.064, 0.070, 0.080} <= all_widths
 
 
 class TestZeroBufferRegression:
@@ -7444,7 +7502,13 @@ class TestZeroBufferRegression:
         job = parse_yaml(spec)
         captured: dict[str, list[float]] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, fills=(), **kwargs):
+        def _fake_plot(
+            layers: Any,
+            output_path: Any = None,
+            show_plot: bool = False,
+            fills: Tuple[Any, ...] = (),
+            **kwargs: Any,
+        ) -> None:
             captured[Path(output_path).name] = [layer.width_inches for layer in layers]
 
         with patch(
@@ -7517,13 +7581,15 @@ class TestPerStrokePreviewWidths:
     """
 
     @staticmethod
-    def _capture_physical_plots():
+    def _capture_physical_plots() -> Tuple[Any, Dict[str, List[Tuple[float, int]]]]:
         """Return (patcher, captured) capturing every physical plot's layers."""
         from unittest.mock import patch
 
         captured: dict[str, list[tuple[float, int]]] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+        def _fake_plot(
+            layers: Any, output_path: Any = None, show_plot: bool = False, **kwargs: Any
+        ) -> None:
             captured[Path(output_path).name] = [
                 (layer.width_inches, len(list(layer.segments))) for layer in layers
             ]
@@ -7605,11 +7671,13 @@ class TestPerStrokePreviewWidths:
 
         captured: dict[str, list[float]] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+        def _fake_plot(
+            layers: Any, output_path: Any = None, show_plot: bool = False, **kwargs: Any
+        ) -> None:
             captured[Path(output_path).name] = [layer.width_inches for layer in layers]
 
         # Drifted key: the map says (0,1) -> (100,1) engraves 0.19.
-        drifted = {line_width_key((0, 1), (100, 1)): 0.19}
+        drifted: Dict[Any, float] = {line_width_key((0, 1), (100, 1)): 0.19}
         with patch(
             "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
         ):
@@ -7625,7 +7693,7 @@ class TestPerStrokePreviewWidths:
 
         # Ambiguous drift level: two candidate widths at equal drift -> the
         # conservative pen width.
-        ambiguous = {
+        ambiguous: Dict[Any, float] = {
             line_width_key((0, 1), (100, 1)): 0.19,
             line_width_key((0, -1), (100, -1)): 0.075,
         }
@@ -7666,11 +7734,13 @@ class TestPerStrokePreviewWidths:
 
         captured: dict[str, list[float]] = {}
 
-        def _fake_plot(layers, output_path=None, show_plot=False, **kwargs):
+        def _fake_plot(
+            layers: Any, output_path: Any = None, show_plot: bool = False, **kwargs: Any
+        ) -> None:
             captured[Path(output_path).name] = [layer.width_inches for layer in layers]
 
         # The parsed arc centers at (50,50); the map key drifted to (50,51).
-        drifted = {arc_width_key((50, 51), 90.0): 0.19}
+        drifted: Dict[Any, float] = {arc_width_key((50, 51), 90.0): 0.19}
         with patch(
             "plt_optimizer.diagnostics.plotter.plot_physical_strokes", side_effect=_fake_plot
         ):
@@ -7686,7 +7756,7 @@ class TestPerStrokePreviewWidths:
         assert captured["60_txt_arcp.pdf"] == [0.06, 0.19]
 
         # Ambiguous drift level for the arc -> the conservative pen width.
-        ambiguous = {
+        ambiguous: Dict[Any, float] = {
             arc_width_key((50, 51), 90.0): 0.19,
             arc_width_key((51, 50), 90.0): 0.075,
         }
@@ -7716,10 +7786,10 @@ class TestEdgeMarginCollisionAvoidanceExport:
     """
 
     @staticmethod
-    def _job(**overrides: object) -> object:
-        from plt_optimizer.generate.schema import JobSpec, PlateSpec
+    def _job(**overrides: Any) -> JobSpec:
+        from plt_optimizer.generate.schema import PlateSpec
 
-        kwargs: dict[str, object] = {
+        kwargs: Dict[str, Any] = {
             "job_name": "Edge Avoid",
             "width": 4.0,
             "height": 1.0,
@@ -7770,7 +7840,7 @@ class TestEdgeMarginCollisionAvoidanceExport:
         # Every X,Y coordinate pair the text file emits (PU/PD sequences).
         pair_xy = re.compile(r"(-?\d+),(-?\d+)")
 
-        def text_left_edge(job: object, tag: str) -> tuple[float, float]:
+        def text_left_edge(job: JobSpec, tag: str) -> Tuple[float, float]:
             """The emitted text's minimum X (inches) and the label's slide."""
             result = export_per_cutter_plts(
                 resolve_job_spec(job),
@@ -7807,10 +7877,10 @@ class TestEdgeMarginFlushExport:
     """
 
     @staticmethod
-    def _job(**overrides: object) -> object:
-        from plt_optimizer.generate.schema import JobSpec, PlateSpec
+    def _job(**overrides: Any) -> JobSpec:
+        from plt_optimizer.generate.schema import PlateSpec
 
-        kwargs: dict[str, object] = {
+        kwargs: Dict[str, Any] = {
             "job_name": "Flush Avoid",
             "width": 2.9,
             "height": 1.0,
@@ -7903,10 +7973,10 @@ class TestSharedShiftFlushCompressExport:
     """
 
     @staticmethod
-    def _job(**overrides: object) -> object:
-        from plt_optimizer.generate.schema import JobSpec, PlateSpec
+    def _job(**overrides: Any) -> JobSpec:
+        from plt_optimizer.generate.schema import PlateSpec
 
-        kwargs: dict[str, object] = {
+        kwargs: Dict[str, Any] = {
             "job_name": "Flush Compress",
             "width": 4.0,
             "height": 1.0,
@@ -8041,27 +8111,36 @@ class TestSpaceDemoExample:
     """Regression tests for tests_deps/space_job.yaml.
 
     The fixture pins the self-closing ``<space>`` / ``<space:X>`` tag end to end:
-    a mid-line gap, a leading gap, a trailing gap, a zero minimum, a gap nested
-    in ``<u>``, a two-line label, and a wide minimum on a box-wide line. Every
+    a mid-line gap, two gaps in one line, a leading gap, a trailing gap, a zero
+    minimum, a gap nested in ``<u>``, a two-line label, a gap inside a
+    ``<scale:2>`` run, and a TIGHT trio showing the compression hierarchy. Every
     marked label has an unmarked twin of the SAME words, box and alignment, so
     each assertion compares marked ink against plain ink and never pins a glyph
     advance width (font-library data, not the tag's contract).
 
-    The law the fixture encodes: a marker ABSORBS the one normal space advance
-    the natural render already paid for that gap, then the line's fill is shared
-    across its marked slots. A line whose only marked gap takes the whole fill
-    (the single-slot normalizer) therefore keeps its natural width and rides the
-    box's right edge -- an INSET, not growth. That is what makes a leading
-    ``<space>`` exactly right-alignment, and a trailing gap at its minimum a
-    no-op.
+    The law the fixture encodes: the minimum ``X`` is a FLOOR, never a
+    pre-shrink. In a ROOMY box (l1-l13 -- the plate is 6.0in wide) every marked
+    gap starts at one normal space advance and absorbs the line's fill in
+    proportion to that baseline, so ``<space>`` and ``<space:0>`` engrave the
+    same ink and the line lands margin to margin. A minimum BELOW ``1.0`` is
+    inert there; it bites in the TIGHT regime (l14-l16, a line wider than its
+    box), where the GAPS GIVE FIRST and the text is compressed only for what is
+    left. Both regimes are also pinned per-line by the unit tests in
+    ``test_label_renderer.py`` (``TestDynamicSpaceGeometry`` /
+    ``TestDynamicSpaceRender``).
+
+    Placement is by the line's BOX (ink plus every gap): a LEADING gap is an
+    inset inside it, so ``<space>word`` is exactly right-alignment; a TRAILING
+    gap is bare whitespace behind the ink, so ``word<space>`` rides the LEFT
+    margin -- the flush left edge of a left-aligned group.
     """
 
     _SPEC = Path("tests_deps/space_job.yaml")
 
-    # width 3.0 / height 1.0 at the 0.1 job margin: every line's box is
-    # [0.1, 2.9] in label-local inches.
-    _BOX_LEFT = 0.1
-    _BOX_RIGHT = 2.9
+    # The job is 6.0 x 2.0 at the 0.125 plate margin: every label fills one
+    # plate, so every line's box is [0.125, 5.875] in label-local inches.
+    _BOX_LEFT = 0.125
+    _BOX_RIGHT = 5.875
 
     def _export(self, tmp_path: Path) -> PerCutterExport:
         """Export the demo job with plotting disabled."""
@@ -8093,8 +8172,7 @@ class TestSpaceDemoExample:
         """Tags never engrave: the marker becomes the gap, and carries its floor."""
         from plt_optimizer.generate.label_renderer import _dynamic_space_fractions
 
-        job = parse_yaml(self._SPEC)
-        by_id = {label.id: label for label in resolve_job_spec(job)}
+        by_id = {label.id: label for label in resolve_job_spec(parse_yaml(self._SPEC))}
 
         marked = by_id["l1"].content[0]
         assert marked.text == "GG<space>GG"
@@ -8104,10 +8182,14 @@ class TestSpaceDemoExample:
         assert marked.plain_text == "GG GG"
         assert _dynamic_space_fractions(marked) == (-1.0, -1.0, 1.0, -1.0, -1.0)
 
-        zero = by_id["l7"].content[0]
+        zero = by_id["l3"].content[0]
         assert _dynamic_space_fractions(zero)[2] == 0.0
         # A markup-free twin has no fractions at all -> the historical path.
         assert _dynamic_space_fractions(by_id["l2"].content[0]) == ()
+        # Two gaps in one line (l6) carry one slot each.
+        two = by_id["l6"].content[0]
+        assert two.plain_text == "GG GG GG"
+        assert _dynamic_space_fractions(two) == (-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, -1.0, -1.0)
 
     def test_mid_line_gap_rides_both_margins(self, tmp_path: Path) -> None:
         """``GG<space>GG`` fills the box margin to margin; its twin centers."""
@@ -8118,62 +8200,126 @@ class TestSpaceDemoExample:
         assert plain[0] > self._BOX_LEFT
         assert plain[1] < self._BOX_RIGHT
 
-    def test_leading_gap_is_right_alignment(self, tmp_path: Path) -> None:
-        """``<space>RIGHT`` engraves the same ink as a right-aligned ``RIGHT``."""
+    def test_zero_minimum_is_inert_in_a_roomy_box(self, tmp_path: Path) -> None:
+        """``GG<space:0>GG`` == ``GG<space>GG``: a floor below 1.0 is a TIGHT-regime
+        relief, not a pre-shrink of a line that has room."""
         result = self._export(tmp_path)
-        marked = self._bounds(result.rendered_labels["l3"].source_label)
-        plain = self._bounds(result.rendered_labels["l4"].source_label)
-        assert marked == pytest.approx(plain, abs=1e-4)
-        assert marked[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
-
-    def test_trailing_gap_at_its_minimum_is_a_no_op(self, tmp_path: Path) -> None:
-        """``LEFT<space>`` == ``LEFT``: a trailing gap adds no ink, no fill."""
-        result = self._export(tmp_path)
-        marked = self._bounds(result.rendered_labels["l5"].source_label)
-        plain = self._bounds(result.rendered_labels["l6"].source_label)
-        assert marked == pytest.approx(plain, abs=1e-9)
-
-    def test_zero_minimum_collapses_below_a_normal_space(self, tmp_path: Path) -> None:
-        """``<space:0>`` is a real collapse: the two words meet, tighter than a space."""
-        result = self._export(tmp_path)
-        mark_min, mark_max = self._bounds(result.rendered_labels["l7"].source_label)
-        plain_min, plain_max = self._bounds(result.rendered_labels["l8"].source_label)
-        assert (mark_max - mark_min) < (plain_max - plain_min) - 0.1
-        assert mark_min > plain_min
-        assert mark_max < plain_max
+        zero = self._bounds(result.rendered_labels["l3"].source_label)
+        bare = self._bounds(result.rendered_labels["l1"].source_label)
+        assert zero == pytest.approx(bare, abs=1e-9)
+        # And the words are NOT joined: the ink spans the box, wider than the
+        # unmarked twin's natural width.
+        assert (zero[1] - zero[0]) > (
+            self._bounds(result.rendered_labels["l2"].source_label)[1] - 2.0
+        )
 
     def test_underline_spans_the_widened_gap(self, tmp_path: Path) -> None:
         """``<u>GG<space>GG</u>``: one rule across the gap, to both margins."""
         result = self._export(tmp_path)
-        marked = self._bounds(result.rendered_labels["l9"].source_label)
+        marked = self._bounds(result.rendered_labels["l4"].source_label)
         assert marked[0] == pytest.approx(self._BOX_LEFT, abs=1e-4)
         assert marked[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
         # The underline's own twin (no marker) is the plain text's width: the
         # fill came from the marker, not from the rule.
-        plain = self._bounds(result.rendered_labels["l10"].source_label)
+        plain = self._bounds(result.rendered_labels["l5"].source_label)
         assert marked[1] > plain[1] + 0.5
 
-    def test_two_line_label_fills_per_line(self, tmp_path: Path) -> None:
-        """Each line fills with ITS OWN slack; a slack-free line keeps its minimum."""
-        result = self._export(tmp_path)
-        first = self._bounds(result.rendered_labels["l11"].source_label, 0)
-        second = self._bounds(result.rendered_labels["l11"].source_label, 1)
-        # 'AAAA BBBB' is wider than the 2.8in box, so there is no fill to take
-        # and the gap keeps its minimum -- the ink overflows the box symmetrically.
-        assert (first[1] - first[0]) == pytest.approx(3.6742, abs=1e-3)
-        assert first[0] < self._BOX_LEFT
-        # 'DD EE' has all the slack in the world: margin to margin.
-        assert second[0] == pytest.approx(self._BOX_LEFT, abs=1e-4)
-        assert second[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+    def test_two_gaps_in_one_line_share_the_fill(self, tmp_path: Path) -> None:
+        """``GG<space>GG<space>GG``: BOTH gaps take their share; the line fills.
 
-    def test_wide_minimum_is_a_floor_not_a_share(self, tmp_path: Path) -> None:
-        """``<space:3>`` on a box-wide line takes 3 advances, not the fill."""
+        The fill is split in proportion to the gaps' baselines (two bare tags,
+        so equally), which means neither gap can saturate the box on its own --
+        the ink still lands margin to margin, like the one-gap line.
+        """
+        min_x, max_x = self._ink_x(tmp_path, "l6")
+        assert min_x == pytest.approx(self._BOX_LEFT, abs=1e-4)
+        assert max_x == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+
+    def test_leading_gap_is_right_alignment(self, tmp_path: Path) -> None:
+        """``<space>RIGHT`` engraves the same ink as a right-aligned ``RIGHT``.
+
+        ``l6`` is the box-wide plain twin (``GG GG GG`` fills the same 5.75in
+        box), so the comparison is placement-only: the leading gap is an INSET
+        inside the line's box, which is exactly what ``<c:right>`` does.
+        """
+        result = self._export(tmp_path)
+        marked = self._bounds(result.rendered_labels["l7"].source_label)
+        plain = self._bounds(result.rendered_labels["l6"].source_label)
+        assert marked[1] == pytest.approx(plain[1], abs=1e-4)
+        assert marked[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+        assert marked[0] > self._BOX_LEFT  # ... and not the left margin.
+
+    def test_trailing_gap_rides_the_left_margin(self, tmp_path: Path) -> None:
+        """``LEFT<space>``: the ink rides the box's LEFT edge -- left-alignment.
+
+        The gap is bare whitespace BEHIND the ink, so it adds no ink and the ink
+        lands flush left -- the same left edge a box-filling line starts at --
+        while a plain word of the same size centres.
+        """
+        result = self._export(tmp_path)
+        marked = self._bounds(result.rendered_labels["l8"].source_label)
+        filling = self._bounds(result.rendered_labels["l6"].source_label)
+        centred = self._bounds(result.rendered_labels["l9"].source_label)
+        assert marked[0] == pytest.approx(self._BOX_LEFT, abs=1e-4)
+        assert marked[0] == pytest.approx(filling[0], abs=1e-4)  # flush left
+        assert marked[1] < self._BOX_RIGHT  # the slack is behind the ink
+        assert centred[0] > self._BOX_LEFT  # an unmarked line centres
+
+    def test_two_line_label_fills_per_line(self, tmp_path: Path) -> None:
+        """Every line fills with ITS OWN slack: both land margin to margin."""
+        result = self._export(tmp_path)
+        for line_index in (0, 1):
+            min_x, max_x = self._bounds(result.rendered_labels["l10"].source_label, line_index)
+            assert min_x == pytest.approx(self._BOX_LEFT, abs=1e-4)
+            assert max_x == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+        # The unmarked twin's lines keep their natural (centred) widths.
+        twin0 = self._bounds(result.rendered_labels["l11"].source_label, 0)
+        assert twin0[0] > self._BOX_LEFT
+        assert twin0[1] < self._BOX_RIGHT
+
+    def test_gap_inside_a_scaled_run_fills_the_box(self, tmp_path: Path) -> None:
+        """``S<scale:2>3</scale>YY<space>ZZ``: the gap fills; the advance it
+        replaces is scaled with its run, the fill is not."""
         min_x, max_x = self._ink_x(tmp_path, "l12")
-        # No slack remains, so the requested floor is what the gap costs and the
-        # line overflows the box on both sides.
-        assert (max_x - min_x) == pytest.approx(3.1222, abs=1e-3)
-        assert min_x < self._BOX_LEFT
-        assert max_x > self._BOX_RIGHT
+        assert min_x == pytest.approx(self._BOX_LEFT, abs=1e-4)
+        assert max_x == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+        plain = self._ink_x(tmp_path, "l13")
+        assert plain[0] > self._BOX_LEFT
+        assert plain[1] < self._BOX_RIGHT
+
+    def test_the_tight_trio_shows_the_hierarchy(self, tmp_path: Path) -> None:
+        """The tight trio (width 2.5, ``max_h_compress: 0.7``): gaps pay FIRST.
+
+        All three lines need 5.516in in a 2.25in box, so every one of them is
+        margin-fit compressed (past ``max_h_compress`` -- the pair's words need
+        more room than the deepest permitted squeeze, exactly like the
+        over-wide lines of a real job). The bare ``<space>`` (l15) and its
+        unmarked twin (l16) engrave IDENTICAL ink -- reserving one normal
+        advance is the normal case. ``<space:0>`` (l14) is NARROWER: its gap
+        collapses to its floor first, and the room that frees goes to the text,
+        which therefore needs less of the squeeze. Space before text, never the
+        reverse.
+        """
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        result = self._export(tmp_path)
+        by_id = result.rendered_labels
+        zero = self._bounds(by_id["l14"].source_label)
+        bare = self._bounds(by_id["l15"].source_label)
+        plain = self._bounds(by_id["l16"].source_label)
+        # Bare tag == unmarked twin, bit for bit.
+        assert bare == pytest.approx(plain, abs=1e-9)
+        # Zero floor: the gap gave, so the line is the narrowest of the trio.
+        assert (zero[1] - zero[0]) < (bare[1] - bare[0]) - 0.05
+        # Every line of the trio pays the SAME squeeze: the gap's contraction is
+        # a gap decision, never a discount on the text's compression.
+        scales = []
+        for label_id in ("l14", "l15", "l16"):
+            _lc, entries = _render_text_local_with_bounds(by_id[label_id].source_label)
+            scales.append(entries[0].compression_scale)
+        assert scales[0] == pytest.approx(scales[1], abs=1e-9)
+        assert scales[1] == pytest.approx(scales[2], abs=1e-9)
+        assert scales[0] < 1.0  # the trio really is compressed (the tight regime)
 
     def test_per_cutter_file_names_are_unchanged(self, tmp_path: Path) -> None:
         """The tag changes ink, not the export contract: ``[plate_][material_]cutter_kind_jobid``."""
@@ -8221,6 +8367,6 @@ class TestSpaceDemoExample:
         assert text_files, sorted(p.name for p in result.plt_paths)
         content = text_files[0].read_text(encoding="utf-8")
         assert content.startswith("IN;"), content[:20]
-        # 12 labels' worth of glyph ink, in integer plotter units at 1016/inch.
+        # 16 labels' worth of glyph ink, in integer plotter units at 1016/inch.
         assert "PU" in content and "PD" in content
         assert int(HPGL_UNITS_PER_INCH) == 1016
