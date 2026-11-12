@@ -56,6 +56,7 @@ Pinned by ``tests/test_job_spec_skills.py``.
 from __future__ import annotations
 
 import argparse
+import importlib.abc
 import importlib.util
 import json
 import os
@@ -126,8 +127,14 @@ def _load_ai_docs() -> Any:
     """
     spec = importlib.util.spec_from_file_location("generate_ai_docs", AI_DOCS_PATH)
     assert spec is not None and spec.loader is not None
+    # Bind the loader to a local and narrow it: ``spec.loader`` re-widens to
+    # ``Loader | None`` on every attribute access (defeating the assert above),
+    # and ``exec_module`` is declared on ``InspectLoader``, not on the bare
+    # ``Loader`` base. A file spec always yields a ``SourceFileLoader``.
+    loader = spec.loader
+    assert isinstance(loader, importlib.abc.InspectLoader)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    loader.exec_module(module)
     return module
 
 
@@ -2571,7 +2578,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     Returns:
         The process exit code.
     """
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     parser.add_argument(
         "--check",
         action="store_true",
