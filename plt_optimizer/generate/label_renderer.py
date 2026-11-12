@@ -513,6 +513,13 @@ class RenderedLabel:
             computed by consumers against the source label's per-line
             ``line_spacing``. Reporting-only (single-line labels yield an
             empty dict): nothing downstream consumes it for geometry.
+        space_slack_by_line: Mapping of line index to the inches of line slack
+            the ``<space>`` gap markers consumed on that line, in inches -- the
+            normalized width every marked gap on the line took (``0.0`` when the
+            line's gaps kept their minimum, e.g. a line with no slack to give).
+            Keyed only by lines that carry a ``<space>`` marker, so an empty dict
+            means the job uses no dynamic space. Reporting-only: the geometry is
+            already baked into ``plt_content`` / ``text_chunks``.
         descender_adjustments_by_line: Mapping of line index to the
             descending-character reliefs applied to that line's glyphs by the
             automatic descending-character adjustment (vertical downscale +
@@ -544,6 +551,7 @@ class RenderedLabel:
     collision_detected: bool = False
     text_chunks: Tuple[TextChunkRecord, ...] = ()
     compression_by_line: dict[int, float] = field(default_factory=dict)
+    space_slack_by_line: dict[int, float] = field(default_factory=dict)
     line_spacing_by_line: dict[int, float] = field(default_factory=dict)
     descender_adjustments_by_line: dict[int, Tuple[DescenderFix, ...]] = field(default_factory=dict)
     band_center_offset_inches: float = 0.0
@@ -1027,6 +1035,15 @@ def _render_label_once(
                 fix,
             )
 
+        # The report reads the consumed slack per line off the entries Pass C
+        # returns; only lines that carry a marker are keyed (an unmarked line
+        # has nothing to report, and 0.0 on a marked one is a real measurement).
+        space_slack_by_line = {
+            entry.line_index: entry.space_slack
+            for entry in line_entries
+            if entry.space_slack > 0.0 or _dynamic_space_fractions(label.content[entry.line_index])
+        }
+
         rendered = RenderedLabel(
             source_label=label,
             plt_content=plt_content,
@@ -1038,6 +1055,7 @@ def _render_label_once(
             height=y_max - y_min,
             text_chunks=tuple(chunk_records),
             compression_by_line=compression_by_line,
+            space_slack_by_line=space_slack_by_line,
             line_spacing_by_line=line_spacing_by_line,
             descender_adjustments_by_line=descender_adjustments_by_line,
             band_center_offset_inches=band_center_offset[0] if band_center_offset else 0.0,

@@ -37,6 +37,7 @@ def _label(
     descenders: dict[int, tuple[DescenderFix, ...]] | None = None,
     edge_margins: dict[int, float] | None = None,
     center_switched: set[int] | None = None,
+    space_slack: dict[int, float] | None = None,
 ) -> tuple[ResolvedLabel, RenderedLabel]:
     """Build a (resolved, rendered) pair carrying the given render-time maps."""
     resolved = ResolvedLabel(
@@ -65,6 +66,7 @@ def _label(
         compression_by_line=dict(compression or {}),
         line_spacing_by_line=dict(spacing or {}),
         descender_adjustments_by_line=dict(descenders or {}),
+        space_slack_by_line=dict(space_slack or {}),
     )
     return resolved, rendered
 

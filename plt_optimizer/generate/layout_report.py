@@ -161,6 +161,13 @@ class LineFinding:
             hanging indent is a measured column, so both are reported. The
             indent is the marker column + gap in inches. ``None`` for a plain
             line.
+        dynamic_space: The ``(slot_count, normalized_width)`` pair for a line
+            carrying ``<space>`` markers -- how many dynamic gaps the line has
+            and the width every one of them took, in inches. The width is a
+            render-time measurement (the fill share, clamped to each slot's
+            [minimum, maximum] and normalised across the line's marked gaps),
+            invisible in the YAML exactly like the list marker. ``None`` when
+            the line has no ``<space>`` marker.
         edge_margin: The ``(anchored side, inches)`` pair for a line whose
             anchored margin collision avoidance increased to slide it off a
             drill hole (``("left", 0.35)`` = the line's left edge moved
@@ -187,6 +194,7 @@ class LineFinding:
     v_center: Optional[tuple[int, tuple[str, ...]]] = None
     text_color_runs: Optional[tuple[int, tuple[str, ...]]] = None
     list_marker: Optional[tuple[str, float]] = None
+    dynamic_space: Optional[tuple[int, float]] = None
     edge_margin: Optional[tuple[str, float]] = None
     align_switched: bool = False
 
@@ -217,11 +225,45 @@ class LineFinding:
                     self.v_center,
                     self.text_color_runs,
                     self.list_marker,
+                    self.dynamic_space,
                     self.edge_margin,
                 )
             )
             or self.align_switched
         )
+
+
+def _dynamic_space_info(
+    line: ResolvedTextLine,
+    space_slack: float,
+) -> Optional[tuple[int, float]]:
+    """Return the ``(slot_count, normalized_width)`` a line's markers produced.
+
+    The slot count comes from the renderer's own per-character minimum map, so
+    the report counts exactly the gaps the render widened -- a minimum written
+    on a non-space character reserves no gap and is not a slot.
+
+    Args:
+        line: The resolved text line.
+        space_slack: The render-time inches per slot (the normalized width
+            every marked gap on the line took).
+
+    Returns:
+        The ``(slot count, width in inches)`` pair, or ``None`` when the line
+        carries no ``<space>`` marker.
+    """
+    # Imported here: layout_report is reached by the report/validate paths on
+    # the Windows 7 target and must not pull the renderer in at module scope.
+    from plt_optimizer.generate.label_renderer import _dynamic_space_fractions
+    from plt_optimizer.generate.markup import UNSET_SPACE_FRACTION
+
+    fractions = _dynamic_space_fractions(line)
+    if not fractions:
+        return None
+    slots = sum(1 for fraction in fractions if fraction != UNSET_SPACE_FRACTION)
+    if not slots:
+        return None
+    return slots, space_slack
 
 
 def _spacing_deviation(requested: float, effective: float) -> bool:
@@ -431,6 +473,7 @@ def collect_line_findings(
         | {index for index, line in enumerate(content) if line.has_v_center}
         | {index for index, line in enumerate(content) if line.has_color_runs}
         | {index for index, line in enumerate(content) if line.marker_text}
+        | {index for index, line in enumerate(content) if _dynamic_space_info(line, 0.0)}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -473,6 +516,11 @@ def collect_line_findings(
         list_marker: tuple[str, float] | None = None
         if line.marker_text:
             list_marker = (line.marker_text, line.indent_left)
+        dynamic_space: tuple[int, float] | None = None
+        if line.styled_runs:
+            dynamic_space = _dynamic_space_info(
+                line, rendered.space_slack_by_line.get(line_index, 0.0)
+            )
         edge_shift = edge_margins.get(line_index)
         edge_margin = (line.text_h_alignment, edge_shift) if edge_shift else None
         finding = LineFinding(
@@ -493,6 +541,7 @@ def collect_line_findings(
             v_center=v_center,
             text_color_runs=text_color_runs,
             list_marker=list_marker,
+            dynamic_space=dynamic_space,
             edge_margin=edge_margin,
             align_switched=line_index in switched,
         )
@@ -708,6 +757,16 @@ def _label_lines(
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
                     f"list marker {marker_text!r} (text column {indent_left:.3f}in)"
+                )
+            dynamic_space = entry.dynamic_space
+            if dynamic_space is not None:
+                slots, width = dynamic_space
+                # The width a gap took is a render-time measurement (the fill
+                # share, clamped to that slot's minimum/maximum), invisible in
+                # the YAML exactly like the list marker above.
+                lines.append(
+                    f"    Line {line_index}: {line.plain_text!r} "
+                    f"dynamic space {slots} slot(s) x {width:.3f}in"
                 )
             edge_margin = entry.edge_margin
             if edge_margin is not None:
