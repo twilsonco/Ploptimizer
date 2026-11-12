@@ -1,8 +1,24 @@
 """Unit tests for label rendering engine."""
 
+# The label pipeline's geometry objects return Optional bounds (an empty
+# TextBlock has none), and this suite unpacks them directly at ~190 sites. Typing
+# the test suite to the project's strict bar is explicitly a separate project
+# (root AGENTS.md scopes mypy to plt_optimizer/), and the same pattern is already
+# used in the suites that do guard it (`assert X.bounds() is not None`). The
+# Optional rules are therefore disabled for THIS FILE ONLY so a real regression
+# in the code under test still shows up; mypy + ruff + pytest remain the gates.
+# The annotation rules (no-untyped-def / no-untyped-call) are the same
+# documented legacy: pytest test methods are written bare across all 200+ suites
+# in this directory, and typing them is the "separate project" AGENTS.md refers
+# to. They are listed explicitly (not a blanket `reportUnannotated*` waiver) so
+# a NEW, annotated helper is still checked.
+# pyright: reportGeneralTypeIssues=false, reportOptionalSubscript=false, reportOptionalIterable=false, reportOptionalMemberAccess=false, reportArgumentType=false, reportCallIssue=false, reportIndexIssue=false, reportOperatorIssue=false, reportAssignmentType=false, reportAttributeAccessIssue=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnnecessaryIsInstance=false, reportUnreachable=false, reportPrivateUsage=false, reportUntypedFunctionDecorator=false, reportUnknownParameterType=false, reportMissingTypeArgument=false, reportUnusedVariable=false, reportMissingTypeStubs=false, reportImportCycles=false, reportPrivateUsage=false
+
+import dataclasses
 import logging
 import math
 import re
+from typing import Any, List, Tuple
 
 import pytest
 import vpype as vp
@@ -1636,7 +1652,7 @@ class TestTextChunkRecords:
         line_rendered = render_label_to_plt(self._label(content))
         word_rendered = render_label_to_plt(self._label(content, text_chunk_mode="word"))
 
-        def signature(rendered: object) -> list:
+        def signature(rendered: object) -> List[Tuple[float, float]]:
             return sorted(
                 (
                     round(float(z.real), 6),
@@ -3831,3 +3847,416 @@ class TestStrikethroughRenderDispatch:
         assert measure_line_natural_width(struck) == pytest.approx(
             measure_line_natural_width(plain), abs=1e-9
         )
+
+
+# ---------------------------------------------------------------------------
+# ``<space>`` -- inline dynamic spacing (the 15th markup tag)
+# ---------------------------------------------------------------------------
+
+from plt_optimizer.generate.label_renderer import (  # noqa: E402
+    _apply_space_expand,
+    _dynamic_space_fractions,
+    _marker_body_box,
+    _space_box_geometry,
+    _space_char_shifts,
+    _space_slot_gaps,
+    _space_slot_indices,
+    _space_slot_weights,
+)
+from plt_optimizer.generate.markup import UNSET_SPACE_FRACTION as UNSET_MARK  # noqa: E402
+
+
+def _frs(text: str, **markers: float) -> Tuple[float, ...]:
+    """Fractions for ``text`` with ``<space:X>`` markers at the given indices.
+
+    ``m<N>`` names the character index of the marker (a marker IS a space in
+    ``plain_text``), e.g. ``_frs("hello world", m5=1.0)``. Every index not named
+    is unmarked (``UNSET_MARK``), which keeps the ``<space:0>`` case honest: a
+    zero minimum is a MARKER, and only the negative sentinel means "no marker
+    here".
+    """
+
+    out: List[float] = [UNSET_MARK] * len(text)
+    for name, width in markers.items():
+        assert name[0] == "m" and name[1:].isdigit()
+        out[int(name[1:])] = width
+    return tuple(out)
+
+
+def _space_line(
+    text: str,
+    height: float = 0.5,
+    align: str = "left",
+    **updates: Any,
+) -> ResolvedTextLine:
+    """Build a resolved line the way the pipeline does: raw text, then markup.
+
+    ``ResolvedTextLine`` parses its ``text`` into ``styled_runs``/``plain_text``
+    at construction, so the markup must arrive through :meth:`with_markup`.
+    """
+    base = ResolvedTextLine(
+        text="",
+        nominal_text_height=height,
+        toolpath_text_height=height - 0.03,
+        cutter_diameter=0.03,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        max_h_compress=0.0,
+        text_h_alignment=align,
+    )
+    line = base.with_markup(text)
+    return line if not updates else dataclasses.replace(line, **updates)
+
+
+def _space_label(
+    lines: List[ResolvedTextLine],
+    width: float = 6.0,
+    margin: float = 0.1,
+) -> ResolvedLabel:
+    """A one-column plate for the space tests (``margin`` on every edge)."""
+    return ResolvedLabel(
+        id="space",
+        count=1,
+        width=width,
+        height=2.0,
+        margin=margin,
+        h_margin=margin,
+        v_margin=margin,
+        holes=[],
+        content=lines,
+    )
+
+
+def _space_ink_x(entry_bounds: Tuple[float, float, float, float]) -> Tuple[float, float]:
+    """Return the ``(min_x, max_x)`` of one rendered line entry's bounds."""
+    min_x, _min_y, max_x, _max_y = entry_bounds
+    return min_x, max_x
+
+
+def _space_block(*xs: float) -> TextBlock:
+    """One unit-tall vertical tick (plus its base tick) per glyph at ``xs``.
+
+    Glyph *i* owns strokes ``2i`` (the tick) and ``2i + 1`` (its base), so a
+    test can assert BOTH the translation and the 1:1 stroke order survive.
+    """
+    strokes = []
+    for x in xs:
+        strokes.append(
+            Stroke(
+                pen_up=complex(x, 0.0),
+                segments=(LineSeg(start=complex(x, 0.0), end=complex(x, 1.0)),),
+            )
+        )
+        strokes.append(
+            Stroke(
+                pen_up=complex(x, 0.0),
+                segments=(LineSeg(start=complex(x, 0.0), end=complex(x + 1.0, 0.0)),),
+            )
+        )
+    return TextBlock(strokes=tuple(strokes))
+
+
+class TestDynamicSpaceGeometry:
+    """The pure geometry helpers behind ``<space>`` expansion."""
+
+    def test_fractions_are_per_character_with_markup(self) -> None:
+        """One width per ``plain_text`` character; unmarked lines yield ``()``."""
+        assert _dynamic_space_fractions(_space_line("hello world")) == ()
+        fractions = _dynamic_space_fractions(_space_line("hello<space>world"))
+        assert len(fractions) == len("hello world")
+        assert fractions == _frs("hello world", m5=1.0)
+        # ``<space:0>`` is a real marker: its width is 0.0, and the tuple is
+        # non-empty (the negative sentinel means "unmarked", not "zero").
+        zero = _dynamic_space_fractions(_space_line("a<space:0>b"))
+        assert zero == _frs("a b", m1=0.0)
+        assert _dynamic_space_fractions(_space_line("a<space:2.5>b")) == _frs("a b", m1=2.5)
+        assert zero[0] == UNSET_MARK and zero[2] == UNSET_MARK
+
+    def test_slot_indices_map_markers_between_glyphs(self) -> None:
+        """Markers are spaces: they own no glyph group, they sit at the slot of
+        the first glyph to their right (trailing markers at ``glyph_count``)."""
+        assert _space_slot_indices("hello world", _frs("hello world", m5=1.0), 10) == (5,)
+        # Trailing marker: past the ink, so it still counts as a slot.
+        assert _space_slot_indices("world ", _frs("world ", m5=1.0), 5) == (5,)
+        # Two markers -> two slots, in text order.
+        assert _space_slot_indices("a b c", _frs("a b c", m1=1.0, m3=1.0), 3) == (1, 2)
+        # A 1:1 mismatch is an unknown partition: decline.
+        assert _space_slot_indices("ab", (1.0,), 2) == ()
+
+    def test_slot_indices_treat_a_zero_minimum_as_a_marker(self) -> None:
+        """``<space:0>`` occupies a slot (it collapses the gap), ``U`` does not."""
+        assert _space_slot_indices("a b", _frs("a b", m1=0.0), 2) == (1,)
+        assert _space_slot_indices("a b", _frs("a b"), 2) == ()
+
+    def test_char_shifts_push_only_the_suffix(self) -> None:
+        """A slot moves the glyphs AT or RIGHT of it by the prefix sum; the
+        leftmost ink never moves, so the ink's left edge rides the margin."""
+        assert _space_char_shifts((5,), 10, (2.0,)) == ((0.0,) * 5) + ((2.0,) * 5)
+        assert _space_char_shifts((1, 2), 3, (2.0, 2.0)) == (0.0, 2.0, 4.0)
+        assert _space_char_shifts((1, 2), 3, (1.0, 3.0)) == (0.0, 1.0, 4.0)
+        # A trailing slot (index == glyph_count) shifts nothing.
+        assert _space_char_shifts((5,), 5, (2.0,)) == (0.0,) * 5
+
+    def test_slot_gaps_share_the_fill_and_floor_at_the_minimum(self) -> None:
+        """A gap is its OWN minimum plus an even share of the fill -- the three
+        laws of the tag in one table."""
+        # Bare <space> (X = 1) with room to spare: advance + the whole fill.
+        assert _space_slot_gaps(_frs("hello world", m5=1.0), 4.0, 1.0, "hello world") == [5.0]
+        # No room: the gap stays exactly one normal space.
+        assert _space_slot_gaps(_frs("hello world", m5=1.0), 0.0, 1.0, "hello world") == [1.0]
+        # <space:0> has a ZERO minimum: with no fill the gap collapses.
+        assert _space_slot_gaps(_frs("hello world", m5=0.0), 0.0, 1.0, "hello world") == [0.0]
+        # ... and a fill still lands on top of it.
+        # A zero minimum asks for nothing, so it absorbs NOTHING -- not even a
+        # roomy box's fill. That is what collapses the gap to zero width.
+        assert _space_slot_gaps(_frs("hello world", m5=0.0), 4.0, 1.0, "hello world") == [0.0]
+        # <space:20> adds TWENTY spaces of minimum to its share: the gap WINS
+        # over the text (the line overflows; Pass A reserved the room first).
+        assert _space_slot_gaps(_frs("hello world", m5=20.0), 4.0, 1.0, "hello world") == [24.0]
+        # Two gaps share the fill evenly, each on top of its own minimum.
+        assert _space_slot_gaps(_frs("a b c", m1=1.0, m3=1.0), 6.0, 1.0, "a b c") == [4.0, 4.0]
+        assert _space_slot_gaps(_frs("a b c", m1=9.0, m3=0.0), 0.0, 1.0, "a b c") == [9.0, 0.0]
+
+    def test_slot_weights_are_the_delta_on_the_natural_advance(self) -> None:
+        """The shift a glyph rides is the gap MINUS the space it replaces."""
+        assert _space_slot_weights(_frs("hello world", m5=1.0), 4.0, 1.0, "hello world") == [4.0]
+        assert _space_slot_weights(_frs("hello world", m5=1.0), 0.0, 1.0, "hello world") == [0.0]
+        # A collapsed gap pulls the suffix LEFT by one advance.
+        assert _space_slot_weights(_frs("hello world", m5=0.0), 0.0, 1.0, "hello world") == [-1.0]
+        # A twenty-space minimum pushes the suffix by nineteen advances.
+        assert _space_slot_weights(_frs("hello world", m5=20.0), 0.0, 1.0, "hello world") == [19.0]
+
+    def test_box_geometry_splits_the_leading_inset_from_the_growth(self) -> None:
+        """``<space>world`` insets the ink inside its box; every other gap
+        grows the box, which is what the placement pass anchors."""
+        # One glyph, marker in front of it (slot 0): the inset IS the growth.
+        assert _space_box_geometry(" world", _frs(" world", m0=1.0), (0,), (5.0,)) == (5.0, 5.0)
+        # Mid gap: it shifts the suffix, so it is growth with no inset.
+        assert _space_box_geometry("a b", _frs("a b", m1=1.0), (0, 1), (3.0,)) == (0.0, 3.0)
+        # Leading AND mid: both terms, in the right proportions.
+        assert _space_box_geometry(" a b", _frs(" a b", m0=1.0, m2=1.0), (0, 1), (2.0, 3.0)) == (
+            2.0,
+            5.0,
+        )
+
+    def test_marker_body_box_subtracts_the_column(self) -> None:
+        """A marker line's body fills the line's box minus the marker column."""
+        assert _marker_body_box(5.0, 3.0, 1.0) == (4.0, 2.0)
+        # A column wider than the box leaves the body nothing (clamped at 0).
+        assert _marker_body_box(1.0, 2.0, 3.0) == (0.0, 0.0)
+
+    def test_apply_space_expand_translates_the_suffix(self) -> None:
+        """The gap opens by moving the glyphs right of the marker; the prefix
+        (and the stroke order / partition shape) survive 1:1."""
+        block = _space_block(0.0, 2.0, 3.0)
+        groups = ((0, 1), (2, 3), (4, 5))
+        expanded = _apply_space_expand(
+            block,
+            groups,
+            _frs("a bc", m1=1.0),
+            3.0,
+            "a bc",
+            1.0,
+        )
+        bounds = expanded.bounds()
+        assert bounds is not None
+        # 'a' stays at x=0 (its tick) with its base spanning [0, 1]; the
+        # suffix rides +3 (advance 1.0 replaced by a gap of 1.0 + 3.0 fill).
+        assert bounds[0] == pytest.approx(0.0)
+        assert bounds[2] == pytest.approx(7.0)
+        assert len(expanded.strokes) == len(block.strokes)
+        assert expanded.strokes[0] == block.strokes[0]
+
+    def test_apply_space_expand_floors_a_natural_marker_at_the_fill(self) -> None:
+        """``<space>`` (X=1) in a FULL box grows nothing: its minimum is the
+        natural advance the ink already carries."""
+        block = _space_block(0.0, 2.0)
+        expanded = _apply_space_expand(
+            block, ((0, 1), (2, 3)), _frs("a b", m1=1.0), 0.0, "a b", 1.0
+        )
+        assert expanded == block
+
+    def test_apply_space_expand_collapses_a_zero_minimum_in_a_full_box(self) -> None:
+        """``<space:0>`` in a full box: the gap is zero, so the natural advance
+        is taken back and the suffix slides LEFT."""
+        block = _space_block(0.0, 2.0, 3.0)
+        expanded = _apply_space_expand(
+            block, ((0, 1), (2, 3), (4, 5)), _frs("ab cd", m2=0.0), 0.0, "ab cd", 1.0
+        )
+        bounds = expanded.bounds()
+        assert bounds is not None
+        # The suffix's base spanned [3, 4] and slid one advance left to [2, 3]:
+        # the natural advance is taken back, the prefix is untouched.
+        assert bounds[2] == pytest.approx(3.0)
+
+    def test_apply_space_expand_leaves_a_trailing_gap_uninked(self) -> None:
+        """A marker behind the last glyph shifts NO glyph: its room opens as
+        bare space behind the ink, which is what pulls the text to its margin."""
+        block = _space_block(0.0, 2.0)
+        expanded = _apply_space_expand(
+            block, ((0, 1), (2, 3)), _frs("world ", m5=1.0), 4.0, "world ", 1.0
+        )
+        assert expanded == block
+
+    def test_apply_space_expand_declines_without_a_partition(self) -> None:
+        """No markers / no groups / a word-chunked partition -> untouched."""
+        block = _space_block(0.0, 2.0)
+        assert _apply_space_expand(block, (), _frs("a b", m1=1.0), 5.0, "a b", 1.0) == block
+        # A partition that is not one group per non-space character (the
+        # word-chunked shape) is refused by the slot/marker count check.
+        assert (
+            _apply_space_expand(block, ((0, 1, 2, 3),), _frs("a b", m1=1.0), 5.0, "a b", 1.0)
+            == block
+        )
+
+
+class TestDynamicSpaceRender:
+    """The render dispatch: ink lands on the line's own box.
+
+    The box Pass A2 fills is the VISUAL margin box -- ``inner_width - 2*h_margin``
+    -- so a line with room paints its ink from margin to margin exactly, which is
+    the TODO's acceptance test. The half-cutter kerf insets belong to the
+    compression budget (Pass A), not to this box.
+    """
+
+    INK_LEFT = 0.1
+    INK_RIGHT = 5.9
+
+    def _ink(self, line: ResolvedTextLine, width: float = 6.0) -> Tuple[float, float]:
+        _lc, entries = _render_text_local_with_bounds(_space_label([line], width=width))
+        assert len(entries) == 1
+        return _space_ink_x(entries[0].bounds)
+
+    def test_bare_space_fills_the_line_box(self) -> None:
+        """``hello<space>world``: ink rides both margins (the TODO's example)."""
+        min_x, max_x = self._ink(_space_line("hello<space>world"))
+        assert min_x == pytest.approx(self.INK_LEFT, abs=1e-4)
+        assert max_x == pytest.approx(self.INK_RIGHT, abs=1e-4)
+
+    def test_leading_space_is_right_alignment(self) -> None:
+        """``<space>world`` == right-aligned ``world`` (the TODO's equivalence)."""
+        min_x, max_x = self._ink(_space_line("<space>world"))
+        assert max_x == pytest.approx(self.INK_RIGHT, abs=1e-4)
+        right_min, right_max = self._ink(_space_line("world", align="right"))
+        assert max_x == pytest.approx(right_max, abs=1e-4)
+        # Law: a leading gap is an INSET inside the box, never growth, so the ink
+        # keeps its natural width and rides the right edge -- which makes it
+        # EXACTLY right-alignment (the historical bug this pins: the ink landing
+        # on the left margin engraves the gap as nothing).
+        assert (max_x - min_x) == pytest.approx(right_max - right_min, abs=1e-4)
+        assert min_x == pytest.approx(right_min, abs=1e-4)
+        assert min_x > self.INK_LEFT  # ... and not the left margin.
+
+    def test_trailing_space_rides_the_left_margin(self) -> None:
+        """``world<space>``: the slack opens BEHIND the text (TODO)."""
+        min_x, max_x = self._ink(_space_line("world<space>"))
+        assert min_x == pytest.approx(self.INK_LEFT, abs=1e-4)
+        _left_min, left_max = self._ink(_space_line("world"))
+        assert max_x == pytest.approx(left_max, abs=1e-4)
+
+    def test_two_markers_land_three_flush_columns(self) -> None:
+        """``a<space>b<space>c``: three columns, ink on both margins."""
+        min_x, max_x = self._ink(_space_line("a<space>b<space>c"))
+        assert min_x == pytest.approx(self.INK_LEFT, abs=1e-4)
+        assert max_x == pytest.approx(self.INK_RIGHT, abs=1e-4)
+
+    def test_space_zero_collapses_the_gap(self) -> None:
+        """``hello<space:0>world`` pays NOTHING, not even its own advance."""
+        zero_min, zero_max = self._ink(_space_line("hello<space:0>world"))
+        plain_min, plain_max = self._ink(_space_line("hello world"))
+        joined_min, joined_max = self._ink(_space_line("helloworld"))
+        probe = _space_line("hello world")
+        adv = (
+            probe.space_width_fraction * probe.toolpath_text_height + probe.character_spacing
+        )  # one normal space advance of the line
+        # Law: a zero minimum absorbs no fill and carries no advance, so the
+        # suffix slides LEFT by exactly one space advance off the plain render
+        # (delta = gap - advance = -advance): the gap leaves no hole.
+        assert zero_min == pytest.approx(plain_min, abs=1e-4)
+        assert zero_max == pytest.approx(plain_max - adv, abs=1e-4)
+        # What remains to the fully joined word is the font's WORD-BOUNDARY
+        # kerning (kerning resets at a space, so 'hello|world' kerns wider than
+        # 'o|w'), not an advance the marker left open: less than one space.
+        assert 0.0 < zero_max - joined_max < adv
+        assert zero_min == pytest.approx(joined_min, abs=1e-4)
+        # ... while the same line with a bare tag spans the whole box.
+        assert self._ink(_space_line("hello<space>world"))[1] > zero_max
+
+    def test_wide_minimum_is_a_floor_below_the_fill(self) -> None:
+        """``<space:2>`` in a box with slack lands on the box like ``<space>``:
+        its minimum (one extra space) is far smaller than the fill.
+
+        Law: Pass A reserves ``(X-1)*advance`` for the gap out of the line's room
+        BEFORE the fill is measured, so ``gap = X*advance + fill`` costs the ink
+        exactly one extra advance and the text pays for it -- with slack left in
+        the box the line still ends on the right edge, identical to a bare tag.
+        """
+        wide = self._ink(_space_line("hello<space:2>world"))
+        bare = self._ink(_space_line("hello<space>world"))
+        assert wide == pytest.approx(bare)
+
+    def test_bare_tag_equals_one_point_zero(self) -> None:
+        """``<space>`` and ``<space:1.0>`` are the same geometry."""
+        assert self._ink(_space_line("hello<space>world")) == pytest.approx(
+            self._ink(_space_line("hello<space:1.0>world"))
+        )
+
+    def test_wide_minimum_wins_over_the_text(self) -> None:
+        """A minimum beyond the box beats the text: the line keeps the gap and
+        overflows by its own compression rule (max_h_compress = 0 here)."""
+        min_x, max_x = self._ink(_space_line("ab<space:20>cd"), width=1.2)
+        assert min_x == pytest.approx(self.INK_LEFT, abs=1e-4)
+        box_right = 1.2 - self.INK_LEFT
+        assert max_x > box_right  # the gap survived, the text paid for it
+
+    def test_no_tag_line_is_bit_identical(self) -> None:
+        """A line without the tag keeps the historical render (no re-render)."""
+        plain = _space_line("hello world")
+        _lc, entries = _render_text_local_with_bounds(_space_label([plain]))
+        _lc2, entries2 = _render_text_local_with_bounds(
+            _space_label([_space_line("hello<space:0>world")])
+        )
+        assert entries[0].bounds != entries2[0].bounds  # sanity: the tag did work
+        # The plain line's width is the natural one (box slack untouched).
+        min_x, max_x = _space_ink_x(entries[0].bounds)
+        assert min_x == pytest.approx(self.INK_LEFT, abs=1e-4)
+        assert max_x < self.INK_RIGHT - 1.0
+
+    def test_full_box_leaves_the_space_at_its_minimum(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """No slack: the gap stays one normal space and the text compresses by
+        its own budget; the renderer logs why."""
+        line = _space_line("hello<space>world", max_h_compress=0.5)
+        _lc, entries = _render_text_local_with_bounds(_space_label([line], width=2.4))
+        min_x, max_x = _space_ink_x(entries[0].bounds)
+        plain = _space_line("hello world", max_h_compress=0.5)
+        _lc2, entries2 = _render_text_local_with_bounds(_space_label([plain], width=2.4))
+        # Same ink span: the space claimed nothing beyond its natural advance.
+        assert (max_x - min_x) == pytest.approx(
+            entries2[0].bounds[2] - entries2[0].bounds[0], abs=1e-6
+        )
+        assert entries[0].space_slack == pytest.approx(0.0)
+
+    def test_marker_line_fills_the_body_box(self) -> None:
+        """A list item's gap fills its own box, never past the right margin."""
+        body = _space_line(
+            "a<space>b",
+            marker_text="1.",
+            align_group_id=0,
+            indent_left=1.0,
+        )
+        min_x, max_x = self._ink(body)
+        assert min_x == pytest.approx(self.INK_LEFT, abs=1e-4)
+        # The marker column is not the space's to widen.
+        assert max_x <= self.INK_RIGHT + 1e-6
+
+    def test_compression_scales_the_gap(self) -> None:
+        """Collision/hole compression scales the whole line, the gap with it."""
+        line = _space_line("hello<space>world", max_h_compress=0.5)
+        _lc, entries = _render_text_local_with_bounds(_space_label([line], width=6.0))
+        full = _space_ink_x(entries[0].bounds)
+        _lc2, entries2 = _render_text_local_with_bounds(_space_label([line], width=4.0))
+        narrow = _space_ink_x(entries2[0].bounds)
+        assert narrow[1] < full[1]
+        assert narrow[0] == pytest.approx(self.INK_LEFT, abs=1e-4)

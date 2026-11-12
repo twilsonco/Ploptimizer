@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import (
     Any,
     Callable,
+    Collection,
     Dict,
     Iterable,
     List,
@@ -99,7 +100,12 @@ from plt_optimizer.generate.geometry import (
     ink_gap,
     ink_grid_for,
 )
-from plt_optimizer.generate.markup import Run, serialize_runs, split_brackets
+from plt_optimizer.generate.markup import (
+    UNSET_SPACE_FRACTION,
+    Run,
+    serialize_runs,
+    split_brackets,
+)
 from plt_optimizer.generate.plt_font_renderer import (
     PltFontRenderError,
     render_text_line_plt_font,
@@ -243,6 +249,7 @@ class _LineEntry(NamedTuple):
     line_spacing: Optional[float] = None
     stroke_layers: Tuple[Tuple[float, str], ...] = ()
     stroke_widths: Tuple[float, ...] = ()
+    space_slack: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -268,11 +275,29 @@ class _RenderedLine:
         display_text: The line's text as engraved -- the composed
             ``"marker text"`` for a list line, else ``plain_text`` (names the
             glyph partition for the descender relief and the reports).
-        indent_left: The line's hanging-indent column in inches (0.0 outside
-            a list), subtracted from the compression and alignment budgets.
+        indent_left: The inches this line's indent column takes off its
+            alignment box -- see :func:`_line_indent_offset` (``0.0`` for a
+            marker line, the full column for a list continuation line, and for a
+            line outside a list the column only when it is left-aligned).
+            Subtracted from the compression and alignment budgets and added back
+            at placement.
         align_group_id: The list block's alignment group (``-1`` outside a
             list), shared by every line of one list so the renderer aligns
             the list as one block with one flush marker column.
+        space_slack: The inches of line slack consumed by ``<space>`` gap
+            expansion (0.0 for a line with no marker, and for a marker line
+            whose box was already full). Consumed by the layout report so an
+            overflowing ``<space>`` line is explainable from the report alone.
+        space_box_width: The WIDTH of the box a ``<space>`` line fills, i.e. its
+            natural ink plus the gap growth (0.0 = not expanded, so the
+            placement pass anchors the line's INK exactly as it always has). A
+            leading gap is an INSET, not ink: the expanded block's ink width is
+            unchanged by it, so an ink-anchored placement centers/right-aligns
+            the ink and the leading gap collapses against the left margin --
+            invisible. Pass C places the BOX, then rides the ink in by
+            ``space_leading``.
+        space_leading: The ink's inset (inches) inside ``space_box_width``: the
+            summed width of the gaps in front of the line's first glyph.
     """
 
     line_index: int
@@ -289,6 +314,54 @@ class _RenderedLine:
     indent_left: float = 0.0
     align_group_id: int = -1
     stroke_widths: Tuple[float, ...] = ()
+    space_slack: float = 0.0
+    space_box_width: float = 0.0
+    space_leading: float = 0.0
+
+
+def _effective_h_alignment(
+    declared: str,
+    line_index: int,
+    collision_center_by_line: Collection[int],
+) -> str:
+    """The alignment a line is actually placed with.
+
+    Collision avoidance can force a line to centre (``collision_center_by_line``
+    overrides the cascaded ``text_h_alignment``). Every rule that reads a line's
+    alignment for placement goes through here, so the switch is applied once.
+    """
+    return "center" if line_index in collision_center_by_line else declared
+
+
+def _line_indent_offset(line: ResolvedTextLine, alignment: str) -> float:
+    """The inches a line's indent column takes off its ALIGNMENT box.
+
+    The box every alignment works in spans ``[h_margin, h_margin + available]``
+    (that is what :func:`~plt_optimizer.generate.layout.compute_horizontal_offset`
+    implements, and it is the law :attr:`_RenderedLine.space_box_width` states:
+    the box is the label's margin box). An inset on the box's LEFT edge is
+    therefore a LEFT-aligned device: it narrows the box -- and with it the slack
+    budget ``<space>`` expands into, the slot widths, and the normalizer -- only
+    when the line anchors left. Three cases:
+
+    * A **marker** line contributes ``0.0``: the composed block already carries
+      the list's marker column, so its box is measured from the text column.
+    * A **list continuation** line (``align_group_id >= 0``) contributes its full
+      column for every alignment: the group's marker owns the space to its left
+      and the group is aligned as one unit (Pass B measures it, Pass C places
+      it), which is what keeps a centred list's rows aligned with each other.
+    * A line **outside a list** contributes its column only when it is
+      left-aligned. Its ``indent_left`` is a bare left inset, so a centred or
+      right-aligned line is placed in the whole margin area: charging the inset
+      to the box's left edge moves the box centre by ``-offset / 2`` and shrinks
+      it from the RIGHT, which lands a centred line's left-most ink (and
+      ``<space>``'s fill) inside the left margin.
+    """
+    if line.marker_text:
+        return 0.0
+    if line.align_group_id >= 0:
+        return line.indent_left
+    return line.indent_left if alignment == "left" else 0.0
 
 
 class TextChunkMode(str, Enum):
@@ -1368,7 +1441,10 @@ def _linecollection_to_hpgl(
 
         # Extract segments from LineCollection
         for segment in lc:
-            if segment is None or len(segment) == 0:
+            # `# pyright: ignore` — the LineCollection stubs type every element
+            # as a non-empty array; matplotlib hands back None holes in practice
+            # (and the ftext adapter below has the same defensive shape).
+            if segment is None or len(segment) == 0:  # pyright: ignore[reportUnnecessaryComparison]
                 continue
 
             # Convert from inches to plotter units (device scale)
@@ -1780,6 +1856,393 @@ def _validated_glyph_groups(
     return tuple(tuple(indices) for _char, indices in pairs)
 
 
+def _dynamic_space_fractions(line: ResolvedTextLine) -> Tuple[float, ...]:
+    """Return the per-character ``<space>`` minimum widths of one resolved line.
+
+    The gate mirrors :func:`_underline_render_gate`: a line with no parsed
+    markup yields ``()`` and keeps the historical render path (bit-identical
+    output, no extra kwargs on any renderer call). The widths are DERIVED from
+    :attr:`ResolvedTextLine.styled_runs` (the property does the same), so a
+    pre-pass that rewrites the line's text keeps every marker on its own gap.
+
+    Args:
+        line: The resolved text line.
+
+    Returns:
+        One minimum width per engraved character (aligned with ``plain_text``,
+        in fractions of one normal space advance). A character WITHOUT a marker
+        carries :data:`~plt_optimizer.generate.markup.UNSET_SPACE_FRACTION`
+        (negative -- ``<space:0>`` is a legal marker whose minimum is ``0.0``, so
+        no non-negative value can mean "unmarked"); a marker carries its own
+        width (``>= 0.0``). A non-empty tuple marks a line that wants a
+        dynamic-space render.
+    """
+    if not line.styled_runs:
+        return ()
+    if not any(run.style.has_dynamic_space for run in line.styled_runs):
+        return ()
+    return tuple(
+        style.dynamic_space for run in line.styled_runs for style in (run.style,) * len(run.text)
+    )
+
+
+def _space_slot_indices(
+    text: str,
+    fractions: Sequence[float],
+    glyph_count: int,
+) -> Tuple[int, ...]:
+    """Map a line's ``<space>`` markers onto its glyph partition.
+
+    Both renderers EXCLUDE spaces from the per-glyph stroke partition (the PLT
+    walk emits no strokes for a space, the TTF partition slices by per-glyph
+    contour counts, which are ``0`` for a space -- see :func:`_glyph_chars`),
+    so the partition's ``i``-th group is the ``i``-th NON-SPACE character. A
+    marker is itself a space, so it never owns a group: it sits BETWEEN two
+    glyphs, at the slot index of the first glyph to its right -- a marker in
+    front of the first glyph (``<space>world``) therefore has slot ``0``, the
+    LEADING inset that shifts every glyph and makes the tag the equivalent of
+    right-alignment. A marker that
+    trails every glyph has no such glyph (the text ends with it) and gets
+    ``glyph_count``, which is how a trailing ``<space>`` still counts as a slot
+    (its slack pulls the text to the left margin) without shifting any glyph
+    right.
+
+    Args:
+        text: The rendered line's text (``plain_text`` order).
+        fractions: Per-character minimum widths aligned with ``text`` (the
+            full width, spaces included, from :func:`_dynamic_space_fractions`);
+            a positive value marks a gap, ``0.0`` an ordinary character.
+        glyph_count: Number of groups in the partition.
+
+    Returns:
+        The slot index of every marker, in text order; ``()`` when ``flags``
+        does not cover ``text`` 1:1 (an unknown partition -- the caller then
+        declines to expand).
+    """
+    if len(fractions) != len(text):
+        return ()
+    slots: List[int] = []
+    glyphs_seen = 0
+    pending = 0  # Consecutive markers not yet assigned a slot.
+    for fraction, char in zip(fractions, text):
+        if fraction != UNSET_SPACE_FRACTION and char != " ":
+            # A ``<space:X>`` MINIMUM written on a non-space character: the
+            # renderers draw that character (it owns a group) and advance by its
+            # own width, so it reserves no gap. Counting it as a slot would
+            # break the 1:1 marker/slot pairing and silently decline the whole
+            # line's expansion.
+            continue
+        if fraction != UNSET_SPACE_FRACTION:
+            pending += 1  # A marker: it owns no glyph, it widens the gap.
+            continue
+        # A glyph: every marker waiting to its left takes THIS group's index as
+        # their slot (0 for a marker in front of the first glyph -- the leading
+        # inset, which shifts the whole line rightwards).
+        slots.extend([glyphs_seen] * pending)
+        pending = 0
+        glyphs_seen += 1
+    slots.extend([glyph_count] * pending)  # Trailing marker(s): past the ink.
+    return tuple(slots)
+
+
+def _space_char_shifts(
+    slots: Sequence[int],
+    glyph_count: int,
+    weights: Sequence[float],
+) -> Tuple[float, ...]:
+    """Split a line's per-slot width across its ``<space>`` markers.
+
+    Each slot carries a signed WIDTH (:func:`_apply_space_expand` builds it as
+    the slot's share of the line's fill plus the room its ``<space:X>`` minimum
+    needs beyond the natural one-space gap). A slot moves only the glyphs to its
+    RIGHT: a glyph whose index is AT or right of slot *k* rides the summed
+    widths of the gaps up to and including *k*, so ``hello<space>world`` leaves
+    ``hello`` exactly where the natural render put it and pushes ``world`` right
+    by the fill (ink-left rides the left margin, ink-right the right), a leading
+    ``<space>world`` rides the whole width rightwards (the TODO's right-alignment
+    equivalence), and ``a<space>b<space>c`` lands three flush columns. The total
+    is exact by construction (one telescoping prefix sum over the widths), so no
+    1e-15 drift accumulates at any depth.
+
+    Args:
+        slots: The glyph-partition index of every marker, left to right (from
+            :func:`_space_slot_indices`); a trailing marker is ``glyph_count``.
+        glyph_count: Number of glyph groups in the rendered block.
+        weights: The signed width of every slot, same order as ``slots``.
+
+    Returns:
+        The X shift of every glyph index (``glyph_count`` entries).
+    """
+    shifts = [0.0] * glyph_count
+    if not slots:
+        return tuple(shifts)
+    # prefix[k] = the sum of the widths of slots 0..k-1, so the glyphs sitting
+    # between slot k-1 and slot k all share prefix[k]: every gap opens to the
+    # RIGHT of its left neighbour, which is what keeps the ink's left edge fixed
+    # and lands the ink's right edge on the box.
+    prefix = [0.0]
+    for width in weights:
+        prefix.append(prefix[-1] + width)
+    total = prefix[-1]
+    if total == 0.0:
+        return tuple(shifts)
+    for k, slot in enumerate(slots):
+        shift = prefix[k]
+        start = slots[k - 1] if k else 0
+        for i in range(max(start, 0), min(slot, glyph_count)):
+            shifts[i] = shift
+    # Everything after the LAST marker: every slot sits to its LEFT, so the
+    # glyph rides +total (a trailing gap pushes the TEXT right, which keeps it
+    # on the left margin -- the box grows behind it).
+    last = slots[-1]
+    if last < glyph_count:
+        for i in range(max(last, 0), glyph_count):
+            shifts[i] = total
+    return tuple(shifts)
+
+
+def _space_slot_gaps(
+    fractions: Sequence[float],
+    fill_inches: float,
+    space_advance_inches: float,
+    text: str = "",
+) -> List[float]:
+    """Return every ``<space>`` slot's final GAP WIDTH, in inches.
+
+    A gap's width is ``X * advance + fill * X / sum(X)``: its own minimum (one
+    advance for a bare ``<space>``, ``X`` for ``<space:X>``, ZERO for
+    ``<space:0>``) plus the FILL in proportion to that minimum, so the wider a
+    gap asks to be, the more of the line's room it takes.
+
+    * a bare ``<space>`` (``X = 1``) is the whole story: it keeps one normal
+      space and absorbs the entire fill when the box has room;
+    * ``<space:0>`` asks for nothing, so it absorbs nothing -- its gap is ZERO
+      and the ink behind the marker slides up, which is how
+      ``hello<space:0>world`` engraves ``helloworld``;
+    * ``a<space>b<space:3>c`` in a roomy box splits the fill 1:3;
+    * ``<space:20>`` takes its twenty spaces plus the fill and WINS OVER THE
+      TEXT (the line overflows its box -- Pass A's budget reserves the same
+      figure, ``(X - 1) * advance`` per marker, out of the text's room first).
+
+    When every minimum is zero nothing absorbs the fill: the gaps stay collapsed
+    and the room is left as slack. A negative fill (a
+    line wider than its box) contributes nothing: the minima stand alone and the
+    text pays, never the other way round.
+
+    Shared by :func:`_apply_space_expand` (which shifts the glyphs) and the
+    placement pass (which needs the same numbers to locate the ink inside the
+    widened box), so the two can never drift.
+
+    Args:
+        fractions: Per-character minimum widths (negative = unmarked, see
+            :func:`_dynamic_space_fractions`).
+        fill_inches: The line's FILL (inches); ``<= 0`` splits nothing, leaving
+            every gap at its own minimum.
+        space_advance_inches: One normal space advance of this line.
+        text: The line's text, aligned with ``fractions``. Pass it to count the
+            slots exactly as :func:`_space_slot_indices` does (a minimum written
+            on a non-space character is skipped there, so leaving ``text`` empty
+            would make the two functions disagree and decline the line).
+
+    Returns:
+        The gap width of every marker, in text order (``[]`` with no marker).
+    """
+    if text:
+        marker_widths = [
+            fraction
+            for fraction, char in zip(fractions, text)
+            if fraction != UNSET_SPACE_FRACTION and char == " "
+        ]
+    else:
+        marker_widths = [f for f in fractions if f != UNSET_SPACE_FRACTION]
+    if not marker_widths:
+        return []
+    room = max(0.0, fill_inches)
+    total_minimum = sum(marker_widths)
+    if total_minimum <= 0.0:
+        # Every gap asked for ZERO width, so no gap absorbs any fill: the fill
+        # stays slack. Dividing by a zero total is undefined, and handing the
+        # room out evenly would re-open gaps the author just closed.
+        shares = [0.0] * len(marker_widths)
+    else:
+        shares = [room * width / total_minimum for width in marker_widths]
+    return [width * space_advance_inches + share for width, share in zip(marker_widths, shares)]
+
+
+def _space_slot_advances(
+    slots: Sequence[int],
+    glyph_count: int,
+    gaps: Sequence[float],
+    space_advance_inches: float,
+) -> Tuple[float, float, float]:
+    """Split a widened line's gap widths into ``(leading, ink, box)`` inches.
+
+    Every gap REPLACES the one normal advance the natural render already paid
+    for it (the walk advances the cursor for a space and emits no ink), so a
+    slot's geometry is its DELTA, ``gap - advance``:
+
+    * ``leading`` -- the delta of the slots in front of the first glyph (slot
+      ``0``): the ink's inset inside the box it fills, which the placement pass
+      needs because it anchors the BOX (an ink-anchored placement would slide a
+      leading ``<space>`` back to the left margin and make it invisible).
+    * ``ink`` -- the deltas of the slots that sit BETWEEN glyphs: the only room
+      that widens the measured ink (a slot at ``glyph_count`` is behind the
+      last glyph, so its delta opens bare space and pulls nothing).
+    * ``box`` -- every delta: the width the line's box reaches. It is
+      ``ink + leading + the trailing deltas``, i.e. the ink plus the bare
+      whitespace on both sides, which is exactly what the box spans.
+
+    Args:
+        slots: The glyph-partition index of every marker, left to right (from
+            :func:`_space_slot_indices`); a trailing marker is ``glyph_count``.
+        glyph_count: Number of glyph groups in the rendered block.
+        gaps: The gap width of every slot, same order as ``slots`` (from
+            :func:`_space_slot_gaps`).
+        space_advance_inches: One normal space advance -- the width every gap
+            replaces.
+
+    Returns:
+        ``(leading_inches, ink_growth_inches, box_growth_inches)``.
+    """
+    deltas = [gap - space_advance_inches for gap in gaps]
+    leading = sum(d for slot, d in zip(slots, deltas) if slot == 0)
+    ink = sum(d for slot, d in zip(slots, deltas) if 0 < slot < glyph_count)
+    return leading, ink, sum(deltas)
+
+
+def _space_slot_weights(
+    fractions: Sequence[float],
+    fill_inches: float,
+    space_advance_inches: float,
+    text: str = "",
+) -> List[float]:
+    """Return every ``<space>`` slot's cursor DELTA, in inches.
+
+    The gap widths of :func:`_space_slot_gaps` minus the one normal advance the
+    natural render already paid for the slot: a bare ``<space>`` in a full box
+    has delta ``0`` (its gap IS the advance it replaces), ``<space:0>`` has
+    ``-advance`` (the ink behind the marker slides up), and a slot absorbing
+    ``1in`` of fill has ``1in - advance``. Glyph indices after the slot ride
+    that delta; see :func:`_apply_space_expand`.
+
+    Args:
+        fractions: Per-character minimum widths (negative = unmarked).
+        fill_inches: The line's fill (inches), shared by the slots in proportion
+            to their minima.
+        space_advance_inches: One normal space advance.
+        text: The line's text, aligned with ``fractions`` (see
+            :func:`_space_slot_gaps`).
+
+    Returns:
+        The delta of every marker, in text order (``[]`` with no marker).
+    """
+    return [
+        gap - space_advance_inches
+        for gap in _space_slot_gaps(fractions, fill_inches, space_advance_inches, text)
+    ]
+
+
+def _space_box_geometry(
+    text: str,
+    fractions: Sequence[float],
+    glyph_groups: Sequence[Tuple[int, ...]],
+    weights: Sequence[float],
+) -> Tuple[float, float]:
+    """Split the slot deltas into ``(leading inset, box growth)`` inches.
+
+    A slot in front of the first glyph (``<space>world``) opens an INSET inside
+    the box: the ink does not grow, so a placement anchored on the ink's left
+    edge would slide the gap back to the left margin and engrave nothing. Every
+    other slot -- between glyphs, or behind the last one -- grows the box, and
+    the box is what the placement pass anchors.
+
+    Args:
+        text: The line's ``plain_text``, aligned with ``fractions``.
+        fractions: Per-character minimum widths (negative = unmarked).
+        glyph_groups: The natural render's per-glyph stroke partition.
+        weights: The slot deltas, in text order (from :func:`_space_slot_weights`).
+
+    Returns:
+        ``(leading_inches, box_growth_inches)``.
+    """
+    slots = _space_slot_indices(text, fractions, len(glyph_groups))
+    paired = list(zip(slots, weights))
+    leading = sum(weight for slot, weight in paired if slot == 0)
+    return leading, sum(weight for _slot, weight in paired)
+
+
+def _apply_space_expand(
+    block: TextBlock,
+    glyph_groups: Sequence[Tuple[int, ...]],
+    fractions: Sequence[float],
+    fill_inches: float,
+    text: str,
+    space_advance_inches: float,
+) -> TextBlock:
+    """Widen a rendered line's ``<space>`` gaps, in place.
+
+    Each slot's final width comes from :func:`_space_slot_gaps` (its minimum,
+    plus the share of the line's FILL proportional to that minimum), and every
+    glyph
+    rides the prefix sum of the widths to its left (see
+    :func:`_space_char_shifts`): the ink's left edge stays where the natural
+    render put it, its right edge lands on the box, and a leading gap slides the
+    whole line rightwards (the TODO's right-alignment equivalence).
+
+    A pure translate keeps ``AA`` arcs native (no refit, no flattening) and
+    leaves the prefix byte-identical, so the pen layers, the stroke widths, the
+    word groups and the glyph partition are untouched.
+
+    Args:
+        block: The rendered (natural) line block.
+        glyph_groups: Its per-glyph stroke partition.
+        fractions: Per-character minimum widths (negative = unmarked).
+        fill_inches: The line's fill, shared by the slots in proportion to their
+            minima.
+        text: The line's ``plain_text``, aligned with ``fractions``.
+        space_advance_inches: One normal space advance of this line.
+
+    Returns:
+        The widened block (``block`` itself when there is nothing to do).
+    """
+    slots = _space_slot_indices(text, fractions, len(glyph_groups))
+    weights = _space_slot_weights(fractions, fill_inches, space_advance_inches, text)
+    if not slots or len(slots) != len(weights):
+        return block
+    shifts = _space_char_shifts(slots, len(glyph_groups), weights)
+    if not any(abs(shift) > 1e-12 for shift in shifts):
+        return block
+    strokes = list(block.strokes)
+    for group, shift in zip(glyph_groups, shifts):
+        if abs(shift) <= 1e-12:
+            continue
+        for index in group:
+            strokes[index] = strokes[index].translate(shift, 0.0)
+    return TextBlock(strokes=tuple(strokes))
+
+
+def _marker_body_box(
+    box: float,
+    natural_text: float,
+    column: float,
+) -> Tuple[float, float]:
+    """Shrink a marker line's box and natural ink to its BODY's columns.
+
+    A list line's block carries the marker glyph in its own column; the dynamic
+    space belongs to the body, so both the box it fills and the ink width it is
+    measured against lose that column (the marker's ink width plus the list gap).
+
+    Args:
+        box: The composed line's alignment box (inches).
+        natural_text: The composed line's natural ink width (inches).
+        column: The marker column width (inches).
+
+    Returns:
+        ``(body_box_inches, body_natural_text_inches)``, never negative.
+    """
+    return max(0.0, box - column), max(0.0, natural_text - column)
+
+
 def _word_local_glyph_groups(
     glyph_groups: Tuple[Tuple[int, ...], ...],
     word_indices: Sequence[int],
@@ -1888,6 +2351,8 @@ def _render_line_core(
     *,
     check_glyph_coverage: bool = True,
     skip_decorations: bool = False,
+    space_fractions: Sequence[float] = (),
+    space_expand_inches: float = 0.0,
 ) -> Tuple[
     TextBlock,
     Optional[List[Tuple[str, List[int]]]],
@@ -1910,6 +2375,11 @@ def _render_line_core(
         check_glyph_coverage: Forwarded to the render (TTF glyph coverage).
         skip_decorations: Forwarded (the segment-composition caller applies
             the whole-line decorations once on the composed block).
+        space_fractions: Per-character ``<space>`` minimum widths (see
+            :func:`_dynamic_space_fractions`); empty = no expansion.
+        space_expand_inches: The line's FILL -- the inches of alignment-box room
+            beyond its natural ink, shared by the gaps in proportion to their
+            minima. ``0.0`` leaves every gap at its own minimum.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` -- see
@@ -1924,6 +2394,8 @@ def _render_line_core(
         chunk_mode,
         check_glyph_coverage=check_glyph_coverage,
         skip_decorations=skip_decorations,
+        space_fractions=space_fractions,
+        space_expand_inches=space_expand_inches,
     )
     if not line.has_v_center:
         return result
@@ -1936,6 +2408,8 @@ def _render_line_core(
         check_glyph_coverage=check_glyph_coverage,
         skip_decorations=skip_decorations,
         vc_shifts=shifts,
+        space_fractions=space_fractions,
+        space_expand_inches=space_expand_inches,
     )
 
 
@@ -1946,6 +2420,8 @@ def _render_line_core_once(
     check_glyph_coverage: bool = True,
     skip_decorations: bool = False,
     vc_shifts: Optional[Tuple[float, ...]] = None,
+    space_fractions: Sequence[float] = (),
+    space_expand_inches: float = 0.0,
 ) -> Tuple[
     TextBlock,
     Optional[List[Tuple[str, List[int]]]],
@@ -1981,14 +2457,22 @@ def _render_line_core_once(
             decorations once on the composed block, so a run spanning two
             fonts stays one continuous stroke).
         vc_shifts: Per-character ``<vc>``/``v_center_chars`` centering shifts
-            in inches (aligned with ``plain_text``), composed into the
-            renderers' ``baseline_shifts`` array. ``None`` on a line carrying
-            a vertical-centering selection triggers the **two-pass render**:
-            pass 1 renders without the vc term, the per-glyph ink boxes are
-            measured from it, and the raise/lower centring each selected
-            glyph on the cap-band midline rides pass 2. ``None`` on a line
-            with no selection (and any tuple on the second pass) keeps the
-            historical single render, bit-identical output.
+        in inches (aligned with ``plain_text``), composed into the
+        renderers' ``baseline_shifts`` array. ``None`` on a line carrying
+        a vertical-centering selection triggers the **two-pass render**:
+        pass 1 renders without the vc term, the per-glyph ink boxes are
+        measured from it, and the raise/lower centring each selected
+        glyph rides pass 2. ``None`` on a line with no selection (and any
+        tuple on the second pass) keeps the historical single render,
+        bit-identical output.
+        space_fractions: Per-character ``<space>`` minimum widths (see
+            :func:`_dynamic_space_fractions`); empty = no expansion, and every
+            existing caller keeps the historical call shape.
+        space_expand_inches: The line's FILL -- the inches of alignment-box room
+            beyond its natural ink, shared by the gaps in proportion to their
+            minima (see
+            :func:`_space_slot_gaps`). ``0.0`` leaves every gap at its own
+            minimum.
 
     Returns:
         ``(block, word_groups, glyph_groups)`` where ``word_groups`` is
@@ -2007,6 +2491,48 @@ def _render_line_core_once(
         FtextRenderError: If a TrueType font lacks a glyph (propagated from
             the ftext renderer).
     """
+
+    def _expand_decorated(
+        rendered: Tuple[
+            TextBlock,
+            Optional[List[Tuple[str, List[int]]]],
+            Tuple[Tuple[int, ...], ...],
+        ],
+    ) -> Tuple[
+        TextBlock,
+        Optional[List[Tuple[str, List[int]]]],
+        Tuple[Tuple[int, ...], ...],
+    ]:
+        """Widen the line's ``<space>`` gaps before its decorations are drawn.
+
+        Applied ahead of the underline/strikethrough builders on purpose: those
+        measure the glyph boxes they span, so a decoration crossing a gap
+        stretches across it (a word-level break is the decoration layer's own
+        business, and a marker IS a space character).
+
+        A NON-POSITIVE fill is not "nothing to do": it means the box has no room
+        left to share, and the minima still stand on their own (see
+        :func:`_space_slot_gaps` -- "the text pays, never the other way round"),
+        so the call is gated on the markers alone. :func:`_apply_space_expand`
+        returns the block untouched when every cursor delta is ~0 (a bare
+        ``<space>`` with no fill is exactly the advance it replaces).
+        """
+        if not space_fractions:
+            return rendered
+        block, word_groups, glyph_groups = rendered
+        return (
+            _apply_space_expand(
+                block,
+                glyph_groups,
+                space_fractions,
+                space_expand_inches,
+                render_text,
+                space_advance,
+            ),
+            word_groups,
+            glyph_groups,
+        )
+
     try:
         ref = resolve_font(line.font)
     except FontNotFoundError as exc:
@@ -2078,6 +2604,10 @@ def _render_line_core_once(
     if not line.arc_preserve_compression:
         plt_kwargs["preserve_arcs"] = False
     italic_kwargs = _italic_render_kwargs(line)
+    # One normal space advance of THIS line: the dynamic space's unit (the
+    # renderers charge exactly this for a space character, so a bare `<space>`
+    # in a full box costs the same as a plain space).
+    space_advance = line.space_width_fraction * line.toolpath_text_height + line.character_spacing
     # Bold / scale markup: the flagged characters render with a per-glyph
     # cutter diameter and a baseline-anchored uniform scale (PLT: per-character
     # cutter diameters + glyph scales; TTF: per-character glyph scales). Empty
@@ -2110,8 +2640,8 @@ def _render_line_core_once(
             )
             decorated = (block, None, _validated_glyph_groups(glyph_pairs, len(block.strokes)))
         if skip_decorations:
-            return decorated
-        return _apply_strikethrough(line, *_apply_underline(line, *decorated))
+            return _expand_decorated(decorated)
+        return _apply_strikethrough(line, *_apply_underline(line, *_expand_decorated(decorated)))
 
     # TrueType family: the historical ftext path, adapted to TextBlock.
     ftext_kwargs: dict[str, Any] = {
@@ -2192,8 +2722,8 @@ def _render_line_core_once(
         else:
             ttf_decorated = (block, None, ())
     if skip_decorations:
-        return ttf_decorated
-    return _apply_strikethrough(line, *_apply_underline(line, *ttf_decorated))
+        return _expand_decorated(ttf_decorated)
+    return _apply_strikethrough(line, *_apply_underline(line, *_expand_decorated(ttf_decorated)))
 
 
 def _slice_runs(runs: Tuple[Run, ...], start: int, end: int) -> Tuple[Run, ...]:
@@ -2443,6 +2973,8 @@ def _render_line_block(
     chunk_mode: TextChunkMode,
     *,
     check_glyph_coverage: bool = True,
+    space_fractions: Sequence[float] = (),
+    space_expand_inches: float = 0.0,
 ) -> Tuple[
     TextBlock,
     Optional[List[Tuple[str, List[int]]]],
@@ -2463,6 +2995,12 @@ def _render_line_block(
         line: The resolved text line.
         chunk_mode: When ``WORD``, request per-word stroke groups.
         check_glyph_coverage: Forwarded to the renderer (TTF glyph coverage).
+        space_fractions: Per-character ``<space>`` minimum widths (see
+            :func:`_dynamic_space_fractions`); empty = no expansion, so every
+            existing caller keeps the historical call shape.
+        space_expand_inches: The line's FILL, shared by the gaps in proportion
+            to their minima (see
+            :func:`_render_line_core`).
 
     Returns:
         ``(block, word_groups, glyph_groups)`` -- see
@@ -2476,8 +3014,28 @@ def _render_line_block(
         block, words, glyphs = _render_line_block_composed(
             line, chunk_mode, check_glyph_coverage=check_glyph_coverage
         )
+        if space_fractions:
+            # The composite's glyph groups are exact (the composer concatenates
+            # them per segment), so the same prefix-sum shift widens a
+            # cross-family line's gaps; the decorations then span the widened
+            # ink, as in the single-family core. Gated on the markers alone, not
+            # on a positive fill -- see :func:`_render_line_core`.
+            block = _apply_space_expand(
+                block,
+                glyphs,
+                space_fractions,
+                space_expand_inches,
+                line.plain_text,
+                line.space_width_fraction * line.toolpath_text_height + line.character_spacing,
+            )
         return _apply_strikethrough(line, *_apply_underline(line, block, words, glyphs))
-    return _render_line_core(line, chunk_mode, check_glyph_coverage=check_glyph_coverage)
+    return _render_line_core(
+        line,
+        chunk_mode,
+        check_glyph_coverage=check_glyph_coverage,
+        space_fractions=space_fractions,
+        space_expand_inches=space_expand_inches,
+    )
 
 
 def _decoration_runs(
@@ -5577,7 +6135,10 @@ def _render_positioned_lines(
     Lines are horizontally aligned within the label's content area according
     to each line's ``text_h_alignment`` ("left" anchors the line's left-most
     point at the left margin, "right" anchors the right-most point at the
-    right margin, "center" centers it). Each line renders in its cascaded
+    right margin, "center" centers it). The box they align in is the label's
+    margin area for every alignment; a line's indent column narrows that box
+    only where the column is anchored to the box's left edge (see
+    :func:`_line_indent_offset`). Each line renders in its cascaded
     ``font``: TrueType fonts through ftext (matplotlib), PLT-extracted fonts
     through the arc-native glyph walker (see :func:`_render_line_block`).
 
@@ -5877,6 +6438,10 @@ def _render_positioned_lines(
     # that pass C places at the indent column, so its budget shrinks by that
     # column and its total extent is ``width + offset``.
     compressed_lines: List[Tuple[_RenderedLine, TextBlock, float, float]] = []
+    # Per-line ``<space>`` render data, keyed by line index: the markers, the
+    # alignment-box budget, and the natural ink width the gap expansion has to
+    # grow from. Consumed by Pass A2 (list groups need Pass B's widths first).
+    space_data: Dict[int, Dict[str, Any]] = {}
     for rendered in rendered_lines:
         block = rendered.block
         bounds = block.bounds()
@@ -5885,6 +6450,22 @@ def _render_positioned_lines(
         line_index = rendered.line_index
         line = label.content[line_index]
         pre_margin_width = bounds[2] - bounds[0]
+        # ``<space>`` bookkeeping for this line: the per-character minimum
+        # widths, one normal space advance (the unit the widths are fractions
+        # of), and EXTRA = the room the minima need BEYOND the one space the
+        # natural render already advanced (positive for ``<space:2>``, negative
+        # for ``<space:0.5>``, zero for a bare ``<space>``). The minima are a
+        # RESERVATION: the text is compressed into ``box - EXTRA`` so a wide
+        # minimum wins over the text, and the gaps then expand to fill the box.
+        space_fractions = _dynamic_space_fractions(line)
+        space_advance = (
+            line.space_width_fraction * line.toolpath_text_height + line.character_spacing
+        )
+        space_extra = sum(
+            (width - 1.0) * space_advance
+            for width in space_fractions
+            if width != UNSET_SPACE_FRACTION
+        )
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
@@ -5893,8 +6474,16 @@ def _render_positioned_lines(
         # (tool + kerf buffer) so all text has consistent visual margin from
         # the border.
         cutter_margin_h = h_margin + (line.effective_cutter_diameter / 2.0)
-        compression_available_width = inner_width - (2 * cutter_margin_h)
-        offset = 0.0 if line.marker_text else rendered.indent_left
+        compression_available_width = inner_width - (2 * cutter_margin_h) - space_extra
+        # The line's box inset, computed ONCE here and carried in
+        # ``compressed_lines``: the compression budget, the alignment box below,
+        # Pass A2's group cap and Pass C's placement all read this value.
+        offset = _line_indent_offset(
+            line,
+            _effective_h_alignment(
+                line.text_h_alignment, line_index, label.collision_center_by_line
+            ),
+        )
         compression_available_width -= offset
         # A collision-avoidance edge margin consumes anchored-edge width: the
         # alignment box leaves ``inner_width - 2*h_margin - offset - margin``
@@ -5919,11 +6508,37 @@ def _render_positioned_lines(
         # shared scale to this line's own ``1 - max_h_compress`` floor, so the
         # budget is respected by construction.
         global_scale = label.global_compress_by_line.get(line_index, 1.0)
+        shared_target = 0.0
         if global_scale < 1.0 and rendered.collision_scale > 0.0:
-            compression_available_width = min(
-                compression_available_width,
-                (global_scale / rendered.collision_scale) * pre_margin_width,
+            shared_target = (global_scale / rendered.collision_scale) * pre_margin_width
+            compression_available_width = min(compression_available_width, shared_target)
+        # The ALIGNMENT box this line's ink is placed in: the VISUAL margin box
+        # (``inner_width - 2*h_margin``) minus the indent column this line
+        # charges its box (``offset``, alignment-aware -- see
+        # :func:`_line_indent_offset`) and any collision slide margin, plus the
+        # minimum reservation ``space_extra``.
+        # ``<space>`` fills THIS box in Pass A2, so a line with room paints its
+        # ink from margin to margin -- the TODO's acceptance test ("hello"
+        # touching the left margin, "world" touching the right). The half-cutter
+        # kerf insets are NOT part of it: they belong to Pass A's compression
+        # budget, where a wide line is squeezed to keep the engraving inside the
+        # collision slide margin. ``space_extra`` is NOT added here: this box is
+        # the room the whole LINE's ink must land in, and Pass A2 spends
+        # ``extra`` out of it (``fill = box - natural - extra``), so a minimum
+        # wider than one space is gap room taken from the text's share, never
+        # ink pushed past the far margin.
+        align_box = (
+            inner_width
+            - (2 * h_margin)
+            - offset
+            - (
+                0.0
+                if line_index in label.collision_center_by_line
+                else label.collision_edge_margin_by_line.get(line_index, 0.0)
             )
+        )
+        if shared_target > 0.0:
+            align_box = min(align_box, shared_target + space_extra)
         block = compress_line_to_width(
             block,
             compression_available_width,
@@ -5945,6 +6560,23 @@ def _render_positioned_lines(
         margin_scale = rendered_width / pre_margin_width if pre_margin_width > 0.0 else 1.0
         compressed_lines.append((rendered, block, rendered_width, offset))
         effective_scales.append(rendered.collision_scale * margin_scale)
+        if space_fractions:
+            space_data[line_index] = {
+                "fractions": space_fractions,
+                "budget": compression_available_width,
+                "natural": pre_margin_width,
+                # Inches of minimum width the gaps reserve beyond their natural
+                # space (see the capture above); Pass A2 spends the box's slack
+                # on top of it.
+                "extra": space_extra,
+                # The box Pass A2 expands into (see the computation above).
+                "align_box": align_box,
+                # The space never steals width from the text: an overflowing
+                # line keeps its minimum one-space gap and compresses by its
+                # OWN budget, so the expansion (which runs after compression)
+                # must not spend the room compression just recovered.
+                "max_compress": rendered.max_h_compress,
+            }
 
     if not compressed_lines:
         return []
@@ -5960,7 +6592,7 @@ def _render_positioned_lines(
     # Phase-3 slide); both are per-line label state resolved here so Pass C
     # stays a pure placement pass.
     def _effective_alignment(line_index: int, declared: str) -> str:
-        return "center" if line_index in label.collision_center_by_line else declared
+        return _effective_h_alignment(declared, line_index, label.collision_center_by_line)
 
     group_widths: Dict[int, float] = {}
     group_alignment: Dict[int, str] = {}
@@ -5979,6 +6611,232 @@ def _render_positioned_lines(
             group_alignment[group] = _effective_alignment(
                 rendered.line_index, rendered.text_h_alignment
             )
+
+    # ---- Pass A2: ``<space>`` gap expansion (after the group boxes exist) ----
+    # A dynamic space fills the line's OWN alignment box: a standalone line
+    # takes its full budget, a list line takes its group's box (the widest
+    # total extent of the block, so the marker column stays flush and every
+    # body ends on the group's right edge). The group box is only known after
+    # Pass B, which is why the expansion is a pass of its own -- and why Pass B
+    # measures the NATURAL widths: a marker line never sets its group's box
+    # (that would be circular), it fills the box the plain lines defined.
+    #
+    # The expansion re-renders the line's TEXT at the target ink width (a rigid
+    # X translate of the glyphs after each marker, before the decorations),
+    # re-composes a list marker, and re-applies the collision scale. The
+    # budget is an upper bound, so a line that overflows its box keeps its
+    # minimum one-space gap and compresses exactly as it did before: the space
+    # never steals width from the text.
+    if space_data:
+        rebuilt: List[Tuple[_RenderedLine, TextBlock, float, float]] = []
+        for rendered, block, rendered_width, offset in compressed_lines:
+            line_index = rendered.line_index
+            data = space_data.get(line_index)
+            if data is None:
+                rebuilt.append((rendered, block, rendered_width, offset))
+                continue
+            line = label.content[line_index]
+            # One normal space advance at this line's size: the unit every
+            # minimum width and every trailing gap is measured in.
+            space_advance = (
+                line.space_width_fraction * line.toolpath_text_height + line.character_spacing
+            )
+            fractions: Tuple[float, ...] = data["fractions"]
+            budget = float(data["budget"])
+            natural_text = float(data["natural"])
+            extra = float(data["extra"])
+            group = rendered.align_group_id
+            box = float(data["align_box"])
+            if group >= 0:
+                budget = min(budget, group_widths[group] - offset)
+                # A group shares one alignment box: the widest total extent in
+                # the group, minus this line's indent column. A control glyph
+                # can print WIDER than its ink (overhanging sidebearings), so
+                # the box is capped by the margin box it is placed in.
+                box = min(
+                    box,
+                    group_widths[group]
+                    - offset
+                    + (2 * (h_margin + line.effective_cutter_diameter / 2.0))
+                    + extra,
+                )
+            # A line that ACTUALLY got squeezed (margin-fit compression or the
+            # per-label shared scale shrank its ink) has already spent its box:
+            # expanding to the nominal budget would hand back exactly the width
+            # compression just took, so its target is the width it now occupies.
+            # A line that fits (rendered == natural) keeps the full box, whatever
+            # its max_h_compress permission says.
+            if rendered_width < natural_text - 1e-12:
+                budget = min(budget, rendered_width)
+            # The FILL: the room the box offers beyond the natural ink AND the
+            # minima. ``box`` already carries ``extra`` (the width the minima ask
+            # for beyond the one space the natural render advanced), so
+            # ``fill = box - natural - extra`` is the plain margin box minus the
+            # ink: the gaps get their minima plus a proportional share of that,
+            # and the line's ink lands on the margin box for EVERY minimum (a
+            # ``<space:2>`` in a roomy box is a FLOOR, not an overflow -- it is
+            # the text that pays when the minimum is wider than the box).
+            fill = box - natural_text - extra
+            space_marker_line: Optional[ResolvedTextLine] = None
+            space_marker_block: Optional[TextBlock] = None
+            space_marker_words: Any = None
+            space_marker_glyphs: Tuple[Tuple[int, ...], ...] = ()
+            if line.marker_text:
+                # A marker line fills its BODY's box: the marker column is not
+                # the space's to widen. Render the marker alone (the same clone
+                # the composition below reuses -- one render, one indent floor)
+                # and subtract its column, exactly as the first render pass
+                # floors a line that skipped the list pre-pass.
+                space_marker_line = _marker_line_clone(line)
+                space_marker_block, space_marker_words, space_marker_glyphs = _render_line_block(
+                    space_marker_line, chunk_mode, check_glyph_coverage=check_glyph_coverage
+                )
+                column = space_marker_line.indent_left
+                marker_bounds = (
+                    None if space_marker_block.is_empty() else space_marker_block.bounds()
+                )
+                if marker_bounds is not None:
+                    column = max(
+                        column,
+                        (marker_bounds[2] - marker_bounds[0])
+                        + line.list_marker_gap_fraction * line.toolpath_text_height,
+                    )
+                box, natural_text = _marker_body_box(box, natural_text, column)
+                fill = box - natural_text - extra
+            # The gaps' cursor deltas (what the markers demand BEYOND the space
+            # the natural render already advanced) decide whether there is
+            # anything to engrave. A minimum ALWAYS wins (see
+            # :func:`_space_slot_gaps`), so the test is the delta and NOT the
+            # room: a box with nothing left to share (``fill <= 0``) still owes
+            # ``<space:20>`` its twenty spaces -- the line overflows and the text
+            # pays. Only an all-zero delta engraves nothing: a bare ``<space>``
+            # (or an all-zero set of minima) in a box with no fill keeps exactly
+            # the advance it replaces, so the natural block stands.
+            deltas = _space_slot_weights(fractions, fill, space_advance, line.plain_text)
+            if not deltas or max(abs(delta) for delta in deltas) <= 1e-12:
+                logger.info(
+                    "Label %s line %s: <space> kept its minimum width "
+                    "(%r has no slack in its %.3fin box).",
+                    label.id,
+                    line_index,
+                    line.plain_text,
+                    box,
+                )
+                rebuilt.append((rendered, block, rendered_width, offset))
+                continue
+            try:
+                expanded_text, _expanded_words, expanded_glyphs = _render_line_block(
+                    line,
+                    chunk_mode,
+                    check_glyph_coverage=check_glyph_coverage,
+                    space_fractions=fractions,
+                    space_expand_inches=fill,
+                )
+            except (PltFontRenderError, FtextRenderError) as exc:  # pragma: no cover
+                raise LabelRenderError(
+                    f"Label {label.id}: text line {line_index} ({line.plain_text!r}) "
+                    f"cannot be rendered with dynamic spacing: {exc}"
+                ) from exc
+            if space_marker_line is not None and space_marker_block is not None:
+                marker_block = space_marker_block
+                if marker_block.is_empty():
+                    marker_block, marker_words, marker_glyphs = (
+                        TextBlock(strokes=()),
+                        None,
+                        (),
+                    )
+                else:
+                    marker_words = space_marker_words
+                    marker_glyphs = space_marker_glyphs
+                layers, widths = _composed_stroke_layers(
+                    space_marker_line,
+                    marker_block,
+                    marker_glyphs,
+                    line,
+                    expanded_text,
+                    expanded_glyphs,
+                )
+                indent = line.indent_left
+                marker_bounds = marker_block.bounds()
+                if marker_bounds is not None:
+                    # Same floor the first pass applies: a marker line rendered
+                    # without the list pre-pass keeps its own text column.
+                    indent = max(
+                        indent,
+                        (marker_bounds[2] - marker_bounds[0])
+                        + line.list_marker_gap_fraction * line.toolpath_text_height,
+                    )
+                expanded, expanded_glyphs, expanded_words = _compose_marker_block(
+                    marker_block,
+                    marker_glyphs,
+                    marker_words,
+                    expanded_text,
+                    expanded_glyphs,
+                    None,
+                    space_marker_line.plain_text,
+                    indent,
+                )
+            else:
+                expanded, expanded_words, expanded_glyphs = (
+                    expanded_text,
+                    _expanded_words,
+                    expanded_glyphs,
+                )
+                layers = _stroke_layer_map(line, expanded, expanded_glyphs)
+                widths = _stroke_width_map(line, expanded, expanded_glyphs)
+            expanded = _apply_collision_compress(
+                expanded,
+                rendered.collision_scale,
+                context=f"of label {label.id} line {line_index} ({line.plain_text!r})",
+                preserve_arcs=line.arc_preserve_compression,
+            )
+            expanded_bounds = expanded.bounds()
+            if expanded_bounds is None:  # pragma: no cover - ink measured above
+                rebuilt.append((rendered, block, rendered_width, offset))
+                continue
+            slack = (expanded_bounds[2] - expanded_bounds[0]) - rendered_width - extra
+            # A leading gap (``<space>world``) is an INSET inside the line's box,
+            # not ink: the expanded ink keeps its natural left edge. Anchoring the
+            # INK -- every line's historical placement -- would slide that gap back
+            # to the left margin and engrave nothing, so a line with leading gaps
+            # is placed by its BOX and its ink rides in by the inset. Every other
+            # layout (mid / trailing gaps) leaves the ink's left edge where the
+            # natural render put it, so it keeps the historical anchoring and
+            # ``space_box_width`` stays 0.0.
+            box_width = 0.0
+            leading = 0.0
+            if not line.marker_text:
+                leading, growth = _space_box_geometry(
+                    line.plain_text,
+                    fractions,
+                    rendered.glyph_groups,
+                    deltas,
+                )
+                if leading > 1e-12:
+                    box_width = rendered_width + growth
+            rebuilt.append(
+                (
+                    replace(
+                        rendered,
+                        space_slack=max(0.0, slack),
+                        space_box_width=box_width,
+                        space_leading=leading,
+                        word_groups=expanded_words,
+                        stroke_layers=layers,
+                        stroke_widths=widths,
+                    ),
+                    expanded,
+                    expanded_bounds[2] - expanded_bounds[0],
+                    offset,
+                )
+            )
+        compressed_lines = rebuilt
+
+    # The report reads the consumed slack off the line entry; Pass A2 recorded
+    # it on the rebuilt _RenderedLine (0.0 for every line it left alone).
+    space_slack_by_line = {
+        rendered.line_index: rendered.space_slack for rendered, *_ in compressed_lines
+    }
 
     # ---- Pass C: horizontal alignment + translate ----
     alignment_available_full = inner_width - (2 * h_margin)
@@ -6001,15 +6859,27 @@ def _render_positioned_lines(
             )
             target_left_x = group_left + offset
         else:
-            target_left_x = compute_horizontal_offset(
-                rendered_width,
-                alignment_available_full - offset,
-                h_margin,
-                _effective_alignment(rendered.line_index, rendered.text_h_alignment),
-                hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
-                edge_margin=label.collision_edge_margin_by_line.get(rendered.line_index, 0.0),
+            # This line's box is [h_margin + offset, h_margin + available]: its
+            # LEFT edge carries the indent column Pass A charged it (0.0 for a
+            # centred/right-aligned line outside a list, the list column for a
+            # continuation line), its width is what is left. The alignment
+            # positions the ink INSIDE that box, so the shift is measured from
+            # the box's own left edge (``compute_horizontal_offset`` with a 0.0
+            # margin) and the edge is added -- a left-aligned line lands AT its
+            # column, and centre/right keep anchoring on the full margin area.
+            target_left_x = (
+                h_margin
+                + offset
+                + compute_horizontal_offset(
+                    rendered.space_box_width or rendered_width,
+                    alignment_available_full - offset,
+                    0.0,
+                    _effective_alignment(rendered.line_index, rendered.text_h_alignment),
+                    hole_aware_h_shift=label.hole_aware_horizontal_shift_inches,
+                    edge_margin=label.collision_edge_margin_by_line.get(rendered.line_index, 0.0),
+                )
             )
-        x_blocks.append(block.translate(target_left_x - min_x, 0.0))
+        x_blocks.append(block.translate(target_left_x + rendered.space_leading - min_x, 0.0))
         x_line_indices.append(rendered.line_index)
         x_word_groups.append(rendered.word_groups)
         x_glyph_groups.append(rendered.glyph_groups)
@@ -6164,6 +7034,7 @@ def _render_positioned_lines(
                     line_spacing=reported_spacing,
                     stroke_layers=x_stroke_layers[i],
                     stroke_widths=x_stroke_widths[i],
+                    space_slack=space_slack_by_line.get(line_index, 0.0),
                 ),
                 x_word_groups[i],
                 x_glyph_groups[i],
@@ -6734,7 +7605,7 @@ def _render_boundary_local(label: ResolvedLabel) -> vp.LineCollection:
 
     rect_array = vp.rect(0, 0, label.width, label.height)
     # vp.rect() returns a numpy array of complex coordinates, need to convert to LineCollection
-    if isinstance(rect_array, np.ndarray) and rect_array.size > 0:
+    if isinstance(rect_array, np.ndarray) and rect_array.size > 0:  # pyright: ignore[reportUnnecessaryIsInstance]
         lc.append(rect_array)
     return lc
 

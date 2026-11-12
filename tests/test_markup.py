@@ -12,16 +12,20 @@ from typing import List
 import pytest
 
 from plt_optimizer.generate.markup import (
+    DEFAULT_SPACE_FRACTION,
     MAX_BUFFER_ARG,
     MIN_BUFFER_ARG,
     PLAIN,
+    SELF_CLOSING_MARKER,
     SUB_DIRECTION,
     SUP_DIRECTION,
     TAG_REGISTRY,
+    UNSET_SPACE_FRACTION,
     MarkupError,
     Run,
     Style,
     SupSub,
+    dynamic_space_fraction,
     parse_markup,
     register_tag,
     serialize_runs,
@@ -35,6 +39,9 @@ from plt_optimizer.generate.markup import (
 ITALIC = Style(italic=True)
 UNDERLINE = Style(underline=True)
 BOLD = Style(bold=True)
+
+# The <space> marker style: one space character that the renderer widens.
+SPACE = Style(dynamic_space=DEFAULT_SPACE_FRACTION)
 
 
 class TestParsePlain:
@@ -419,7 +426,7 @@ class TestFrameworkEdges:
         """
         original = dict(TAG_REGISTRY)
         try:
-            register_tag("b", lambda style: style)
+            register_tag("b", lambda style, arg: style)
             with pytest.raises(MarkupError, match="never opened"):
                 parse_markup("<i>x</b>")
         finally:
@@ -647,7 +654,8 @@ class TestUnderlineRegistry:
         assert spec.accepts_args is False
 
     def test_italic_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb) fixes serialization nesting."""
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc,
+        cb, space) fixes serialization nesting."""
         assert list(TAG_REGISTRY) == [
             "i",
             "u",
@@ -663,6 +671,7 @@ class TestUnderlineRegistry:
             "vc",
             "tc",
             "cb",
+            "space",
         ]
 
 
@@ -684,7 +693,7 @@ class TestParseBold:
         """bold_flags is one flag per plain_text character (spaces included)."""
         styled = parse_markup("a<b>bc</b>d")
         assert styled.plain_text == "abcd"
-        assert styled.bold_flags == (False, True, True, False)
+        assert styled.bold_flags == (0.0, 1.0, 1.0, 0.0)
 
     def test_whole_line_bold(self) -> None:
         """A fully bold line is one bold run."""
@@ -767,6 +776,7 @@ class TestScaleRegistry:
             "vc",
             "tc",
             "cb",
+            "space",
         ]
         assert spec.apply(PLAIN, "0.5") == SCALED_HALF
         # Set-to-value: re-applying with the same argument is idempotent.
@@ -842,7 +852,7 @@ class TestScaleParse:
     def test_scale_inside_italic_composes(self) -> None:
         """A scale span nested in italic carries both styles."""
         styled = parse_markup("<i>it <scale:0.5>mix</scale></i>")
-        assert styled.italic_flags == (True, True, True, True, True, True)
+        assert styled.italic_flags == (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
         assert styled.scale_values == (1.0, 1.0, 1.0, 0.5, 0.5, 0.5)
 
 
@@ -926,6 +936,7 @@ class TestSupSubRegistry:
             "vc",
             "tc",
             "cb",
+            "space",
         ]
         for name in ("sup", "sub"):
             spec = TAG_REGISTRY[name]
@@ -1217,7 +1228,8 @@ class TestStrikethroughRegistry:
         assert len(styled.runs) == 1
 
     def test_strike_and_underline_are_distinct_tags(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb) fixes nesting."""
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc,
+        cb, space) fixes nesting."""
         assert list(TAG_REGISTRY) == [
             "i",
             "u",
@@ -1233,6 +1245,7 @@ class TestStrikethroughRegistry:
             "vc",
             "tc",
             "cb",
+            "space",
         ]
 
     def test_nested_strike_serializes_flat(self) -> None:
@@ -1334,7 +1347,8 @@ class TestSmallCapsRegistry:
         assert serialize_runs(styled.runs) == "<sc>abc</sc>"
 
     def test_small_caps_is_registered_last(self) -> None:
-        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb) fixes nesting."""
+        """Registry order (i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc,
+        cb, space) fixes nesting."""
         assert list(TAG_REGISTRY) == [
             "i",
             "u",
@@ -1350,6 +1364,7 @@ class TestSmallCapsRegistry:
             "vc",
             "tc",
             "cb",
+            "space",
         ]
 
     def test_small_caps_and_scale_are_distinct_tags(self) -> None:
@@ -1407,6 +1422,7 @@ class TestFontRegistry:
     def test_arg_serializer_reencodes_spaces(self) -> None:
         r"""A font name with a space re-encodes as '+' (the \S* argument rule)."""
         spec = TAG_REGISTRY["f"]
+        assert spec.arg is not None
         assert spec.arg(Style(font="Foo Bar")) == "Foo+Bar"
         assert spec.apply(PLAIN, "Foo+Bar") == Style(font="Foo Bar")
 
@@ -1455,7 +1471,7 @@ class TestFontParse:
     def test_font_inside_italic_composes(self) -> None:
         """A font span nested in italic carries both styles."""
         styled = parse_markup("<i>it <f:Wingdings>mix</f></i>")
-        assert styled.italic_flags == (True, True, True, True, True, True)
+        assert styled.italic_flags == (1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
         assert styled.font_values == (None, None, None, "Wingdings", "Wingdings", "Wingdings")
 
     def test_crossing_font_spans_are_legal(self) -> None:
@@ -1546,7 +1562,7 @@ class TestCutterRegistry:
         assert spec.args_optional is False
         # The <oc> flag tag was registered after <c>, so <c> is no longer last.
         assert list(TAG_REGISTRY).index("c") == list(TAG_REGISTRY).index("f") + 1
-        assert list(TAG_REGISTRY)[-1] == "cb"
+        assert list(TAG_REGISTRY)[-2] == "cb"
         assert spec.apply(PLAIN, "0.06") == CUTTER
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(CUTTER, "0.06") == CUTTER
@@ -1585,6 +1601,7 @@ class TestCutterRegistry:
             "vc",
             "tc",
             "cb",
+            "space",
         ]
 
 
@@ -1694,7 +1711,7 @@ class TestOriginalCutterRegistry:
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-4] == "oc"
+        assert list(TAG_REGISTRY)[-5] == "oc"
         assert list(TAG_REGISTRY).index("vc") == list(TAG_REGISTRY).index("oc") + 1
         assert spec.apply(PLAIN, "") == Style(original_cutter=True)
         # Set-to-True: re-applying is idempotent (nesting <oc> in <oc> is a no-op).
@@ -1805,7 +1822,7 @@ class TestVCenterRegistry:
         assert spec.accepts_args is False
         assert spec.args_optional is False
         assert spec.arg is None
-        assert list(TAG_REGISTRY)[-1] == "cb"
+        assert list(TAG_REGISTRY)[-1] == "space"
         assert list(TAG_REGISTRY).index("vc") == list(TAG_REGISTRY).index("oc") + 1
         assert spec.apply(PLAIN, "") == Style(v_center=True)
         # Set-to-True: re-applying is idempotent (nesting <vc> in <vc> is a no-op).
@@ -2052,7 +2069,7 @@ class TestTextColorRegistry:
         assert spec.args_optional is False
         assert spec.arg is not None
         assert list(TAG_REGISTRY).index("tc") == list(TAG_REGISTRY).index("vc") + 1
-        assert list(TAG_REGISTRY)[-1] == "cb"
+        assert list(TAG_REGISTRY)[-1] == "space"
 
     def test_apply_is_set_to_value_and_idempotent(self) -> None:
         """Applying the same color twice is the identity (the <f:...> rule)."""
@@ -2189,7 +2206,7 @@ class TestCutterBufferRegistry:
         assert spec.accepts_args is True
         assert spec.args_optional is False
         assert list(TAG_REGISTRY).index("cb") == list(TAG_REGISTRY).index("tc") + 1
-        assert list(TAG_REGISTRY)[-1] == "cb"
+        assert list(TAG_REGISTRY)[-2] == "cb"
         assert spec.apply(PLAIN, "0.015") == CUTTER_BUFFER
         # Set-to-value: re-applying with the same argument is idempotent.
         assert spec.apply(CUTTER_BUFFER, "0.015") == CUTTER_BUFFER
@@ -2334,3 +2351,211 @@ class TestCutterBufferWords:
         words, separators = split_styled_words_with_separators(styled)
         assert [word.text for word in words] == ["foo", "bar"]
         assert all(sep.cutter_buffer == 0.015 for sep in separators)
+
+
+class TestSpaceRegistry:
+    """The `<space>` self-closing dynamic-spacing tag (the registry contract)."""
+
+    def test_space_is_registered_last(self) -> None:
+        """The tag is registered after every shipped tag (serialization order)."""
+        assert list(TAG_REGISTRY)[-1] == "space"
+        assert list(TAG_REGISTRY)[-2] == "cb"
+
+    def test_space_spec_is_self_closing_with_an_optional_argument(self) -> None:
+        """`<space>` is the framework's first (and only) self-closing tag."""
+        spec = TAG_REGISTRY["space"]
+        assert spec.name == "space"
+        assert spec.self_closing is True
+        # The argument sizes the minimum gap; it is OPTIONAL, so the bare
+        # `<space>` is the markup (accepts_args + args_optional -- the <sup>
+        # shape a self-closing tag is allowed to take).
+        assert spec.accepts_args is True
+        assert spec.args_optional is True
+        assert spec.is_active(PLAIN) is False
+        assert spec.is_active(Style(dynamic_space=1.0)) is True
+
+    def test_self_closing_tags_must_spell_their_bare_form(self) -> None:
+        """A bare `<name>` IS the markup, so a MANDATORY argument is refused."""
+        with pytest.raises(ValueError, match="self_closing"):
+            register_tag(
+                "bad",
+                lambda style, arg: style,
+                accepts_args=True,
+                args_optional=False,
+                self_closing=True,
+            )
+
+    def test_marker_character_is_a_plain_space(self) -> None:
+        """The marker occupies one space character (the 1:1 glyph-group rule)."""
+        assert SELF_CLOSING_MARKER == " "
+
+    def test_dynamic_space_defaults_to_the_sentinel(self) -> None:
+        """PLAIN carries no dynamic space: the field's default is the sentinel.
+
+        A ``0.0`` default would read as a ``<space:0>`` marker (a legal minimum
+        of zero), so every unmarked style would suppress its own text.
+        """
+
+        assert PLAIN.dynamic_space == UNSET_SPACE_FRACTION
+        assert Style().dynamic_space == UNSET_SPACE_FRACTION
+        assert PLAIN.has_dynamic_space is False
+        # The one legal minimum that a non-negative default could not express.
+        assert Style(dynamic_space=0.0).has_dynamic_space is True
+        assert dynamic_space_fraction(Style(dynamic_space=0.0)) == 0.0
+        assert dynamic_space_fraction(PLAIN) is None
+
+
+class TestSpaceParse:
+    """Parsing `<space>`: a marker in place of the tag, never a span."""
+
+    def test_self_closing_tag_parses_without_a_close(self) -> None:
+        """`<space>` needs no `</space>` (the unclosed-tag check never sees it)."""
+        styled = parse_markup("hello<space>world")
+        assert styled.has_markup is True
+        assert styled.plain_text == "hello world"
+        assert styled.runs[-1] == Run("world", PLAIN)
+
+    def test_marker_run_carries_only_the_dynamic_space_flag(self) -> None:
+        """The tag's place in the text is one space character with the flag."""
+        styled = parse_markup("a<space>b")
+        assert styled.runs == (Run("a", PLAIN), Run(" ", SPACE), Run("b", PLAIN))
+
+    def test_leading_and_trailing_marker_positions(self) -> None:
+        """A marker at either line end keeps its index (right-align case)."""
+        unset = UNSET_SPACE_FRACTION
+        assert parse_markup("<space>world").dynamic_space_fractions == (1.0,) + (unset,) * 5
+        assert parse_markup("world<space>").dynamic_space_fractions == ((unset,) * 5) + (1.0,)
+
+    def test_consecutive_markers_are_one_gap_of_two_slots(self) -> None:
+        """`<space><space>` merges into a 2-character marker run."""
+        styled = parse_markup("x<space><space>y")
+        assert styled.plain_text == "x  y"
+        assert styled.dynamic_space_fractions == (
+            UNSET_SPACE_FRACTION,
+            1.0,
+            1.0,
+            UNSET_SPACE_FRACTION,
+        )
+
+    def test_marker_inside_a_span_composes_with_the_span(self) -> None:
+        """`<i>a<space>b</i>` keeps italic on the marker (style composition)."""
+        styled = parse_markup("<i>a<space>b</i>")
+        assert styled.runs[1] == Run(" ", Style(italic=True, dynamic_space=1.0))
+
+    def test_close_form_is_literal_text(self) -> None:
+        """A self-closing tag has no close form: `</space>` engraves verbatim."""
+        styled = parse_markup("<space>x</space>")
+        assert styled.plain_text == " x</space>"
+        assert styled.dynamic_space_fractions == (1.0,) + (UNSET_SPACE_FRACTION,) * 9
+
+    def test_marker_satisfies_a_pending_close(self) -> None:
+        """`<i>a<space></i>` closes the span after the marker (stack untouched)."""
+        styled = parse_markup("<i>a<space></i>")
+        assert styled.plain_text == "a "
+        assert styled.runs[-1] == Run(" ", Style(italic=True, dynamic_space=1.0))
+
+    def test_plain_text_has_no_space_tag(self) -> None:
+        """Reports read plain text: the tag name never reaches the engraving."""
+        assert "space" not in parse_markup("a<space>b").plain_text
+
+    def test_unmarked_positions_keep_the_sentinel(self) -> None:
+        """The array distinguishes "no marker" from ``<space:0>``.
+
+        ``0.0`` is a legal minimum, so unmarked characters must carry the
+        negative sentinel -- a consumer that read ``0.0`` as "unmarked" would
+        collapse every ordinary word space on a line that carries one marker.
+        """
+
+        styled = parse_markup("a<space:0>b c")
+        assert styled.dynamic_space_fractions == (
+            UNSET_SPACE_FRACTION,
+            0.0,
+            UNSET_SPACE_FRACTION,
+            UNSET_SPACE_FRACTION,
+            UNSET_SPACE_FRACTION,
+        )
+
+    def test_delimiters_are_configurable(self) -> None:
+        """`<<space>>` marks the gap like the angle-bracket form."""
+        assert parse_markup("a<<space>>b", "<<", ">>").dynamic_space_fractions == (
+            UNSET_SPACE_FRACTION,
+            1.0,
+            UNSET_SPACE_FRACTION,
+        )
+
+
+class TestSpaceSerialize:
+    """Round-tripping `<space>` through raw markup (the reflow's path)."""
+
+    @pytest.mark.parametrize(
+        "raw,canonical",
+        [
+            ("hello<space>world", "hello<space>world"),
+            ("<space>world", "<space>world"),
+            ("world<space>", "world<space>"),
+            ("x<space><space>y", "x<space><space>y"),
+            ("a<space>b<space>c", "a<space>b<space>c"),
+            ("<space>", "<space>"),
+            ("<i>a<space>b</i>", "<i>a</i><i><space></i><i>b</i>"),
+            ("<u>a<space>b</u>", "<u>a</u><u><space></u><u>b</u>"),
+            (
+                "<scale:0.5>a<space>b</scale>",
+                "<scale:0.5>a</scale><scale:0.5><space></scale><scale:0.5>b</scale>",
+            ),
+            (
+                "<f:Sans>a<space>b</f>",
+                "<f:Sans>a</f><f:Sans><space></f><f:Sans>b</f>",
+            ),
+            ("«a<space>b»", "«a<space>b»"),
+        ],
+    )
+    def test_round_trip_reproduces_the_runs(self, raw: str, canonical: str) -> None:
+        """serialize_runs re-emits the bare tag; the span form closes/reopens
+        around the marker exactly like every other tag does."""
+        styled = parse_markup(raw)
+        assert serialize_runs(styled.runs) == canonical
+        assert parse_markup(serialize_runs(styled.runs)).runs == styled.runs
+        assert parse_markup(canonical).plain_text == styled.plain_text
+
+    def test_marker_text_is_suppressed_not_written(self) -> None:
+        """The marker space is spelled BY the tag (no `<space> ` double space)."""
+        assert serialize_runs([Run(" ", SPACE)]) == "<space>"
+
+    def test_suppression_survives_a_custom_marker_string(self) -> None:
+        """The dynamic-space marker is not the kern marker (no double emit)."""
+        assert (
+            serialize_runs(
+                parse_markup("a<space>b").runs,
+                kern_pos="<k>",
+                kern_neg="<K>",
+            )
+            == "a<space>b"
+        )
+
+    def test_plain_runs_emit_no_space_tag(self) -> None:
+        """An ordinary space is a space; the tag is opt-in per character."""
+        assert serialize_runs(parse_markup("hello world").runs) == "hello world"
+
+
+class TestSpaceWords:
+    """`<space>` is a word separator, so reflow can break a line at the gap."""
+
+    def test_marker_splits_words(self) -> None:
+        """`hello<space>world` tokenizes as two words."""
+        words = split_styled_words(parse_markup("hello<space>world"))
+        assert [word.text for word in words] == ["hello", "world"]
+
+    def test_word_level_api_drops_a_leading_marker(self) -> None:
+        """KNOWN LIMIT (mirrors plain leading whitespace): words drop their
+        separators, so a line-LEADING `<space>` is not carried by the word-level
+        serialize_word. The reflow uses the separator-carrying API below."""
+        assert serialize_word(split_styled_words(parse_markup("<space>x"))[0]) == "x"
+        assert serialize_word(split_styled_words(parse_markup("<i>a<space>b</i>"))[0]) == "<i>a</i>"
+        assert serialize_word(split_styled_words(parse_markup("a<space>b"))[1]) == "b"
+
+    def test_separators_keep_the_flag(self) -> None:
+        """The gap's separator style marks it, so a re-wrap rebuilds the tag."""
+        styled = parse_markup("a<space>b")
+        words, separators = split_styled_words_with_separators(styled)
+        assert [word.text for word in words] == ["a", "b"]
+        assert all(sep.dynamic_space == 1.0 for sep in separators)

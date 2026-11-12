@@ -68,6 +68,22 @@ injected into :func:`parse_markup`) and ``<cb:D>`` (the kerf buffer in inches
 for the wrapped segment -- overrides the line's cascaded ``cutter_buffer_text``
 per character; ``0.0`` explicitly zeroes the buffer for the span).
 
+Self-closing tags
+-----------------
+One tag -- ``<space>`` (the inline dynamic-space marker) -- is
+:attr:`TagSpec.self_closing`: it has NO content and NO close form, so a bare
+``<space>`` IS the complete markup. It takes an OPTIONAL argument, the gap's
+minimum width as a fraction of one normal space (``<space:2>`` = at least two
+spaces; ``<space>`` = ``<space:1.0>``), which makes it the ``<sup>``
+``args_optional`` shape in the self-closing form. A self-closing tag never goes
+on the open-tag stack (nothing closes it, so the unclosed-tag check and the
+crossing-close replay are untouched) and takes no span argument. It serializes
+as ``<name>``/``<name:arg>`` immediately before its own text, one copy per
+marker character, and its text is the single **space** character the tag marks
+-- so :func:`serialize_runs` suppresses it (``hello<space>world``,
+never ``hello<space> world``). ``</space>`` is therefore LITERAL text, exactly
+like an unregistered close.
+
 Manual kerning
 --------------
 The cascading ``kern_pos_string`` / ``kern_neg_string`` fields add
@@ -98,10 +114,12 @@ from typing import Callable, Dict, List, Optional, Pattern, Sequence, Tuple
 
 __all__ = [
     "MAX_BUFFER_ARG",
+    "MAX_SPACE_ARG",
     "MAX_CUTTER_ARG",
     "MAX_SCALE_ARG",
     "MAX_SHIFT_ARG",
     "MIN_BUFFER_ARG",
+    "MIN_SPACE_ARG",
     "MIN_CUTTER_ARG",
     "MIN_SCALE_ARG",
     "MIN_SHIFT_ARG",
@@ -109,6 +127,8 @@ __all__ = [
     "PLAIN",
     "Piece",
     "Run",
+    "SELF_CLOSING_MARKER",
+    "DEFAULT_SPACE_FRACTION",
     "SUB_DIRECTION",
     "SUP_DIRECTION",
     "StyledText",
@@ -118,6 +138,8 @@ __all__ = [
     "TAG_REGISTRY",
     "TagSpec",
     "UNSET_SCALE",
+    "UNSET_SPACE_FRACTION",
+    "dynamic_space_fraction",
     "parse_markup",
     "register_tag",
     "serialize_runs",
@@ -127,6 +149,16 @@ __all__ = [
     "split_styled_words_with_separators",
     "style_boundaries",
 ]
+
+
+#: The sentinel of :attr:`Style.dynamic_space` when a run carries NO space
+#: marker. NEGATIVE on purpose: ``<space:0>`` is a legal marker whose minimum is
+#: ``0.0``, so no non-negative value can double as "unmarked" -- every
+#: marker-preserving pipeline test reads :func:`dynamic_space_fraction` (which
+#: maps this sentinel to ``None``) or :attr:`Style.has_dynamic_space`. Defined
+#: ABOVE :class:`Style` because it IS the field's dataclass default: a ``0.0``
+#: default would make every unmarked style look like a ``<space:0>`` marker.
+UNSET_SPACE_FRACTION: float = -1.0
 
 
 class MarkupError(ValueError):
@@ -282,6 +314,32 @@ class Style:
             a separate HPGL ``SP`` layer and per-cutter PLT file (the depth
             changes between runs on 3-layer stock). A pure layer tag: no
             geometry, cutter, or height change.
+        dynamic_space: The ``<space:X>`` **minimum gap width**, expressed as a
+            fraction of one normal space advance (``UNSET_SPACE_FRACTION`` =
+            the identity when the run carries no space marker). A run with a
+            marker value is a ``<space>`` marker: its characters are ORDINARY
+            SPACE characters -- they engrave nothing -- and the pipeline widens
+            the gap each marker sits in. The gap never shrinks below ``X`` space
+            widths (``<space>`` = ``<space:1.0>``, one normal space; ``<space:
+            0.5>`` half a space; ``<space:2>`` double), and on top of that
+            minimum it absorbs every inch of horizontal slack its own alignment
+            box leaves (``box width - natural text width``), so the words left
+            of the marker ride the left margin and the words right of it ride
+            the right margin. Several markers split one line's slack evenly. The
+            expansion is a pure X translate of the glyph groups around each
+            marker: a geometry transform only (the italic/``<scale:N>``
+            contract), so it moves no cutter, pen layer, ``text_height``, or
+            file name, and it is inert on a line with no box to fill (a
+            plain-text line, a non-``dynamic`` h_align, a budget of zero). When
+            the box cannot even pay the markers' minima, the minima win over the
+            text (the line compresses exactly as an over-long line does today).
+            The storage type is ``float`` and the sentinel is NEGATIVE, never
+            ``0.0``: ``<space:0>`` is a legal marker with a zero minimum, and a
+            ``0.0``-means-unmarked convention would erase its identity (the
+            reflow would re-emit a plain space and the 1:1 character/glyph-group
+            mapping would silently change the engraved line). Read the flag with
+            :attr:`has_dynamic_space` and the width with
+            :func:`dynamic_space_fraction`, not by comparing to ``0.0``.
     """
 
     italic: bool = False
@@ -298,6 +356,19 @@ class Style:
     kern: int = 0
     text_color: Optional[str] = None
     cutter_buffer: Optional[float] = None
+    dynamic_space: float = UNSET_SPACE_FRACTION
+
+    @property
+    def has_dynamic_space(self) -> bool:
+        """True when this style is a ``<space>`` marker of any width.
+
+        The test is "set, not at the sentinel" -- :attr:`dynamic_space` stores
+        :data:`UNSET_SPACE_FRACTION` when unmarked, so ``<space:0>`` (a legal
+        marker with a zero minimum) reads as marked here and its width reads
+        through :func:`dynamic_space_fraction`.
+        """
+
+        return self.dynamic_space != UNSET_SPACE_FRACTION
 
 
 #: The style of unmarked text (every field at its default).
@@ -343,6 +414,41 @@ MIN_BUFFER_ARG: float = 0.0
 #: Upper bound of the ``<cb:D>`` argument (inches). Generous: the same
 #: ceiling as ``MAX_CUTTER_ARG`` bounds runaway specs.
 MAX_BUFFER_ARG: float = 1.0
+
+#: Lower bound of the ``<space:X>`` argument (inclusive -- ``0.0`` reserves NO
+#: minimum, so the gap is pure slack: a separator that opens only as far as
+#: the line's own box allows).
+MIN_SPACE_ARG: float = 0.0
+
+#: Upper bound of the ``<space:X>`` argument, in **space widths** (not inches:
+#: this is a multiplier of one space advance). Generous -- a wide gap is a
+#: legitimate layout tool (a signature line, a fill-in blank) -- and only
+#: catches clear typos; the physical ceiling is the line's own box, since the
+#: gap takes ``max(X spaces, the line's slack)``.
+MAX_SPACE_ARG: float = 100.0
+
+#: The canonical bare ``<space>`` width -- one normal space, the value
+#: :func:`_format_dynamic_space_arg` spells as the empty argument (the
+#: ``<sup>`` bare-form precedent).
+DEFAULT_SPACE_FRACTION: float = 1.0
+
+
+def dynamic_space_fraction(style: Style) -> Optional[float]:
+    """Return ``style``'s ``<space>`` minimum width, or ``None`` when unmarked.
+
+    The one sanctioned reader of :attr:`Style.dynamic_space` (the ``None`` =
+    "no marker" convention every other value-bearing style field uses --
+    :attr:`Style.cutter`, :attr:`Style.cutter_buffer`).
+
+    Args:
+        style: The style to read.
+
+    Returns:
+        The minimum gap width in space widths (``0.0`` for ``<space:0>``), or
+        ``None`` for a run carrying no marker.
+    """
+
+    return None if style.dynamic_space == UNSET_SPACE_FRACTION else style.dynamic_space
 
 
 def _parse_scale_arg(arg: str) -> float:
@@ -539,6 +645,71 @@ def _format_cutter_buffer_arg(cutter_buffer: Optional[float]) -> str:
     return "" if cutter_buffer is None else f"{cutter_buffer:g}"
 
 
+def _parse_dynamic_space_arg(arg: str) -> float:
+    """Parse and validate a ``<space:X>`` argument (the minimum gap width).
+
+    ``X`` is a fraction of ONE normal space advance and must be ``>= 0``: the
+    bare ``<space>`` (= the canonical 1.0) reserves a normal space, ``<space:
+    0.5>`` half a space, ``<space:2>`` double. ``0.0`` is legal -- the marker
+    reserves NO minimum, so the gap is pure slack (a hairline separator that
+    opens to fill the line) -- and the argument is unbounded above in the
+    physical sense (``<space:10>`` is a tenth of a plate of blank gap), so only
+    a loose syntactic ceiling (:data:`MAX_SPACE_ARG`) catches clear typos. The
+    real behavior is the pipeline's: the gap takes ``max(X spaces, the line's
+    own slack)``, so a big X wins over the text's natural width and compresses
+    the line exactly as an over-long line does.
+
+    Args:
+        arg: The raw ``name:args`` argument text (``""`` for the bare form).
+
+    Returns:
+        The minimum gap width in space widths (1.0 for the bare form -- a bare
+        ``<space>`` IS ``<space:1.0>``, never "unmarked": the sentinel is
+        :data:`UNSET_SPACE_FRACTION`, which no argument can spell).
+
+    Raises:
+        MarkupError: If the argument is not a number in
+            ``[0.0, MAX_SPACE_ARG]`` (fail-loud, like an unclosed tag).
+    """
+    # The bare form carries the canonical width, NOT the unmarked sentinel:
+    # ``<space>`` is the markup, and a self-closing tag's apply() result is what
+    # marks its own marker run (a sentinel here would render the bare tag inert
+    # -- the ``<sup>`` bare-form precedent, where apply("") derives a value).
+    return DEFAULT_SPACE_FRACTION if not arg else _parse_space_fraction(arg)
+
+
+def _parse_space_fraction(arg: str) -> float:
+    """Parse the numeric part of a ``<space:X>`` argument (bounds checked)."""
+    try:
+        fraction = float(arg)
+    except ValueError:
+        raise MarkupError(
+            f"space tag argument {arg!r} is not a number (expected e.g. "
+            "<space:2> for a gap of at least two spaces)."
+        ) from None
+    if not MIN_SPACE_ARG <= fraction <= MAX_SPACE_ARG:
+        raise MarkupError(
+            f"space tag argument {arg!r} is outside the supported range "
+            f"[{MIN_SPACE_ARG}, {MAX_SPACE_ARG}] (a fraction of one space width)."
+        )
+    return fraction
+
+
+def _format_dynamic_space_arg(fraction: float) -> str:
+    """Format :attr:`Style.dynamic_space` back into the canonical tag argument.
+
+    The canonical 1.0 (a bare ``<space>``) returns ``""`` so
+    :func:`serialize_runs` re-emits the bare tag (the ``<sup>`` bare-form
+    precedent); every other width round-trips as ``name:arg`` -- ``0.0``
+    included (``<space:0>`` must not degrade into a plain space). The
+    :data:`UNSET_SPACE_FRACTION` sentinel maps here too (an unmarked style is
+    never serialized: :attr:`TagSpec.is_active` is False for it).
+    """
+    if fraction == UNSET_SPACE_FRACTION:
+        return ""
+    return "" if fraction == DEFAULT_SPACE_FRACTION else f"{fraction:g}"
+
+
 def _parse_text_color_arg(arg: str) -> str:
     """Parse and validate a ``<tc:color>`` argument.
 
@@ -606,8 +777,20 @@ class TagSpec:
             :func:`serialize_runs` re-emits the bare tag. Ignored when
             :attr:`accepts_args` is False.
         arg: Serializes a style back to the tag's canonical argument (used
-            by :func:`serialize_runs` to re-emit ``name:arg``). Required
+            by :func::`serialize_runs` to re-emit ``name:arg``). Required
             when :attr:`accepts_args` is True.
+        self_closing: True for a tag with NO content and NO close form -- a
+            bare ``<name>`` (with its optional ``:arg``) IS the complete
+            markup, and the tag applies to the single **marker character** the
+            parser emits in its place (see ``<space>``). A self-closing tag is
+            never pushed on the open-tag stack (so unclosed-tag validation and
+            the crossing-close replay never see it), takes no SPAN argument
+            (``accepts_args`` requires ``args_optional`` -- the argument sizes
+            the marker, it never scopes a range), and
+            :func:`serialize_runs` emits one ``<name>`` (or ``<name:arg>``) per
+            marker character immediately before its own text, suppressing the
+            marker text itself. ``</name>`` stays literal, like an
+            unregistered close.
     """
 
     name: str
@@ -616,6 +799,7 @@ class TagSpec:
     accepts_args: bool = False
     args_optional: bool = False
     arg: Optional[Callable[[Style], str]] = None
+    self_closing: bool = False
 
 
 #: Registered markup tags, keyed by tag name (insertion order = the order
@@ -634,6 +818,12 @@ _FONT_TAG = "f"
 #: canonicalizes its argument through the injected ``color_resolver``.
 _TEXT_COLOR_TAG = "tc"
 
+#: The character a self-closing tag marks in place of its own text. The
+#: dynamic-space marker is a SPACE: the 1:1 character/glyph-group invariant
+#: holds, the character engraves nothing, and the gap stays a legal soft break
+#: point for the line-content reflow (which joins words on one space).
+SELF_CLOSING_MARKER: str = " "
+
 
 def register_tag(
     name: str,
@@ -642,6 +832,7 @@ def register_tag(
     arg: Optional[Callable[[Style], str]] = None,
     is_active: Optional[Callable[[Style], bool]] = None,
     args_optional: bool = False,
+    self_closing: bool = False,
 ) -> None:
     """Register an inline markup tag (idempotent overwrite by name).
 
@@ -657,13 +848,24 @@ def register_tag(
         args_optional: Whether the argument is optional on an args tag (the
             bare ``<name>`` is markup, ``apply`` receives ``""``). Ignored
             when ``accepts_args`` is False.
+        self_closing: Whether the tag has no content and no close form (see
+            :attr:`TagSpec.self_closing`). Such a tag applies to the single
+            marker character the parser emits in its place, so an argument is
+            always optional (``accepts_args`` requires ``args_optional``).
 
     Raises:
-        ValueError: If ``name`` is not one or more ASCII letters, or an
-            args tag is registered without an ``arg`` serializer.
+        ValueError: If ``name`` is not one or more ASCII letters, an args tag
+            is registered without an ``arg`` serializer, or a self-closing tag
+            is registered with a MANDATORY argument (a self-closing tag has no
+            span, so its bare form must always be the markup).
     """
     if not _TAG_NAME_RE.fullmatch(name):
         raise ValueError(f"tag name {name!r} must be ASCII letters only")
+    if self_closing and accepts_args and not args_optional:
+        raise ValueError(
+            f"tag {name!r} is self_closing: its bare form is the markup, so "
+            "an argument must be optional (args_optional=True)"
+        )
     if accepts_args and arg is None:
         raise ValueError(f"tag {name!r} accepts args and needs an arg serializer")
     if is_active is None:
@@ -679,6 +881,7 @@ def register_tag(
         accepts_args=accepts_args,
         args_optional=args_optional,
         arg=arg,
+        self_closing=self_closing,
     )
 
 
@@ -825,6 +1028,25 @@ register_tag(
     accepts_args=True,
     arg=lambda style: _format_cutter_buffer_arg(style.cutter_buffer),
     is_active=lambda style: style.cutter_buffer is not None,
+)
+# Registered LAST so every existing serialization order stays bit-identical.
+# The inline dynamic-space tag: the FIRST self-closing tag (no content, no
+# close form -- a bare <space> IS the markup, and </space> stays literal). The
+# parser emits one space character carrying dynamic_space=True in its place, so
+# plain_text and the 1:1 character/glyph-group mapping are preserved and the
+# gap is a legal soft break point for the reflow. The pipeline widens each
+# marker's gap by the line's own slack (a pure X translate of the glyph groups
+# after the marker -- a geometry transform only, the italic/<scale:N> contract:
+# no cutter, pen layer, text_height, or file-name change). apply is
+# set-to-True (idempotent), so <space><space> is one gap with two slots.
+register_tag(
+    "space",
+    lambda style, arg: replace(style, dynamic_space=_parse_dynamic_space_arg(arg)),
+    accepts_args=True,
+    args_optional=True,
+    arg=lambda style: _format_dynamic_space_arg(style.dynamic_space),
+    is_active=lambda style: style.dynamic_space != UNSET_SPACE_FRACTION,
+    self_closing=True,
 )
 
 
@@ -987,6 +1209,29 @@ class StyledText:
         keeps every run on its own buffer.
         """
         return tuple(style.cutter_buffer for style in _per_char_styles(self))
+
+    @property
+    def dynamic_space_fractions(self) -> Tuple[float, ...]:
+        """Per-character ``<space>`` minimum widths, aligned with
+        :attr:`plain_text`.
+
+        The value is the gap's minimum width as a fraction of one normal space
+        advance at a marker, and :data:`UNSET_SPACE_FRACTION` (negative) at
+        every UNMARKED position -- the per-character sibling of
+        :attr:`cutter_buffer_values` and :attr:`kern_values`. The sentinel is
+        NOT normalised to ``0.0`` here: ``<space:0>`` is a legal marker whose
+        minimum IS ``0.0``, so no non-negative value can mean "not a gap", and a
+        consumer that read ``0.0`` as "unmarked" would collapse every word space
+        of every line that carries one marker. The list is DERIVED from the
+        runs, so a pre-pass that rewrites the line's text (``with_markup``, the
+        line-content reflow) keeps every marker on its own gap. A marker's
+        character is always an ordinary space (the marker
+        :data:`SELF_CLOSING_MARKER`), so the array is the exact set of gaps the
+        pipeline widens, and consecutive markers stay consecutive
+        (``<space><space>`` = one gap, two slots), which preserves the 1:1
+        character/glyph-group mapping.
+        """
+        return tuple(style.dynamic_space for style in _per_char_styles(self))
 
     @property
     def kern_values(self) -> Tuple[int, ...]:
@@ -1288,6 +1533,21 @@ def parse_markup(
             cursor = open_at + len(left)
             continue
 
+        if (
+            spec is None
+            and is_close
+            and close_match is not None
+            and (close_spec := TAG_REGISTRY.get(close_match.group(1))) is not None
+            and close_spec.self_closing
+        ):
+            # ``</space>``: a self-closing tag has no close form, so the tag is
+            # LITERAL text (the unregistered-close rule). ``has_markup`` stays
+            # untouched -- a literal contributes no markup.
+            flush(open_at, current)
+            runs.append(Run(text[open_at : close_at + len(right)], current))
+            cursor = close_at + len(right)
+            continue
+
         flush(open_at, current)
         if is_close:
             assert close_match is not None
@@ -1358,6 +1618,25 @@ def parse_markup(
                         f"Invalid tag {left}{body}{right} at position "
                         f"{open_at} in text {text!r}: {exc}"
                     ) from None
+            if spec.self_closing:
+                # A self-closing tag has no span: it marks ONE character in
+                # place of its own text and never touches the stack (nothing
+                # closes it), so the unclosed-tag check and the crossing-close
+                # replay are untouched. The style of the marker is the tag
+                # applied to the CURRENT style (the enclosing spans ride it),
+                # with the tag's own argument (``<space:2>`` sizes the gap;
+                # the bare form passes "" and derives its default).
+                try:
+                    marker_style = spec.apply(current, open_arg)
+                except MarkupError as exc:
+                    raise MarkupError(
+                        f"Invalid tag {left}{body}{right} at position "
+                        f"{open_at} in text {text!r}: {exc}"
+                    ) from None
+                runs.append(Run(SELF_CLOSING_MARKER, marker_style))
+                has_markup = True
+                cursor = close_at + len(right)
+                continue
             stack.append((spec.name, open_arg, open_at))
             try:
                 current = spec.apply(current, open_arg)
@@ -1414,6 +1693,14 @@ def serialize_runs(
     ``None`` (the direct-API default) drops a kern count with no marker to
     emit -- callers round-tripping kerned text must pass the strings.
 
+    A run whose style carries :attr:`Style.dynamic_space` is a ``<space>``
+    marker: the tag emits ONCE PER MARKER CHARACTER and the run's own space
+    text is suppressed (``hello<space>world``, never ``hello<space> world``).
+    The self-closing entry stays on the stack after the run (it marks text, it
+    does not wrap it), so the span tags opened for the same style close in
+    their normal LIFO position, and the final drain skips it -- nothing closes
+    a self-closing tag.
+
     Args:
         runs: The runs to serialize (document order).
         left: Left delimiter to emit.
@@ -1431,10 +1718,16 @@ def serialize_runs(
     for run in runs:
         if not run.text:
             continue
-        # Close tags (LIFO) whose style is not the target style.
+        # Close tags (LIFO) whose style is not the target style. A
+        # self-closing entry is NOT popped here: it has no close form, and the
+        # marker run it was pushed for is always the run right below it on the
+        # stack, so the span above it closes first (LIFO) and its own entry is
+        # dropped by the pop loop at the end of the run's text.
         while open_tags and open_styles[-1] != run.style:
             top = open_tags.pop()
             open_styles.pop()
+            if TAG_REGISTRY[top].self_closing:
+                continue
             out.append(f"{left}/{top}{right}")
         # The style active on the stack after the closes above; the opens
         # below compose onto it, so each tag's "already active?" test reads
@@ -1447,6 +1740,23 @@ def serialize_runs(
                 continue  # Tag not active in the target style.
             if spec.is_active(current):
                 continue  # Already active on the current stack.
+            if spec.self_closing:
+                # A self-closing tag has no span to open: emit ONE bare
+                # ``<name>`` per marker character of this run, and suppress the
+                # marker text itself (``hello<space>world``, never
+                # ``hello<space> world``). Pushing the run's style on the stack
+                # keeps a later run of the same style from re-emitting the tag
+                # (the stack is emptied at the end of every call, so the
+                # per-call marker count is exact -- and a self-closing tag can
+                # only ever be active on a marker run: the parser emits the
+                # flag on nothing else).
+                out.append(f"{left}{spec.name}{right}" * len(run.text))
+                open_tags.append(spec.name)
+                open_styles.append(run.style)
+                # The stack style is NOT mutated: a self-closing tag has no
+                # span effect, so the tags opened around it keep seeing the
+                # surrounding style and are not re-emitted for the marker.
+                continue
             arg_text = spec.arg(run.style) if spec.arg is not None else ""
             # An empty canonical arg is the bare form (``<sup>`` derives its
             # value), so no ``:arg`` is emitted -- ``scale``'s canonical arg
@@ -1460,9 +1770,14 @@ def serialize_runs(
             marker = kern_pos if run.style.kern > 0 else kern_neg
             if marker:
                 out.append(marker * abs(run.style.kern))
+        if run.style.has_dynamic_space:
+            continue  # The marker space is spelled by <space> above.
         out.append(run.text)
     while open_tags:
         top = open_tags.pop()
+        open_styles.pop()
+        if TAG_REGISTRY[top].self_closing:
+            continue  # Nothing closes a self-closing tag.
         out.append(f"{left}/{top}{right}")
     return "".join(out)
 
