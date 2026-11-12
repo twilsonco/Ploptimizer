@@ -85,7 +85,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Collection, Dict, FrozenSet, List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.cutter_downsize import ScaleProbe
 from plt_optimizer.generate.markup import (
@@ -120,10 +120,15 @@ _WIDTH_TOLERANCE: float = 1e-12
 # two pre-passes agree on what "compressed" means).
 _SCALE_TOLERANCE: float = 1e-9
 
-# Cost of one partition: lexicographic (widest line, sum of squared widths).
-# Minimizing the widest line minimizes the compression the label needs;
-# minimizing the squared sum among ties prefers the most even fill.
-_Cost = Tuple[float, float]
+# Cost of one partition: lexicographic (marked-space breaks, widest line, sum
+# of squared widths). A ``<space>`` marker rides the whitespace BETWEEN two
+# words, so a line break placed on that junction swallows the gap the user
+# asked to widen -- keeping the requested fill outranks the width optimum, so
+# the break count is compared FIRST. Minimizing the widest line minimizes the
+# compression the label needs; minimizing the squared sum among ties prefers
+# the most even fill. A group with no ``<space>`` marker has an empty marked
+# set, so its cost is the historical ``(widest, sum_of_squares)`` exactly.
+_Cost = Tuple[int, float, float]
 
 
 def _default_probe(line: ResolvedTextLine) -> float:
@@ -221,22 +226,70 @@ def _partition_cost(
     return total
 
 
-def _combine(cost: _Cost, width: float) -> _Cost:
+def _combine(cost: _Cost, width: float, marked: int = 0) -> _Cost:
     """Extend a partial partition cost with one more line of ``width``.
 
     Args:
         cost: The cost of the lines assigned so far.
         width: The natural width of the newly assigned line.
+        marked: ``1`` when the junction that starts this line carries a
+            ``<space>`` marker the break swallows, else ``0``.
 
     Returns:
-        ``(max(widest, width), sum_of_squares + width**2)``.
+        ``(breaks_on_marked_spaces + marked, max(widest, width),
+        sum_of_squares + width**2)``.
     """
-    return (max(cost[0], width), cost[1] + width * width)
+    return (cost[0] + marked, max(cost[1], width), cost[2] + width * width)
+
+
+def _is_better(candidate: _Cost, best: _Cost, tol: float) -> bool:
+    """Return whether ``candidate`` lexicographically beats ``best``.
+
+    The tiers, in order: fewer line breaks on ``<space>``-marked junctions, then
+    the narrower widest line, then the more even fill (sum of squares). The
+    first tier is flat for a marker-free group, so the comparison is the
+    historical one there.
+
+    Args:
+        candidate: The cost of the partition being considered.
+        best: The incumbent cost (``unreach`` compares as all-tiers worst).
+        tol: The tolerance under which two widths count as equal.
+
+    Returns:
+        ``True`` when ``candidate`` should replace ``best``.
+    """
+    if candidate[0] != best[0]:
+        return candidate[0] < best[0]
+    if abs(candidate[1] - best[1]) > tol:
+        return candidate[1] < best[1]
+    return candidate[2] < best[2] - tol
+
+
+def _marked_junctions(words: Sequence[_WordToken]) -> FrozenSet[int]:
+    """Return the word indices whose FOLLOWING separator carries ``<space>``.
+
+    A break placed after word ``k - 1`` joins segment ``[..., k)`` to segment
+    ``[k, ...)``; junction ``k`` is marked when the whitespace that followed
+    word ``k - 1`` in its source line carried a ``<space>`` marker, because the
+    rebuild drops a segment's trailing separator and the gap would vanish.
+
+    Args:
+        words: The group's concatenated ``(token, separator_style)`` pairs.
+
+    Returns:
+        The marked junction indices (empty for a marker-free group).
+    """
+    return frozenset(
+        index
+        for index, (_token, separator) in enumerate(words, start=1)
+        if separator.has_dynamic_space
+    )
 
 
 def _partition_words(
     line_widths: Sequence[Sequence[float]],
     space_advances: Sequence[float],
+    marked_junctions: Collection[int] = (),
 ) -> List[Tuple[int, int]]:
     """Cut the concatenated word sequence into one segment per line.
 
@@ -251,6 +304,11 @@ def _partition_words(
             line ``m`` (word order is shared across lines; the global word
             list is the concatenation of the lines' words in order).
         space_advances: ``space_advances[m]`` is line ``m``'s space advance.
+        marked_junctions: Word indices whose following separator carries a
+            ``<space>`` marker (see :func:`_marked_junctions`). Breaks on those
+            junctions are avoided: the gap -- and the fill the user asked for --
+            would be swallowed by the line break. Empty (the default) keeps the
+            historical width-only partition for marker-free groups.
 
     Returns:
         One ``(start, end)`` word-index pair per line (``end`` exclusive),
@@ -264,11 +322,11 @@ def _partition_words(
         return []  # Infeasible: every line must keep at least one word.
 
     inf = float("inf")
-    unreach: _Cost = (inf, inf)
+    unreach: _Cost = (0, inf, inf)
     # dp[i][m]: best cost for the first i words on the first m lines.
     dp: List[List[_Cost]] = [[unreach] * (line_count + 1) for _ in range(word_count + 1)]
     cut: List[List[int]] = [[0] * (line_count + 1) for _ in range(word_count + 1)]
-    dp[0][0] = (0.0, 0.0)
+    dp[0][0] = (0, 0.0, 0.0)
 
     for m in range(1, line_count + 1):
         widths_m = line_widths[m - 1]
@@ -278,14 +336,14 @@ def _partition_words(
             best_cut = 0
             for j in range(m - 1, i):
                 prev = dp[j][m - 1]
-                if prev[0] == inf:
+                if prev[1] == inf:
                     continue
                 width = _partition_cost(widths_m, space_m, j, i)
-                candidate = _combine(prev, width)
-                if candidate[0] < best[0] - _WIDTH_TOLERANCE or (
-                    abs(candidate[0] - best[0]) <= _WIDTH_TOLERANCE
-                    and candidate[1] < best[1] - _WIDTH_TOLERANCE
-                ):
+                # A break at a junction the source line marked with <space>
+                # swallows that gap; counted, not costed in inches.
+                marked = 1 if (j in marked_junctions and j < i) else 0
+                candidate = _combine(prev, width, marked)
+                if _is_better(candidate, best, _WIDTH_TOLERANCE):
                     best = candidate
                     best_cut = j
             dp[i][m] = best
@@ -677,6 +735,7 @@ def _reflow_label(
 
         donor = lines[-1]
         donor_words = _word_tokens(donor)
+        marked = _marked_junctions(all_words)
         line_widths: List[List[float]] = []
         space_advances: List[float] = []
         accepted: Optional[List[ResolvedTextLine]] = None
@@ -700,7 +759,7 @@ def _reflow_label(
                 line_widths.append(widths)
                 space_advances.append(space_advance)
 
-            segments = _partition_words(line_widths[:m], space_advances[:m])
+            segments = _partition_words(line_widths[:m], space_advances[:m], marked)
             if not segments:
                 break  # Infeasible (fewer words than lines); keep prior layout.
             candidate = _group_layout(new_content, offset_group, segments, all_words)

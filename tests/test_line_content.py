@@ -11,11 +11,17 @@ directly.
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import pytest
 
+from plt_optimizer.generate.label_renderer import (
+    _dynamic_space_fractions,
+    _render_text_local_with_bounds,
+)
 from plt_optimizer.generate.line_content import (
+    _join_tokens,
+    _marked_junctions,
     _measure_space_advance,
     _partition_cost,
     _partition_words,
@@ -24,7 +30,7 @@ from plt_optimizer.generate.line_content import (
     _word_tokens,
     apply_line_content_reflow,
 )
-from plt_optimizer.generate.markup import PLAIN, Style
+from plt_optimizer.generate.markup import PLAIN, Style, serialize_runs
 from plt_optimizer.generate.resolution import (
     DEFAULT_OPTIMIZE_LINE_CONTENT,
     ResolvedLabel,
@@ -1526,3 +1532,261 @@ def test_text_color_canonicalizes_on_reparse() -> None:
     line = _line("A<tc:red>B</tc>")
     moved = line.with_markup("A<tc:red>C</tc>")
     assert moved.color_runs == (None, "red")
+
+
+# ---------------------------------------------------------------------------
+# <space> dynamic-gap markup (Unit 3): the reflow pre-pass is space-aware.
+# ---------------------------------------------------------------------------
+
+
+def _space_line(
+    text: str,
+    *,
+    enabled: bool = True,
+    nominal: float = 0.5,
+    cutter: float = 0.06,
+) -> ResolvedTextLine:
+    """Build a resolved line the pipeline builds one: raw text, then markup.
+
+    ``ResolvedTextLine`` parses ``text`` into ``styled_runs``/``plain_text`` at
+    construction, so the tag must arrive through :meth:`with_markup` (the same
+    route ``_line`` takes for the other markup suites).
+    """
+    base = _line("placeholder", enabled=enabled, nominal=nominal, cutter=cutter)
+    return base.with_markup(text)
+
+
+def _space_label(
+    *lines: ResolvedTextLine,
+    width: float = 6.0,
+    h_margin: float = 0.1,
+) -> ResolvedLabel:
+    """A label for the ``<space>`` reflow tests (``width - 2*h_margin`` is the box)."""
+    return ResolvedLabel(
+        id="space",
+        count=1,
+        width=width,
+        height=2.0,
+        margin=h_margin,
+        h_margin=h_margin,
+        v_margin=h_margin,
+        content=list(lines),
+    )
+
+
+class TestSpaceAwareReflow:
+    """A ``<space>`` marker rides its gap through the line-content reflow.
+
+    The marker sits on the whitespace character it widens, so tokenizing on
+    whitespace yields a marker-carrying separator style; the rebuild route
+    (:meth:`ResolvedTextLine.with_markup`) re-derives the per-character
+    fraction tuple from ``styled_runs``. These tests pin that round-trip -- and
+    that the width probe charges the gap ONE normal space advance, tag
+    characters free -- closing the gap the kerning suite pins for ``<+>``.
+    """
+
+    # Group fixture: 4 words, 3 lines, box 5.8in. The marker rides the gap
+    # between 'BBB' and 'CCCCCCCC' (word junction 2). The width optimum of the
+    # MARKER-FREE group breaks at junction 2, which would swallow the gap; with
+    # the marker present the break tier pushes the DP to junction 1, which
+    # keeps the marked pair together and carries the tag into line 2.
+    _PLAIN = ("AA BBB CCCCCCCC", "DDDD", "E")
+    _SPACED = ("AA BBB<space>CCCCCCCC", "DDDD", "E")
+
+    def _group(self, first: str) -> ResolvedLabel:
+        """Build the 3-line reflow group with ``first`` as line 1's text."""
+        line1 = _space_line(first) if "<space>" in first else _line(first)
+        return _space_label(line1, _line(self._PLAIN[1]), _line(self._PLAIN[2]), width=6.0)
+
+    def test_protection_is_inert_without_a_marker(self) -> None:
+        """The marker-free group keeps the historical partition bit-identically."""
+        plain = _reflow_label(self._group(self._PLAIN[0]), _plain_probe())
+        assert plain is not None
+        # Junction 2 is the width optimum and nothing protects it here.
+        assert [line.plain_text for line in plain.content] == [
+            "AA BBB",
+            "CCCCCCCC",
+            "DDDD E",
+        ]
+
+    def test_marker_costs_nothing_and_rides_its_gap(self) -> None:
+        """The tag adds no width, and it lands on a gap (never a glyph)."""
+        spaced = _reflow_label(self._group(self._SPACED[0]), _plain_probe())
+        assert spaced is not None
+        fractions = [_dynamic_space_fractions(line) for line in spaced.content]
+        # Exactly one marker, carried through the reflow.
+        assert sum(sum(1 for f in fr if f >= 0.0) for fr in fractions) == 1
+        for line, fr in zip(spaced.content, fractions):
+            # A marker-free line keeps the historical gate: an empty tuple.
+            if not fr:
+                continue
+            assert len(fr) == len(line.plain_text)
+            assert all(f < 0.0 or line.plain_text[i] == " " for i, f in enumerate(fr))
+        # The gap is free to the width measure: the marked pair occupies the
+        # SAME word partition the marker-free group reaches unprompted.
+        assert [line.plain_text for line in spaced.content] == [
+            "AA",
+            "BBB CCCCCCCC",
+            "DDDD E",
+        ]
+
+    def test_marker_survives_the_word_swap(self) -> None:
+        """A gap-marked word pair that moves to another line keeps its marker."""
+        result = _reflow_label(self._group(self._SPACED[0]), _plain_probe())
+        assert result is not None
+        first, second, third = result.content
+        assert first.plain_text == "AA"
+        assert second.plain_text == "BBB CCCCCCCC"
+        assert third.plain_text == "DDDD E"
+        # The marker rode the gap: it sits on the space between 'BBB' and
+        # 'CCCCCCCC' (plain index 3) on the line the pair moved to.
+        assert _dynamic_space_fractions(second) == (-1.0, -1.0, -1.0, 1.0) + (-1.0,) * 8
+        assert _dynamic_space_fractions(first) == ()
+        assert _dynamic_space_fractions(third) == ()
+
+    def test_break_never_swallows_the_marker(self) -> None:
+        """A partition that fills narrower by breaking ON the gap is refused.
+
+        ``AA`` / ``BBB<space>CCCCCCCC`` / ``DDDD`` / ``E`` (box 1.16): the width
+        optimum breaks after ``BBB``, deleting the marked gap. The break tier
+        outranks width, so the layout is left alone -- the requested fill
+        survives, and the reflow reports no change.
+        """
+        label = _space_label(_space_line("AA BBB<space>CCCCCCCC"), _line("DDDD E"), width=1.36)
+        assert _reflow_label(label, _plain_probe()) is None
+
+    def test_probe_charges_one_space_advance_per_marker(self) -> None:
+        """The pair-measure route charges a marked gap one normal advance."""
+        calls: List[int] = []
+
+        def probe(line: ResolvedTextLine) -> float:
+            calls.append(1)
+            return 0.1 * len(line.plain_text)
+
+        line = _space_line("AA<space>BBB")
+        words = _word_tokens(line)
+        assert [token for token, _style in words] == ["AA", "BBB"]
+        cache: Dict[Tuple[int, str], float] = {}
+        for token, _style in words:
+            cache[(0, token)] = probe(line.with_markup(token))
+        advance = _measure_space_advance(line, words, probe, cache, 0)
+        # pair 'AA BBB' (0.6) - 'AA' (0.2) - 'BBB' (0.3) = 0.1 = one glyph
+        # width per plain char: the tag characters cost NOTHING.
+        assert advance == pytest.approx(0.1)
+
+    def test_reflowed_marker_line_fills_the_box(self) -> None:
+        """Acceptance: after the words move, the marker's gap fills the box.
+
+        The reflow rebalances the words, the render expands the gap the moved
+        pair carries -- ink rides the box. The same partition WITHOUT the tag
+        leaves the line at its natural width, which pins that the fill is the
+        marker's doing and not the reflow's.
+        """
+        moved = _reflow_label(self._group(self._SPACED[0]), _plain_probe())
+        assert moved is not None
+        assert _dynamic_space_fractions(moved.content[1]) != ()
+        _lc, entries = _render_text_local_with_bounds(moved)
+        assert len(entries) == 3
+        min_x, max_x = entries[1].bounds[0], entries[1].bounds[2]
+        assert min_x == pytest.approx(0.1, abs=1e-4)
+        assert max_x == pytest.approx(5.9, abs=1e-4)
+        # The same partition WITHOUT the marker: natural width, no fill.
+        _lc2, entries2 = _render_text_local_with_bounds(
+            _space_label(_line("AA"), _line("BBB CCCCCCCC"), _line("DDDD E"), width=6.0)
+        )
+        natural = entries2[1].bounds[2] - entries2[1].bounds[0]
+        assert natural < max_x - min_x - 0.5
+
+    def test_marker_is_an_ordinary_space_to_the_tokenizer(self) -> None:
+        """A marker gap is a legal soft break, and it re-emits the BARE form.
+
+        ``hello<space>world`` parses to plain text ``hello world``: the tag
+        characters are free and the character under the marker IS the whitespace
+        the tokenizer breaks on, so the token stream is the plain-text stream
+        with the fraction riding the separator style. Rebuilding the tokens by
+        the reflow's own route (:func:`_join_tokens`) re-emits the self-closing
+        ``<space>`` -- never a ``</space>``, which the tag never has.
+        """
+        line = _space_line("Hello<space>world")
+        assert line.plain_text == "Hello world"
+        words = _word_tokens(line)
+        assert [token for token, _style in words] == ["Hello", "world"]
+        # The gap after 'Hello' carries the marker; nothing follows 'world'.
+        assert [style.dynamic_space for _token, style in words] == [1.0, -1.0]
+        assert words[-1][1] == PLAIN
+        assert _marked_junctions(words) == frozenset({1})
+        joined = _join_tokens(words, "<", ">")
+        assert joined == "Hello<space>world"
+        assert "</space>" not in joined
+
+    def test_moved_line_keeps_the_marker_in_its_raw_text(self) -> None:
+        """The reflowed line's markup carries the tag at its gap's index.
+
+        The suite above pins the per-character fraction tuple; the raw markup is
+        what a shop writes and what the layout report prints, so the moved
+        line's ``text`` is pinned here together with the plain space it marks --
+        the tag costs no character, so ``text.index`` and ``plain_text.index``
+        agree on the word boundary and the run round-trips through
+        :func:`serialize_runs`.
+        """
+        from plt_optimizer.generate.markup import parse_markup
+
+        result = _reflow_label(self._group(self._SPACED[0]), _plain_probe())
+        assert result is not None
+        second = result.content[1]
+        assert second.text == "BBB<space>CCCCCCCC"
+        assert second.plain_text == "BBB CCCCCCCC"
+        # The marker sits on the space between 'BBB' and 'CCCCCCCC' (index 3)
+        # on the line the marked pair moved to.
+        assert second.plain_text.index(" ") == 3
+        assert second.text.index("<space>") == len("BBB")
+        assert serialize_runs(parse_markup(second.text, "<", ">").runs, "<", ">") == second.text
+
+    def test_break_at_the_marker_splits_the_line_and_keeps_both_tags(self) -> None:
+        """Splitting one marked line in two leaves a working tag on each side.
+
+        ``AA<space>BB CC<space>DD`` over ``E`` (box 5.8, 5 words): the width
+        optimum ends line 1 after ``BB``, so the break rides the plain junction
+        between the two marked gaps and each produced line keeps one marker. The
+        serialization round-trip reproduces the tag on both sides.
+        """
+        from plt_optimizer.generate.markup import parse_markup
+
+        result = _reflow_label(
+            _space_label(_space_line("AA<space>BB CC<space>DD"), _line("E"), width=6.0),
+            _plain_probe(),
+        )
+        assert result is not None
+        assert [line.text for line in result.content] == ["AA<space>BB", "CC<space>DD E"]
+        for line in result.content:
+            assert line.text.count("<space>") == 1
+            assert "</space>" not in line.text
+            assert serialize_runs(parse_markup(line.text, "<", ">").runs, "<", ">") == line.text
+
+    def test_serialize_runs_emits_the_self_closing_form(self) -> None:
+        """``serialize_runs`` writes the bare marker; the minimum is dropped.
+
+        X == 1.0 is the default, so a bare ``<space>`` run re-emits bare, and
+        ``<space:1.0>`` canonicalizes to it. A NON-default minimum does not come
+        back: ``<space:0>`` and ``<space:2.5>`` both serialize to the bare form,
+        i.e. 1.0 (the self-closing branch of ``serialize_runs`` never consults
+        the tag's argument formatter), so a collapse that the reflow moves to
+        another line engraves as a full space. Pinned as production behaves
+        today; the divergence from the markup contract is reported.
+        """
+        from plt_optimizer.generate.markup import parse_markup
+
+        def round_trip(text: str) -> str:
+            return serialize_runs(parse_markup(text, "<", ">").runs, "<", ">")
+
+        def fraction_at_one(text: str) -> float:
+            return [run.style.dynamic_space for run in parse_markup(text, "<", ">").runs][1]
+
+        assert fraction_at_one("AA<space>BB") == 1.0
+        assert round_trip("AA<space>BB") == "AA<space>BB"
+        assert round_trip("AA<space:1.0>BB") == "AA<space>BB"
+        # The parse side reads the argument; the serialize side loses it.
+        assert fraction_at_one("AA<space:0>BB") == 0.0
+        assert fraction_at_one("AA<space:2.5>BB") == 2.5
+        assert round_trip("AA<space:0>BB") == "AA<space>BB"
+        assert round_trip("AA<space:2.5>BB") == "AA<space>BB"
