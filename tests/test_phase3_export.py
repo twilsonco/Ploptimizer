@@ -8035,3 +8035,192 @@ class TestReliefEngravingDemo:
         # The bh file carries only the plate border rect (no drill holes).
         bh_text = bh.read_text(encoding="utf-8")
         assert "AA" not in bh_text
+
+
+class TestSpaceDemoExample:
+    """Regression tests for tests_deps/space_job.yaml.
+
+    The fixture pins the self-closing ``<space>`` / ``<space:X>`` tag end to end:
+    a mid-line gap, a leading gap, a trailing gap, a zero minimum, a gap nested
+    in ``<u>``, a two-line label, and a wide minimum on a box-wide line. Every
+    marked label has an unmarked twin of the SAME words, box and alignment, so
+    each assertion compares marked ink against plain ink and never pins a glyph
+    advance width (font-library data, not the tag's contract).
+
+    The law the fixture encodes: a marker ABSORBS the one normal space advance
+    the natural render already paid for that gap, then the line's fill is shared
+    across its marked slots. A line whose only marked gap takes the whole fill
+    (the single-slot normalizer) therefore keeps its natural width and rides the
+    box's right edge -- an INSET, not growth. That is what makes a leading
+    ``<space>`` exactly right-alignment, and a trailing gap at its minimum a
+    no-op.
+    """
+
+    _SPEC = Path("tests_deps/space_job.yaml")
+
+    # width 3.0 / height 1.0 at the 0.1 job margin: every line's box is
+    # [0.1, 2.9] in label-local inches.
+    _BOX_LEFT = 0.1
+    _BOX_RIGHT = 2.9
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the demo job with plotting disabled."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="sp",
+            optimize=False,
+            plots=False,
+        )
+
+    def _bounds(self, label: ResolvedLabel, line_index: int = 0) -> tuple[float, float]:
+        """The ``(min_x, max_x)`` ink extent of one of the label's lines."""
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        _lc, entries = _render_text_local_with_bounds(label)
+        entry = entries[line_index]
+        return entry.bounds[0], entry.bounds[2]
+
+    def _ink_x(self, tmp_path: Path, label_id: str) -> tuple[float, float]:
+        """Render the exported fixture's label and report its first line's ink."""
+        result = self._export(tmp_path)
+        return self._bounds(result.rendered_labels[label_id].source_label)
+
+    def test_markup_parses_to_plain_text_and_fractions(self) -> None:
+        """Tags never engrave: the marker becomes the gap, and carries its floor."""
+        from plt_optimizer.generate.label_renderer import _dynamic_space_fractions
+
+        job = parse_yaml(self._SPEC)
+        by_id = {label.id: label for label in resolve_job_spec(job)}
+
+        marked = by_id["l1"].content[0]
+        assert marked.text == "GG<space>GG"
+        # The tag is a WORD SEPARATOR: it engraves a space, and the marker rides
+        # that space's character (index 2), which is what the render maps onto
+        # the gap slot.
+        assert marked.plain_text == "GG GG"
+        assert _dynamic_space_fractions(marked) == (-1.0, -1.0, 1.0, -1.0, -1.0)
+
+        zero = by_id["l7"].content[0]
+        assert _dynamic_space_fractions(zero)[2] == 0.0
+        # A markup-free twin has no fractions at all -> the historical path.
+        assert _dynamic_space_fractions(by_id["l2"].content[0]) == ()
+
+    def test_mid_line_gap_rides_both_margins(self, tmp_path: Path) -> None:
+        """``GG<space>GG`` fills the box margin to margin; its twin centers."""
+        min_x, max_x = self._ink_x(tmp_path, "l1")
+        assert min_x == pytest.approx(self._BOX_LEFT, abs=1e-4)
+        assert max_x == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+        plain = self._ink_x(tmp_path, "l2")
+        assert plain[0] > self._BOX_LEFT
+        assert plain[1] < self._BOX_RIGHT
+
+    def test_leading_gap_is_right_alignment(self, tmp_path: Path) -> None:
+        """``<space>RIGHT`` engraves the same ink as a right-aligned ``RIGHT``."""
+        result = self._export(tmp_path)
+        marked = self._bounds(result.rendered_labels["l3"].source_label)
+        plain = self._bounds(result.rendered_labels["l4"].source_label)
+        assert marked == pytest.approx(plain, abs=1e-4)
+        assert marked[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+
+    def test_trailing_gap_at_its_minimum_is_a_no_op(self, tmp_path: Path) -> None:
+        """``LEFT<space>`` == ``LEFT``: a trailing gap adds no ink, no fill."""
+        result = self._export(tmp_path)
+        marked = self._bounds(result.rendered_labels["l5"].source_label)
+        plain = self._bounds(result.rendered_labels["l6"].source_label)
+        assert marked == pytest.approx(plain, abs=1e-9)
+
+    def test_zero_minimum_collapses_below_a_normal_space(self, tmp_path: Path) -> None:
+        """``<space:0>`` is a real collapse: the two words meet, tighter than a space."""
+        result = self._export(tmp_path)
+        mark_min, mark_max = self._bounds(result.rendered_labels["l7"].source_label)
+        plain_min, plain_max = self._bounds(result.rendered_labels["l8"].source_label)
+        assert (mark_max - mark_min) < (plain_max - plain_min) - 0.1
+        assert mark_min > plain_min
+        assert mark_max < plain_max
+
+    def test_underline_spans_the_widened_gap(self, tmp_path: Path) -> None:
+        """``<u>GG<space>GG</u>``: one rule across the gap, to both margins."""
+        result = self._export(tmp_path)
+        marked = self._bounds(result.rendered_labels["l9"].source_label)
+        assert marked[0] == pytest.approx(self._BOX_LEFT, abs=1e-4)
+        assert marked[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+        # The underline's own twin (no marker) is the plain text's width: the
+        # fill came from the marker, not from the rule.
+        plain = self._bounds(result.rendered_labels["l10"].source_label)
+        assert marked[1] > plain[1] + 0.5
+
+    def test_two_line_label_fills_per_line(self, tmp_path: Path) -> None:
+        """Each line fills with ITS OWN slack; a slack-free line keeps its minimum."""
+        result = self._export(tmp_path)
+        first = self._bounds(result.rendered_labels["l11"].source_label, 0)
+        second = self._bounds(result.rendered_labels["l11"].source_label, 1)
+        # 'AAAA BBBB' is wider than the 2.8in box, so there is no fill to take
+        # and the gap keeps its minimum -- the ink overflows the box symmetrically.
+        assert (first[1] - first[0]) == pytest.approx(3.6742, abs=1e-3)
+        assert first[0] < self._BOX_LEFT
+        # 'DD EE' has all the slack in the world: margin to margin.
+        assert second[0] == pytest.approx(self._BOX_LEFT, abs=1e-4)
+        assert second[1] == pytest.approx(self._BOX_RIGHT, abs=1e-4)
+
+    def test_wide_minimum_is_a_floor_not_a_share(self, tmp_path: Path) -> None:
+        """``<space:3>`` on a box-wide line takes 3 advances, not the fill."""
+        min_x, max_x = self._ink_x(tmp_path, "l12")
+        # No slack remains, so the requested floor is what the gap costs and the
+        # line overflows the box on both sides.
+        assert (max_x - min_x) == pytest.approx(3.1222, abs=1e-3)
+        assert min_x < self._BOX_LEFT
+        assert max_x > self._BOX_RIGHT
+
+    def test_per_cutter_file_names_are_unchanged(self, tmp_path: Path) -> None:
+        """The tag changes ink, not the export contract: ``[plate_][material_]cutter_kind_jobid``."""
+        result = self._export(tmp_path)
+        assert result.plt_paths, "the fixture produced no per-cutter PLT"
+        names = sorted(path.name for path in result.plt_paths)
+        for name in names:
+            assert name.endswith(".plt"), name
+            # ``<cutter>_<kind>_<job_id>``: the cutter in mils, the layer kind,
+            # then the job id the caller passed.
+            stem = name[: -len(".plt")]
+            cutter, kind, job_id = stem.split("_")
+            assert cutter.isdigit(), name
+            assert kind in {"txt", "bh", "border", "relief"}, name
+            assert job_id == "sp", name
+        # The text layer is where the tag's ink lands, and it exists.
+        assert any("_txt_" in name for name in names), names
+
+    def test_generate_command_accepts_the_fixture(self, tmp_path: Path) -> None:
+        """The shipped CLI runs the fixture: no invented schema keys, exit 0.
+
+        The unit-level export above calls ``parse_yaml`` + ``export_per_cutter_plts``
+        directly; this drives ``plt-optimizer generate`` so the sample cannot rot
+        into something the real pipeline refuses.
+        """
+        import argparse
+
+        from plt_optimizer.cli.generate import run as generate_run
+        from plt_optimizer.cli.generate import setup_parser
+
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+        args = parser.parse_args([str(self._SPEC), "--output", str(tmp_path), "--fast-mode"])
+        assert generate_run(args) == 0
+        produced = sorted(path.name for path in tmp_path.rglob("*.plt"))
+        assert produced, "the fixture produced no PLT output"
+        assert any("_txt_" in name for name in produced), produced
+
+    def test_the_text_layer_carries_the_ink(self, tmp_path: Path) -> None:
+        """The exported ``_txt_`` PLT is non-empty HPGL at the device scale."""
+        from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
+
+        result = self._export(tmp_path)
+        text_files = [p for p in result.plt_paths if "_txt_" in p.name]
+        assert text_files, sorted(p.name for p in result.plt_paths)
+        content = text_files[0].read_text(encoding="utf-8")
+        assert content.startswith("IN;"), content[:20]
+        # 12 labels' worth of glyph ink, in integer plotter units at 1016/inch.
+        assert "PU" in content and "PD" in content
+        assert int(HPGL_UNITS_PER_INCH) == 1016
