@@ -27,7 +27,18 @@ import logging
 import math
 import re
 from dataclasses import dataclass, field, replace
-from typing import Mapping, Optional, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Iterator,
+    Mapping,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+    cast,
+)
 
 import rectpack
 
@@ -142,7 +153,7 @@ class LayoutFitError(Exception):
 # (e.g. ``MaxRectsBssf`` leaves narrow labels stranded in some orderings while
 # Guillotine variants pack them tightly). We run several and select the result
 # with the smallest total plate footprint so packing quality never regresses.
-PACK_CONFIGS: tuple[tuple[object, object], ...] = (
+PACK_CONFIGS: Tuple[Tuple[type[Any], Callable[..., Any]], ...] = (
     (rectpack.MaxRectsBssf, rectpack.SORT_AREA),
     (rectpack.GuillotineBlsfLas, rectpack.SORT_NONE),
     (rectpack.GuillotineBlsfLas, rectpack.SORT_AREA),
@@ -160,7 +171,7 @@ PACK_CONFIGS: tuple[tuple[object, object], ...] = (
 # first -- the real plate height -- before extending rightward. (Other
 # skyline fitnesses were rejected: e.g. ``SkylineMwf`` stacks upward to
 # minimize waste, which un-transposes back to row-major fill.)
-PACK_CONFIGS_COLUMNS: tuple[tuple[object, object], ...] = (
+PACK_CONFIGS_COLUMNS: Tuple[Tuple[type[Any], Callable[..., Any]], ...] = (
     (rectpack.SkylineBl, rectpack.SORT_NONE),
     (rectpack.SkylineBl, rectpack.SORT_AREA),
 )
@@ -270,7 +281,7 @@ def unroll_labels(
 # Layout engine
 # ---------------------------------------------------------------------------
 def _extract_packed_plates(
-    packer: rectpack.packer.Packer,
+    packer: _Packer,
     *,
     transpose: bool = False,
     clearances: Optional[Mapping[str, tuple[float, float]]] = None,
@@ -419,6 +430,45 @@ _RidPayload = tuple[str, ResolvedLabel, float, int]
 # which :func:`_extract_packed_plates` later unpacks.
 _RectEntry = tuple[float, float, _RidPayload]
 
+if TYPE_CHECKING:
+    # ``rectpack`` ships no type stubs (and its own docstrings are the only
+    # typing it carries), so pyright infers ``newPacker``'s return as the union
+    # of the seven concrete packer classes -- a union ``rectpack.packer.Packer``
+    # is NOT a member of (the online variants don't subclass it), which is why
+    # every use of a packer below was an ``attribute unknown`` / ``not
+    # assignable`` error. The surface this module actually touches is small and
+    # identical across all seven, so it is declared once, structurally, here and
+    # applied at the single construction site (:func:`_pack_best`). Verified
+    # against the installed library: ``Packer.__iter__`` chains closed+open bins
+    # (``pack_algo.PackingAlgorithm``, which carries ``bid``/``__len__`` and
+    # yields ``geometry.Rectangle``, the 5-``__slots__`` placement record).
+    class _PlacedRect(Protocol):
+        """One placement rectpack reports inside a bin."""
+
+        x: float
+        y: float
+        width: float
+        height: float
+        rid: _RidPayload
+
+    class _PackedBin(Protocol):
+        """One plate's packing surface, after ``pack()``."""
+
+        bid: str
+        width: float
+        height: float
+
+        def __len__(self) -> int: ...
+        def __iter__(self) -> Iterator[_PlacedRect]: ...
+
+    class _Packer(Protocol):
+        """The packing surface :mod:`plt_optimizer.generate.packing.layout` uses."""
+
+        def add_rect(self, width: float, height: float, **kwargs: Any) -> None: ...
+        def add_bin(self, width: float, height: float, **kwargs: Any) -> None: ...
+        def pack(self) -> None: ...
+        def __iter__(self) -> Iterator[_PackedBin]: ...
+
 
 def _transpose_entries(entries: list[_RectEntry], transpose: bool) -> list[_RectEntry]:
     """Swap rectangle dimensions into the transposed packing frame.
@@ -543,7 +593,7 @@ def _reorder_ids_for_reader_order(
     return reassigned
 
 
-def _count_rotated(packer: rectpack.packer.Packer) -> int:
+def _count_rotated(packer: _Packer) -> int:
     """Count rectangles the packer placed in a rotated orientation.
 
     Compares each placed rectangle's width against the *packing* width
@@ -570,7 +620,7 @@ def _pack_best(
     bin_specs: list[tuple[float, float, str]],
     allow_rotation: bool = True,
     layout: LayoutMode = LayoutMode.ROWS,
-) -> rectpack.packer.Packer:
+) -> _Packer:
     """Run several packing heuristics and return the packer with the best fit.
 
     Each candidate algorithm is run over the same set of rectangles and bins.
@@ -631,19 +681,25 @@ def _pack_best(
     packer_rects = _transpose_entries(rectangles_with_rid, transpose)
     packer_bins = [(h, w, bid) for w, h, bid in bin_specs] if transpose else bin_specs
 
-    best_packer: Optional[rectpack.packer.Packer] = None
+    best_packer: Optional[_Packer] = None
     best_packed: int = -1
     best_footprint: float = 0.0
     best_rotations: int = 0
 
     for pack_algo, sort_algo in configs:
         for rotation in orientations:
-            packer = rectpack.newPacker(
-                mode=rectpack.PackingMode.Offline,
-                bin_algo=rectpack.PackingBin.BFF,
-                pack_algo=pack_algo,
-                sort_algo=sort_algo,
-                rotation=rotation,
+            packer = cast(
+                # Quoted: ``_Packer`` is a Protocol inside ``if TYPE_CHECKING:``,
+                # so the bare name does not exist at runtime and an unquoted cast
+                # raises NameError on every packing call.
+                "_Packer",
+                rectpack.newPacker(
+                    mode=rectpack.PackingMode.Offline,
+                    bin_algo=rectpack.PackingBin.BFF,
+                    pack_algo=pack_algo,
+                    sort_algo=sort_algo,
+                    rotation=rotation,
+                ),
             )
 
             for w, h, rid in packer_rects:
@@ -1363,7 +1419,7 @@ def _pack_rect_entries_with_pinners(
     return pinned_plates + unpinned_plates, leftover
 
 
-def _plate_footprint(packer: rectpack.packer.Packer) -> float:
+def _plate_footprint(packer: _Packer) -> float:
     """Compute the total used material area across a packed result.
 
     For each non-empty plate, computes the bounding box of its placed labels
