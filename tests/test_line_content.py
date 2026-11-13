@@ -15,9 +15,14 @@ from typing import Dict, List, Tuple
 
 import pytest
 
+from plt_optimizer.generate.collision.detection import LabelRenderError
+from plt_optimizer.generate.cutter_downsize import ScaleProbe
 from plt_optimizer.generate.label_renderer import (
     _dynamic_space_fractions,
     _render_text_local_with_bounds,
+)
+from plt_optimizer.generate.line_content import (
+    LineWidthProbe as _LineWidthProbe,
 )
 from plt_optimizer.generate.line_content import (
     _join_tokens,
@@ -89,7 +94,7 @@ def _scale_probe(
     space_width: float = 0.2,
     inner: float = 0.8,
     calls: List[int] | None = None,
-):
+) -> ScaleProbe:
     """Build a label-level probe charging the same widths as :func:`_char_probe`.
 
     A line is reported compressed when its natural width exceeds ``inner``
@@ -120,7 +125,7 @@ def _scale_probe(
     return probe
 
 
-def _char_probe(char_width: float = 0.1, space_width: float = 0.2):
+def _char_probe(char_width: float = 0.1, space_width: float = 0.2) -> _LineWidthProbe:
     """Build a probe charging ``char_width`` per character and ``space_width`` per space.
 
     Args:
@@ -349,7 +354,7 @@ class TestMeasureSpaceAdvance:
     def test_measured_from_a_two_word_line(self) -> None:
         """A two-word line yields pair width minus the two word widths."""
         line = _line("AA BB")
-        cache: Dict[tuple, float] = {}
+        cache: Dict[Tuple[int, str], float] = {}
         probe = _char_probe(char_width=0.3, space_width=0.25)
         for word in ("AA", "BB"):
             cache[(0, word)] = probe(_line(word))
@@ -361,7 +366,7 @@ class TestMeasureSpaceAdvance:
     def test_measured_advance_is_clamped_non_negative(self) -> None:
         """Kerning across a space cannot produce a negative advance."""
         line = _line("AA BB")
-        cache: Dict[tuple, float] = {(0, "AA"): 1.0, (0, "BB"): 1.0}
+        cache: Dict[Tuple[int, str], float] = {(0, "AA"): 1.0, (0, "BB"): 1.0}
 
         def probe(_line_obj: ResolvedTextLine) -> float:
             return 1.5  # pair narrower than the two words alone
@@ -372,7 +377,7 @@ class TestMeasureSpaceAdvance:
     def test_single_word_line_uses_the_formula(self) -> None:
         """A one-word line falls back to the documented PLT formula."""
         line = _line("AA", space_width_fraction=0.4, character_spacing=0.09)
-        cache: Dict[tuple, float] = {}
+        cache: Dict[Tuple[int, str], float] = {}
         advance = _measure_space_advance(line, [("AA", PLAIN)], _char_probe(), cache, 0)
         assert advance == pytest.approx(0.4 * line.toolpath_text_height + 0.09)
 
@@ -599,10 +604,7 @@ class TestMeasureLineNaturalWidth:
 
     def test_unknown_font_raises_label_render_error(self) -> None:
         """An unresolvable font name aborts the measurement loudly."""
-        from plt_optimizer.generate.label_renderer import (
-            LabelRenderError,
-            measure_line_natural_width,
-        )
+        from plt_optimizer.generate.label_renderer import measure_line_natural_width
 
         line = _line("ABC")
         object.__setattr__(line, "font", "no-such-font-anywhere")
@@ -707,7 +709,9 @@ class TestGrowthCap:
         assert grown == original
         assert len(clone.content) >= len(label.content)
 
-    def test_cap_exhausted_keeps_widest_layout_and_warns(self, caplog) -> None:
+    def test_cap_exhausted_keeps_widest_layout_and_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """A group still compressed at N keeps its layout and logs a WARNING."""
         label = _label(
             "tight",
@@ -857,7 +861,7 @@ class TestGrowthCap:
         assert len(result[0].content) == 3
 
 
-def _plain_probe(char_width: float = 0.1, space_width: float = 0.2):
+def _plain_probe(char_width: float = 0.1, space_width: float = 0.2) -> _LineWidthProbe:
     """A probe charging widths by PLAIN text (markup tags cost nothing).
 
     The production probe renders the line, so a tag contributes no ink; this

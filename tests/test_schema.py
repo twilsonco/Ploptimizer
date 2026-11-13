@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import Any, List, cast
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -65,17 +66,17 @@ class TestHoleLocationEnum:
     def test_invalid_location_rejected(self) -> None:
         """Invalid location strings should raise ValidationError."""
         with pytest.raises(ValidationError):
-            HoleSpec(location="center")  # type: ignore
+            HoleSpec(location=cast(HoleLocation, "center"))  # type: ignore
 
     def test_location_only_hole_uses_default_diameter(self) -> None:
         """A hole specifying only ``location`` gets the default diameter."""
-        hole = HoleSpec(location="top-left")
+        hole = HoleSpec(location=cast(HoleLocation, "top-left"))
         assert hole.location.value == "top-left"
         assert hole.diameter == DEFAULT_HOLE_DIAMETER == 0.125
 
     def test_explicit_diameter_overrides_default(self) -> None:
         """An explicit ``diameter`` wins over the default."""
-        hole = HoleSpec(location="left", diameter=0.25)
+        hole = HoleSpec(location=cast(HoleLocation, "left"), diameter=0.25)
         assert hole.diameter == 0.25
 
     def test_location_is_required(self) -> None:
@@ -86,14 +87,14 @@ class TestHoleLocationEnum:
     def test_non_positive_diameter_rejected(self) -> None:
         """Zero or negative diameters should raise ValidationError."""
         with pytest.raises(ValidationError):
-            HoleSpec(location="left", diameter=0.0)
+            HoleSpec(location=cast(HoleLocation, "left"), diameter=0.0)
         with pytest.raises(ValidationError):
-            HoleSpec(location="left", diameter=-0.125)
+            HoleSpec(location=cast(HoleLocation, "left"), diameter=-0.125)
 
     def test_group_locations_accepted(self) -> None:
         """The ``corners`` and ``sides`` group shorthands are valid locations."""
-        assert HoleSpec(location="corners").location is HoleLocation.CORNERS
-        assert HoleSpec(location="sides").location is HoleLocation.SIDES
+        assert HoleSpec(location=cast(HoleLocation, "corners")).location is HoleLocation.CORNERS
+        assert HoleSpec(location=cast(HoleLocation, "sides")).location is HoleLocation.SIDES
 
 
 class TestHoleLocationGroupExpansion:
@@ -101,12 +102,12 @@ class TestHoleLocationGroupExpansion:
 
     def test_expand_atomic_returns_self(self) -> None:
         """An atomic location expands to exactly itself."""
-        hole = HoleSpec(location="top-left")
+        hole = HoleSpec(location=cast(HoleLocation, "top-left"))
         assert hole.expand() == [hole]
 
     def test_expand_corners_yields_four_atoms_in_order(self) -> None:
         """``corners`` expands to the four atomic corner locations."""
-        holes = HoleSpec(location="corners").expand()
+        holes = HoleSpec(location=cast(HoleLocation, "corners")).expand()
         assert [h.location for h in holes] == [
             HoleLocation.TOP_LEFT,
             HoleLocation.TOP_RIGHT,
@@ -117,12 +118,12 @@ class TestHoleLocationGroupExpansion:
 
     def test_expand_sides_yields_left_right(self) -> None:
         """``sides`` expands to the left and right edge locations."""
-        holes = HoleSpec(location="sides").expand()
+        holes = HoleSpec(location=cast(HoleLocation, "sides")).expand()
         assert [h.location for h in holes] == [HoleLocation.LEFT, HoleLocation.RIGHT]
 
     def test_expand_propagates_diameter(self) -> None:
         """Every expanded member inherits the group spec's diameter."""
-        holes = HoleSpec(location="corners", diameter=0.25).expand()
+        holes = HoleSpec(location=cast(HoleLocation, "corners"), diameter=0.25).expand()
         assert len(holes) == 4
         assert all(h.diameter == 0.25 for h in holes)
 
@@ -130,12 +131,15 @@ class TestHoleLocationGroupExpansion:
         """Group entries are replaced in place, preserving list order."""
         label = LabelSpec(
             id="lbl",
-            content=[TextLine(text="X")],
-            holes=[
-                HoleSpec(location="top"),
-                HoleSpec(location="sides"),
-                HoleSpec(location="bottom"),
-            ],
+            content=cast(List[Any], [TextLine(text="X")]),
+            holes=cast(
+                List[Any],
+                [
+                    HoleSpec(location=cast(HoleLocation, "top")),
+                    HoleSpec(location=cast(HoleLocation, "sides")),
+                    HoleSpec(location=cast(HoleLocation, "bottom")),
+                ],
+            ),
         )
         assert label.holes is not None
         assert [h.location for h in label.holes] == [
@@ -151,8 +155,8 @@ class TestHoleLocationGroupExpansion:
             job_name="J",
             width=2.0,
             height=1.0,
-            content=[TextLine(text="X")],
-            holes=[HoleSpec(location="corners")],
+            content=cast(List[Any], [TextLine(text="X")]),
+            holes=cast(List[Any], [HoleSpec(location=cast(HoleLocation, "corners"))]),
         )
         assert job.holes is not None
         assert [h.location for h in job.holes] == [
@@ -166,11 +170,13 @@ class TestHoleLocationGroupExpansion:
         """Atomic holes and ``holes: []`` suppression pass through untouched."""
         label = LabelSpec(
             id="lbl",
-            content=[TextLine(text="X")],
-            holes=[HoleSpec(location="left")],
+            content=cast(List[Any], [TextLine(text="X")]),
+            holes=cast(List[Any], [HoleSpec(location=cast(HoleLocation, "left"))]),
         )
         assert label.holes is not None and len(label.holes) == 1
-        empty = LabelSpec(id="lbl2", content=[TextLine(text="X")], holes=[])
+        empty = LabelSpec(
+            id="lbl2", content=cast(List[Any], [TextLine(text="X")]), holes=cast(List[Any], [])
+        )
         assert empty.holes == []
 
     def test_complex_yaml_group_holes_expand(self) -> None:
@@ -226,7 +232,7 @@ class TestLabelAttributes:
         label = LabelSpec(
             id="lbl",
             count=1,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
             text_height=0.4,
             character_spacing=0.05,
             line_spacing=0.1,
@@ -243,8 +249,8 @@ class TestLabelAttributes:
             width=2.0,
             height=1.0,
             margin=0.1,
-            holes=[HoleSpec(diameter=0.125, location="left")],
-            content=[TextLine(text="X")],
+            holes=cast(List[Any], [HoleSpec(diameter=0.125, location=cast(HoleLocation, "left"))]),
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert label.width == 2.0
         assert label.height == 1.0
@@ -255,7 +261,7 @@ class TestLabelAttributes:
         """LabelSpec.count should default to 1."""
         label = LabelSpec(
             id="lbl",
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert label.count == 1
 
@@ -267,24 +273,30 @@ class TestJobSpec:
         """A complete job specification with labels should parse."""
         job = JobSpec(
             job_name="Test Job",
-            plates=[
-                PlateSpec(
-                    id="p1",
-                    width=24.0,
-                    height=12.0,
-                    left_clearance=0.25,
-                    top_clearance=0.25,
-                ),
-            ],
-            labels=[
-                LabelSpec(
-                    id="l1",
-                    count=5,
-                    width=2.0,
-                    height=1.0,
-                    content=[TextLine(text="Test")],
-                ),
-            ],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p1",
+                        width=24.0,
+                        height=12.0,
+                        left_clearance=0.25,
+                        top_clearance=0.25,
+                    ),
+                ],
+            ),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        count=5,
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="Test")]),
+                    ),
+                ],
+            ),
         )
         assert job.job_name == "Test Job"
         assert job.plates is not None and len(job.plates) == 1
@@ -298,10 +310,13 @@ class TestJobSpec:
             height=1.5,
             text_height=0.25,
             count=10,
-            content=[
-                TextLine(text="DANGER", text_height=0.5),
-                TextLine(text="HIGH VOLTAGE"),
-            ],
+            content=cast(
+                List[Any],
+                [
+                    TextLine(text="DANGER", text_height=0.5),
+                    TextLine(text="HIGH VOLTAGE"),
+                ],
+            ),
         )
         assert job.job_name == "Root Content Job"
         assert job.labels is None
@@ -318,14 +333,17 @@ class TestJobSpec:
             width=24.0,
             height=12.0,
             margin=0.25,
-            holes=[HoleSpec(diameter=0.125, location="top")],
-            labels=[
-                LabelSpec(
-                    id="l1",
-                    count=1,
-                    content=[TextLine(text="X")],
-                ),
-            ],
+            holes=cast(List[Any], [HoleSpec(diameter=0.125, location=cast(HoleLocation, "top"))]),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        count=1,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    ),
+                ],
+            ),
         )
         assert job.width == 24.0
         assert job.height == 12.0
@@ -336,15 +354,18 @@ class TestJobSpec:
         """Plates list is optional; backend can auto-allocate defaults."""
         job = JobSpec(
             job_name="No Plates Job",
-            labels=[
-                LabelSpec(
-                    id="l1",
-                    count=1,
-                    width=2.0,
-                    height=1.0,
-                    content=[TextLine(text="Test")],
-                ),
-            ],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        count=1,
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="Test")]),
+                    ),
+                ],
+            ),
         )
         assert job.plates is None
         assert job.labels is not None and len(job.labels) == 1
@@ -360,14 +381,17 @@ class TestJobSpec:
         with pytest.raises(ValidationError) as exc_info:
             JobSpec(
                 job_name="Conflict Job",
-                labels=[
-                    LabelSpec(
-                        id="l1",
-                        count=1,
-                        content=[TextLine(text="X")],
-                    ),
-                ],
-                content=[TextLine(text="Y")],
+                labels=cast(
+                    List[Any],
+                    [
+                        LabelSpec(
+                            id="l1",
+                            count=1,
+                            content=cast(List[Any], [TextLine(text="X")]),
+                        ),
+                    ],
+                ),
+                content=cast(List[Any], [TextLine(text="Y")]),
             )
         assert "cannot define more than one of" in str(exc_info.value)
 
@@ -376,42 +400,51 @@ class TestJobSpec:
         with pytest.raises(ValidationError):
             JobSpec(
                 job_name="Empty Job",
-                labels=[],
-                content=[],
+                labels=cast(List[Any], []),
+                content=cast(List[Any], []),
             )
 
     def test_multiple_labels(self) -> None:
         """Job can contain multiple label specifications."""
         job = JobSpec(
             job_name="Multi-Label Job",
-            plates=[
-                PlateSpec(
-                    id="p1",
-                    width=24.0,
-                    height=12.0,
-                    left_clearance=0.25,
-                    top_clearance=0.25,
-                ),
-            ],
-            labels=[
-                LabelSpec(
-                    id="l1",
-                    count=3,
-                    width=2.0,
-                    height=1.0,
-                    content=[TextLine(text="Label 1")],
-                ),
-                LabelSpec(
-                    id="l2",
-                    count=7,
-                    width=3.0,
-                    height=1.5,
-                    content=[
-                        TextLine(text="Label 2 Line 1", text_height=0.6),
-                        TextLine(text="Line 2 Here"),
-                    ],
-                ),
-            ],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p1",
+                        width=24.0,
+                        height=12.0,
+                        left_clearance=0.25,
+                        top_clearance=0.25,
+                    ),
+                ],
+            ),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        count=3,
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="Label 1")]),
+                    ),
+                    LabelSpec(
+                        id="l2",
+                        count=7,
+                        width=3.0,
+                        height=1.5,
+                        content=cast(
+                            List[Any],
+                            [
+                                TextLine(text="Label 2 Line 1", text_height=0.6),
+                                TextLine(text="Line 2 Here"),
+                            ],
+                        ),
+                    ),
+                ],
+            ),
         )
         assert job.labels is not None and len(job.labels) == 2
 
@@ -506,7 +539,13 @@ class TestAllowRotation:
 
     def test_defaults_to_true(self) -> None:
         """Jobs may rotate labels unless explicitly disabled."""
-        job = JobSpec(job_name="Rot", width=2.0, height=1.0, count=1, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="Rot",
+            width=2.0,
+            height=1.0,
+            count=1,
+            content=cast(List[Any], [TextLine(text="X")]),
+        )
         assert job.allow_rotation is True
 
     def test_parsed_from_yaml(self, tmp_path: Path) -> None:
@@ -549,7 +588,13 @@ class TestTextChunkMode:
 
     def test_defaults_to_line(self) -> None:
         """Chunk mode defaults to 'line' (fewer optimizer nodes)."""
-        job = JobSpec(job_name="TCM", width=2.0, height=1.0, count=1, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="TCM",
+            width=2.0,
+            height=1.0,
+            count=1,
+            content=cast(List[Any], [TextLine(text="X")]),
+        )
         assert job.text_chunk_mode == "line"
 
     def test_parsed_from_yaml(self, tmp_path: Path) -> None:
@@ -592,7 +637,13 @@ class TestLayoutMode:
 
     def test_default_is_columns(self) -> None:
         """Fill order defaults to column-major (fill height first)."""
-        job = JobSpec(job_name="LM", width=2.0, height=1.0, count=1, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="LM",
+            width=2.0,
+            height=1.0,
+            count=1,
+            content=cast(List[Any], [TextLine(text="X")]),
+        )
         assert job.layout is LayoutMode.COLUMNS
         assert DEFAULT_LAYOUT_MODE is LayoutMode.COLUMNS
 
@@ -799,7 +850,7 @@ class TestLabelSpecValidation:
             count=3,
             width=2.0,
             height=1.0,
-            content=[TextLine(text="Simple")],
+            content=cast(List[Any], [TextLine(text="Simple")]),
         )
         assert label.holes is None
 
@@ -811,7 +862,7 @@ class TestLabelSpecValidation:
                 count=1,
                 width=2.0,
                 height=1.0,
-                content=[],  # Empty - must have at least one line
+                content=cast(List[Any], []),  # Empty - must have at least one line
             )
 
     def test_count_must_be_positive(self) -> None:
@@ -822,7 +873,7 @@ class TestLabelSpecValidation:
                 count=0,  # Must be >= 1
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="Test")],
+                content=cast(List[Any], [TextLine(text="Test")]),
             )
 
 
@@ -895,13 +946,25 @@ class TestJobLevelClearances:
             width=2.0,
             height=1.0,
             plates=plates,
-            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")])],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
             **kwargs,  # type: ignore[arg-type]
         )
 
     def test_job_fields_default_to_none(self) -> None:
         """Job-level clearances default to None (no job-level default)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.left_clearance is None
         assert job.top_clearance is None
 
@@ -912,7 +975,7 @@ class TestJobLevelClearances:
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 left_clearance=-0.1,
             )
         with pytest.raises(ValidationError):
@@ -920,7 +983,7 @@ class TestJobLevelClearances:
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 top_clearance=-0.1,
             )
 
@@ -962,8 +1025,20 @@ class TestJobLevelClearances:
             width=2.0,
             height=1.0,
             left_clearance=1.5,
-            plates=[{"id": "p1", "width": 24.0, "height": 16.0, "left_clearance": None}],
-            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")])],
+            plates=cast(
+                List[Any], [{"id": "p1", "width": 24.0, "height": 16.0, "left_clearance": None}]
+            ),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
         )
         assert job.plates is not None
         assert math.isclose(job.plates[0].left_clearance, 1.5)
@@ -1053,10 +1128,13 @@ class TestMaxHCompress:
     def test_default_is_none(self) -> None:
         """max_h_compress defaults to None (inherit from parent)."""
         assert TextLine(text="X").max_h_compress is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).max_h_compress is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).max_h_compress
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).max_h_compress
             is None
         )
@@ -1117,10 +1195,13 @@ class TestTextHAlignment:
     def test_default_is_none(self) -> None:
         """text_h_alignment defaults to None (inherit from parent)."""
         assert TextLine(text="X").text_h_alignment is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).text_h_alignment is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).text_h_alignment
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).text_h_alignment
             is None
         )
@@ -1128,20 +1209,24 @@ class TestTextHAlignment:
     def test_invalid_value_rejected(self) -> None:
         """Values outside the enum must fail validation."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", text_h_alignment="justify")
+            TextLine(text="X", text_h_alignment=cast(TextHAlignment, "justify"))
 
     def test_inherited_on_all_levels(self) -> None:
         """LabelSpec and JobSpec expose the field via the attribute mixins."""
         label = LabelSpec(
-            id="lbl", width=2.0, height=1.0, text_h_alignment="left", content=[TextLine(text="X")]
+            id="lbl",
+            width=2.0,
+            height=1.0,
+            text_h_alignment=cast(TextHAlignment, "left"),
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert label.text_h_alignment is TextHAlignment.LEFT
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
-            text_h_alignment="right",
-            content=[TextLine(text="X")],
+            text_h_alignment=cast(TextHAlignment, "right"),
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.text_h_alignment is TextHAlignment.RIGHT
 
@@ -1153,7 +1238,7 @@ class TestTextHAlignment:
             height=12.0,
             left_clearance=0.25,
             top_clearance=0.25,
-            text_h_alignment="left",
+            text_h_alignment=cast(TextHAlignment, "left"),
         )
         assert plate.text_h_alignment is TextHAlignment.LEFT
 
@@ -1200,10 +1285,13 @@ class TestTextColor:
 
     def test_names_and_abbreviations_case_insensitive(self) -> None:
         """Full names and abbreviations accept any capitalization."""
-        assert TextLine(text="X", text_color="Cyan").text_color is TextColor.CYAN
-        assert TextLine(text="X", text_color="MAGENTA").text_color is TextColor.MAGENTA
-        assert TextLine(text="X", text_color="M").text_color is TextColor.MAGENTA
-        assert TextLine(text="X", text_color="K").text_color is TextColor.BLACK
+        assert TextLine(text="X", text_color=cast(TextColor, "Cyan")).text_color is TextColor.CYAN
+        assert (
+            TextLine(text="X", text_color=cast(TextColor, "MAGENTA")).text_color
+            is TextColor.MAGENTA
+        )
+        assert TextLine(text="X", text_color=cast(TextColor, "M")).text_color is TextColor.MAGENTA
+        assert TextLine(text="X", text_color=cast(TextColor, "K")).text_color is TextColor.BLACK
 
     def test_accepts_enum_member_directly(self) -> None:
         """Enum members are accepted as well as raw strings."""
@@ -1218,43 +1306,55 @@ class TestTextColor:
     def test_default_is_none(self) -> None:
         """text_color defaults to None (implicit 'none' at resolution)."""
         assert TextLine(text="X").text_color is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).text_color is None
+        assert LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).text_color is None
 
     def test_label_level_accepted(self) -> None:
         """LabelSpec exposes the field via the attribute mixins."""
-        label = LabelSpec(id="lbl", text_color="m", content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", text_color=cast(TextColor, "m"), content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.text_color is TextColor.MAGENTA
 
     def test_invalid_value_rejected(self) -> None:
         """Values outside the enum must fail validation."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", text_color="purple")
+            TextLine(text="X", text_color=cast(TextColor, "purple"))
         with pytest.raises(ValidationError):
-            TextLine(text="X", text_color="kk")
+            TextLine(text="X", text_color=cast(TextColor, "kk"))
 
     def test_explicit_none_rejected_on_line(self) -> None:
         """An explicit 'none' (or 'n') is rejected on a text line."""
         with pytest.raises(ValidationError):
-            TextLine(text="X", text_color="none")
+            TextLine(text="X", text_color=cast(TextColor, "none"))
         with pytest.raises(ValidationError):
-            TextLine(text="X", text_color="n")
+            TextLine(text="X", text_color=cast(TextColor, "n"))
 
     def test_explicit_none_rejected_on_label(self) -> None:
         """An explicit 'none' is rejected at the label level too."""
         with pytest.raises(ValidationError):
-            LabelSpec(id="lbl", text_color="none", content=[TextLine(text="X")])
+            LabelSpec(
+                id="lbl",
+                text_color=cast(TextColor, "none"),
+                content=cast(List[Any], [TextLine(text="X")]),
+            )
 
     def test_job_level_rejected(self) -> None:
         """A job-level text_color is rejected unconditionally."""
         with pytest.raises(ValidationError):
             JobSpec(
-                job_name="J", width=2.0, height=1.0, text_color="red", content=[TextLine(text="X")]
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                text_color=cast(TextColor, "red"),
+                content=cast(List[Any], [TextLine(text="X")]),
             )
         with pytest.raises(ValidationError):
             JobSpec(
                 job_name="J",
-                text_color="k",
-                labels=[LabelSpec(id="lbl", content=[TextLine(text="X")])],
+                text_color=cast(TextColor, "k"),
+                labels=cast(
+                    List[Any], [LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")]))]
+                ),
             )
 
     def test_abbreviation_property(self) -> None:
@@ -1310,9 +1410,12 @@ class TestFontField:
     def test_default_is_none(self) -> None:
         """font defaults to None (the resolution layer applies the default)."""
         assert TextLine(text="X").font is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).font is None
+        assert LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).font is None
         assert (
-            JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).font is None
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+            ).font
+            is None
         )
 
     def test_plt_font_canonicalized(self) -> None:
@@ -1329,14 +1432,14 @@ class TestFontField:
 
     def test_label_and_job_levels_accepted(self) -> None:
         """Label- and job-level font values canonicalize like line-level."""
-        label = LabelSpec(id="lbl", font="dino", content=[TextLine(text="X")])
+        label = LabelSpec(id="lbl", font="dino", content=cast(List[Any], [TextLine(text="X")]))
         assert label.font == "Dino"
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             font="dino",
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.font == "Dino"
 
@@ -1415,20 +1518,29 @@ class TestMinHoleMargin:
     def test_inherited_on_all_levels(self) -> None:
         """TextLine, LabelSpec and JobSpec expose min_hole_margin."""
         assert math.isclose(TextLine(text="X", min_hole_margin=0.05).min_hole_margin, 0.05)
-        label = LabelSpec(id="lbl", min_hole_margin=0.1, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", min_hole_margin=0.1, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert math.isclose(label.min_hole_margin, 0.1)
         job = JobSpec(
-            job_name="J", width=2.0, height=1.0, min_hole_margin=0.2, content=[TextLine(text="X")]
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            min_hole_margin=0.2,
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert math.isclose(job.min_hole_margin, 0.2)
 
     def test_default_is_none(self) -> None:
         """min_hole_margin defaults to None (no floor; inherit from parent)."""
         assert TextLine(text="X").min_hole_margin is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).min_hole_margin is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).min_hole_margin
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).min_hole_margin
             is None
         )
@@ -1474,23 +1586,31 @@ class TestHoleTextCollisionDistance:
         """TextLine, LabelSpec and JobSpec expose the field."""
         line = TextLine(text="X", hole_text_collision_distance=0.2)
         assert math.isclose(line.hole_text_collision_distance, 0.2)
-        label = LabelSpec(id="lbl", hole_text_collision_distance=0.3, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl",
+            hole_text_collision_distance=0.3,
+            content=cast(List[Any], [TextLine(text="X")]),
+        )
         assert math.isclose(label.hole_text_collision_distance, 0.3)
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             hole_text_collision_distance=0.4,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert math.isclose(job.hole_text_collision_distance, 0.4)
 
     def test_default_is_none(self) -> None:
         """Schema default is None (inherit); resolution applies 0.15."""
         assert TextLine(text="X").hole_text_collision_distance is None
-        label = LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.hole_text_collision_distance is None
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.hole_text_collision_distance is None
 
     def test_explicit_zero_is_accepted(self) -> None:
@@ -1536,19 +1656,29 @@ class TestCutterSize:
         """TextLine, LabelSpec and JobSpec expose cutter_size."""
         line = TextLine(text="X", cutter_size=0.03)
         assert math.isclose(line.cutter_size, 0.03)
-        label = LabelSpec(id="lbl", cutter_size=0.045, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", cutter_size=0.045, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert math.isclose(label.cutter_size, 0.045)
         job = JobSpec(
-            job_name="J", width=2.0, height=1.0, cutter_size=0.06, content=[TextLine(text="X")]
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            cutter_size=0.06,
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert math.isclose(job.cutter_size, 0.06)
 
     def test_default_is_none(self) -> None:
         """cutter_size defaults to None (auto selection from text_height)."""
         assert TextLine(text="X").cutter_size is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_size is None
         assert (
-            JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]).cutter_size
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).cutter_size is None
+        )
+        assert (
+            JobSpec(
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+            ).cutter_size
             is None
         )
 
@@ -1593,10 +1723,16 @@ class TestCutterDownsize:
     def test_inherited_on_all_levels(self) -> None:
         """TextLine, LabelSpec and JobSpec expose cutter_downsize."""
         assert TextLine(text="X", cutter_downsize=False).cutter_downsize is False
-        label = LabelSpec(id="lbl", cutter_downsize=False, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", cutter_downsize=False, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.cutter_downsize is False
         job = JobSpec(
-            job_name="J", width=2.0, height=1.0, cutter_downsize=False, content=[TextLine(text="X")]
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            cutter_downsize=False,
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.cutter_downsize is False
         # The opt-in direction works on every level too.
@@ -1605,10 +1741,13 @@ class TestCutterDownsize:
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the True fallback."""
         assert TextLine(text="X").cutter_downsize is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_downsize is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).cutter_downsize
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).cutter_downsize
             is None
         )
@@ -1632,24 +1771,29 @@ class TestMaxCutterDownsizes:
     def test_inherited_on_all_levels(self) -> None:
         """TextLine, LabelSpec and JobSpec expose max_cutter_downsizes."""
         assert TextLine(text="X", max_cutter_downsizes=2).max_cutter_downsizes == 2
-        label = LabelSpec(id="lbl", max_cutter_downsizes=2, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", max_cutter_downsizes=2, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.max_cutter_downsizes == 2
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             max_cutter_downsizes=3,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.max_cutter_downsizes == 3
 
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the 1 fallback."""
         assert TextLine(text="X").max_cutter_downsizes is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).max_cutter_downsizes is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).max_cutter_downsizes
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).max_cutter_downsizes
             is None
         )
@@ -1694,14 +1838,16 @@ class TestCutterDownsizeGlobal:
     def test_inherited_on_all_levels(self) -> None:
         """TextLine, LabelSpec and JobSpec expose cutter_downsize_global."""
         assert TextLine(text="X", cutter_downsize_global=False).cutter_downsize_global is False
-        label = LabelSpec(id="lbl", cutter_downsize_global=False, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", cutter_downsize_global=False, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.cutter_downsize_global is False
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             cutter_downsize_global=False,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.cutter_downsize_global is False
         # The opt-in direction works on every level too.
@@ -1710,10 +1856,15 @@ class TestCutterDownsizeGlobal:
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the True fallback."""
         assert TextLine(text="X").cutter_downsize_global is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_downsize_global is None
+        assert (
+            LabelSpec(
+                id="lbl", content=cast(List[Any], [TextLine(text="X")])
+            ).cutter_downsize_global
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).cutter_downsize_global
             is None
         )
@@ -1741,7 +1892,9 @@ class TestCutterDownsizeGlobalJobWide:
             is True
         )
         label = LabelSpec(
-            id="lbl", cutter_downsize_global_job_wide=True, content=[TextLine(text="X")]
+            id="lbl",
+            cutter_downsize_global_job_wide=True,
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert label.cutter_downsize_global_job_wide is True
         job = JobSpec(
@@ -1749,7 +1902,7 @@ class TestCutterDownsizeGlobalJobWide:
             width=2.0,
             height=1.0,
             cutter_downsize_global_job_wide=True,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.cutter_downsize_global_job_wide is True
         # The opt-out direction works on every level too.
@@ -1764,12 +1917,14 @@ class TestCutterDownsizeGlobalJobWide:
         """Schema default is None (unset); resolution applies the False fallback."""
         assert TextLine(text="X").cutter_downsize_global_job_wide is None
         assert (
-            LabelSpec(id="lbl", content=[TextLine(text="X")]).cutter_downsize_global_job_wide
+            LabelSpec(
+                id="lbl", content=cast(List[Any], [TextLine(text="X")])
+            ).cutter_downsize_global_job_wide
             is None
         )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).cutter_downsize_global_job_wide
             is None
         )
@@ -1793,14 +1948,16 @@ class TestHCompressGlobal:
     def test_inherited_on_all_levels(self) -> None:
         """TextLine, LabelSpec and JobSpec expose h_compress_global."""
         assert TextLine(text="X", h_compress_global=True).h_compress_global is True
-        label = LabelSpec(id="lbl", h_compress_global=True, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", h_compress_global=True, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.h_compress_global is True
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             h_compress_global=True,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.h_compress_global is True
         # The opt-out direction works on every level too.
@@ -1809,10 +1966,13 @@ class TestHCompressGlobal:
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the False fallback."""
         assert TextLine(text="X").h_compress_global is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).h_compress_global is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).h_compress_global
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).h_compress_global
             is None
         )
@@ -1845,7 +2005,7 @@ class TestSmallCapsScaleField:
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the 0.7 fallback."""
         assert TextLine(text="X").sc_scale is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).sc_scale is None
+        assert LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).sc_scale is None
 
     def test_bounds_enforced(self) -> None:
         """The scale is bounded to [0.2, 1.0] on every tier."""
@@ -1854,7 +2014,7 @@ class TestSmallCapsScaleField:
         with pytest.raises(ValueError):
             TextLine(text="X", sc_scale=1.01)
         with pytest.raises(ValueError):
-            LabelSpec(id="lbl", content=[TextLine(text="X")], sc_scale=0.0)
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")]), sc_scale=0.0)
         with pytest.raises(ValueError):
             PlateSpec(id="p", width=24.0, height=12.0, sc_scale=1.5)
 
@@ -1882,26 +2042,31 @@ class TestUseBaselineSpacing:
 
     def test_label_and_job_accept_booleans(self) -> None:
         """Both directions validate on the tiers that carry the field."""
-        label = LabelSpec(id="lbl", content=[TextLine(text="X")], use_baseline_spacing=False)
+        label = LabelSpec(
+            id="lbl", content=cast(List[Any], [TextLine(text="X")]), use_baseline_spacing=False
+        )
         assert label.use_baseline_spacing is False
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             use_baseline_spacing=False,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.use_baseline_spacing is False
 
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the True fallback."""
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).use_baseline_spacing is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).use_baseline_spacing
+            is None
+        )
         assert (
             JobSpec(
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
             ).use_baseline_spacing
             is None
         )
@@ -1925,26 +2090,33 @@ class TestHoleAdjustForCutterField:
 
     def test_label_and_job_accept_booleans(self) -> None:
         """Both directions validate on the tiers that carry the field."""
-        label = LabelSpec(id="lbl", content=[TextLine(text="X")], hole_adjust_for_cutter=False)
+        label = LabelSpec(
+            id="lbl", content=cast(List[Any], [TextLine(text="X")]), hole_adjust_for_cutter=False
+        )
         assert label.hole_adjust_for_cutter is False
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             hole_adjust_for_cutter=False,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.hole_adjust_for_cutter is False
 
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the True fallback."""
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).hole_adjust_for_cutter is None
+        assert (
+            LabelSpec(
+                id="lbl", content=cast(List[Any], [TextLine(text="X")])
+            ).hole_adjust_for_cutter
+            is None
+        )
         assert (
             JobSpec(
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
             ).hole_adjust_for_cutter
             is None
         )
@@ -1968,26 +2140,33 @@ class TestAlignMarginAdjustGlobalField:
 
     def test_label_and_job_accept_booleans(self) -> None:
         """Both directions validate on the tiers that carry the field."""
-        label = LabelSpec(id="lbl", content=[TextLine(text="X")], align_margin_adjust_global=True)
+        label = LabelSpec(
+            id="lbl", content=cast(List[Any], [TextLine(text="X")]), align_margin_adjust_global=True
+        )
         assert label.align_margin_adjust_global is True
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             align_margin_adjust_global=True,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.align_margin_adjust_global is True
 
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the False fallback."""
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).align_margin_adjust_global is None
+        assert (
+            LabelSpec(
+                id="lbl", content=cast(List[Any], [TextLine(text="X")])
+            ).align_margin_adjust_global
+            is None
+        )
         assert (
             JobSpec(
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
             ).align_margin_adjust_global
             is None
         )
@@ -2027,13 +2206,16 @@ class TestAutoDescendingCharacterAdjustment:
     @pytest.mark.parametrize("field", _FIELDS)
     def test_default_is_none(self, field: str) -> None:
         """Schema default is None (unset); resolution applies the fallback."""
-        assert getattr(LabelSpec(id="lbl", content=[TextLine(text="X")]), field) is None
+        assert (
+            getattr(LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])), field)
+            is None
+        )
 
     def test_label_and_job_accept_the_values(self) -> None:
         """Every field validates on the tiers that carry it."""
         label = LabelSpec(
             id="lbl",
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
             auto_descending_character_adjustment=False,
             descending_character_v_scale=0.3,
             descending_character_raise=0.0,
@@ -2055,7 +2237,7 @@ class TestAutoDescendingCharacterAdjustment:
             descending_character_raise=1.0,
             descending_character_clearance=0.0,
             descending_character_reciprocal_scale=1.0,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.auto_descending_character_adjustment is False
         assert job.descending_character_v_scale == pytest.approx(0.8)
@@ -2066,23 +2248,45 @@ class TestAutoDescendingCharacterAdjustment:
     def test_v_scale_bounds_are_enforced(self) -> None:
         """descending_character_v_scale is bound to [0.2, 1.0]."""
         with pytest.raises(ValidationError, match="descending_character_v_scale"):
-            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_v_scale=0.1)
+            LabelSpec(
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_v_scale=0.1,
+            )
         with pytest.raises(ValidationError, match="descending_character_v_scale"):
-            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_v_scale=1.1)
+            LabelSpec(
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_v_scale=1.1,
+            )
 
     def test_raise_bounds_are_enforced(self) -> None:
         """descending_character_raise is bound to [0.0, 1.0]."""
         with pytest.raises(ValidationError, match="descending_character_raise"):
-            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_raise=-0.1)
+            LabelSpec(
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_raise=-0.1,
+            )
         with pytest.raises(ValidationError, match="descending_character_raise"):
-            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_raise=1.5)
+            LabelSpec(
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_raise=1.5,
+            )
 
     def test_clearance_must_be_non_negative(self) -> None:
         """descending_character_clearance is ge=0.0 (an explicit 0.0 is legal)."""
         with pytest.raises(ValidationError, match="descending_character_clearance"):
-            LabelSpec(id="lbl", content=[TextLine(text="X")], descending_character_clearance=-0.01)
+            LabelSpec(
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_clearance=-0.01,
+            )
         label = LabelSpec(
-            id="lbl", content=[TextLine(text="X")], descending_character_clearance=0.0
+            id="lbl",
+            content=cast(List[Any], [TextLine(text="X")]),
+            descending_character_clearance=0.0,
         )
         assert label.descending_character_clearance == 0.0
 
@@ -2090,15 +2294,21 @@ class TestAutoDescendingCharacterAdjustment:
         """descending_character_reciprocal_scale is bound to [0.2, 1.0]."""
         with pytest.raises(ValidationError, match="descending_character_reciprocal_scale"):
             LabelSpec(
-                id="lbl", content=[TextLine(text="X")], descending_character_reciprocal_scale=0.1
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_reciprocal_scale=0.1,
             )
         with pytest.raises(ValidationError, match="descending_character_reciprocal_scale"):
             LabelSpec(
-                id="lbl", content=[TextLine(text="X")], descending_character_reciprocal_scale=1.1
+                id="lbl",
+                content=cast(List[Any], [TextLine(text="X")]),
+                descending_character_reciprocal_scale=1.1,
             )
         # 1.0 is the opt-out (reciprocal downscaling forbidden) and is legal.
         label = LabelSpec(
-            id="lbl", content=[TextLine(text="X")], descending_character_reciprocal_scale=1.0
+            id="lbl",
+            content=cast(List[Any], [TextLine(text="X")]),
+            descending_character_reciprocal_scale=1.0,
         )
         assert label.descending_character_reciprocal_scale == 1.0
 
@@ -2143,7 +2353,11 @@ class TestJobLevelReplacementFile:
     def test_labels_section_rejected(self) -> None:
         """A job-level file is mutually exclusive with a ``labels`` list."""
         with pytest.raises(ValidationError, match="cannot define more than one"):
-            self._job(labels=[LabelSpec(id="l1", content=[TextLine(text="X")])])
+            self._job(
+                labels=cast(
+                    List[Any], [LabelSpec(id="l1", content=cast(List[Any], [TextLine(text="X")]))]
+                )
+            )
 
     def test_count_rejected(self) -> None:
         """Explicit ``count`` conflicts with the file's line count."""
@@ -2165,7 +2379,7 @@ class TestJobLevelReplacementFile:
     def test_content_is_attribute_template_not_conflict(self) -> None:
         """Root-level ``content`` alongside a job file is a template, not a
         second label source."""
-        job = self._job(content=[TextLine(text="PLACEHOLDER", text_height=0.5)])
+        job = self._job(content=cast(List[Any], [TextLine(text="PLACEHOLDER", text_height=0.5)]))
         assert job.content is not None
         assert len(job.content) == 1
 
@@ -2177,7 +2391,7 @@ class TestJobLevelReplacementFile:
                 width=3.0,
                 height=1.0,
                 text_height=0.5,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 replacement_text_delimiter=",",
             )
 
@@ -2189,7 +2403,7 @@ class TestJobLevelReplacementFile:
             height=1.0,
             text_height=0.5,
             replacement_text_delimiter=",",
-            labels=[LabelSpec(id="l", replacement_text_file="data.txt")],
+            labels=cast(List[Any], [LabelSpec(id="l", replacement_text_file="data.txt")]),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_delimiter == ","
@@ -2202,7 +2416,7 @@ class TestJobLevelReplacementFile:
                 width=3.0,
                 height=1.0,
                 text_height=0.5,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 replacement_text_file_comment_string="//",
             )
 
@@ -2214,7 +2428,7 @@ class TestJobLevelReplacementFile:
             height=1.0,
             text_height=0.5,
             replacement_text_file_comment_string="//",
-            labels=[LabelSpec(id="l", replacement_text_file="data.txt")],
+            labels=cast(List[Any], [LabelSpec(id="l", replacement_text_file="data.txt")]),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_file_comment_string == "//"
@@ -2227,7 +2441,10 @@ class TestJobLevelReplacementFile:
             height=1.0,
             text_height=0.5,
             replacement_text_file_comment_string=";;",
-            plates=[PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+            plates=cast(
+                List[Any],
+                [PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+            ),
         )
         assert job.plates is not None
         assert job.plates[0].replacement_text_file_comment_string == ";;"
@@ -2240,7 +2457,7 @@ class TestJobLevelReplacementFile:
             height=1.0,
             text_height=0.5,
             replacement_text_file_comment_string="",
-            labels=[LabelSpec(id="l", replacement_text_file="data.txt")],
+            labels=cast(List[Any], [LabelSpec(id="l", replacement_text_file="data.txt")]),
         )
         assert job.replacement_text_file_comment_string == ""
         assert job.labels is not None
@@ -2322,8 +2539,13 @@ class TestPlateLevelReplacementFile:
             width=3.0,
             height=1.0,
             text_height=0.75,
-            plates=[PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_delimiter=",")],
-            labels=[LabelSpec(id="l", plate_id="p1", replacement_text_file="d.txt")],
+            plates=cast(
+                List[Any],
+                [PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_delimiter=",")],
+            ),
+            labels=cast(
+                List[Any], [LabelSpec(id="l", plate_id="p1", replacement_text_file="d.txt")]
+            ),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_delimiter == ","
@@ -2335,12 +2557,17 @@ class TestPlateLevelReplacementFile:
             width=3.0,
             height=1.0,
             text_height=0.75,
-            plates=[
-                PlateSpec(
-                    id="p1", width=24.0, height=16.0, replacement_text_file_comment_string="//"
-                )
-            ],
-            labels=[LabelSpec(id="l", plate_id="p1", replacement_text_file="d.txt")],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p1", width=24.0, height=16.0, replacement_text_file_comment_string="//"
+                    )
+                ],
+            ),
+            labels=cast(
+                List[Any], [LabelSpec(id="l", plate_id="p1", replacement_text_file="d.txt")]
+            ),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_file_comment_string == "//"
@@ -2366,16 +2593,19 @@ class TestPlateLevelReplacementFile:
             height=1.0,
             text_height=0.75,
             replacement_text_delimiter="|",
-            plates=[
-                PlateSpec(
-                    id="p1",
-                    width=24.0,
-                    height=16.0,
-                    replacement_text_file="d.txt",
-                    replacement_text_delimiter=",",
-                ),
-                PlateSpec(id="p2", width=24.0, height=16.0, replacement_text_file="e.txt"),
-            ],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p1",
+                        width=24.0,
+                        height=16.0,
+                        replacement_text_file="d.txt",
+                        replacement_text_delimiter=",",
+                    ),
+                    PlateSpec(id="p2", width=24.0, height=16.0, replacement_text_file="e.txt"),
+                ],
+            ),
         )
         # The plate declaring its own delimiter keeps it; the other inherits.
         assert job.plates is not None
@@ -2390,16 +2620,21 @@ class TestPlateLevelReplacementFile:
             height=1.0,
             text_height=0.75,
             replacement_text_delimiter="|",
-            plates=[
-                PlateSpec(
-                    id="p1",
-                    width=24.0,
-                    height=16.0,
-                    replacement_text_file="d.txt",
-                    replacement_text_delimiter=",",
-                )
-            ],
-            labels=[LabelSpec(id="l", plate_id="p1", replacement_text_file="e.txt")],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p1",
+                        width=24.0,
+                        height=16.0,
+                        replacement_text_file="d.txt",
+                        replacement_text_delimiter=",",
+                    )
+                ],
+            ),
+            labels=cast(
+                List[Any], [LabelSpec(id="l", plate_id="p1", replacement_text_file="e.txt")]
+            ),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_delimiter == ","
@@ -2412,23 +2647,29 @@ class TestPlateLevelReplacementFile:
             height=1.0,
             text_height=0.75,
             replacement_text_delimiter="|",
-            plates=[
-                PlateSpec(
-                    id="p1",
-                    width=24.0,
-                    height=16.0,
-                    replacement_text_file="d.txt",
-                    replacement_text_delimiter=",",
-                )
-            ],
-            labels=[
-                LabelSpec(
-                    id="l",
-                    plate_id="p1",
-                    replacement_text_file="e.txt",
-                    replacement_text_delimiter="$",
-                )
-            ],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p1",
+                        width=24.0,
+                        height=16.0,
+                        replacement_text_file="d.txt",
+                        replacement_text_delimiter=",",
+                    )
+                ],
+            ),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l",
+                        plate_id="p1",
+                        replacement_text_file="e.txt",
+                        replacement_text_delimiter="$",
+                    )
+                ],
+            ),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_delimiter == "$"
@@ -2441,10 +2682,15 @@ class TestPlateLevelReplacementFile:
             height=1.0,
             text_height=0.75,
             replacement_text_delimiter="|",
-            labels=[
-                LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]),
-                LabelSpec(id="r", width=2.0, height=1.0, replacement_text_file="e.txt"),
-            ],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+                    ),
+                    LabelSpec(id="r", width=2.0, height=1.0, replacement_text_file="e.txt"),
+                ],
+            ),
         )
         assert job.labels is not None
         assert job.labels[0].replacement_text_delimiter is None
@@ -2478,7 +2724,10 @@ class TestPlateLevelReplacementFile:
                 height=1.0,
                 text_height=0.75,
                 replacement_text_file="job.txt",
-                plates=[PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+                plates=cast(
+                    List[Any],
+                    [PlateSpec(id="p1", width=24.0, height=16.0, replacement_text_file="d.txt")],
+                ),
             )
 
     def test_plate_file_with_job_dimensions_valid(self) -> None:
@@ -2496,12 +2745,19 @@ class TestLabelPlateIdReference:
         """A label pinned to a declared plate parses."""
         job = JobSpec(
             job_name="J",
-            plates=[PlateSpec(id="p1", width=24.0, height=16.0)],
-            labels=[
-                LabelSpec(
-                    id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1"
-                )
-            ],
+            plates=cast(List[Any], [PlateSpec(id="p1", width=24.0, height=16.0)]),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                        plate_id="p1",
+                    )
+                ],
+            ),
         )
         assert job.labels is not None
         assert job.labels[0].plate_id == "p1"
@@ -2511,16 +2767,19 @@ class TestLabelPlateIdReference:
         with pytest.raises(ValidationError, match="does not reference a declared plate"):
             JobSpec(
                 job_name="J",
-                plates=[PlateSpec(id="p1", width=24.0, height=16.0)],
-                labels=[
-                    LabelSpec(
-                        id="l1",
-                        width=2.0,
-                        height=1.0,
-                        content=[TextLine(text="X")],
-                        plate_id="nope",
-                    )
-                ],
+                plates=cast(List[Any], [PlateSpec(id="p1", width=24.0, height=16.0)]),
+                labels=cast(
+                    List[Any],
+                    [
+                        LabelSpec(
+                            id="l1",
+                            width=2.0,
+                            height=1.0,
+                            content=cast(List[Any], [TextLine(text="X")]),
+                            plate_id="nope",
+                        )
+                    ],
+                ),
             )
 
     def test_reference_without_plates_rejected(self) -> None:
@@ -2528,11 +2787,18 @@ class TestLabelPlateIdReference:
         with pytest.raises(ValidationError, match="does not reference a declared plate"):
             JobSpec(
                 job_name="J",
-                labels=[
-                    LabelSpec(
-                        id="l1", width=2.0, height=1.0, content=[TextLine(text="X")], plate_id="p1"
-                    )
-                ],
+                labels=cast(
+                    List[Any],
+                    [
+                        LabelSpec(
+                            id="l1",
+                            width=2.0,
+                            height=1.0,
+                            content=cast(List[Any], [TextLine(text="X")]),
+                            plate_id="p1",
+                        )
+                    ],
+                ),
             )
 
 
@@ -2547,16 +2813,31 @@ class TestMaterialField:
             width=2.0,
             height=1.0,
             plates=plates,
-            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")])],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
             **kwargs,  # type: ignore[arg-type]
         )
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Job, label and plate all default material to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.material is None
         assert (
-            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).material is None
+            LabelSpec(
+                id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+            ).material
+            is None
         )
         assert PlateSpec(id="p", width=24.0, height=16.0).material is None
 
@@ -2572,14 +2853,22 @@ class TestMaterialField:
         """Any non-empty string is a valid material (no vocabulary)."""
         for value in ("wb", "wb(uv)", "3-layer black", "ALUMINUM 0.060"):
             label = LabelSpec(
-                id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material=value
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=cast(List[Any], [TextLine(text="X")]),
+                material=value,
             )
             assert label.material == value
 
     def test_whitespace_trimmed(self) -> None:
         """Surrounding whitespace is trimmed at validation."""
         label = LabelSpec(
-            id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material="  wb  "
+            id="l",
+            width=2.0,
+            height=1.0,
+            content=cast(List[Any], [TextLine(text="X")]),
+            material="  wb  ",
         )
         assert label.material == "wb"
 
@@ -2588,7 +2877,11 @@ class TestMaterialField:
         for value in ("", "   ", "\t"):
             with pytest.raises(ValidationError, match="whitespace-only"):
                 LabelSpec(
-                    id="l", width=2.0, height=1.0, content=[TextLine(text="X")], material=value
+                    id="l",
+                    width=2.0,
+                    height=1.0,
+                    content=cast(List[Any], [TextLine(text="X")]),
+                    material=value,
                 )
             with pytest.raises(ValidationError, match="whitespace-only"):
                 PlateSpec(id="p", width=24.0, height=16.0, material=value)
@@ -2619,8 +2912,18 @@ class TestMaterialField:
             width=2.0,
             height=1.0,
             material="wb",
-            plates=[{"id": "p1", "width": 24.0, "height": 16.0, "material": None}],
-            labels=[LabelSpec(id="l1", width=2.0, height=1.0, content=[TextLine(text="X")])],
+            plates=cast(List[Any], [{"id": "p1", "width": 24.0, "height": 16.0, "material": None}]),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
         )
         assert job.plates is not None
         assert job.plates[0].material == "wb"
@@ -2701,14 +3004,16 @@ class TestOptimizeLineContent:
     def test_inherited_on_all_levels(self) -> None:
         """TextLine, LabelSpec and JobSpec expose optimize_line_content."""
         assert TextLine(text="X", optimize_line_content=True).optimize_line_content is True
-        label = LabelSpec(id="lbl", optimize_line_content=True, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="lbl", optimize_line_content=True, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.optimize_line_content is True
         job = JobSpec(
             job_name="J",
             width=2.0,
             height=1.0,
             optimize_line_content=True,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.optimize_line_content is True
         # The opt-out direction works on every level too.
@@ -2717,10 +3022,13 @@ class TestOptimizeLineContent:
     def test_default_is_none(self) -> None:
         """Schema default is None (unset); resolution applies the False fallback."""
         assert TextLine(text="X").optimize_line_content is None
-        assert LabelSpec(id="lbl", content=[TextLine(text="X")]).optimize_line_content is None
+        assert (
+            LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")])).optimize_line_content
+            is None
+        )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).optimize_line_content
             is None
         )
@@ -2748,7 +3056,7 @@ class TestOptimizeLineContentMaxLines:
         label = LabelSpec(
             id="lbl",
             optimize_line_content_max_lines=3,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert label.optimize_line_content_max_lines == 3
         job = JobSpec(
@@ -2756,7 +3064,7 @@ class TestOptimizeLineContentMaxLines:
             width=2.0,
             height=1.0,
             optimize_line_content_max_lines=3,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert job.optimize_line_content_max_lines == 3
 
@@ -2764,12 +3072,14 @@ class TestOptimizeLineContentMaxLines:
         """Schema default is None (unset = no growth); no fallback value."""
         assert TextLine(text="X").optimize_line_content_max_lines is None
         assert (
-            LabelSpec(id="lbl", content=[TextLine(text="X")]).optimize_line_content_max_lines
+            LabelSpec(
+                id="lbl", content=cast(List[Any], [TextLine(text="X")])
+            ).optimize_line_content_max_lines
             is None
         )
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).optimize_line_content_max_lines
             is None
         )
@@ -2799,16 +3109,19 @@ class TestOptimizeLineContentMaxLines:
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
-                plates=[
-                    PlateSpec(
-                        id="p_disabled",
-                        width=24.0,
-                        height=12.0,
-                        optimize_line_content=False,
-                        optimize_line_content_max_lines=3,
-                    )
-                ],
+                content=cast(List[Any], [TextLine(text="X")]),
+                plates=cast(
+                    List[Any],
+                    [
+                        PlateSpec(
+                            id="p_disabled",
+                            width=24.0,
+                            height=12.0,
+                            optimize_line_content=False,
+                            optimize_line_content_max_lines=3,
+                        )
+                    ],
+                ),
             )
 
     def test_plate_cap_with_enabled_reflow_is_accepted(self) -> None:
@@ -2817,16 +3130,19 @@ class TestOptimizeLineContentMaxLines:
             job_name="J",
             width=2.0,
             height=1.0,
-            content=[TextLine(text="X")],
-            plates=[
-                PlateSpec(
-                    id="p_ok",
-                    width=24.0,
-                    height=12.0,
-                    optimize_line_content=True,
-                    optimize_line_content_max_lines=3,
-                )
-            ],
+            content=cast(List[Any], [TextLine(text="X")]),
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p_ok",
+                        width=24.0,
+                        height=12.0,
+                        optimize_line_content=True,
+                        optimize_line_content_max_lines=3,
+                    )
+                ],
+            ),
         )
         assert job.plates is not None
         assert job.plates[0].optimize_line_content_max_lines == 3
@@ -2839,13 +3155,16 @@ class TestOptimizeLineContentMaxLines:
             height=1.0,
             optimize_line_content=False,
             optimize_line_content_max_lines=3,
-            labels=[
-                LabelSpec(
-                    id="lbl",
-                    optimize_line_content=True,
-                    content=[TextLine(text="X")],
-                )
-            ],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="lbl",
+                        optimize_line_content=True,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
         )
         assert job.optimize_line_content_max_lines == 3
 
@@ -2885,10 +3204,10 @@ class TestNewLine:
         with pytest.raises(ValidationError, match="new_line"):
             LabelSpec(
                 id="lbl",
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 new_line=True,  # type: ignore[call-arg]
             )
-        label = LabelSpec(id="lbl", content=[TextLine(text="X")])
+        label = LabelSpec(id="lbl", content=cast(List[Any], [TextLine(text="X")]))
         assert not hasattr(label, "new_line")
 
 
@@ -2897,10 +3216,14 @@ class TestHtmlBracketsField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Job, label, line and plate all default html_brackets to None."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.html_brackets is None
         assert (
-            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).html_brackets
+            LabelSpec(
+                id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+            ).html_brackets
             is None
         )
         assert TextLine(text="X").html_brackets is None
@@ -2960,7 +3283,9 @@ class TestItalicAngleField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults italic_angle to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.italic_angle is None
         assert TextLine(text="X").italic_angle is None
         assert PlateSpec(id="p", width=24.0, height=16.0).italic_angle is None
@@ -2982,7 +3307,9 @@ class TestUnderlineOffsetField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults underline_offset_fraction to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.underline_offset_fraction is None
         assert TextLine(text="X").underline_offset_fraction is None
         assert PlateSpec(id="p", width=24.0, height=16.0).underline_offset_fraction is None
@@ -3011,7 +3338,9 @@ class TestUnderlineBreakClearanceField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults underline_break_clearance_fraction to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.underline_break_clearance_fraction is None
         assert TextLine(text="X").underline_break_clearance_fraction is None
         assert PlateSpec(id="p", width=24.0, height=16.0).underline_break_clearance_fraction is None
@@ -3043,7 +3372,9 @@ class TestUnderlineBreakSpacesField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults underline_break_spaces to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.underline_break_spaces is None
         assert TextLine(text="X").underline_break_spaces is None
         assert PlateSpec(id="p", width=24.0, height=16.0).underline_break_spaces is None
@@ -3064,7 +3395,9 @@ class TestStrikethroughOffsetField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults strikethrough_offset_fraction to None (unset = mid-cap)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.strikethrough_offset_fraction is None
         assert TextLine(text="X").strikethrough_offset_fraction is None
         assert PlateSpec(id="p", width=24.0, height=16.0).strikethrough_offset_fraction is None
@@ -3094,7 +3427,9 @@ class TestStrikethroughBreakSpacesField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults strikethrough_break_spaces to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.strikethrough_break_spaces is None
         assert TextLine(text="X").strikethrough_break_spaces is None
         assert PlateSpec(id="p", width=24.0, height=16.0).strikethrough_break_spaces is None
@@ -3117,7 +3452,9 @@ class TestEnforceCapLineField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults enforce_cap_line to None (unset = true fallback)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.enforce_cap_line is None
         assert TextLine(text="X").enforce_cap_line is None
         assert PlateSpec(id="p", width=24.0, height=16.0).enforce_cap_line is None
@@ -3138,7 +3475,9 @@ class TestTargetBoldnessFactorField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults target_boldness_factor to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.target_boldness_factor is None
         assert TextLine(text="X").target_boldness_factor is None
         assert PlateSpec(id="p", width=24.0, height=16.0).target_boldness_factor is None
@@ -3165,7 +3504,9 @@ class TestMultistrokeOverlapRatioField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults multistroke_overlap_ratio to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.multistroke_overlap_ratio is None
         assert TextLine(text="X").multistroke_overlap_ratio is None
         assert PlateSpec(id="p", width=24.0, height=16.0).multistroke_overlap_ratio is None
@@ -3194,7 +3535,9 @@ class TestBoldBoldnessMultiplierField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults bold_boldness_multiplier to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.bold_boldness_multiplier is None
         assert TextLine(text="X").bold_boldness_multiplier is None
         assert PlateSpec(id="p", width=24.0, height=16.0).bold_boldness_multiplier is None
@@ -3221,7 +3564,9 @@ class TestSupersubscriptDownscaleField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults supersubscript_downscale to None (unset)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.supersubscript_downscale is None
         assert TextLine(text="X").supersubscript_downscale is None
         assert PlateSpec(id="p", width=24.0, height=16.0).supersubscript_downscale is None
@@ -3248,9 +3593,16 @@ class TestLabelShapeField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Job, label and plate all default ``type`` to None (resolution -> rect)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.type is None
-        assert LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")]).type is None
+        assert (
+            LabelSpec(
+                id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+            ).type
+            is None
+        )
         assert PlateSpec(id="p", width=24.0, height=16.0).type is None
 
     def test_lives_on_label_attributes_not_text(self) -> None:
@@ -3266,12 +3618,22 @@ class TestLabelShapeField:
         """Both enum values parse from their string form."""
         assert (
             LabelSpec(
-                id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="round"
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=cast(List[Any], [TextLine(text="X")]),
+                type=cast(LabelShape, "round"),
             ).type
             is LabelShape.ROUND
         )
         assert (
-            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="rect").type
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=cast(List[Any], [TextLine(text="X")]),
+                type=cast(LabelShape, "rect"),
+            ).type
             is LabelShape.RECT
         )
 
@@ -3279,7 +3641,11 @@ class TestLabelShapeField:
         """The enum member itself is accepted (Python-side construction)."""
         assert (
             LabelSpec(
-                id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type=LabelShape.ROUND
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=cast(List[Any], [TextLine(text="X")]),
+                type=LabelShape.ROUND,
             ).type
             is LabelShape.ROUND
         )
@@ -3287,11 +3653,20 @@ class TestLabelShapeField:
     def test_rejects_unknown_shape(self) -> None:
         """An unknown shape name is a validation error."""
         with pytest.raises(ValidationError):
-            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")], type="hexagon")
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=cast(List[Any], [TextLine(text="X")]),
+                type=cast(LabelShape, "hexagon"),
+            )
 
     def test_plate_parity_field_accepts_the_enum(self) -> None:
         """The plate parity field accepts the same values (not applied at plate level)."""
-        assert PlateSpec(id="p", width=24.0, height=16.0, type="round").type is LabelShape.ROUND
+        assert (
+            PlateSpec(id="p", width=24.0, height=16.0, type=cast(LabelShape, "round")).type
+            is LabelShape.ROUND
+        )
 
 
 class TestRoundedRectangleField:
@@ -3299,10 +3674,14 @@ class TestRoundedRectangleField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Job, label and plate all default both fields to None (resolution -> 0.0/false)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.rounded_rectangle_fraction is None
         assert job.rounded_rectangle_proportional is None
-        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.rounded_rectangle_fraction is None
         assert label.rounded_rectangle_proportional is None
         plate = PlateSpec(id="p", width=24.0, height=16.0)
@@ -3326,7 +3705,7 @@ class TestRoundedRectangleField:
                 id="l",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 rounded_rectangle_fraction=fraction,
             )
             assert label.rounded_rectangle_fraction == fraction
@@ -3339,7 +3718,7 @@ class TestRoundedRectangleField:
                     id="l",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="X")],
+                    content=cast(List[Any], [TextLine(text="X")]),
                     rounded_rectangle_fraction=fraction,
                 )
 
@@ -3363,8 +3742,12 @@ class TestCutterBufferFields:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults both fields to None (resolution -> 0.0)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
-        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         line = TextLine(text="X")
         plate = PlateSpec(id="p", width=24.0, height=16.0)
         for name in self.FIELDS:
@@ -3393,7 +3776,7 @@ class TestCutterBufferFields:
                 id="l",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
                 cutter_buffer_routing=buffer,
             )
             assert label.cutter_buffer_routing == buffer
@@ -3408,7 +3791,7 @@ class TestCutterBufferFields:
                     id="l",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="X")],
+                    content=cast(List[Any], [TextLine(text="X")]),
                     **{name: -0.001},
                 )
             with pytest.raises(ValidationError):
@@ -3416,7 +3799,7 @@ class TestCutterBufferFields:
                     job_name="J",
                     width=2.0,
                     height=1.0,
-                    content=[TextLine(text="X")],
+                    content=cast(List[Any], [TextLine(text="X")]),
                     **{name: -0.001},
                 )
             with pytest.raises(ValidationError):
@@ -3473,21 +3856,45 @@ class TestRoundLabelDimensions:
         """A round label declaring only width is a circle of that diameter."""
         job = JobSpec(
             job_name="J",
-            labels=[LabelSpec(id="c", type="round", width=2.5, content=[TextLine(text="X")])],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="c",
+                        type=cast(LabelShape, "round"),
+                        width=2.5,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
         )
         assert job.labels[0].width == 2.5
         assert job.labels[0].height is None
 
     def test_round_label_with_only_height_is_valid(self) -> None:
         """A round label declaring only height is equally legal."""
-        LabelSpec(id="c", type="round", height=2.5, content=[TextLine(text="X")])
+        LabelSpec(
+            id="c",
+            type=cast(LabelShape, "round"),
+            height=2.5,
+            content=cast(List[Any], [TextLine(text="X")]),
+        )
 
     def test_round_label_without_any_dimension_is_rejected(self) -> None:
         """A round label with no dimension at label or job level fails."""
         with pytest.raises(ValidationError, match="round labels require"):
             JobSpec(
                 job_name="J",
-                labels=[LabelSpec(id="c", type="round", content=[TextLine(text="X")])],
+                labels=cast(
+                    List[Any],
+                    [
+                        LabelSpec(
+                            id="c",
+                            type=cast(LabelShape, "round"),
+                            content=cast(List[Any], [TextLine(text="X")]),
+                        )
+                    ],
+                ),
             )
 
     def test_rect_label_still_requires_both(self) -> None:
@@ -3495,16 +3902,21 @@ class TestRoundLabelDimensions:
         with pytest.raises(ValidationError, match="must be defined"):
             JobSpec(
                 job_name="J",
-                labels=[LabelSpec(id="r", width=2.0, content=[TextLine(text="X")])],
+                labels=cast(
+                    List[Any],
+                    [LabelSpec(id="r", width=2.0, content=cast(List[Any], [TextLine(text="X")]))],
+                ),
             )
 
     def test_round_label_inherits_shape_from_job(self) -> None:
         """A job-level ``type: round`` relaxes the rule for its labels."""
         job = JobSpec(
             job_name="J",
-            type="round",
+            type=cast(LabelShape, "round"),
             width=3.0,
-            labels=[LabelSpec(id="c", content=[TextLine(text="X")])],
+            labels=cast(
+                List[Any], [LabelSpec(id="c", content=cast(List[Any], [TextLine(text="X")]))]
+            ),
         )
         # The label has no dimensions of its own; the job's width cascades and
         # the round rule fills the missing height at resolution.
@@ -3513,9 +3925,18 @@ class TestRoundLabelDimensions:
 
     def test_root_level_round_content_needs_one_dimension(self) -> None:
         """A root-level round job needs width and/or height, not both."""
-        JobSpec(job_name="J", type="round", width=3.0, content=[TextLine(text="X")])
+        JobSpec(
+            job_name="J",
+            type=cast(LabelShape, "round"),
+            width=3.0,
+            content=cast(List[Any], [TextLine(text="X")]),
+        )
         with pytest.raises(ValidationError, match="round labels require"):
-            JobSpec(job_name="J", type="round", content=[TextLine(text="X")])
+            JobSpec(
+                job_name="J",
+                type=cast(LabelShape, "round"),
+                content=cast(List[Any], [TextLine(text="X")]),
+            )
 
 
 class TestVCenterCharsField:
@@ -3523,7 +3944,9 @@ class TestVCenterCharsField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Every tier defaults v_center_chars to None (unset = shipped default)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.v_center_chars is None
         assert TextLine(text="X").v_center_chars is None
         assert PlateSpec(id="p", width=24.0, height=16.0).v_center_chars is None
@@ -3552,7 +3975,9 @@ class TestKernStringField:
 
     def test_defaults_to_none_everywhere(self) -> None:
         """Job, label, line and plate all default the markers to None (off)."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert job.kern_pos_string is None
         assert job.kern_neg_string is None
         assert TextLine(text="X").kern_pos_string is None
@@ -3627,7 +4052,7 @@ class TestKernWidthFractionField:
         assert TextLine(text="X").kern_width_fraction is None
         assert (
             JobSpec(
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")]
+                job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
             ).kern_width_fraction
             is None
         )
@@ -3696,9 +4121,13 @@ class TestListFieldsOnTextAttributes:
     def test_defaults_to_none_everywhere(self, field: str) -> None:
         """Every tier defaults the field to None (unset -> cascade fallback)."""
         assert TextLine.model_fields[field].default is None
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert getattr(job, field) is None
-        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert getattr(label, field) is None
         plate = PlateSpec(id="p", width=24.0, height=16.0)
         assert getattr(plate, field) is None
@@ -3730,7 +4159,7 @@ class TestListFieldsOnTextAttributes:
 
     def test_counter_style_canonicalizes(self) -> None:
         """The style field stores the enum member."""
-        line = TextLine(text="X", counter_style="upper-roman")
+        line = TextLine(text="X", counter_style=cast(CounterStyle, "upper-roman"))
         assert line.counter_style is CounterStyle.UPPER_ROMAN
 
     @pytest.mark.parametrize("field", ["bullet_string", "counter_prefix", "counter_suffix"])
@@ -3752,19 +4181,21 @@ class TestItemizeBlock:
     def test_items_required_and_non_empty(self) -> None:
         """A block needs at least one item."""
         with pytest.raises(ValidationError):
-            ItemizeBlock(items=[])
+            ItemizeBlock(items=cast(List[Any], []))
         with pytest.raises(ValidationError):
             ItemizeBlock()
 
     def test_items_are_text_lines(self) -> None:
         """Each item is a TextLine (so it carries the full cascading field set)."""
-        block = ItemizeBlock(items=[TextLine(text="a", text_height=0.4)])
+        block = ItemizeBlock(items=cast(List[Any], [TextLine(text="a", text_height=0.4)]))
         assert block.items[0].text == "a"
         assert block.items[0].text_height == 0.4
 
     def test_block_carries_the_list_settings(self) -> None:
         """The block accepts bullet_string and every cascading text field."""
-        block = ItemizeBlock(items=[{"text": "a"}], bullet_string="-", text_height=0.3)
+        block = ItemizeBlock(
+            items=cast(List[Any], [{"text": "a"}]), bullet_string="-", text_height=0.3
+        )
         assert block.bullet_string == "-"
         assert block.text_height == 0.3
 
@@ -3772,7 +4203,9 @@ class TestItemizeBlock:
         """A counter style is accepted structurally (the shared mixin) but the
         marker resolver ignores it for a bullet list -- pinned end-to-end in
         test_resolution."""
-        block = ItemizeBlock(items=[{"text": "a"}], counter_style="lower-roman")
+        block = ItemizeBlock(
+            items=cast(List[Any], [{"text": "a"}]), counter_style=cast(CounterStyle, "lower-roman")
+        )
         assert block.counter_style is CounterStyle.LOWER_ROMAN
 
 
@@ -3782,14 +4215,14 @@ class TestEnumerateBlock:
     def test_items_required_and_non_empty(self) -> None:
         """A block needs at least one item."""
         with pytest.raises(ValidationError):
-            EnumerateBlock(items=[])
+            EnumerateBlock(items=cast(List[Any], []))
 
     def test_block_carries_the_counter_settings(self) -> None:
         """The block accepts every counter field."""
         block = EnumerateBlock(
-            items=[{"text": "a"}],
+            items=cast(List[Any], [{"text": "a"}]),
             counter_start_index=3,
-            counter_style="upper-alpha",
+            counter_style=cast(CounterStyle, "upper-alpha"),
             counter_prefix="Step ",
             counter_suffix=")",
         )
@@ -3801,7 +4234,7 @@ class TestEnumerateBlock:
     def test_counter_start_index_bound(self) -> None:
         """The block's starting counter is >= 1."""
         with pytest.raises(ValidationError):
-            EnumerateBlock(items=[{"text": "a"}], counter_start_index=0)
+            EnumerateBlock(items=cast(List[Any], [{"text": "a"}]), counter_start_index=0)
 
 
 class TestContentEntry:
@@ -3847,13 +4280,17 @@ class TestContentEntry:
     def test_entry_accepts_a_bare_textline(self) -> None:
         """A direct-API TextLine coerces to a plain entry (the back-compat
         contract: every pre-list spec validates unchanged)."""
-        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert isinstance(label.content[0], ContentEntry)
         assert label.content[0].text == "X"
 
     def test_job_root_content_accepts_a_bare_textline(self) -> None:
         """The root-level content coerces the same way."""
-        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        job = JobSpec(
+            job_name="J", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert isinstance(job.content[0], ContentEntry)
 
 
@@ -3863,7 +4300,10 @@ class TestLabelSpecListValidation:
     def test_list_block_is_valid_static_content(self) -> None:
         """A label whose content is one list block validates."""
         label = LabelSpec(
-            id="l", width=2.0, height=1.0, content=[{"itemize": {"items": [{"text": "a"}]}}]
+            id="l",
+            width=2.0,
+            height=1.0,
+            content=cast(List[Any], [{"itemize": {"items": [{"text": "a"}]}}]),
         )
         assert label.content[0].itemize is not None
 
@@ -3875,13 +4315,18 @@ class TestLabelSpecListValidation:
                 width=2.0,
                 height=1.0,
                 replacement_text_file="x.txt",
-                content=[{"itemize": {"items": [{"text": "a"}]}}],
+                content=cast(List[Any], [{"itemize": {"items": [{"text": "a"}]}}]),
             )
 
     def test_placeholder_line_still_requires_a_replacement_file(self) -> None:
         """The pre-existing placeholder rule is untouched."""
         with pytest.raises(ValidationError, match="placeholder"):
-            LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X", placeholder=True)])
+            LabelSpec(
+                id="l",
+                width=2.0,
+                height=1.0,
+                content=cast(List[Any], [TextLine(text="X", placeholder=True)]),
+            )
 
 
 class TestStrictUnknownFields:
@@ -3926,7 +4371,9 @@ class TestStrictUnknownFields:
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                labels=[{"id": "l", "width": 2.0, "height": 1.0, "maxh_compress": 0.5}],
+                labels=cast(
+                    List[Any], [{"id": "l", "width": 2.0, "height": 1.0, "maxh_compress": 0.5}]
+                ),
             )
 
     def test_content_line_unknown_key_rejected(self) -> None:
@@ -3936,7 +4383,7 @@ class TestStrictUnknownFields:
                 id="l",
                 width=2.0,
                 height=1.0,
-                content=[{"text": "X", "height": 0.5}],
+                content=cast(List[Any], [{"text": "X", "height": 0.5}]),
             )
 
     def test_list_block_and_item_unknown_keys_rejected(self) -> None:
@@ -3953,8 +4400,8 @@ class TestStrictUnknownFields:
                 job_name="J",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
-                plates=[{"id": "p", "width": 24.0, "widht": 16.0}],
+                content=cast(List[Any], [TextLine(text="X")]),
+                plates=cast(List[Any], [{"id": "p", "width": 24.0, "widht": 16.0}]),
             )
 
     def test_hole_unknown_key_rejected(self) -> None:
@@ -3964,8 +4411,8 @@ class TestStrictUnknownFields:
                 id="l",
                 width=2.0,
                 height=1.0,
-                content=[TextLine(text="X")],
-                holes=[{"locaton": "top-left"}],
+                content=cast(List[Any], [TextLine(text="X")]),
+                holes=cast(List[Any], [{"locaton": "top-left"}]),
             )
 
     def test_parse_yaml_reports_the_path(self, tmp_path: Path) -> None:
@@ -3995,7 +4442,7 @@ class TestStrictUnknownFields:
             job_name="J",
             width=2.0,
             height=1.0,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
             tool_options={"cutting_velocity": {"command": "FS", "type": "float"}},
         )
         assert job.tool_options is not None
@@ -4003,7 +4450,9 @@ class TestStrictUnknownFields:
 
     def test_model_copy_updates_still_validate(self) -> None:
         """Known-field updates through model_copy keep working (no friction)."""
-        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.model_copy(update={"count": 4}).count == 4
 
 
@@ -4011,7 +4460,9 @@ class TestReliefEngravingFields:
     """relief_engraving / quality / cutters / preserve_border fields."""
 
     def test_defaults_are_unset(self) -> None:
-        label = LabelSpec(id="l", width=2.0, height=1.0, content=[TextLine(text="X")])
+        label = LabelSpec(
+            id="l", width=2.0, height=1.0, content=cast(List[Any], [TextLine(text="X")])
+        )
         assert label.relief_engraving is None
         assert label.relief_engraving_quality is None
         assert label.relief_engraving_cutters is None
@@ -4025,7 +4476,7 @@ class TestReliefEngravingFields:
             width=2.0,
             height=1.0,
             relief_engraving_stroke_overlap_percent=0.0,
-            content=[TextLine(text="X")],
+            content=cast(List[Any], [TextLine(text="X")]),
         )
         assert label.relief_engraving_stroke_overlap_percent == 0.0
         for bad in (100.0, 101.0, -0.1):
@@ -4035,7 +4486,7 @@ class TestReliefEngravingFields:
                     width=2.0,
                     height=1.0,
                     relief_engraving_stroke_overlap_percent=bad,
-                    content=[TextLine(text="X")],
+                    content=cast(List[Any], [TextLine(text="X")]),
                 )
 
     def test_overlap_percent_plate_parity_and_cascade(self) -> None:
@@ -4048,14 +4499,17 @@ class TestReliefEngravingFields:
             width=2.0,
             height=1.0,
             relief_engraving_stroke_overlap_percent=75.0,
-            labels=[
-                LabelSpec(id="l1", content=[TextLine(text="X")]),
-                LabelSpec(
-                    id="l2",
-                    relief_engraving_stroke_overlap_percent=40.0,
-                    content=[TextLine(text="X")],
-                ),
-            ],
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(id="l1", content=cast(List[Any], [TextLine(text="X")])),
+                    LabelSpec(
+                        id="l2",
+                        relief_engraving_stroke_overlap_percent=40.0,
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    ),
+                ],
+            ),
         )
         assert job.labels[0].relief_engraving_stroke_overlap_percent == 75.0
         assert job.labels[1].relief_engraving_stroke_overlap_percent == 40.0
@@ -4066,8 +4520,8 @@ class TestReliefEngravingFields:
                 id="l",
                 width=2.0,
                 height=1.0,
-                relief_engraving_quality="ultra",
-                content=[TextLine(text="X")],
+                relief_engraving_quality=cast(Any, "ultra"),
+                content=cast(List[Any], [TextLine(text="X")]),
             )
 
     def test_cutters_positive_validated(self) -> None:
@@ -4077,7 +4531,7 @@ class TestReliefEngravingFields:
                 width=2.0,
                 height=1.0,
                 relief_engraving_cutters=[0.06, 0.0],
-                content=[TextLine(text="X")],
+                content=cast(List[Any], [TextLine(text="X")]),
             )
 
     def test_plate_parity_accepts_relief_fields(self) -> None:
@@ -4090,9 +4544,11 @@ class TestReliefEngravingFields:
             width=2.0,
             height=1.0,
             relief_engraving=True,
-            relief_engraving_quality="fine",
+            relief_engraving_quality=cast(Any, "fine"),
             relief_engraving_cutters=[0.06, 0.005],
-            labels=[LabelSpec(id="l", content=[TextLine(text="X")])],
+            labels=cast(
+                List[Any], [LabelSpec(id="l", content=cast(List[Any], [TextLine(text="X")]))]
+            ),
         )
         label = job.labels[0]
         assert label.relief_engraving is True
@@ -4105,15 +4561,18 @@ class TestReliefEngravingFields:
             width=2.0,
             height=1.0,
             relief_engraving=True,
-            relief_engraving_quality="fine",
-            labels=[
-                LabelSpec(
-                    id="l",
-                    relief_engraving=False,
-                    relief_engraving_quality="coarse",
-                    content=[TextLine(text="X")],
-                )
-            ],
+            relief_engraving_quality=cast(Any, "fine"),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l",
+                        relief_engraving=False,
+                        relief_engraving_quality=cast(Any, "coarse"),
+                        content=cast(List[Any], [TextLine(text="X")]),
+                    )
+                ],
+            ),
         )
         label = job.labels[0]
         assert label.relief_engraving is False
@@ -4124,11 +4583,21 @@ class TestReliefEngravingFields:
             job_name="J",
             width=2.0,
             height=1.0,
-            plates=[PlateSpec(id="p", width=2.0, height=2.0, relief_engraving_quality="medium")],
-            labels=[
-                LabelSpec(id="l", plate_id="p", content=[TextLine(text="X")]),
-                LabelSpec(id="m", content=[TextLine(text="X")]),
-            ],
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p", width=2.0, height=2.0, relief_engraving_quality=cast(Any, "medium")
+                    )
+                ],
+            ),
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(id="l", plate_id="p", content=cast(List[Any], [TextLine(text="X")])),
+                    LabelSpec(id="m", content=cast(List[Any], [TextLine(text="X")])),
+                ],
+            ),
         )
         assert job.labels[0].relief_engraving_quality == "medium"
         assert job.labels[1].relief_engraving_quality is None
@@ -4138,8 +4607,18 @@ class TestReliefEngravingFields:
             job_name="J",
             width=2.0,
             height=1.0,
-            relief_engraving_quality="coarse",
-            plates=[PlateSpec(id="p", width=2.0, height=2.0, relief_engraving_quality="fine")],
-            labels=[LabelSpec(id="l", plate_id="p", content=[TextLine(text="X")])],
+            relief_engraving_quality=cast(Any, "coarse"),
+            plates=cast(
+                List[Any],
+                [
+                    PlateSpec(
+                        id="p", width=2.0, height=2.0, relief_engraving_quality=cast(Any, "fine")
+                    )
+                ],
+            ),
+            labels=cast(
+                List[Any],
+                [LabelSpec(id="l", plate_id="p", content=cast(List[Any], [TextLine(text="X")]))],
+            ),
         )
         assert job.labels[0].relief_engraving_quality == "fine"

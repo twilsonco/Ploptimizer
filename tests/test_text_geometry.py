@@ -497,7 +497,9 @@ class TestTextBlock:
 
     def test_bounds_union_across_strokes(self) -> None:
         """Block bounds union polyline and swept-arc extents."""
-        x_min, y_min, x_max, y_max = self._sample().bounds()  # type: ignore[union-attr]
+        bounds = self._sample().bounds()
+        assert bounds is not None
+        x_min, y_min, x_max, y_max = bounds
         assert (x_min, y_min) == (0.0, 0.0)
         assert x_max == pytest.approx(3.0, abs=1e-12)  # arc center 2 + radius 1
         assert y_max == pytest.approx(1.0, abs=1e-12)
