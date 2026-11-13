@@ -118,7 +118,7 @@ from plt_optimizer.generate.plt_font_renderer import (  # noqa: E402
     render_text_line_plt_font,
 )
 from plt_optimizer.generate.resolution import resolve_job_spec  # noqa: E402
-from plt_optimizer.generate.schema import JobSpec, TextLine  # noqa: E402
+from plt_optimizer.generate.schema import ContentEntry, JobSpec  # noqa: E402
 from plt_optimizer.generate.text_geometry import (  # noqa: E402
     TextBlock,
     block_from_linecollection,
@@ -271,9 +271,9 @@ def build_showcase_job(font_name: str, width: float = LABEL_WIDTH) -> JobSpec:
         count=1,
         max_h_compress=0.0,
         content=[
-            TextLine(text=font_name, text_height=NAME_TEXT_HEIGHT),
+            ContentEntry(text=font_name, text_height=NAME_TEXT_HEIGHT),
             *[
-                TextLine(text=line, text_height=BODY_TEXT_HEIGHT)
+                ContentEntry(text=line, text_height=BODY_TEXT_HEIGHT)
                 for line in _covered_showcase_lines(font_name)
             ],
         ],

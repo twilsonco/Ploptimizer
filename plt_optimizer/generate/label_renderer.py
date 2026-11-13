@@ -240,6 +240,13 @@ class _LineEntry(NamedTuple):
             the span's narrower neighbours keep their own width). Empty only
             when the glyph partition does not cover the line (the previews
             then fall back to the pen's single width).
+        space_slack: Inches of line slack the ``<space>`` gaps consumed, 0.0 for
+            an unmarked line. Reporting only (see
+            :attr:`RenderedLabel.space_slack_by_line`).
+        space_gap: The gap width this line ENGRAVES, inches (0.0 for
+            ``<space:0>``, whose gap is collapsed). Reporting only -- the key to
+            the gap-first hierarchy: the slack cannot show it, because a tight
+            line has no slack to spend and every gap reads 0.000in.
     """
 
     line_index: int
@@ -250,6 +257,7 @@ class _LineEntry(NamedTuple):
     stroke_layers: Tuple[Tuple[float, str], ...] = ()
     stroke_widths: Tuple[float, ...] = ()
     space_slack: float = 0.0
+    space_gap: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -296,8 +304,14 @@ class _RenderedLine:
             the ink and the leading gap collapses against the left margin --
             invisible. Pass C places the BOX, then rides the ink in by
             ``space_leading``.
-        space_leading: The ink's inset (inches) inside ``space_box_width``: the
-            summed width of the gaps in front of the line's first glyph.
+        space_gap: The gap width this line ENGRAVES, in inches -- the cursor step
+            a marker run takes in the final scaled frame (0.0 for a line with no
+            marker, and for ``<space:0>``, whose gap is collapsed). Reporting
+            only: the geometry is baked into ``block``. This is what distinguishes
+            a ``<space:0>`` line from its ``<space>`` twin in the layout report --
+            ``compression_scale`` alone shows the scale the INK is cut at, and in
+            the tight regime the cutter floor saturates it, so every tight line
+            reads the same while the gaps themselves differ.
     """
 
     line_index: int
@@ -317,6 +331,7 @@ class _RenderedLine:
     space_slack: float = 0.0
     space_box_width: float = 0.0
     space_leading: float = 0.0
+    space_gap: float = 0.0
 
 
 def _effective_h_alignment(
@@ -520,6 +535,13 @@ class RenderedLabel:
             Keyed only by lines that carry a ``<space>`` marker, so an empty dict
             means the job uses no dynamic space. Reporting-only: the geometry is
             already baked into ``plt_content`` / ``text_chunks``.
+        space_gap_by_line: Mapping of line index to the gap width that line
+            ENGRAVES, in inches (``0.0`` for a ``<space:0>`` whose gap is
+            collapsed). Keyed by the same lines as ``space_slack_by_line``.
+            Reporting-only. This is the half of the gap-first hierarchy the slack
+            cannot show: in the tight regime no line has slack to spend, so every
+            ``x 0.000in`` reads the same while the gaps themselves differ -- and a
+            collapsed gap is exactly why that line's text is less compressed.
         descender_adjustments_by_line: Mapping of line index to the
             descending-character reliefs applied to that line's glyphs by the
             automatic descending-character adjustment (vertical downscale +
@@ -552,6 +574,7 @@ class RenderedLabel:
     text_chunks: Tuple[TextChunkRecord, ...] = ()
     compression_by_line: dict[int, float] = field(default_factory=dict)
     space_slack_by_line: dict[int, float] = field(default_factory=dict)
+    space_gap_by_line: dict[int, float] = field(default_factory=dict)
     line_spacing_by_line: dict[int, float] = field(default_factory=dict)
     descender_adjustments_by_line: dict[int, Tuple[DescenderFix, ...]] = field(default_factory=dict)
     band_center_offset_inches: float = 0.0
@@ -1043,6 +1066,17 @@ def _render_label_once(
             for entry in line_entries
             if entry.space_slack > 0.0 or _dynamic_space_fractions(label.content[entry.line_index])
         }
+        # The two numbers the gap-first hierarchy moves, keyed by the same marked
+        # lines: the gap the line ENGRAVES (0.0 for a collapsed ``<space:0>``).
+        # The relay's ``scale`` is the COLLISION request and its ``x Yin`` is the
+        # fill -- both read the same for ``<space:0>`` and ``<space>`` in the
+        # tight regime, which is why a gap-first line looked no less compressed
+        # than its plain twin. The engraved gap is the number that separates them.
+        space_gap_by_line = {
+            entry.line_index: entry.space_gap
+            for entry in line_entries
+            if entry.line_index in space_slack_by_line
+        }
 
         rendered = RenderedLabel(
             source_label=label,
@@ -1056,6 +1090,7 @@ def _render_label_once(
             text_chunks=tuple(chunk_records),
             compression_by_line=compression_by_line,
             space_slack_by_line=space_slack_by_line,
+            space_gap_by_line=space_gap_by_line,
             line_spacing_by_line=line_spacing_by_line,
             descender_adjustments_by_line=descender_adjustments_by_line,
             band_center_offset_inches=band_center_offset[0] if band_center_offset else 0.0,
@@ -1739,6 +1774,7 @@ def compress_line_to_width(
     line_text: Optional[str] = None,
     *,
     preserve_arcs: bool = True,
+    natural_width: Optional[float] = None,
 ) -> TextBlock:
     """Uniformly compress a rendered text line horizontally to fit the margin box.
 
@@ -1768,6 +1804,14 @@ def compress_line_to_width(
             messages so warnings identify the offending line.
         preserve_arcs: Refit the compressed arcs with circular arcs (the
             default); ``False`` polygonizes them.
+        natural_width: Width the fit is MEASURED AGAINST (see
+            :func:`compute_horizontal_scale`); defaults to the block's own
+            rendered width. A ``<space>`` line whose minima collapse renders
+            WIDER than it is naturally -- the collapsed gaps are ink the line
+            never paints, and ink the text gets to keep -- so the fit divides by
+            the NATURAL width, not the rendered one. That is what lets a
+            ``<space:0>`` line compress LESS than its bare-``<space>`` twin while
+            both stay inside the same box.
 
     Returns:
         The original block when no compression is needed or allowed,
@@ -1779,7 +1823,9 @@ def compress_line_to_width(
     min_x, _min_y, max_x, _max_y = bounds
     rendered_width = max_x - min_x
 
-    scale = compute_horizontal_scale(rendered_width, available_width, max_h_compress)
+    scale = compute_horizontal_scale(
+        rendered_width, available_width, max_h_compress, natural_width=natural_width
+    )
     if scale >= 1.0:
         return line_block
 
@@ -2206,17 +2252,23 @@ def _space_gap_relief(
 ) -> float:
     """Inches a line's ``<space:X>`` minima RELIEVE from its own text width.
 
-    A minimum ``X < 1`` contracts that gap below a normal space advance, so the
-    line ends up NARROWER than its plain-text natural width by
+    The hierarchy the ``<space>`` tag exists to express: **a tight line pays for
+    its margins with its gaps before it pays with its glyphs.** The natural
+    render charges ONE full advance for every marked gap (that is what a space
+    costs), so a minimum ``X < 1`` contracts that gap below a normal space
+    advance and the line ends up NARROWER than its plain-text natural width by
     ``(1 - X) * advance`` per marked slot. Compression budgets and alignment
-    boxes are measured against the natural width, which charges a full advance
-    for every space; without this term a ``<space:0.3>`` line is made to compress
-    0.7 space widths it never needed to, and a ``<space:0>`` never reaches the
-    point where the TEXT pays. That breaks the hierarchy the gap law implies:
-    give up the gap's room first, then compress the glyphs.
+    boxes are measured against the natural width, which charges the full
+    advance; without this term a ``<space:0.3>`` line is made to compress 0.7
+    space widths it never needed to, and a ``<space:0>`` never reaches the point
+    where the TEXT pays. That is the second rung: once every gap sits at its
+    floor, the glyphs give the rest of the width, down to the line's
+    ``max_h_compress`` limit.
 
     ``X >= 1`` contributes nothing -- that slack is the expansion's
-    ``extra`` reservation, which is a separate term.
+    ``extra`` reservation (see the ``space_extra`` capture in
+    :func:`_render_positioned_lines`), a separate term: a minimum ABOVE one
+    advance is width the gap claims from the text, never width handed back.
 
     Args:
         text: The line's ``plain_text``, aligned with ``fractions``.
@@ -6564,9 +6616,9 @@ def _render_positioned_lines(
             if width != UNSET_SPACE_FRACTION
         )
         # The mirror of ``space_extra``: what a sub-1.0 minimum TAKES BACK. The
-        # natural width charges a full advance for every space, so a
-        # ``<space:0.3>`` line is already 0.7 advances narrower than that and
-        # needs to compress correspondingly less. Untaken, the line pays in
+        # natural render charges a full advance for every marked gap, so a
+        # ``<space:0.3>`` line is already 0.7 advances narrower than that width
+        # and needs to compress correspondingly less. Untaken, the line pays in
         # glyphs for slack its own gap is handing back -- and a ``<space:0>``
         # never reaches the point where the text is asked to give, which is the
         # second rung of the hierarchy (gap first, then compression).
@@ -6603,6 +6655,18 @@ def _render_positioned_lines(
         # not shrink their budget.
         if line_index not in label.collision_center_by_line:
             compression_available_width -= label.collision_edge_margin_by_line.get(line_index, 0.0)
+        # ...and the hierarchy needs a DENOMINATOR term, never a budget term.
+        # The relief is handed to the fit below (``space_natural_width``), NOT
+        # added to ``compression_available_width``: the box is the box. A tight
+        # line therefore divides the box by the width it occupies once its gaps
+        # sit at their minima, so a ``<space:0>`` needs a HIGHER scale than its
+        # bare-``<space>`` twin -- the gap pays for the margin first and the
+        # text only covers the rest, down to the ``max_h_compress`` limit the
+        # budget above already encodes. Reserving the relief a second time (in
+        # the budget, or in the alignment box) double-credits it and shoves the
+        # ink past the far margin -- pinned by
+        # :meth:`TestDynamicSpaceRender.test_the_gap_gives_first_and_the_text_compresses_second`.
+        space_natural_width = max(0.0, pre_margin_width - space_relief)
 
         # Per-label shared compression (``h_compress_global``): the export
         # pre-pass measured this line's group scale. The effective scale is
@@ -6622,18 +6686,10 @@ def _render_positioned_lines(
         # The ALIGNMENT box this line's ink is placed in: the VISUAL margin box
         # (``inner_width - 2*h_margin``) minus the indent column this line
         # charges its box (``offset``, alignment-aware -- see
-        # :func:`_line_indent_offset`) and any collision slide margin, plus the
-        # minimum reservation ``space_extra``.
-        # ``<space>`` fills THIS box in Pass A2, so a line with room paints its
-        # ink from margin to margin -- the TODO's acceptance test ("hello"
-        # touching the left margin, "world" touching the right). The half-cutter
-        # kerf insets are NOT part of it: they belong to Pass A's compression
-        # budget, where a wide line is squeezed to keep the engraving inside the
-        # collision slide margin. ``space_extra`` is NOT added here: this box is
-        # the room the whole LINE's ink must land in, and Pass A2 spends
-        # ``extra`` out of it (``fill = box - natural - extra``), so a minimum
-        # wider than one space is gap room taken from the text's share, never
-        # ink pushed past the far margin.
+        # :func:`_line_indent_offset`) and any collision slide margin.
+        # ``space_extra`` is NOT added here: this box is the room the whole
+        # LINE's ink must land in. Pass A2 spends ``extra`` out of it (a minimum
+        # wider than one space is gap room taken from the text's share).
         align_box = (
             inner_width
             - (2 * h_margin)
@@ -6653,6 +6709,7 @@ def _render_positioned_lines(
             label.id,
             line_text=line.plain_text,
             preserve_arcs=line.arc_preserve_compression,
+            natural_width=space_natural_width,
         )
         bounds = block.bounds()
         if bounds is None:  # pragma: no cover - measured in first pass
@@ -6664,6 +6721,23 @@ def _render_positioned_lines(
         # margin-overflow scale measured here. compress_x scales X only, so the
         # width ratio is exactly the applied margin scale (1.0 when the line
         # already fit or compression was disabled).
+        #
+        # This ratio is ALSO the number Pass A2 needs. The block it measures
+        # started at ``pre_margin_width`` -- the natural render's width, which
+        # charges a FULL advance for every marked gap -- and
+        # :func:`compress_line_to_width` scales it uniformly, so
+        # ``rendered_width / pre_margin_width`` IS the factor applied, even
+        # though the fit that chose the factor divided the box by the RELIEVED
+        # width ``space_natural_width``:
+        #     rendered_width / pre_margin_width
+        #         = (pre_margin_width * scale) / pre_margin_width
+        #         = scale
+        #         = budget / (pre_margin_width - space_relief)
+        # and ``pre_margin_width - space_relief`` is exactly the width the gap
+        # collapse leaves Pass A2's re-rendered block (its minima ARE the gaps),
+        # so ``Pass A2's collapsed width * this scale == budget`` -- the ink
+        # lands on the box for every minimum, and the bare tag (relief 0) is
+        # bit-for-bit the unmarked line.
         margin_scale = rendered_width / pre_margin_width if pre_margin_width > 0.0 else 1.0
         compressed_lines.append((rendered, block, rendered_width, offset))
         effective_scales.append(rendered.collision_scale * margin_scale)
@@ -6676,6 +6750,12 @@ def _render_positioned_lines(
                 # space (see the capture above); Pass A2 spends the box's slack
                 # on top of it.
                 "extra": space_extra,
+                # The margin-fit scale Pass A APPLIED (see the computation
+                # above): Pass A2 re-renders the line at its gap minima and must
+                # put that ink back on the compressed frame, so it reads this
+                # value instead of re-deriving a fit from widths that belong to
+                # the natural (un-collapsed) block.
+                "margin_scale": margin_scale,
                 # The box Pass A2 expands into (see the computation above).
                 "align_box": align_box,
                 # The space never steals width from the text: an overflowing
@@ -6754,6 +6834,14 @@ def _render_positioned_lines(
             extra = float(data["extra"])
             group = rendered.align_group_id
             box = float(data["align_box"])
+            # The box Pass A2 fills is the VISUAL margin box, relief NOT added:
+            # relief is a term of the margin FIT (it shrinks the width Pass A
+            # measured the squeeze against), not extra room the gap may grow
+            # into. The line's ink at scale 1 is therefore ``natural - relief``
+            # -- the collapsed gaps are ink the line never paints -- and that is
+            # the baseline every measurement below uses, so Pass A2 reproduces
+            # Pass A's fit EXACTLY instead of shrinking the line a second time
+            # by nat/(nat-relief).
             if group >= 0:
                 budget = min(budget, group_widths[group] - offset)
                 # A group shares one alignment box: the widest total extent in
@@ -6786,7 +6874,37 @@ def _render_positioned_lines(
             # ``<space:0>`` minimum, in the compressed frame, is 0.086in here
             # instead of the 0.141in a bare ``<space>`` keeps), and the text is
             # compressed to the box only for whatever the gaps could not give.
-            margin_fit = (rendered_width / natural_text) if natural_text > 0.0 else 1.0
+            # The margin fit Pass A APPLIED (1.0 for a line that fits its box,
+            # so roomy lines are untouched bit-for-bit). It is read from Pass A
+            # rather than re-derived from ``rendered_width / natural_text``:
+            # ``rendered_width`` is Pass A's ink, produced by a fit that divided
+            # the box by the RELIEVED width (``natural_text - relief``), while
+            # this pass re-renders the block at its gap minima -- whose natural
+            # width IS that relieved width. Dividing the two therefore shrinks
+            # the line a SECOND time by nat/(nat-relief) and leaves the ink short
+            # of the box; a sub-1.0 minimum then buys the text nothing.
+            margin_fit = float(data["margin_scale"])
+            # The FILL: the room the box offers beyond the NATURAL ink -- the
+            # line as a plain space would render it, gaps at the FULL advance
+            # (what the expansion re-renders and grows from). Measuring against
+            # the natural (NOT against natural + minima) is what makes every slot
+            # position pay: a leading gap's natural already carries one advance
+            # more than its minimum, and a trailing gap's minimum IS its natural
+            # contribution, so the older ``box - natural - extra`` form left a
+            # trailing ``<space>`` exactly zero room -- silently inert. The gaps
+            # take that baseline plus a share of THIS fill, so the ink lands on
+            # the box's far edge for a bare / trailing / leading marker alike, a
+            # ``<space:2>`` in a roomy box stays a FLOOR (the text paid for its
+            # extra out of Pass A's budget), and ``a<space>b<space:3>c`` still
+            # splits the room 1:3.
+            #
+            # ``fill > 0`` IS the roomy/tight switch, and it needs no relief term:
+            # a roomy box grows the gaps from their natural advances (a sub-1.0
+            # minimum is INERT -- a floor, never a pre-shrink), and a tight box
+            # (``fill <= 0``) has nothing to grow, so the gaps collapse to their
+            # minima and the recorded Pass A fit lands that collapsed ink on the
+            # box. Adding the relief here would credit the same inches twice.
+            fill = box - natural_text
             # The FILL: the room the box offers beyond the NATURAL ink -- the
             # line as a plain space would render it. Measuring against the
             # natural (NOT against natural + minima) is what makes every slot
@@ -6799,7 +6917,6 @@ def _render_positioned_lines(
             # ``<space:2>`` in a roomy box stays a FLOOR (the text paid for its
             # extra out of Pass A's budget), and ``a<space>b<space:3>c`` still
             # splits the room 1:3.
-            fill = box - natural_text
             space_marker_line: Optional[ResolvedTextLine] = None
             space_marker_block: Optional[TextBlock] = None
             space_marker_words: Any = None
@@ -6856,7 +6973,20 @@ def _render_positioned_lines(
                     line.plain_text,
                     box,
                 )
-                rebuilt.append((rendered, block, rendered_width, offset))
+                rebuilt.append(
+                    (
+                        # The line engraves ONE normal advance per marked gap -- it
+                        # is the natural block, whose marker run replaces the space
+                        # the cursor already walked. Recording the advance here is
+                        # what keeps a bare ``<space>`` distinguishable from a
+                        # collapsed ``<space:0>`` in the report: leaving the
+                        # dataclass default (0.0) made the two read identically.
+                        replace(rendered, space_gap=space_advance),
+                        block,
+                        rendered_width,
+                        offset,
+                    )
+                )
                 continue
             try:
                 expanded_text, _expanded_words, expanded_glyphs = _render_line_block(
@@ -6950,6 +7080,17 @@ def _render_positioned_lines(
                 )
                 if growth > 1e-12:
                     box_width = rendered_width + growth
+            # The gap this line ENGRAVES. ``deltas`` are the cursor steps the
+            # markers take BEYOND the one normal advance the natural render paid
+            # (see :func:`_space_slot_weights`), measured in the final
+            # ``collision_scale * margin_fit`` frame, so ``advance + delta`` is the
+            # gap width in inches as engraved: 0.000 for ``<space:0>`` (the gap is
+            # collapsed -- it gave its whole advance back) and the advance the
+            # bare tag keeps for ``<space>``. This is the number that shows the
+            # gap-first hierarchy, which the collision-only ``scale`` cannot: the
+            # tight ``<space:0>`` line pays with its gap first, so its text ends
+            # up LESS compressed than its ``<space>`` twin's.
+            engraved_gap = min(space_advance + delta for delta in deltas)
             rebuilt.append(
                 (
                     replace(
@@ -6957,6 +7098,7 @@ def _render_positioned_lines(
                         space_slack=max(0.0, slack),
                         space_box_width=box_width,
                         space_leading=leading,
+                        space_gap=engraved_gap,
                         word_groups=expanded_words,
                         stroke_layers=layers,
                         stroke_widths=widths,
@@ -6972,6 +7114,12 @@ def _render_positioned_lines(
     # it on the rebuilt _RenderedLine (0.0 for every line it left alone).
     space_slack_by_line = {
         rendered.line_index: rendered.space_slack for rendered, *_ in compressed_lines
+    }
+    # The gap the line ENGRAVES, recorded the same way. Pass A2 measured it in
+    # the final scaled frame; a line it left alone keeps the dataclass default
+    # (0.0) and the report never asks for one, since only marked lines are keyed.
+    space_gap_by_line = {
+        rendered.line_index: rendered.space_gap for rendered, *_ in compressed_lines
     }
 
     # ---- Pass C: horizontal alignment + translate ----
@@ -7171,6 +7319,7 @@ def _render_positioned_lines(
                     stroke_layers=x_stroke_layers[i],
                     stroke_widths=x_stroke_widths[i],
                     space_slack=space_slack_by_line.get(line_index, 0.0),
+                    space_gap=space_gap_by_line.get(line_index, 0.0),
                 ),
                 x_word_groups[i],
                 x_glyph_groups[i],

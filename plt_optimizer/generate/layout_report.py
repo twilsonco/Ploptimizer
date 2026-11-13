@@ -161,7 +161,7 @@ class LineFinding:
             hanging indent is a measured column, so both are reported. The
             indent is the marker column + gap in inches. ``None`` for a plain
             line.
-        dynamic_space: The ``(slot_count, normalized_width)`` pair for a line
+        dynamic_space: The ``(slot_count, fill_width, engraved_gap)`` triple for a line
             carrying ``<space>`` markers -- how many dynamic gaps the line has
             and the width every one of them took, in inches. The width is a
             render-time measurement (the fill share, clamped to each slot's
@@ -194,7 +194,7 @@ class LineFinding:
     v_center: Optional[tuple[int, tuple[str, ...]]] = None
     text_color_runs: Optional[tuple[int, tuple[str, ...]]] = None
     list_marker: Optional[tuple[str, float]] = None
-    dynamic_space: Optional[tuple[int, float]] = None
+    dynamic_space: Optional[tuple[int, float, float]] = None
     edge_margin: Optional[tuple[str, float]] = None
     align_switched: bool = False
 
@@ -236,8 +236,9 @@ class LineFinding:
 def _dynamic_space_info(
     line: ResolvedTextLine,
     space_slack: float,
-) -> Optional[tuple[int, float]]:
-    """Return the ``(slot_count, normalized_width)`` a line's markers produced.
+    space_gap: float = 0.0,
+) -> Optional[tuple[int, float, float]]:
+    """Return the ``(slot_count, fill_width, engraved_gap)`` a line's markers produced.
 
     The slot count comes from the renderer's own per-character minimum map, so
     the report counts exactly the gaps the render widened -- a minimum written
@@ -247,10 +248,13 @@ def _dynamic_space_info(
         line: The resolved text line.
         space_slack: The render-time inches per slot (the normalized width
             every marked gap on the line took).
+        space_gap: The gap width the line ENGRAVES, inches -- the cursor step a
+            marker run takes in the final scaled frame. ``0.0`` for
+            ``<space:0>``, whose gap is collapsed.
 
     Returns:
-        The ``(slot count, width in inches)`` pair, or ``None`` when the line
-        carries no ``<space>`` marker.
+        The ``(slot count, fill in inches, engraved gap in inches)`` triple, or
+        ``None`` when the line carries no ``<space>`` marker.
     """
     # Imported here: layout_report is reached by the report/validate paths on
     # the Windows 7 target and must not pull the renderer in at module scope.
@@ -263,7 +267,7 @@ def _dynamic_space_info(
     slots = sum(1 for fraction in fractions if fraction != UNSET_SPACE_FRACTION)
     if not slots:
         return None
-    return slots, space_slack
+    return slots, space_slack, space_gap
 
 
 def _spacing_deviation(requested: float, effective: float) -> bool:
@@ -473,7 +477,7 @@ def collect_line_findings(
         | {index for index, line in enumerate(content) if line.has_v_center}
         | {index for index, line in enumerate(content) if line.has_color_runs}
         | {index for index, line in enumerate(content) if line.marker_text}
-        | {index for index, line in enumerate(content) if _dynamic_space_info(line, 0.0)}
+        | {index for index, line in enumerate(content) if _dynamic_space_info(line, 0.0, 0.0)}
     ):
         if line_index >= len(content):  # pragma: no cover - defensive
             continue
@@ -516,10 +520,12 @@ def collect_line_findings(
         list_marker: tuple[str, float] | None = None
         if line.marker_text:
             list_marker = (line.marker_text, line.indent_left)
-        dynamic_space: tuple[int, float] | None = None
+        dynamic_space: tuple[int, float, float] | None = None
         if line.styled_runs:
             dynamic_space = _dynamic_space_info(
-                line, rendered.space_slack_by_line.get(line_index, 0.0)
+                line,
+                rendered.space_slack_by_line.get(line_index, 0.0),
+                rendered.space_gap_by_line.get(line_index, 0.0),
             )
         edge_shift = edge_margins.get(line_index)
         edge_margin = (line.text_h_alignment, edge_shift) if edge_shift else None
@@ -760,13 +766,18 @@ def _label_lines(
                 )
             dynamic_space = entry.dynamic_space
             if dynamic_space is not None:
-                slots, width = dynamic_space
-                # The width a gap took is a render-time measurement (the fill
-                # share, clamped to that slot's minimum/maximum), invisible in
-                # the YAML exactly like the list marker above.
+                slots, width, gap = dynamic_space
+                # The fill a gap took is a render-time measurement (clamped to
+                # that slot's minimum/maximum), invisible in the YAML exactly
+                # like the list marker above. The engraved gap rides with it
+                # because the fill cannot tell a ``<space:0>`` line from its
+                # ``<space>`` twin: in the tight regime neither has slack to
+                # spend, so both read ``x 0.000in`` while the collapsed gap is
+                # precisely why the former's text is cut less compressed.
                 lines.append(
                     f"    Line {line_index}: {line.plain_text!r} "
-                    f"dynamic space {slots} slot(s) x {width:.3f}in"
+                    f"dynamic space {slots} slot(s) x {width:.3f}in "
+                    f"(gap {gap:.3f}in)"
                 )
             edge_margin = entry.edge_margin
             if edge_margin is not None:

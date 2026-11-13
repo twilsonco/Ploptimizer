@@ -40,13 +40,13 @@ class TestDynamicSpaceReport:
         assert has_layout_findings([resolved], {"l1": rendered}) is True
 
     def test_the_finding_carries_the_slot_count_and_width(self) -> None:
-        """The structured field is the ``(slots, inches)`` pair (JSON surface)."""
+        """The structured field is the ``(slots, inches, engraved gap)`` triple."""
         line = _space_line("AB<space>CD", "AB CD")
         resolved, rendered = _label("l1", [line], space_slack={0: 0.625})
 
         findings = collect_line_findings(rendered)
 
-        assert [finding.dynamic_space for finding in findings] == [(1, 0.625)]
+        assert [finding.dynamic_space for finding in findings] == [(1, 0.625, 0.0)]
 
     def test_every_marked_gap_is_counted(self) -> None:
         """Two markers on a line are two slots sharing one normalized width."""
@@ -64,7 +64,7 @@ class TestDynamicSpaceReport:
 
         findings = collect_line_findings(rendered)
 
-        assert [finding.dynamic_space for finding in findings] == [(1, 0.75)]
+        assert [finding.dynamic_space for finding in findings] == [(1, 0.75, 0.0)]
 
     def test_a_trailing_marker_is_a_slot(self) -> None:
         """A marker past the last glyph is counted (its slack pulls the ink left)."""
@@ -73,7 +73,7 @@ class TestDynamicSpaceReport:
 
         findings = collect_line_findings(rendered)
 
-        assert [finding.dynamic_space for finding in findings] == [(1, 0.25)]
+        assert [finding.dynamic_space for finding in findings] == [(1, 0.25, 0.0)]
 
     def test_zero_width_is_reported_as_a_measurement(self) -> None:
         """A line with no slack to give took 0.000in -- reported, not hidden.
@@ -96,7 +96,7 @@ class TestDynamicSpaceReport:
 
         findings = collect_line_findings(rendered)
 
-        assert [finding.dynamic_space for finding in findings] == [(1, 1.5)]
+        assert [finding.dynamic_space for finding in findings] == [(1, 1.5, 0.0)]
 
     def test_an_unmarked_line_is_not_a_finding(self) -> None:
         """A plain line (and a line with other tags) produces no space finding."""
@@ -115,7 +115,7 @@ class TestDynamicSpaceReport:
 
         findings = collect_line_findings(rendered)
 
-        assert [(f.line_index, f.dynamic_space) for f in findings] == [(0, (1, 0.5))]
+        assert [(f.line_index, f.dynamic_space) for f in findings] == [(0, (1, 0.5, 0.0))]
 
     def test_the_finding_strips_markup(self) -> None:
         """The report prints the plain text, never the tags."""

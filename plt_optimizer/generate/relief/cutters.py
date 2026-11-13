@@ -33,8 +33,8 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
-from shapely.geometry import LineString, Polygon
-from shapely.geometry.base import BaseGeometry
+from shapely.geometry import LinearRing, LineString, Polygon
+from shapely.geometry.base import BaseGeometry, BaseMultipartGeometry
 
 from plt_optimizer.generate.relief.filler import region_polygons
 from plt_optimizer.generate.relief.regions import EngraveRegions
@@ -61,20 +61,23 @@ class ReliefCutter:
 
 
 def _longest_span(geometry: BaseGeometry) -> float:
-    """Widest horizontal extent of any linear part of a scanline cut."""
+    """Widest horizontal extent of any linear part of a scanline cut.
+
+    Dispatch is by ``isinstance`` -- a string ``geom_type`` tag narrows nothing,
+    and the attributes differ per class: a ring/line carries ``coords``, a
+    polygon carries ``exterior``, and every multi-geometry derives from
+    :class:`BaseMultipartGeometry`, which is what carries ``geoms``.
+    """
     if geometry.is_empty:
         return 0.0
-    kind = geometry.geom_type
-    if kind in ("LineString", "LinearRing"):
+    if isinstance(geometry, (LineString, LinearRing)):
         xs = [float(p[0]) for p in geometry.coords]
         return float(max(xs) - min(xs))
-    if kind in (
-        "MultiLineString",
-        "GeometryCollection",
-        "MultiPolygon",
-        "Polygon",
-        "MultiPoint",
-    ):
+    if isinstance(geometry, Polygon):
+        # The outer ring contains the holes, so it alone is the extent.
+        xs = [float(p[0]) for p in geometry.exterior.coords]
+        return float(max(xs) - min(xs)) if xs else 0.0
+    if isinstance(geometry, BaseMultipartGeometry):
         best = 0.0
         for child in geometry.geoms:
             best = max(best, _longest_span(child))

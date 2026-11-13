@@ -21,8 +21,10 @@ import math
 from dataclasses import dataclass
 from typing import List, Sequence, Tuple
 
+from shapely import BufferJoinStyle
 from shapely.geometry import LinearRing, LineString, MultiPolygon, Polygon
 from shapely.geometry import Point as ShapelyPoint
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from plt_optimizer.generate.label_renderer import RenderedLabel
@@ -49,7 +51,9 @@ class EngraveRegions:
     Attributes:
         box: The engrave box polygon (label rect, border band removed when
             `relief_engraving_preserve_border` is on).
-        islands: Union polygon of the raised silhouettes (may be empty).
+        islands: The raised silhouettes as a geometry UNION (a ``MultiPolygon``
+            when the label has disjoint islands, e.g. a word of separate
+            letters; may be empty). Consumed only as a ``difference`` operand.
         engrave: The engrave region: ``box - islands``.
         interior: The engrave components NOT touching the box boundary
             (text counters like the "A" hole): their core erodes by the
@@ -67,7 +71,7 @@ class EngraveRegions:
     """
 
     box: Polygon
-    islands: Polygon
+    islands: BaseGeometry
     engrave: MultiPolygon
     interior: Tuple[Polygon, ...]
     outer: Tuple[Polygon, ...]
@@ -181,8 +185,12 @@ def _polygon_slot(order: List[int], parent_of: List[int], child: int) -> int:
     return parent_of[child]
 
 
-def island_polygons(ink: Sequence[Tuple[Sequence[Point], float]]) -> Polygon:
+def island_polygons(ink: Sequence[Tuple[Sequence[Point], float]]) -> BaseGeometry:
     """Build the raised-island union from engraved ink.
+
+    The union of disjoint islands is a ``MultiPolygon``; callers use it only as
+    a :class:`~shapely.geometry.base.BaseGeometry` operand (``box.difference``),
+    never as a single polygon.
 
     Closed polylines (TTF fill contours, ring skeletons) fill as polygons
     with containment-parity holes; open polylines (skeleton fonts,
@@ -250,7 +258,7 @@ def build_engrave_regions(
     if preserve_border and border_band > 0.0:
         # Miter (sharp) inset: the preserved border band follows the label
         # rect corners, so the engrave box is the rect inset by the band.
-        inset = box.buffer(-border_band, join_style=2)
+        inset = box.buffer(-border_band, join_style=BufferJoinStyle.mitre)
         box = inset if isinstance(inset, Polygon) else Polygon()
     islands = island_polygons(ink)
     engrave = box.difference(islands)

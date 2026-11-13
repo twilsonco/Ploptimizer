@@ -103,19 +103,13 @@ job:
     #   l14 (<space:0>) is NARROWER by the advance the gap gave up, because the
     #       floor let the gap contract before the text was squeezed.
     - id: l14
-      width: 2.5
-      max_h_compress: 0.7
       content:
-        - text: "AAAAAA<space:0>BBBBBB"
+        - text: "AAAAAAA<space:0>BBBBBBB"
 
     - id: l15
-      width: 2.5
-      max_h_compress: 0.7
       content:
-        - text: "AAAAAA<space>BBBBBB"
+        - text: "AAAAAAA<space>BBBBBBB"
 
     - id: l16
-      width: 2.5
-      max_h_compress: 0.7
       content:
-        - text: "AAAAAA BBBBBB"
+        - text: "AAAAAAA BBBBBBB"

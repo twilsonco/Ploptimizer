@@ -39,6 +39,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from shapely import BufferJoinStyle
 from shapely.geometry import LineString, Polygon
 from shapely.geometry import box as shapely_box
 from shapely.geometry.base import BaseGeometry
@@ -175,9 +176,11 @@ def _cores(
     outer_cores: List[Polygon] = []
     interior_cores: List[Polygon] = []
     for comp in regions.outer:
-        outer_cores.extend(region_polygons(comp.buffer(-r, quad_segs=256, join_style=1)))
+        outer_cores.extend(
+            region_polygons(comp.buffer(-r, quad_segs=256, join_style=BufferJoinStyle.round))
+        )
     for comp in regions.interior:
-        eroded = comp.buffer(-r, quad_segs=256, join_style=1)
+        eroded = comp.buffer(-r, quad_segs=256, join_style=BufferJoinStyle.round)
         interior_cores.extend(_clip_counter_floor(eroded, floor_diameter / 2.0))
     return outer_cores, interior_cores
 

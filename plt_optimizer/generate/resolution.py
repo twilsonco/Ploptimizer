@@ -3091,6 +3091,8 @@ def compute_horizontal_scale(
     rendered_width: float,
     available_width: float,
     max_h_compress: float,
+    *,
+    natural_width: Optional[float] = None,
 ) -> float:
     """Compute the uniform horizontal scale factor for one rendered line.
 
@@ -3111,6 +3113,13 @@ def compute_horizontal_scale(
         max_h_compress: Maximum compression fraction in `[0.0, 1.0]`.
             `0.0` disables compression; `0.5` allows squeezing to 50%
             of natural width.
+        natural_width: Width the fit is MEASURED AGAINST, in inches; defaults
+            to `rendered_width`. A `<space>` line whose minima collapse is
+            naturally narrower than the width it renders at, and the collapsed
+            gaps are width the TEXT may keep -- so the ratio is
+            `available_width / natural_width`, not `/ rendered_width`. The
+            floor is expressed against `rendered_width`, which is the ink
+            actually being scaled.
 
     Returns:
         A scale factor in `[1 - max_h_compress, 1.0]`. `1.0` means no
@@ -3119,9 +3128,10 @@ def compute_horizontal_scale(
     limit = min(max(0.0, max_h_compress), 1.0)
     if limit <= 0.0 or rendered_width <= 0.0:
         return 1.0
-    if rendered_width <= available_width:
+    basis = rendered_width if natural_width is None else natural_width
+    if basis <= available_width:
         return 1.0
-    needed = available_width / rendered_width
+    needed = available_width / basis
     floor = 1.0 - limit
     return max(needed, floor)
 
@@ -4940,22 +4950,21 @@ def _resolve_content(
         )
 
         # Resolve line_spacing, checking for "auto" at each cascade level
-        line_spacing_raw = (
+        # (the cascade's last term is the ``auto`` sentinel itself, so the
+        # resolved value is never ``None``).
+        line_spacing_raw: Union[float, str] = (
             line.line_spacing
             or label_input.line_spacing
             or job.line_spacing
             or DEFAULT_LINE_SPACING
         )
 
-        # Check if the resolved value is the string "auto"
-        if isinstance(line_spacing_raw, str) and line_spacing_raw == "auto":
-            # Use sentinel value -1.0 to indicate auto; will be calculated later
+        # ``auto`` (the sentinel, measured later) becomes -1.0; a number, or a
+        # numeric string (``line_spacing: "1.5"``), becomes that float.
+        if line_spacing_raw == "auto":
             line_spacing: float = -1.0
         else:
-            # Convert to float (handles both numeric and None cases)
-            line_spacing = (
-                float(line_spacing_raw) if line_spacing_raw is not None else DEFAULT_LINE_SPACING
-            )
+            line_spacing = float(line_spacing_raw)
 
         # Resolve horizontal compression limit explicitly so an intentional
         # `0.0` (compression disabled) is honored instead of falling

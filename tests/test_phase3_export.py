@@ -8168,6 +8168,30 @@ class TestSpaceDemoExample:
         result = self._export(tmp_path)
         return self._bounds(result.rendered_labels[label_id].source_label)
 
+    def _relay_gaps(self, tmp_path: Path, label_id: str) -> dict[int, float]:
+        """The engraved gap per line, read back out of the relay TEXT.
+
+        ``{(line index, inches)}`` parsed from the report's
+        ``dynamic space N slot(s) x F.FFFin (gap G.GGFin)`` lines -- a label
+        with no marker prints no such line, so an empty dict.
+        """
+        import re
+
+        from plt_optimizer.generate.layout_report import format_layout_report
+
+        result = self._export(tmp_path)
+        rendered = result.rendered_labels[label_id]
+        text = "\n".join(
+            format_layout_report([rendered.source_label], {label_id: rendered}, full=True)
+        )
+        return {
+            int(line_index): float(gap)
+            for line_index, gap in re.findall(
+                r"Line (\d+): .* dynamic space \d+ slot\(s\) x -?[\d.]+in \(gap (-?[\d.]+)in\)",
+                text,
+            )
+        }
+
     def test_markup_parses_to_plain_text_and_fractions(self) -> None:
         """Tags never engrave: the marker becomes the gap, and carries its floor."""
         from plt_optimizer.generate.label_renderer import _dynamic_space_fractions
@@ -8288,17 +8312,20 @@ class TestSpaceDemoExample:
         assert plain[1] < self._BOX_RIGHT
 
     def test_the_tight_trio_shows_the_hierarchy(self, tmp_path: Path) -> None:
-        """The tight trio (width 2.5, ``max_h_compress: 0.7``): gaps pay FIRST.
+        """The tight trio (``<space:0>`` / ``<space>`` / unmarked): gaps pay FIRST.
 
-        All three lines need 5.516in in a 2.25in box, so every one of them is
-        margin-fit compressed (past ``max_h_compress`` -- the pair's words need
-        more room than the deepest permitted squeeze, exactly like the
-        over-wide lines of a real job). The bare ``<space>`` (l15) and its
-        unmarked twin (l16) engrave IDENTICAL ink -- reserving one normal
-        advance is the normal case. ``<space:0>`` (l14) is NARROWER: its gap
-        collapses to its floor first, and the room that frees goes to the text,
-        which therefore needs less of the squeeze. Space before text, never the
-        reverse.
+        All three lines need 6.488in in the label's 5.750in box, so every one of
+        them is over its box. The bare ``<space>`` (l15) and its unmarked twin
+        (l16) engrave IDENTICAL ink -- reserving one normal advance is the normal
+        case. ``<space:0>`` (l14) is NARROWER: its gap collapses to its floor
+        first, and the room that frees goes to the text. Space before text,
+        never the reverse.
+
+        The trio is NOT margin-fit compressed: the label box sets placement, the
+        compression budget is the X-availability, so all three keep scale 1.0
+        and their equality is the unmarked line's guarantee, not a squeeze they
+        share. The gap hierarchy is what distinguishes them, pinned by
+        :meth:`test_the_relay_shows_the_gap_hierarchy`.
         """
         from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
 
@@ -8312,14 +8339,33 @@ class TestSpaceDemoExample:
         # Zero floor: the gap gave, so the line is the narrowest of the trio.
         assert (zero[1] - zero[0]) < (bare[1] - bare[0]) - 0.05
         # Every line of the trio pays the SAME squeeze: the gap's contraction is
-        # a gap decision, never a discount on the text's compression.
+        # a gap decision, never a discount on the text's compression. In this
+        # spec that shared scale is 1.0 -- the box does not bind (see the
+        # docstring) -- so equality is the whole assertion here.
         scales = []
         for label_id in ("l14", "l15", "l16"):
             _lc, entries = _render_text_local_with_bounds(by_id[label_id].source_label)
             scales.append(entries[0].compression_scale)
         assert scales[0] == pytest.approx(scales[1], abs=1e-9)
         assert scales[1] == pytest.approx(scales[2], abs=1e-9)
-        assert scales[0] < 1.0  # the trio really is compressed (the tight regime)
+
+    def test_the_relay_shows_the_gap_hierarchy(self, tmp_path: Path) -> None:
+        """The report line names the gap each line of the tight trio engraves.
+
+        l14 (``<space:0>``) and l15 (bare ``<space>``) take the SAME fill --
+        0.000in, because a box that is already full has nothing to hand out --
+        so the fill alone prints the two lines identically and reads as "the
+        balancing does not work". The engraved gap is the half that shows the
+        hierarchy: l14's collapses to 0.000in, l15's keeps a full space advance.
+        l16 is the unmarked twin and prints no gap at all.
+        """
+        gaps = {
+            label_id: self._relay_gaps(tmp_path, label_id) for label_id in ("l14", "l15", "l16")
+        }
+
+        assert gaps["l14"][0] == pytest.approx(0.0, abs=1e-6)
+        assert gaps["l15"][0] > 0.0
+        assert gaps["l16"] == {}
 
     def test_per_cutter_file_names_are_unchanged(self, tmp_path: Path) -> None:
         """The tag changes ink, not the export contract: ``[plate_][material_]cutter_kind_jobid``."""

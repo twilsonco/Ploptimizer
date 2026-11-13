@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from plt_optimizer.generate.descender_adjust import DescenderFix
 from plt_optimizer.generate.label_renderer import RenderedLabel
-from plt_optimizer.generate.layout_report import format_layout_report, has_layout_findings
+from plt_optimizer.generate.layout_report import (
+    _dynamic_space_info,
+    collect_line_findings,
+    format_layout_report,
+    has_layout_findings,
+)
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 
 
@@ -39,6 +44,7 @@ def _label(
     edge_margins: dict[int, float] | None = None,
     center_switched: set[int] | None = None,
     space_slack: dict[int, float] | None = None,
+    space_gap: dict[int, float] | None = None,
 ) -> tuple[ResolvedLabel, RenderedLabel]:
     """Build a (resolved, rendered) pair carrying the given render-time maps."""
     resolved = ResolvedLabel(
@@ -68,6 +74,7 @@ def _label(
         line_spacing_by_line=dict(spacing or {}),
         descender_adjustments_by_line=dict(descenders or {}),
         space_slack_by_line=dict(space_slack or {}),
+        space_gap_by_line=dict(space_gap or {}),
     )
     return resolved, rendered
 
@@ -1040,3 +1047,64 @@ class TestTextColorMarkupFindings:
 
         assert format_layout_report([resolved], {"l1": rendered}, full=False) == []
         assert has_layout_findings([resolved], {"l1": rendered}) is False
+
+
+class TestDynamicSpaceEngravedGap:
+    """The report prints the gap a ``<space>`` line ENGRAVES, not only its fill.
+
+    The fill share is 0 in the tight regime (a box that is already full has
+    nothing to hand out), so it cannot tell ``<space:0>`` from its ``<space>``
+    twin; the engraved gap is the half that shows the gap-first hierarchy.
+    """
+
+    def test_the_info_returns_the_engraved_gap(self) -> None:
+        """The third element is the gap the caller measured, verbatim."""
+        line = _line("AB CD").with_markup("AB<space>CD")
+
+        assert _dynamic_space_info(line, 0.5, 0.106) == (1, 0.5, 0.106)
+
+    def test_the_engraved_gap_defaults_to_zero(self) -> None:
+        """A caller with no measurement (the presence test) gets 0.0."""
+        line = _line("AB CD").with_markup("AB<space>CD")
+
+        assert _dynamic_space_info(line, 0.5) == (1, 0.5, 0.0)
+
+    def test_an_unmarked_line_is_not_info(self) -> None:
+        """A gap cannot make a plain line a finding."""
+        assert _dynamic_space_info(_line("AB CD"), 0.5, 0.106) is None
+
+    def test_the_finding_carries_the_triple(self) -> None:
+        """``collect_line_findings`` reads the gap off the rendered label."""
+        line = _line("AB CD").with_markup("AB<space>CD")
+        _resolved, rendered = _label("l1", [line], space_slack={0: 0.5}, space_gap={0: 0.106})
+
+        assert [finding.dynamic_space for finding in collect_line_findings(rendered)] == [
+            (1, 0.5, 0.106)
+        ]
+
+    def test_the_report_prints_the_engraved_gap(self) -> None:
+        """The relay line names the fill and the engraved gap."""
+        line = _line("AB CD").with_markup("AB<space>CD")
+        resolved, rendered = _label("l1", [line], space_slack={0: 0.0}, space_gap={0: 0.106})
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "'AB CD' dynamic space 1 slot(s) x 0.000in (gap 0.106in)" in text
+        assert has_layout_findings([resolved], {"l1": rendered}) is True
+
+    def test_a_collapsed_gap_differs_from_a_kept_one(self) -> None:
+        """``<space:0>`` and ``<space>`` in a full box: same fill, other gaps.
+
+        Both lines take 0.000in of fill, which is exactly why the gap rides
+        with it -- the collapsed gap prints 0.000in, the kept one its advance.
+        """
+        zero = _line("AB CD").with_markup("AB<space:0>CD")
+        bare = _line("AB CD").with_markup("AB<space>CD")
+        resolved, rendered = _label(
+            "l1", [zero, bare], space_slack={0: 0.0, 1: 0.0}, space_gap={0: 0.0, 1: 0.106}
+        )
+
+        text = "\n".join(format_layout_report([resolved], {"l1": rendered}))
+
+        assert "Line 0: 'AB CD' dynamic space 1 slot(s) x 0.000in (gap 0.000in)" in text
+        assert "Line 1: 'AB CD' dynamic space 1 slot(s) x 0.000in (gap 0.106in)" in text

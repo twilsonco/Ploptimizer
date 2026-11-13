@@ -1070,15 +1070,18 @@ def export_per_cutter_plts(
             ParallelEnsembleStrategy,
         )
 
-        if fast_mode:
+        # Named helpers ASSIGNED to the declared ``strategy_factory``: a nested
+        # ``def`` of that same name would obscure the declaration above (pyright),
+        # and an assignment of a ``lambda`` is banned by ruff (E731).
+        def _nn2opt_factory(baseline_distance: float) -> OptimizationStrategy:
+            """Fast mode: plain nearest-neighbour + 2-opt, no ensemble context."""
+            return NearestNeighbor2OptStrategy()
 
-            def strategy_factory(baseline_distance: float) -> OptimizationStrategy:
-                return NearestNeighbor2OptStrategy()
+        def _ensemble_factory(baseline_distance: float) -> OptimizationStrategy:
+            """Full mode: the parallel ensemble, which wants the baseline rapid."""
+            return ParallelEnsembleStrategy(baseline_distance=baseline_distance)
 
-        else:
-
-            def strategy_factory(baseline_distance: float) -> OptimizationStrategy:
-                return ParallelEnsembleStrategy(baseline_distance=baseline_distance)
+        strategy_factory = _nn2opt_factory if fast_mode else _ensemble_factory
 
     def _report(layer: str, optimization: PlateOptimization) -> None:
         """Log one layer's optimization outcome (dual-logging topology)."""

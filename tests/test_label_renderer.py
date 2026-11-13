@@ -4026,26 +4026,52 @@ class TestDynamicSpaceGeometry:
         assert _space_slot_indices("a b", _frs("a b", m1=0.0), 2) == (1,)
         assert _space_slot_indices("a b", _frs("a b"), 2) == ()
 
-    def test_gap_relief_charges_the_line_only_what_a_gap_gives_back(self) -> None:
-        """The relief term is ``(1 - X) * advance`` per sub-1.0 minimum, summed.
-
-        This is what lets a tight line pay with its GAPS before it pays with its
-        glyphs: the natural width charges a full advance for the space, so the
-        compression budget is widened by exactly the slack the floor hands back.
-        """
-        assert _space_gap_relief("a b", _frs("a b"), 0.2) == 0.0
-        # A bare <space> (X = 1.0) is the normal case: nothing given back.
-        assert _space_gap_relief("a b", _frs("a b", m1=1.0), 0.2) == 0.0
-        # A zero minimum gives back the WHOLE advance; a partial one its share.
+    def test_gap_relief_is_the_advance_a_collapsed_minimum_gives_back(self) -> None:
+        """A sub-1.0 minimum gives back (1 - X) * advance; every other minimum,
+        every unmarked gap and an empty line give back nothing. The relief is
+        measured in the NATURAL frame -- the render charges a full advance per
+        gap, and this is the part of it the minimum does not use."""
+        assert _space_gap_relief("", (-1.0,), 0.2) == 0.0
         assert _space_gap_relief("a b", _frs("a b", m1=0.0), 0.2) == pytest.approx(0.2)
-        assert _space_gap_relief("a b", _frs("a b", m1=0.3), 0.2) == pytest.approx(0.14)
-        # A minimum above 1.0 is the expansion's reservation, not relief.
+        assert _space_gap_relief("a b", _frs("a b", m1=0.5), 0.2) == pytest.approx(0.1)
+        # X >= 1 is a floor or an expansion reservation, never a relief.
+        assert _space_gap_relief("a b", _frs("a b", m1=1.0), 0.2) == 0.0
         assert _space_gap_relief("a b", _frs("a b", m1=2.5), 0.2) == 0.0
-        # Multiple slots sum; an unmarked space in between contributes nothing.
-        two = _frs("a b c", m1=0.0, m3=0.5)
-        assert _space_gap_relief("a b c", two, 0.2) == pytest.approx(0.3)
-        # A marker on a non-space character is not a gap at all.
-        assert _space_gap_relief("ab", (0.0, 0.0), 0.2) == 0.0
+        # Two minima give back two advances.
+        assert _space_gap_relief("a b c", _frs("a b c", m1=0.0, m3=0.0), 0.2) == pytest.approx(0.4)
+        # The relief tracks the gap law: a minimum written on a character that
+        # is not a space is not a gap at all.
+        assert _space_gap_relief("ab", _frs("ab", m1=0.0), 0.2) == 0.0
+
+    def test_a_collapsed_gap_gives_its_advance_back_to_the_text(self) -> None:
+        """The hierarchy's mechanism, pinned where it lives: in the GAP WIDTH.
+
+        A tight line's fit is measured against its RENDERED width, and the
+        render collapses a sub-1.0 minimum -- so the relief is not a term added
+        to a budget (that double-credits it and shoves the ink past the far
+        margin); it IS the collapsed gap. The gap law's own output is therefore
+        the whole contract: a bare ``<space>`` in a tight line keeps the advance
+        it replaces (nothing given back, the text pays as an unmarked line
+        does), and ``<space:0>`` gives the whole advance back.
+        """
+        adv = 0.2
+        # Tight (fill <= 0), engraved at scale 0.5: the gap is a cursor delta in
+        # the ENGRAVED frame, so a bare tag keeps half an advance.
+        bare = _space_slot_gaps(_frs("a b", m1=1.0), -1.0, adv, "a b", 0.5)
+        zero = _space_slot_gaps(_frs("a b", m1=0.0), -1.0, adv, "a b", 0.5)
+        half = _space_slot_gaps(_frs("a b", m1=0.5), -1.0, adv, "a b", 0.5)
+        assert bare == pytest.approx([0.1])
+        assert zero == pytest.approx([0.0])
+        # The rungs are proportional to X, so the relief is (1 - X) * engraved.
+        assert half == pytest.approx([0.05])
+        assert (bare[0] - zero[0]) == pytest.approx(adv * 0.5)
+        assert (bare[0] - half[0]) == pytest.approx((bare[0] - zero[0]) / 2.0)
+        # A minimum ABOVE one advance is the expansion's reservation, never a
+        # relief: in a tight line it takes the WHOLE gap (the floor always
+        # wins), so the text gives way, not the other line's ink.
+        wide = _space_slot_gaps(_frs("a b", m1=2.5), -1.0, adv, "a b", 0.5)
+        assert wide == pytest.approx([2.5 * adv * 0.5])
+        assert wide[0] > bare[0]
 
     def test_char_shifts_push_only_the_suffix(self) -> None:
         """A slot moves the glyphs AT or RIGHT of it by the prefix sum; the
@@ -4315,6 +4341,70 @@ class TestDynamicSpaceRender:
         )
         assert entries[0].space_slack == pytest.approx(0.0)
 
+    def _entry(
+        self, line: ResolvedTextLine, width: float = 6.0
+    ) -> Tuple[Tuple[float, float, float, float], float]:
+        """Render one line and return its ``(bounds, compression_scale)``."""
+        _lc, entries = _render_text_local_with_bounds(_space_label([line], width=width))
+        assert len(entries) == 1
+        return entries[0].bounds, entries[0].compression_scale
+
+    def test_gap_relief_buys_the_text_a_milder_compression(self) -> None:
+        """The hierarchy, end to end: a LOWER minimum compresses the TEXT less.
+
+        The relief term is ``(1 - X) * advance`` per sub-1.0 minimum, ADDED to
+        the line's compression budget. A bare ``<space>`` relieves nothing, so it
+        compresses exactly like an unmarked space; ``<space:0.5>`` buys half a
+        rung; ``<space:0>`` buys the whole advance. Measured on
+        ``MMM WWW`` (natural 3.733in, one advance 0.222in) in a 2.8in ink room,
+        where the needed scale is 0.742 for the plain pair and 0.780 for the
+        collapsed one -- comfortably inside the 0.5 floor a
+        ``max_h_compress: 0.5`` permission allows, so the relief is what the
+        line spends and the floor never engages.
+        """
+        probe = _space_line("MMM WWW")
+        adv = probe.space_width_fraction * probe.toolpath_text_height + probe.character_spacing
+        natural = self._ink(probe, width=20.0)
+        n = natural[1] - natural[0]
+
+        def scale(text: str) -> float:
+            return self._entry(_space_line(text, max_h_compress=0.5), width=3.0)[1]
+
+        plain = scale("MMM WWW")
+        bare = scale("MMM<space>WWW")
+        half = scale("MMM<space:0.5>WWW")
+        zero = scale("MMM<space:0>WWW")
+        # A bare tag is an unmarked space (X = 1.0 relieves 0.0): bit-identical.
+        assert bare == pytest.approx(plain, abs=1e-9)
+        # The ladder is strict, and its rungs ARE the relief: each rung's needed
+        # scale is (room + (1 - X) * advance * own-scale) / natural, solved as
+        # one self-consistent pass, so the step is proportional to (1 - X).
+        assert zero > half > bare
+        assert (zero - bare) == pytest.approx(2.0 * (half - bare), rel=0.05)
+        # The whole ladder is bounded by what the relief can buy: the zero floor
+        # cannot lift the line by more than one advance of its own width.
+        assert zero - bare <= adv / n + 1e-9
+
+    def test_floor_bound_line_compresses_identically_by_design(self) -> None:
+        """The regime the user measured, pinned as a law (not a bug).
+
+        A 6.42in line in a 2.3in ink room needs scale 0.358. A
+        ``max_h_compress: 0.25`` permission floors compression at 0.750, and a
+        0.222in relief cannot close a 4.1in deficit -- so the FLOOR binds for
+        every minimum and all three twins report the same 25% compressed.
+        ``max_h_compress`` is a LIMIT, not a target: identical scales are the
+        correct answer for a line that overflows by far more than one space.
+        """
+        scales = {
+            text: self._entry(_space_line(text, max_h_compress=0.25), width=2.5)[1]
+            for text in (
+                "MMMMMMMM WWWWWWWW",
+                "MMMMMMMM<space>WWWWWWWW",
+                "MMMMMMMM<space:0>WWWWWWWW",
+            )
+        }
+        assert all(s == pytest.approx(0.75, abs=1e-6) for s in scales.values()), scales
+
     def test_marker_line_fills_the_body_box(self) -> None:
         """A list item's gap fills its own box, never past the right margin."""
         body = _space_line(
@@ -4341,42 +4431,43 @@ class TestDynamicSpaceRender:
     def test_the_gap_gives_first_and_the_text_compresses_second(self) -> None:
         """The hierarchy: ``<space:0>`` pays for the margin BEFORE the text does.
 
-        A line wider than its box is compressed to ``max_h_compress``. With the
-        bare tag the gap stands at one normal advance, so the marked line and
-        its unmarked twin end at the SAME ink width -- the minimum reserved
-        nothing, the text paid for the margin on the normal budget. With
-        ``<space:0>`` the gap collapses to nothing first, and that freed room is
-        handed to the text: the line lands NARROWER than the twin, still at the
-        same ``max_h_compress``. The space is the first thing squeezed, the text
-        the second.
+        A line wider than its box is squeezed by the margin fit. With the bare
+        tag the gap stands at one normal advance, so the marked line and its
+        unmarked twin report the SAME ``compression_scale`` and fill the same ink
+        box. With ``<space:0>`` the gap gives its advance back first, so the fit
+        is measured against the width the collapsed line really has: the text is
+        squeezed LESS (a strictly higher scale -- the ladder
+        ``test_space_zero_is_a_tight_regime_relief`` pins in full) and the ink
+        still lands ON the box. The gap's gift buys MILDER GLYPHS, never extra
+        room to paint past the far margin.
         """
         width = 2.4
         twin = _space_line("hello world", max_h_compress=0.5)
         bare = _space_line("hello<space>world", max_h_compress=0.5)
         zero = _space_line("hello<space:0>world", max_h_compress=0.5)
 
-        def ink(line: ResolvedTextLine) -> Tuple[float, float]:
+        def measured(line: ResolvedTextLine) -> Tuple[float, float, float]:
+            """This line's ink extent and the compression scale it reports."""
             _lc, entries = _render_text_local_with_bounds(_space_label([line], width=width))
-            return _space_ink_x(entries[0].bounds)
+            min_x, max_x = _space_ink_x(entries[0].bounds)
+            return min_x, max_x, entries[0].compression_scale
 
-        plain_x = ink(twin)
-        bare_x = ink(bare)
-        zero_x = ink(zero)
-        plain_w = plain_x[1] - plain_x[0]
-        bare_w = bare_x[1] - bare_x[0]
-        zero_w = zero_x[1] - zero_x[0]
-        adv = _space_line("a").space_width_fraction * _space_line("a").toolpath_text_height
-        # Bare tag: IDENTICAL to the unmarked twin -- a plain space is the
-        # normal case, so reserving it changes nothing, bit for bit.
-        assert bare_x == pytest.approx(plain_x, abs=1e-9)
+        plain_min, plain_max, plain_scale = measured(twin)
+        bare_min, bare_max, bare_scale = measured(bare)
+        zero_min, zero_max, zero_scale = measured(zero)
+        # Bare tag: IDENTICAL to the unmarked twin -- a plain space reserves
+        # nothing, so the relief is zero and the squeeze is bit-for-bit plain.
+        assert (bare_min, bare_max, bare_scale) == pytest.approx(
+            (plain_min, plain_max, plain_scale), abs=1e-9
+        )
         # Zero minimum: the gap gave a full advance FIRST, so the text needed
-        # less of the margin-fit squeeze. The contraction is measured in the
-        # compressed frame (the line's margin-fit scale times the advance), and
-        # the line lands inside the box the unmarked line fills.
-        assert zero_w < bare_w - 1e-9
-        assert zero_w == pytest.approx(bare_w - plain_w / 3.5514 * adv, abs=2e-3)
-        assert zero_x[0] == pytest.approx(self.INK_LEFT, abs=1e-4)
-        assert zero_x[1] <= width - self.INK_LEFT + 1e-9
+        # less of the margin-fit squeeze.
+        assert zero_scale > bare_scale + 1e-9
+        # ...and the line lands on the box the unmarked line fills: the gift is
+        # the text's relief, not room to overflow the margin.
+        assert zero_max - zero_min == pytest.approx(bare_max - bare_min, abs=1e-9)
+        assert zero_min == pytest.approx(self.INK_LEFT, abs=1e-4)
+        assert zero_max <= width - self.INK_LEFT + 1e-9
 
     def test_a_roomy_marked_line_is_never_compressed_to_pay_for_its_gap(self) -> None:
         """The hierarchy's other half: a line with ROOM compresses by NOTHING.

@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 __all__ = [
     "MAX_PLOT_FILENAME_CHARS",
@@ -70,8 +70,14 @@ class _Warner(Protocol):
     :class:`~plt_optimizer.utils.logging.TextLogger`.
     """
 
-    def warning(self, message: str) -> None:
-        """Log a WARNING level message."""
+    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        """Log a WARNING level message.
+
+        The signature is the canonical ``Protocol`` recipe (``Any`` args plus the
+        ``valid-type`` escape): it declares "callable like
+        :meth:`logging.Logger.warning`", which a real ``logging.Logger`` AND
+        :class:`~plt_optimizer.utils.logging.TextLogger` both satisfy.
+        """
         ...  # pragma: no cover - protocol declaration
 
 
