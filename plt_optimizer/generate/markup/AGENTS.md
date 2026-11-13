@@ -1527,11 +1527,19 @@ precedent).
   natural space. `StyledText.dynamic_space_fractions` and
   `ResolvedTextLine.dynamic_space_fractions` are per-`plain_text`, `()` when no
   marker.
-- **The gap law** (`label_renderer._space_slot_gaps`):
-  `gap_i = X_i * advance + fill * X_i / sum(X)`. A zero minimum absorbs NO fill;
-  all-zero minima leave the fill as slack; a negative fill (a line wider than
-  its box) contributes nothing — the minima stand alone and the TEXT pays, never
-  the reverse.
+- **The gap law** (`label_renderer._space_slot_gaps`), two regimes, both built
+  in NOMINAL units and scaled by the caller's `1/space_gap_scale` so the
+  compression applied to the ink is applied to the gap too:
+  * ROOMY (`fill > 0`): `gap = max(X,1.0)*advance + room*X/sum(X)` with
+    `room = fill/space_gap_scale` — the baseline is ONE normal advance, so a
+    bare `<space>` ≡ `<space:1.0>`, `X>1` carries its own baseline, weights
+    `a:b` split the fill `a:b`, and a zero minimum absorbs NO fill.
+  * TIGHT (`fill <= 0`): `gap = X*advance*space_gap_scale` — the minimum is a
+    FLOOR. `X<1` RELIEVES (a full advance standing in the middle of a squeezed
+    line overflows its box by one advance); `X>1` keeps its floor and OVERFLOWS
+    (text pays, never the reverse).
+  `fill` is `box - natural_text`: the minima are NOT subtracted (charging them
+  twice makes a single trailing slot inert).
 - **The shift model** (`_space_slot_weights`, `_space_char_shifts`,
   `_apply_space_expand`): a slot's cursor delta is `gap - advance` (the natural
   render already advanced one space there) and each glyph group rides the PREFIX
@@ -1561,13 +1569,20 @@ precedent).
   column and the bodies end on the group's right edge. The half-cutter kerf
   insets belong to Pass A's COMPRESSION budget, not to this box — counting them
   twice pushes the ink a half cutter past the far margin.
-- **`<space>` always wins over compression**: Pass A reserves
-  `extra = sum((X - 1) * advance)` out of the text's
-  `compression_available_width` and Pass A2 fills
-  `fill = box - natural - extra`, so the ink lands on the box for EVERY
-  minimum (`<space:2>` in a roomy box is a FLOOR, not an overflow). A minimum
-  wider than the box overflows by design and the text compresses by its own
-  `max_h_compress` permission.
+- **The hierarchy: `<space>` fills first, the text compresses second.** Pass A
+  reserves `extra = sum((X - 1) * advance)` out of the text's
+  `compression_available_width` and Pass A2 fills `fill = box - natural` (the
+  box the line OWNS, `align_box` — never `min(align_box, shared_target)`, which
+  a shared `max_h_compress` budget would shrink and decline a line's expansion).
+  A roomy box therefore lands the ink on the box for EVERY minimum
+  (`<space:2>` is a FLOOR, not an overflow), a minimum wider than the box
+  overflows by design, and once the compression budget is exhausted (floor
+  `1 - max_h_compress` reached) a sub-1.0 minimum keeps relieving the line as
+  pure gap: a `<space:0>` gives up its space FIRST, and only after the gap floor
+  is hit does the text pay with h compression, up to its `max_h_compress` limit.
+  Pass A2 measures and applies in the same frame — the delta is a CURSOR delta,
+  so the line scales as one object (`space_gap_scale = collision*margin` there,
+  `1.0` in the expansion, `collision*margin*text_fit` at the apply step).
 - **Inert where there is no box to fill**: `marker_text` lines, `plate` fields,
   PLT glyph definitions and plain (unstyled) text. A marker whose line has no
   room logs a warning and engraves its own minimum. Like every other tag it adds
@@ -1577,9 +1592,12 @@ precedent).
   a legal soft-break point; the tag survives tokenization/serialization and each
   resulting line expands to its own box.
 - Unit tests: `TestSpaceRegistry` / `TestSpaceParse` / `TestSpaceSerialize` /
-  `TestSpaceWords` (`tests/test_markup.py`), `TestDynamicSpaceGeometry` +
-  `TestDynamicSpaceRender` (`tests/test_label_renderer.py`). Reflow, layout-report
-  and PLT-export units are tracked in `docs/TODO.md`.
+  `TestSpaceWords` (`tests/test_markup.py`), `TestDynamicSpaceGeometry` /
+  `TestDynamicSpaceRender` (`tests/test_label_renderer.py`),
+  `TestSpaceAwareReflow` (`tests/test_line_content.py`),
+  `TestDynamicSpaceReport` (`tests/test_layout_report.py`), and the
+  `examples/job_specs/space_demo.yaml` round-trip `TestSpaceDemoExample`
+  (`tests/test_phase3_export.py`).
 
 ### Manual Kerning (`kern_pos_string`, `kern_neg_string`, `kern_width_fraction`)
 
