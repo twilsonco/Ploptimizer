@@ -2199,6 +2199,43 @@ def _space_box_geometry(
     return leading, sum(weight for _slot, weight in paired)
 
 
+def _space_gap_relief(
+    text: str,
+    fractions: Sequence[float],
+    space_advance_inches: float,
+) -> float:
+    """Inches a line's ``<space:X>`` minima RELIEVE from its own text width.
+
+    A minimum ``X < 1`` contracts that gap below a normal space advance, so the
+    line ends up NARROWER than its plain-text natural width by
+    ``(1 - X) * advance`` per marked slot. Compression budgets and alignment
+    boxes are measured against the natural width, which charges a full advance
+    for every space; without this term a ``<space:0.3>`` line is made to compress
+    0.7 space widths it never needed to, and a ``<space:0>`` never reaches the
+    point where the TEXT pays. That breaks the hierarchy the gap law implies:
+    give up the gap's room first, then compress the glyphs.
+
+    ``X >= 1`` contributes nothing -- that slack is the expansion's
+    ``extra`` reservation, which is a separate term.
+
+    Args:
+        text: The line's ``plain_text``, aligned with ``fractions``.
+        fractions: Per-character minimum widths (negative = unmarked).
+        space_advance_inches: One normal space advance at the line's height.
+
+    Returns:
+        The total relief in inches (``0.0`` with no sub-1.0 minimum).
+    """
+    relief = 0.0
+    for index, char in enumerate(text):
+        if char != " " or index >= len(fractions):
+            continue
+        fraction = fractions[index]
+        if fraction != UNSET_SPACE_FRACTION and fraction < 1.0:
+            relief += (1.0 - fraction) * space_advance_inches
+    return relief
+
+
 def _apply_space_expand(
     block: TextBlock,
     glyph_groups: Sequence[Tuple[int, ...]],
@@ -6526,6 +6563,14 @@ def _render_positioned_lines(
             for width in space_fractions
             if width != UNSET_SPACE_FRACTION
         )
+        # The mirror of ``space_extra``: what a sub-1.0 minimum TAKES BACK. The
+        # natural width charges a full advance for every space, so a
+        # ``<space:0.3>`` line is already 0.7 advances narrower than that and
+        # needs to compress correspondingly less. Untaken, the line pays in
+        # glyphs for slack its own gap is handing back -- and a ``<space:0>``
+        # never reaches the point where the text is asked to give, which is the
+        # second rung of the hierarchy (gap first, then compression).
+        space_relief = _space_gap_relief(line.plain_text, space_fractions, space_advance)
 
         # Margin precedence for width: compress over-wide lines so they
         # respect the inner content area (bounded by max_h_compress).
@@ -6571,7 +6616,9 @@ def _render_positioned_lines(
         shared_target = 0.0
         if global_scale < 1.0 and rendered.collision_scale > 0.0:
             shared_target = (global_scale / rendered.collision_scale) * pre_margin_width
-            compression_available_width = min(compression_available_width, shared_target)
+            compression_available_width = min(
+                compression_available_width, shared_target + space_relief
+            )
         # The ALIGNMENT box this line's ink is placed in: the VISUAL margin box
         # (``inner_width - 2*h_margin``) minus the indent column this line
         # charges its box (``offset``, alignment-aware -- see
