@@ -8425,8 +8425,9 @@ class TestTopBottomHoleCollisionDemo:
     is the case where the horizontal resolution ladder is useless: a hole
     spanning the full Y band stays in contact no matter how far the text slides
     sideways. The suite pins that the pipeline escapes on the Y axis instead —
-    the hole-margin sweep and the block slide — and that the glyph squeeze
-    never fires, so an engraved label keeps the widths its job spec asked for.
+    the hole-margin sweep, the block slide and the inter-line packing — and that
+    the glyph squeeze never fires, so an engraved label keeps the widths its job
+    spec asked for.
     """
 
     _SPEC = Path("tests_deps/top_bottom_holes_job.yaml")
@@ -8504,6 +8505,35 @@ class TestTopBottomHoleCollisionDemo:
         assert clean.hole_margin == pytest.approx(0.15)
         assert clean.collision_vertical_shift_inches == 0.0
         assert clean.collision_spacing_scale == 1.0
+
+    def test_the_multiline_label_escaped_by_packing(self, tmp_path: Path) -> None:
+        """Phase 2c: the 3-line stack clears its top hole on the spacing knob.
+
+        The margin sweep ran to its 0.05in floor and the box pinned the block's
+        centre (slide 0.0000in), so the inter-line packing is the rung that
+        resolves this label. Every gap shrinks by ONE factor, the
+        `min_line_spacing` floor is what stops it, and the horizontal
+        compression stays at zero.
+        """
+        packed = self._export(tmp_path).rendered_labels["vertical_spacing_pack"].source_label
+
+        # The packing sweep's landing point (one of its 16 steps).
+        assert packed.collision_spacing_scale == pytest.approx(0.7216, abs=1e-3)
+        assert packed.collision_vertical_shift_inches == 0.0
+        assert packed.hole_margin == pytest.approx(0.05)  # swept to the floor first
+        assert packed.collision_compress_by_line == {}
+        scale = packed.collision_spacing_scale
+        gaps = [line.line_spacing for line in list(packed.content)[:-1]]
+        # The declared gaps stay in the spec (the packing is a render-time
+        # factor, not a rewrite of the label); the margin-fit clamp took the
+        # declared 0.4in to 0.275in.
+        assert gaps == [pytest.approx(0.275, abs=1e-6)] * 2
+        floor = packed.min_line_spacing or 0.0
+        assert floor == pytest.approx(0.1)
+        # The EFFECTIVE gaps are the declared ones times the scale, and the
+        # floor is what stops the sweep from squeezing the lines together.
+        assert min(g * scale for g in gaps) >= floor - 1e-9
+        assert min(g * scale for g in gaps) == pytest.approx(0.275 * scale)
 
     def test_the_export_writes_the_per_cutter_files(self, tmp_path: Path) -> None:
         """The fixture is a runnable job: the text and the holes are separate."""

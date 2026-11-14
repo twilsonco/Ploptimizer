@@ -25,12 +25,25 @@
 #     clearing value and resolves there; the block never moves. (The exact
 #     landing margin depends on the label height the packer assigns, so the
 #     number is pinned by the test, not by this header.)
+#   - vertical_spacing_pack: a 3-line stack (0.25in text, 0.4in declared gaps)
+#     under a 0.25in TOP hole at a 0.1in margin. The margin sweep runs to its
+#     0.05in floor and still collides, and a rigid slide is capped at 0.0000in
+#     because the box pins the block's centre -- this is the label the PACKING
+#     rung (Phase 2c) exists for. Packing shrinks every gap by one factor
+#     (floored by `min_line_spacing` 0.1in), pulling the upper lines down off
+#     the hole and resolving the label with NO horizontal compression. The
+#     landing scale is pinned by the test against the exported layout, not by
+#     this header: it depends on the stroke-aware threshold, which follows the
+#     cutters the pipeline resolves (the shop's tools.json vs the defaults).
 #   - resolved_no_op: clean at the declared 0.15in margin, nothing fires.
 #
-# The packing rung (Phase 2c) is NOT demonstrated here: the plate packer
-# overrides per-label heights, so a stack that depends on an exact box cannot
-# be pinned in a fixture. It is covered end-to-end by
-# tests/test_collision_resolution.py::TestTopBottomAxisGate.
+# The packing demo needs SMALL text and GENEROUS declared gaps: the gaps carry
+# the band height, which is the only room Phase 2c can spend. A stack whose ink
+# alone fills the box can never be cleared by packing (the block's extremes are
+# pinned by the box), which is why this label sets text_height 0.25in instead of
+# inheriting the job's 0.5in. The plate packer also overrides per-label heights
+# when labels share a plate, so the packing geometry is pinned by the test
+# against the exported layout, not by hand arithmetic in this header.
 #
 # Run:  uv run plt-optimizer generate tests_deps/top_bottom_holes_job.yaml
 #       -o out/top_bottom
@@ -72,6 +85,23 @@ job:
       holes:
         - diameter: 0.6
           location: bottom
+
+    # The packing: gaps that carry the band height, so Phase 2c has room to
+    # shrink. The slide is pinned at zero by the box on this geometry.
+    - id: vertical_spacing_pack
+      height: 1.5
+      text_height: 0.25
+      line_spacing: 0.4
+      min_line_spacing: 0.1
+      hole_margin: 0.1
+      min_hole_margin: 0.05
+      content:
+        - text: "PACK THE"
+        - text: "GAPS BETWEEN"
+        - text: "THREE LINES"
+      holes:
+        - diameter: 0.25
+          location: top
 
     # Baseline: clean at the declared margin, nothing fires.
     - id: resolved_no_op
