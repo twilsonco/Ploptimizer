@@ -1,0 +1,82 @@
+# =============================================================================
+# Top/bottom-only drill holes: the vertical collision-avoidance ladder
+# =============================================================================
+# Every hole here sits on the top or bottom edge, so NO horizontal knob exists.
+# The collision ladder must therefore spend the vertical knobs -- the hole
+# margin and a rigid slide of the whole text block -- and must NOT touch
+# horizontal compression to dodge a top/bottom hole (docs/TODO.md, "top/bottom
+# holes"). The side-hole ladder (compression, the edge-margin slide, the center
+# switch) is covered by tests/test_collision_resolution.py; this fixture is the
+# vertical end-to-end.
+#
+# Geometry notes (6.0in labels, text 0.5in = 0.47in of ink, a 0.03in text
+# cutter, a 0.1in hole cutter, hole_text_collision_distance 0.0 -> the
+# stroke-aware threshold is 0.06in; a hole's centre sits hole_margin +
+# cutter/2 + engraved radius from its edge, and the text block is centred at
+# height/2):
+#   - hole_aware_precentering: a 1.0in bottom hole in a 2.0in label at a 0.05in
+#     margin. Hole-aware centering (always on, resolution.py) pre-shifts the
+#     block clear all by itself, so the ladder never engages: margin, slide and
+#     packing scale all stay at their declared values. This is the label that
+#     proves the ladder leaves a clean job alone.
+#   - vertical_margin_sweep: the same 1.4in label as the classic
+#     hole_margin_sweep demo, a 0.6in bottom hole, starting at a 0.5in hole
+#     margin with min_hole_margin 0.0. The sweep walks the margin down to the
+#     clearing value and resolves there; the block never moves. (The exact
+#     landing margin depends on the label height the packer assigns, so the
+#     number is pinned by the test, not by this header.)
+#   - resolved_no_op: clean at the declared 0.15in margin, nothing fires.
+#
+# The packing rung (Phase 2c) is NOT demonstrated here: the plate packer
+# overrides per-label heights, so a stack that depends on an exact box cannot
+# be pinned in a fixture. It is covered end-to-end by
+# tests/test_collision_resolution.py::TestTopBottomAxisGate.
+#
+# Run:  uv run plt-optimizer generate tests_deps/top_bottom_holes_job.yaml
+#       -o out/top_bottom
+# Pinned by: tests/test_phase3_export.py::TestTopBottomHoleCollisionDemo
+# =============================================================================
+
+job:
+  job_name: "Top/Bottom Hole Collision Avoidance Demo"
+  width: 6.0
+  height: 1.5
+  text_height: 0.5
+  font: "Helv3"
+  margin: 0.1
+  line_spacing: 0.15
+  hole_margin: 0.15
+  min_hole_margin: 0.05
+  min_line_spacing: 0.05
+  hole_text_collision_distance: 0.0
+
+  labels:
+    # Hole-aware centering clears this one before the ladder sees it.
+    - id: hole_aware_precentering
+      height: 2.0
+      hole_margin: 0.05
+      min_hole_margin: 0.05
+      content:
+        - text: "PRE-CENTERED"
+      holes:
+        - diameter: 1.0
+          location: bottom
+
+    # The margin sweep alone: start deep, walk toward the floor.
+    - id: vertical_margin_sweep
+      height: 1.4
+      hole_margin: 0.5
+      min_hole_margin: 0.0
+      content:
+        - text: "SWEEP"
+      holes:
+        - diameter: 0.6
+          location: bottom
+
+    # Baseline: clean at the declared margin, nothing fires.
+    - id: resolved_no_op
+      content:
+        - text: "CLEAN"
+      holes:
+        - diameter: 0.5
+          location: bottom

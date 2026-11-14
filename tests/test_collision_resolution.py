@@ -16,12 +16,18 @@ y ~= [0.265, 0.735]:
 - ``left``/``right`` holes are overlapped by any full-width line; centered
   text clears them only by narrowing -- fixable by Phase 3 but NOT by
   margin reduction (the circles stay inside the text box at any margin).
+- TOP/BOTTOM holes are the mirror image: a hole spanning the full Y band
+  stays in contact no matter how far the text slides sideways, so the
+  vertical ladder (block slide, then inter-line packing) is the ONLY escape.
+  The axis gate (``hole_escape_axes``) keeps the horizontal phases locked
+  for that case -- see the axis rules in ``AGENTS.md``.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -35,7 +41,10 @@ from plt_optimizer.generate.collision.detection import (
     resolve_via_compression,
     resolve_via_edge_margin,
     resolve_via_margin_adjustment,
+    resolve_via_spacing_reduction,
+    resolve_via_vertical_shift,
 )
+from plt_optimizer.generate.collision.holes import EscapeAxes, hole_escape_axes
 from plt_optimizer.generate.label_renderer import (
     _render_text_local_with_bounds,
     render_label_to_plt,
@@ -77,6 +86,7 @@ def _label(
     margin: float = 0.1,
     hole_margin: float = 0.1875,
     min_hole_margin: float | None = None,
+    min_line_spacing: float | None = None,
     max_h_compress: float = 0.0,
     hole_text_collision_distance: float = 0.0,
     hole_cutter_diameter: float = 0.0,
@@ -103,6 +113,7 @@ def _label(
         holes=holes,
         content=[_make_line(text, max_h_compress=max_h_compress)],
         min_hole_margin=min_hole_margin,
+        min_line_spacing=min_line_spacing,
         hole_text_collision_distance=hole_text_collision_distance,
         hole_cutter_diameter=hole_cutter_diameter,
     )
@@ -142,14 +153,27 @@ class TestMarginAdjustment:
         assert resolved.hole_margin >= 0.1 - 1e-9
         assert resolved.hole_margin < label.hole_margin
 
-    def test_floor_too_high_blocks_resolution(self) -> None:
-        """A floor above the clearing margin leaves the collision in place."""
+    def test_floor_too_high_blocks_margin_but_not_the_label(self) -> None:
+        """A floor above the clearing margin blocks Phase 2; the slide rescues.
+
+        INTENDED AXIS CHANGE (docs/TODO.md:64): this fixture used to be the
+        proof that a high ``min_hole_margin`` left a top/bottom collision
+        unfixed. The margin is still blocked -- that is what the helper
+        assertion pins -- but a bottom hole is a VERTICAL constraint, so the
+        Phase-2b block slide is the knob that clears it: no glyph compression,
+        and the floor holds.
+        """
         label = _label(text="HELLO", holes=BOTTOM_HOLE, min_hole_margin=0.16)
         _lc, entries = _render_text_local_with_bounds(label)
         assert resolve_via_margin_adjustment(label, entries) is None
 
         rendered = render_label_to_plt(label)
-        assert rendered.has_collisions is True
+        assert rendered.has_collisions is False
+        # Negative = upward, away from the bottom hole, and the margin floor
+        # held at 0.16 (the slide paid for what the floor refused).
+        assert rendered.source_label.hole_margin == pytest.approx(0.16)
+        assert rendered.source_label.collision_vertical_shift_inches == pytest.approx(-0.16)
+        assert rendered.source_label.collision_compress_by_line == {}
 
     def test_no_floor_configured_skips_phase2(self) -> None:
         """Without min_hole_margin, margin adjustment is not attempted."""
@@ -182,11 +206,18 @@ class TestMarginAdjustment:
         _lc, entries = _render_text_local_with_bounds(label)
         assert resolve_via_margin_adjustment(label, entries) is None
 
-    def test_margin_already_at_floor_flags_collision(self) -> None:
-        """With hole_margin pinned at the floor, Phase 2 has no budget to shrink."""
+    def test_margin_at_floor_is_rescued_by_the_block_slide(self) -> None:
+        """With the margin pinned at its floor, the vertical ladder continues.
+
+        INTENDED AXIS CHANGE (docs/TODO.md:64): Phase 2 has no budget here, and
+        for a bottom hole that used to be the end of the story. The block slide
+        is the next vertical knob, so the label resolves.
+        """
         label = _label(text="HELLO", holes=BOTTOM_HOLE, hole_margin=0.05, min_hole_margin=0.05)
         rendered = render_label_to_plt(label)
-        assert rendered.has_collisions is True
+        assert rendered.has_collisions is False
+        assert rendered.source_label.hole_margin == pytest.approx(0.05)
+        assert rendered.source_label.collision_vertical_shift_inches == pytest.approx(-0.05)
 
 
 class TestCompressionFallback:
@@ -405,7 +436,7 @@ class TestStrokeAwareThreshold:
         """A gap at or above the required clearance is not a collision."""
         # 1.25in label: gap = 0.14 - hole_margin = 0.04 at margin 0.1.
         # The stroke floor is 0.015 (text cutter 0.03, hole cutter 0.0).
-        base = {
+        base: dict[str, Any] = {
             "text": "HELLO",
             "holes": BOTTOM_HOLE,
             "height": 1.25,
@@ -459,7 +490,7 @@ class TestStrokeAwareThreshold:
         """Margin reduction must clear the floor, not just tangency."""
         # 1.25in label: gap = 0.14 - hole_margin, colliding at the
         # default 0.1875in margin under both strict and aware thresholds.
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "text": "HELLO",
             "holes": BOTTOM_HOLE,
             "height": 1.25,
@@ -498,7 +529,13 @@ class TestStrokeAwareThreshold:
         assert all(r.levelno >= logging.ERROR for r in collision_records)
 
     def test_error_log_reports_threshold_breakdown(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Collision ERRORs break the threshold into clearance + floor."""
+        """Collision records break the threshold into clearance + floor.
+
+        INTENDED AXIS CHANGE (docs/TODO.md:64): this bottom-hole fixture is now
+        resolved by the Phase-2b block slide, so the record is the mid-
+        resolution WARNING rather than the final ERROR. The breakdown text is
+        the point of the test and is severity-independent.
+        """
         label = _label(
             text="HELLO",
             holes=BOTTOM_HOLE,
@@ -506,7 +543,7 @@ class TestStrokeAwareThreshold:
             hole_text_collision_distance=0.15,
             hole_cutter_diameter=0.015,
         )
-        with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
             render_label_to_plt(label)
 
         messages = [r.getMessage() for r in caplog.records if "collides with" in r.getMessage()]
@@ -628,7 +665,7 @@ class TestKerfBufferThreshold:
         # 0.25in holes at a margin leaving a gap between the legacy floor
         # (0.5 * (0.015 + 0.03) = 0.0225) and the buffered floor
         # (0.5 * (0.06 + 0.04) = 0.05).
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "text": "HELLO",
             "holes": BOTTOM_HOLE,
             "height": 1.25,
@@ -805,7 +842,14 @@ class TestEdgeMarginSlide:
             assert entry.bounds[2] <= label.width - label.h_margin + 1e-9
 
     def test_slide_stacks_on_top_of_hole_margin_floor(self) -> None:
-        """Phase 2's floor applies first; the slide then clears what remains."""
+        """Phase 2's floor applies first; the vertical slide then the X slide.
+
+        INTENDED AXIS CHANGE (docs/TODO.md:64): the bottom hole used to be
+        cleared by dropping the margin to the floor, which also moved the left
+        hole and shortened the edge slide. A top/bottom hole belongs to the
+        vertical ladder now, so the block slides UP off it and the edge slide
+        pays for the left hole alone.
+        """
         label = _edge_label(
             ["SERIAL 42"],
             ["left"],
@@ -816,10 +860,12 @@ class TestEdgeMarginSlide:
 
         assert rendered.has_collisions is False
         adjusted = rendered.source_label
-        # The bottom hole clears by dropping the margin to the floor, and the
-        # left hole by the slide (which needs less travel at the floor margin).
+        # The bottom hole is cleared vertically (no margin spend), the left hole
+        # by the edge slide, and the line ends up centered.
         assert adjusted.hole_margin == pytest.approx(0.0)
-        assert adjusted.collision_edge_margin_by_line[0] == pytest.approx(0.165)
+        assert adjusted.collision_vertical_shift_inches == pytest.approx(-0.215, abs=1e-3)
+        assert adjusted.collision_edge_margin_by_line[0] == pytest.approx(0.1617, abs=1e-3)
+        assert 0 in adjusted.collision_center_by_line
         _lc, entries = _render_text_local_with_bounds(adjusted)
         assert detect_text_hole_collisions(adjusted, entries) == []
 
@@ -1463,28 +1509,29 @@ class TestAlignmentSwitchToCenter:
         assert "Alignment switched to center: 0" in messages[0]
         assert "Edge-margin slide" not in messages[0]
 
-    def test_unresolvable_diagnostics_report_the_slide(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """The ERROR breakdown names the edge margin the avoidance spent."""
+    def test_both_axes_spent_resolves_the_label(self) -> None:
+        """A left hole (X) and a bottom hole (Y) are each cleared on their axis.
+
+        INTENDED AXIS CHANGE (docs/TODO.md:64): this fixture used to be the
+        unresolvable case -- the bottom hole needed margin travel the
+        ``min_hole_margin`` floor refused, and the ERROR named the spent edge
+        margin as the reason. The vertical slide owns the bottom hole now, so
+        both axes spend and the label resolves.
+        """
         label = _edge_label(
             ["SERIAL 42"],
             ["left"],
             [*LEFT_HOLE, *BOTTOM_HOLE_ONLY],
             min_hole_margin=0.1875,
         )
-        with caplog.at_level(logging.ERROR, logger=LOGGER_NAME):
-            rendered = render_label_to_plt(label)
+        rendered = render_label_to_plt(label)
 
-        assert rendered.has_collisions is True
-        messages = [
-            r.getMessage() for r in caplog.records if "cannot be resolved" in r.getMessage()
-        ]
-        assert messages
-        # The slide cleared the left hole; the bottom hole needs the margin
-        # (blocked by the floor) or a shorter line, so the job is unresolvable.
-        assert "Edge-margin slide: line 0 (+0.3525in)" in messages[0]
-        assert "bottom hole" in messages[0]
+        assert rendered.has_collisions is False
+        # The margin floor held (the slide paid instead), and both ladders spent.
+        assert rendered.source_label.hole_margin == pytest.approx(0.1875)
+        assert rendered.source_label.collision_vertical_shift_inches < 0.0
+        assert rendered.source_label.collision_edge_margin_by_line[0] > 0.0
+        assert rendered.source_label.collision_compress_by_line == {}
 
 
 class TestEdgeMarginSlideUnitCases:
@@ -1622,3 +1669,347 @@ class TestUnresolvableDiagnosticsState:
         _lc, final = _render_text_local_with_bounds(rendered.source_label)
         by_index = {entry.line_index: entry.bounds for entry in final}
         assert by_index[0][0] == pytest.approx(by_index[1][0], abs=1e-3)
+
+
+TOP_HOLE = [ResolvedHoleSpec(diameter=0.25, location="top")]
+TOP_LEFT_CORNER = [ResolvedHoleSpec(diameter=0.25, location="top-left")]
+
+
+class TestHoleEscapeAxes:
+    """Which axes the label's holes leave open (the gate for every knob)."""
+
+    @pytest.mark.parametrize(
+        ("location", "vertical", "horizontal"),
+        [
+            ("top", True, False),
+            ("bottom", True, False),
+            ("left", False, True),
+            ("right", False, True),
+            ("top-left", True, True),
+            ("top-right", True, True),
+            ("bottom-left", True, True),
+            ("bottom-right", True, True),
+            ("center", False, False),
+        ],
+    )
+    def test_location_owns_its_axis(self, location: str, vertical: bool, horizontal: bool) -> None:
+        """An edge hole owns one axis, a corner hole both, center neither."""
+        label = _label(holes=[ResolvedHoleSpec(diameter=0.25, location=location)])
+        axes = hole_escape_axes(label)
+        assert axes.vertical is vertical
+        assert axes.horizontal is horizontal
+
+    def test_no_holes_unlock_nothing(self) -> None:
+        """A holeless label has no constraint, so no ladder runs at all."""
+        assert hole_escape_axes(_label(holes=[])) == EscapeAxes(vertical=False, horizontal=False)
+
+    def test_mixed_holes_unlock_both(self) -> None:
+        """One hole per edge opens both axes (the union, not the intersection)."""
+        label = _label(holes=[*TOP_HOLE, *RIGHT_HOLE])
+        assert hole_escape_axes(label) == EscapeAxes(vertical=True, horizontal=True)
+
+
+class TestAxisGate:
+    """The horizontal ladder never runs for a top/bottom-only label."""
+
+    def test_top_hole_never_squeezes_glyph_widths(self) -> None:
+        """A top hole with a huge compression budget spends ZERO compression.
+
+        This is the bug from docs/TODO.md:64: the label used to pay for a
+        vertical constraint with horizontal compression.
+        """
+        label = _label(text="HELLO", holes=TOP_HOLE, margin=0.05, max_h_compress=0.9)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        adjusted = rendered.source_label
+        assert adjusted.collision_compress_by_line == {}
+        assert adjusted.collision_center_by_line == frozenset()
+        assert adjusted.collision_edge_margin_by_line == {}
+        # The escape was purely vertical, away from the top hole.
+        assert adjusted.collision_vertical_shift_inches > 0.0
+
+    def test_side_hole_never_slides_the_block_vertically(self) -> None:
+        """The mirror case: a left hole is cleared on X, with no Y spend."""
+        label = _edge_label(["SERIAL 42"], ["left"], LEFT_HOLE)
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is False
+        assert rendered.source_label.collision_vertical_shift_inches == 0.0
+        assert rendered.source_label.collision_spacing_scale == 1.0
+
+    def test_top_bottom_only_exhaustion_fails_the_job(self) -> None:
+        """No vertical room left -> unresolvable, NOT a sideways fallback."""
+        # 0.5in of text between top and bottom holes whose clearance band is
+        # narrower than the ink: the slide is capped at 0 by the opposite hole.
+        label = _label(
+            text="WIDE LABEL TEXT",
+            holes=[*TOP_HOLE, *BOTTOM_HOLE_ONLY],
+            min_hole_margin=0.1875,
+            max_h_compress=0.9,
+        )
+        rendered = render_label_to_plt(label)
+
+        assert rendered.has_collisions is True
+        adjusted = rendered.source_label
+        assert adjusted.collision_compress_by_line == {}
+        assert adjusted.collision_center_by_line == frozenset()
+        with pytest.raises(LabelRenderError, match="jobspec must be revised"):
+            assert_no_collisions([rendered])
+
+
+class TestVerticalBlockShift:
+    """Phase 2b: slide the whole text block off a top/bottom hole."""
+
+    def test_bottom_hole_slides_the_block_up(self) -> None:
+        """A bottom hole pushes the block up, by exactly the needed distance."""
+        # margin 0.05 leaves the band slack the slide needs; the default 0.1
+        # pins the ink against the margin and the slide caps short (covered by
+        # test_band_caps_the_slide).
+        label = _label(text="HELLO", holes=BOTTOM_HOLE, margin=0.05)
+        _lc, entries = _render_text_local_with_bounds(label)
+        slid = resolve_via_vertical_shift(label, entries)
+
+        assert slid is not None
+        assert slid.collision_vertical_shift_inches < 0.0
+        # The slide is exact: re-detecting on the shifted frame is clean, and
+        # no glyph width and no inter-line gap moved.
+        _lc, after = _render_text_local_with_bounds(slid)
+        assert detect_text_hole_collisions(slid, after) == []
+        assert after[0].bounds[0] == pytest.approx(entries[0].bounds[0])
+        assert after[0].bounds[2] == pytest.approx(entries[0].bounds[2])
+
+    def test_top_hole_slides_the_block_down(self) -> None:
+        """The mirror case: a top hole pushes the block down."""
+        label = _label(text="HELLO", holes=TOP_HOLE, margin=0.05)
+        _lc, entries = _render_text_local_with_bounds(label)
+        slid = resolve_via_vertical_shift(label, entries)
+
+        assert slid is not None
+        assert slid.collision_vertical_shift_inches > 0.0
+        _lc, after = _render_text_local_with_bounds(slid)
+        assert detect_text_hole_collisions(slid, after) == []
+
+    def test_stacks_on_the_existing_hole_aware_shift(self) -> None:
+        """The slide accumulates; it never replaces the centering shift."""
+        base = replace(
+            _label(text="HELLO", holes=BOTTOM_HOLE, margin=0.05),
+            collision_vertical_shift_inches=0.02,
+        )
+        _lc, entries = _render_text_local_with_bounds(base)
+        slid = resolve_via_vertical_shift(base, entries)
+
+        assert slid is not None
+        # Accumulates on the shift already applied (measured from the shifted
+        # frame), so a second round adds to it instead of replacing it.
+        assert slid.collision_vertical_shift_inches < 0.02 - 0.1
+        _lc, after = _render_text_local_with_bounds(slid)
+        assert detect_text_hole_collisions(slid, after) == []
+
+    def test_opposite_hole_caps_the_slide(self) -> None:
+        """A top hole caps a downward slide; the block stops at its edge."""
+        label = _label(text="HELLO", holes=[*BOTTOM_HOLE_ONLY, *TOP_HOLE], margin=0.05)
+        _lc, entries = _render_text_local_with_bounds(label)
+        # Both sides collide: every direction is capped by the opposite hole, so
+        # there is no slide at all.
+        assert resolve_via_vertical_shift(label, entries) is None
+
+    def test_band_caps_the_slide(self) -> None:
+        """The block never slides into a margin: the content band caps it."""
+        # A 0.7in bottom hole in a 1.4in label: the clearing distance (0.445in)
+        # exceeds the slack between the ink and the opposite margin, so the band
+        # owns the cap. The box is 1.4 - 0.2 = 1.2in with 0.365in of slack.
+        label = _label(
+            text="WIDE LABEL TEXT",
+            holes=[ResolvedHoleSpec(diameter=0.7, location="bottom")],
+            height=1.4,
+            margin=0.1,
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+        slid = resolve_via_vertical_shift(label, entries)
+
+        assert slid is not None
+        assert detect_text_hole_collisions(slid, _render_text_local_with_bounds(slid)[1]), (
+            "the band-capped slide is expected to fall short here"
+        )
+        # The slide stopped exactly at the band: the ink's top edge is on the
+        # band ceiling, never inside a margin.
+        shift_y = label.height / 2.0
+        _lc, after = _render_text_local_with_bounds(slid)
+        assert slid.collision_vertical_shift_inches == pytest.approx(-0.365, abs=1e-6)
+        assert (
+            after[0].bounds[3] + shift_y + slid.collision_vertical_shift_inches
+            <= (label.height - label.v_margin) + 1e-9
+        )
+
+    def test_returns_none_without_vertical_holes(self) -> None:
+        """Side holes alone give the vertical ladder nothing to do."""
+        label = _label(text="HELLO", holes=LEFT_HOLE)
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert resolve_via_vertical_shift(label, entries) is None
+
+    def test_logs_the_slide_as_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A successful slide is a WARNING naming the distance and direction."""
+        label = _label(text="HELLO", holes=BOTTOM_HOLE, margin=0.05)
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            render_label_to_plt(label)
+
+        messages = [
+            r.getMessage() for r in caplog.records if "slid the text block" in r.getMessage()
+        ]
+        assert messages
+        assert "upward" in messages[0]
+        # The full need, uncapped: the box is [0.05, 0.95] with 0.215in of slack
+        # and the hole demands 0.1875in, so the slide is not band-limited here.
+        assert "0.1875in" in messages[0]
+
+
+class TestVerticalBlockShiftSelfCaps:
+    """Phase 2b needs no overflow guard: the band's own slack caps the slide.
+
+    The renderer clamps the inter-line gaps to the content box on every pass, so
+    a band that overflows arrives with its extremes exactly ON the box: the
+    slide's band cap is then 0.0 by construction, the phase reports no progress
+    (``None``) and the ladder moves on. There is no churn to guard against, and
+    no special-cased "overflowing" flag to keep in sync with the renderer.
+    """
+
+    def test_band_filling_the_box_gives_the_slide_no_room(self) -> None:
+        """A block pinned by its band slides zero, and says so by returning None."""
+        # 3 x 0.47in of ink and no gaps in a 1.6in label: the band (1.41in)
+        # exceeds the box (1.35in), so the renderer pins it there.
+        label = TestSpacingReduction._stack(height=1.6, spacing=0.0)
+        _lc, entries = _render_text_local_with_bounds(label)
+
+        assert detect_text_hole_collisions(label, entries), "fixture must collide"
+        assert resolve_via_vertical_shift(label, entries) is None
+
+    def test_phase_2b_runs_on_a_slack_band(self) -> None:
+        """The self-cap is the pinned-band case, not a blanket Phase 2b ban."""
+        # margin 0.05 -> the box [0.05, 0.95] has 0.215in of slack and the hole
+        # demands 0.1875in, so the slide clears the collision outright.
+        label = _label(text="HELLO", holes=BOTTOM_HOLE, margin=0.05)
+        rendered = render_label_to_plt(label)
+
+        assert not rendered.has_collisions
+        assert rendered.source_label.collision_vertical_shift_inches < 0.0
+        assert rendered.source_label.collision_spacing_scale == 1.0
+
+
+class TestSpacingReduction:
+    """Phase 2c: pack the inter-line gaps, floored by min_line_spacing."""
+
+    @staticmethod
+    def _stack(
+        label_width: float = 3.0, spacing: float = 0.45, **overrides: object
+    ) -> ResolvedLabel:
+        """A three-line label with packing room and one hole beyond the band.
+
+        The band (3 x 0.47in ink + 2 gaps) must FIT the content box: the
+        renderer clamps inter-line gaps to the box on every pass, so a band that
+        overflows is pinned by construction and the packing phase has nothing
+        to shrink. The default hole is a 0.25in TOP circle whose centre sits
+        just above the band's top edge -- a packed block pulls the upper lines
+        down off it, a rigid slide cannot (it would have to clear the whole
+        line height plus the stroke floor).
+        """
+        lines = [
+            replace(_make_line(text), line_spacing=spacing)
+            for text in ("ALPHA", "BRAVO", "CHARLIE")
+        ]
+        kwargs: dict[str, object] = {
+            "id": "stack_label",
+            "count": 1,
+            "width": label_width,
+            "height": 2.6,
+            "margin": 0.125,
+            "h_margin": 0.125,
+            "v_margin": 0.125,
+            "hole_margin": 0.1875,
+            "holes": [ResolvedHoleSpec(diameter=0.25, location="top")],
+            "content": lines,
+        }
+        kwargs.update(overrides)
+        return ResolvedLabel(**kwargs)  # type: ignore[arg-type]
+
+    def test_packing_clears_the_collision(self) -> None:
+        """Packing the gaps lifts the block off a hole the slide cannot reach."""
+        # The threshold is what the packing must outgrow: the band's minimum
+        # height is the ink's total (1.41in), which tops the top line's centre
+        # out 0.1575in below a 0.25in hole at 0.1875in -- so the 0.15in cascade
+        # default (a 0.1725in threshold) is clearable by NO amount of packing.
+        label = self._stack(hole_text_collision_distance=0.1)
+        packed = resolve_via_spacing_reduction(
+            label, render=_render_text_local_with_bounds, line_desc="line 0"
+        )
+
+        # Phase 2c packs when it is called: the ladder reaches it only once the
+        # margin is floored and the slide is capped.
+        assert packed is not None
+        assert 0.0 < packed.collision_spacing_scale < 1.0
+        assert packed.content[0].line_spacing == pytest.approx(0.45)  # per-line untouched
+
+    def test_min_line_spacing_floor_blocks_packing(self) -> None:
+        """A floor at the current spacing leaves nothing to pack."""
+        label = self._stack(min_line_spacing=0.45)
+        assert resolve_via_spacing_reduction(label, render=_render_text_local_with_bounds) is None
+
+    def test_single_line_is_inert(self) -> None:
+        """One line has no gap to pack."""
+        label = _label(text="HELLO", holes=BOTTOM_HOLE, min_line_spacing=0.0)
+        assert resolve_via_spacing_reduction(label, render=_render_text_local_with_bounds) is None
+
+    def test_packed_gaps_render_at_the_scale(self) -> None:
+        """The scale reaches geometry: every gap shrinks, none below the floor."""
+        label = self._stack(min_line_spacing=0.05, collision_spacing_scale=0.5)
+        _lc, entries = _render_text_local_with_bounds(label)
+        ys = sorted((e.bounds[1] + e.bounds[3]) / 2.0 for e in entries)
+        heights = [line.toolpath_text_height for line in label.content]
+        gaps = [ys[i + 1] - ys[i] - (heights[i] + heights[i + 1]) / 2.0 for i in range(2)]
+
+        assert all(g == pytest.approx(0.225, abs=1e-3) for g in gaps)
+
+    def test_scale_never_grows_a_gap(self) -> None:
+        """A gap under the floor stays put (the factor only shrinks)."""
+        label = replace(
+            self._stack(spacing=0.02, min_line_spacing=0.05), collision_spacing_scale=0.5
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+        ys = sorted((e.bounds[1] + e.bounds[3]) / 2.0 for e in entries)
+        heights = [line.toolpath_text_height for line in label.content]
+        gap = ys[1] - ys[0] - (heights[0] + heights[1]) / 2.0
+
+        assert gap == pytest.approx(0.02, abs=1e-3)
+
+
+class TestVerticalUnresolvableDiagnostics:
+    """The ERROR for a top/bottom-only label names the vertical knobs."""
+
+    def test_advice_is_vertical_and_says_compression_buys_nothing(self) -> None:
+        """No horizontal advice leaks into a vertical-only failure."""
+        label = _label(
+            text="WIDE LABEL TEXT",
+            holes=[*TOP_HOLE, *BOTTOM_HOLE_ONLY],
+            min_hole_margin=0.1875,
+            max_h_compress=0.9,
+        )
+        rendered = render_label_to_plt(label)
+        _lc, entries = _render_text_local_with_bounds(rendered.source_label)
+        message = format_unresolvable_collision(
+            rendered.source_label, detect_text_hole_collisions(rendered.source_label, entries)
+        )
+
+        assert "min_hole_margin" in message
+        assert "min_line_spacing" in message
+        assert "not attempted (no left/right/corner hole" in message
+        assert "Edge-margin slide" not in message
+        assert "switched to center" not in message
+
+    def test_side_hole_advice_is_unchanged(self) -> None:
+        """The horizontal wording survives for side-hole jobs (regression)."""
+        label = _edge_label(["SERIAL 42"], ["left"], [*LEFT_HOLE, *RIGHT_HOLE], max_h_compress=0.0)
+        _lc, entries = _render_text_local_with_bounds(label)
+        message = format_unresolvable_collision(label, detect_text_hole_collisions(label, entries))
+
+        assert "max_h_compress" in message
+        assert "hole_margin" in message

@@ -8416,3 +8416,101 @@ class TestSpaceDemoExample:
         # 16 labels' worth of glyph ink, in integer plotter units at 1016/inch.
         assert "PU" in content and "PD" in content
         assert int(HPGL_UNITS_PER_INCH) == 1016
+
+
+class TestTopBottomHoleCollisionDemo:
+    """Regression tests for tests_deps/top_bottom_holes_job.yaml (docs/TODO.md:64).
+
+    The fixture carries its drill holes on the TOP and BOTTOM edges only, which
+    is the case where the horizontal resolution ladder is useless: a hole
+    spanning the full Y band stays in contact no matter how far the text slides
+    sideways. The suite pins that the pipeline escapes on the Y axis instead —
+    the hole-margin sweep and the block slide — and that the glyph squeeze
+    never fires, so an engraved label keeps the widths its job spec asked for.
+    """
+
+    _SPEC = Path("tests_deps/top_bottom_holes_job.yaml")
+
+    def _export(self, tmp_path: Path) -> PerCutterExport:
+        """Export the reference job with travel optimization and plots off."""
+        job = parse_yaml(self._SPEC)
+        labels = resolve_job_spec(job)
+        return export_per_cutter_plts(
+            labels,
+            job.plates,
+            output_dir=tmp_path,
+            job_id="top_bottom_holes",
+            optimize=False,
+            plots=False,
+        )
+
+    def test_every_hole_on_the_fixture_is_top_or_bottom(self) -> None:
+        """The fixture really is the top/bottom-only case the ladder gates on."""
+        job = parse_yaml(self._SPEC)
+        locations = {hole.location for label in job.labels or [] for hole in (label.holes or [])}
+
+        assert locations, "the fixture lost its holes"
+        assert locations <= {"top", "bottom"}, locations
+
+    def test_no_label_is_compressed_horizontally(self, tmp_path: Path) -> None:
+        """The headline: a top/bottom-only job never squeezes glyph widths."""
+        result = self._export(tmp_path)
+
+        for label_id, rendered in result.rendered_labels.items():
+            source = rendered.source_label
+            assert source.collision_compress_by_line == {}, label_id
+            assert not source.collision_center_by_line, label_id
+
+    def test_escaped_layout_carries_no_collision(self, tmp_path: Path) -> None:
+        """Re-detecting on the exported labels' own layout finds nothing.
+
+        The render is the state the export carried to the plotter, so a
+        collision here means the label engraved over a hole.
+        """
+        from plt_optimizer.generate.collision.detection import (
+            detect_text_hole_collisions,
+        )
+        from plt_optimizer.generate.label_renderer import _render_text_local_with_bounds
+
+        result = self._export(tmp_path)
+
+        for label_id, rendered in result.rendered_labels.items():
+            source = rendered.source_label
+            _block, entries = _render_text_local_with_bounds(source)
+            assert detect_text_hole_collisions(source, entries) == [], label_id
+
+    def test_the_ladder_labels_escaped_vertically(self, tmp_path: Path) -> None:
+        """Each phase of the vertical ladder fires on its own fixture label."""
+        result = self._export(tmp_path)
+        by_id = {lid: rendered.source_label for lid, rendered in result.rendered_labels.items()}
+
+        # Phase 2: the margin sweep alone. Start deep, walk down to the floor.
+        sweep = by_id["vertical_margin_sweep"]
+        assert sweep.hole_margin < 0.5
+        assert sweep.hole_margin == pytest.approx(0.125)
+        # The sweep resolved it, so the block never slid and nothing packed.
+        assert sweep.collision_vertical_shift_inches == 0.0
+        assert sweep.collision_spacing_scale == 1.0
+
+        # Hole-aware centering resolved this one before the ladder saw it: the
+        # declared state survives untouched.
+        aware = by_id["hole_aware_precentering"]
+        assert aware.hole_margin == pytest.approx(0.05)
+        assert aware.collision_vertical_shift_inches == 0.0
+        assert aware.collision_spacing_scale == 1.0
+
+        # A label the holes never touch takes no vertical escape.
+        clean = by_id["resolved_no_op"]
+        assert clean.hole_margin == pytest.approx(0.15)
+        assert clean.collision_vertical_shift_inches == 0.0
+        assert clean.collision_spacing_scale == 1.0
+
+    def test_the_export_writes_the_per_cutter_files(self, tmp_path: Path) -> None:
+        """The fixture is a runnable job: the text and the holes are separate."""
+        result = self._export(tmp_path)
+
+        names = sorted(p.name for p in result.plt_paths)
+        # The drill cuts ride the boundary/hole cutter key, the engraving the
+        # text key - and the escaped layout is what reaches both.
+        assert any("_bh_" in name for name in names), names
+        assert any("_txt_" in name for name in names), names
