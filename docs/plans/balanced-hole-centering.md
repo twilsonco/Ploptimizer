@@ -11,12 +11,14 @@ Status:
 - Stage 3 cascade param — `schema.py` (LabelAttributes + PlateSpec parity),
   `resolution.py` (`DEFAULT_BALANCED_CENTERING`, `ResolvedLabel.balanced_centering`),
   generated docs/schemas regenerated.
-- Stage 4 packing-path parity — NOT IMPLEMENTED (below).
-- Stage 5 shop default — `job-config.json` carries NO `balanced_centering` key, so the
-  effective default is `DEFAULT_BALANCED_CENTERING = False`: every shipped job centers
-  the legacy way. Flipping the shop default is a human call (it changes the engraved
-  output of every one-sided-hole job in the library), and Stage 4 must land first or
-  packed and unpacked jobs would center differently on the same setting.
+- Stage 4 packing-path parity — IN PROGRESS (below).
+- Stage 5 shop default — DONE (`445620e`): `job-config.json` now carries
+  `"balanced_centering": false` and `JobDefaults.balanced_centering` is the config layer
+  of the cascade (label YAML > job YAML > job-config defaults >
+  `DEFAULT_BALANCED_CENTERING = False`). The code default stays False until Stage 4
+  lands; flipping the shop default is a human call (it changes the engraved output of
+  every one-sided-hole job in the library) and must follow Stage 4, or packed and
+  unpacked jobs would center differently on the same setting.
 
 ## Stage 4 (packing-path parity) — found, not implemented
 
