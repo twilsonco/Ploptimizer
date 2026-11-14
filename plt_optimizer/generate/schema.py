@@ -585,6 +585,20 @@ class TextAttributes(BaseModel):
             "not specified at any level is `auto`."
         ),
     )
+    min_line_spacing: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Minimum inter-line spacing in inches; text-hole collision "
+            "avoidance will not shrink a gap below this value when it packs "
+            "a label's text block vertically to clear a top/bottom drill "
+            "hole. Cascades line -> label -> job -> `job-config.json`; unset "
+            "(`null`, the default) allows a gap to close all the way to "
+            "`0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; "
+            "only `null` means unset. Inert on a single-line label (no gap "
+            "to pack)."
+        ),
+    )
     max_h_compress: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -2103,6 +2117,14 @@ class PlateSpec(BaseModel):
         default=None,
         ge=0.0,
         description=_parity("Minimum hole margin in inches"),
+    )
+    min_line_spacing: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=_parity(
+            "Minimum inter-line spacing in inches",
+            note="collision avoidance resolves the floor label -> job",
+        ),
     )
     cutter_buffer_text: Optional[float] = Field(
         default=None,

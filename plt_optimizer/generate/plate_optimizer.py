@@ -36,8 +36,9 @@ values in plotter units, ``HPGL_UNITS_PER_INCH`` = 1016 units per inch):
    ``band_offset`` is ``RenderedLabel.band_center_offset_inches`` -- ``0.0`` for
    ink-centered labels, non-zero when the label centers by its
    baseline-to-capline band. ``hole_shift`` is
-   ``ResolvedLabel.hole_aware_vertical_shift_inches`` -- ``0.0`` when
-   top and bottom holes are symmetric or absent.
+   ``ResolvedLabel.hole_aware_vertical_shift_inches`` plus the Phase-2b
+   collision slide ``ResolvedLabel.collision_vertical_shift_inches`` -- ``0.0``
+   when top and bottom holes are symmetric or absent and nothing slid.
 3. Y-mirror: ``y3 = flip_span - y2`` where ``flip_span`` is the rendered
    label's post-flip Y bounds sum (mirrors
    ``_flip_y_coordinates_in_plt``).
@@ -234,12 +235,14 @@ def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTra
     else:  # No text: centering is a no-op.
         current_center = 0.0
     # expected center = margin + (height - 2*margin)/2 == height/2 (inches),
-    # lowered by the band-center offset and the hole-aware shift.
+    # lowered by the band-center offset, the hole-aware shift, and the Phase-2b
+    # collision slide.
     # Mirrors _center_text_layer_vertically exactly.
     expected_center = (
         label.height / 2.0
         - rendered.band_center_offset_inches
         - label.hole_aware_vertical_shift_inches
+        - label.collision_vertical_shift_inches
     ) * _UNITS_PER_INCH
     return _LabelTransform(
         shift=expected_center - current_center,

@@ -195,6 +195,11 @@ DEFAULT_HOLE_MARGIN: float = 0.1875
 # avoidance. `None` (the default) means collision avoidance may reduce
 # the hole margin all the way to `0.0` (hole tangent to the edge).
 DEFAULT_MIN_HOLE_MARGIN: Optional[float] = None
+# Lower bound (inches) on an inter-line gap during text-hole collision
+# avoidance. `None` (the default) means the collision spacing sweep may
+# close a gap all the way to `0.0` (adjacent lines' ink boxes touch), the
+# same floor the render-time margin clamp uses.
+DEFAULT_MIN_LINE_SPACING: Optional[float] = None
 # Air gap (inches) kept between the engraved text stroke and the engraved
 # drill-hole stroke on top of the stroke floor
 # `0.5 * (hole_cutter + text_cutter)`. At 0.0 the two cut strokes just
@@ -2418,6 +2423,11 @@ class ResolvedLabel:
             during text-hole collision avoidance. `None` (the default)
             allows shrinking the hole margin all the way to `0.0`; the
             resolution engine always populates the cascaded value.
+        min_line_spacing: Lower bound (in inches) applied to an inter-line
+            `line_spacing` gap during text-hole collision avoidance, when the
+            block is packed vertically to clear a top/bottom hole. `None` (the
+            default) allows a gap to close all the way to `0.0`; the
+            resolution engine always populates the cascaded value.
         collision_compress_by_line: Mapping of line index to per-line
             horizontal scale in `(0.0, 1.0]` when text-hole collision
             avoidance had to compress specific lines away from drill holes.
@@ -2441,6 +2451,22 @@ class ResolvedLabel:
             centers within the (possibly increased) edge margins, which makes
             the Phase-4 horizontal compression act symmetrically on it. Empty
             (the default) means no line was switched. Set by the renderer via
+            `dataclasses.replace`; never sourced from the YAML schema.
+        collision_vertical_shift_inches: Extra inches the text block was slid
+            vertically by text-hole collision avoidance (Phase 2b), on top of
+            :attr:`hole_aware_vertical_shift_inches`. Positive = downward (the
+            block moved off a TOP hole), negative = upward (off a BOTTOM hole).
+            Kept SEPARATE from :attr:`hole_aware_vertical_shift_inches` because
+            resolution recomputes that field from the hole diameters: a
+            downstream pass that re-renders the render's `source_label` would
+            compound a collision shift folded into it. `0.0` (the default)
+            means no collision slide. Set by the renderer via
+            `dataclasses.replace`; never sourced from the YAML schema.
+        collision_spacing_scale: Multiplier in `(0.0, 1.0]` applied to every
+            inter-line gap when text-hole collision avoidance had to pack the
+            text block vertically (Phase 2c), floored per gap by
+            :attr:`min_line_spacing`. `1.0` (the default) means
+            no collision-driven packing. Set by the renderer via
             `dataclasses.replace`; never sourced from the YAML schema.
         align_margin_adjust_global: Whether the collision-avoidance edge-margin
             increase (see :attr:`collision_edge_margin_by_line`) is matched by
@@ -2640,9 +2666,12 @@ class ResolvedLabel:
     holes: list[ResolvedHoleSpec] = field(default_factory=list)
     content: list[ResolvedTextLine] = field(default_factory=list)
     min_hole_margin: Optional[float] = None
+    min_line_spacing: Optional[float] = None
     collision_compress_by_line: dict[int, float] = field(default_factory=dict)
     collision_edge_margin_by_line: dict[int, float] = field(default_factory=dict)
     collision_center_by_line: frozenset[int] = frozenset()
+    collision_vertical_shift_inches: float = 0.0
+    collision_spacing_scale: float = 1.0
     cutter_downsize_by_line: dict[int, tuple[float, float]] = field(default_factory=dict)
     global_compress_by_line: dict[int, float] = field(default_factory=dict)
     hole_text_collision_distance: float = DEFAULT_HOLE_TEXT_COLLISION_DISTANCE
@@ -5576,6 +5605,18 @@ def _resolve_label(
     else:
         label_min_hole_margin = DEFAULT_MIN_HOLE_MARGIN
 
+    # Resolve the collision-avoidance floor for the inter-line gap explicitly
+    # so an intentional `0.0` (a gap may close all the way to tangent) is
+    # honored instead of falling through to the parent value. Same cascade
+    # shape as `min_hole_margin` (label -> job -> `job-config.json`); the plate
+    # tier is schema parity only, see `schema.PlateSpec`.
+    if label_input.min_line_spacing is not None:
+        label_min_line_spacing: Optional[float] = label_input.min_line_spacing
+    elif job.min_line_spacing is not None:
+        label_min_line_spacing = job.min_line_spacing
+    else:
+        label_min_line_spacing = DEFAULT_MIN_LINE_SPACING
+
     # Resolve the engraved-stroke air gap explicitly so an intentional
     # `0.0` (strokes may touch but never overlap) is honored instead of
     # falling through to the 0.15in default.
@@ -5887,6 +5928,7 @@ def _resolve_label(
         holes=resolved_holes,
         content=resolved_content,
         min_hole_margin=label_min_hole_margin,
+        min_line_spacing=label_min_line_spacing,
         hole_text_collision_distance=label_collision_distance,
         hole_cutter_diameter=hole_cutter,
         hole_cutter_buffer=label_hole_cutter_buffer,

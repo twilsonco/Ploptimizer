@@ -346,6 +346,17 @@ class JobDefaults(BaseModel):
             "(job layer; required-when-unconfigured)."
         ),
     )
+    min_line_spacing: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default collision-avoidance floor for an inter-line gap, in "
+            "inches (job layer). The vertical packing phase (2c) never closes "
+            "a gap below it. Unlike `min_hole_margin` this is NOT a "
+            "required-when-unconfigured field: unset lets a gap close all the "
+            "way to `0.0`."
+        ),
+    )
     hole_text_collision_distance: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -1207,6 +1218,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "v_margin",
     "hole_margin",
     "min_hole_margin",
+    "min_line_spacing",
     "hole_text_collision_distance",
     "cutter_buffer_text",
     "cutter_buffer_routing",

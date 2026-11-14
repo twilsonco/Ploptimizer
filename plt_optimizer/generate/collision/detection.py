@@ -2,11 +2,16 @@
 
 The collision system in one place: the stroke-aware threshold, detection
 of (text line, drill hole) pairs below it, the opt-in avoidance phases
-(hole-margin reduction, edge-margin slide for edge-aligned text, the
-alignment switch to center plus horizontal compression, and the
-sibling flush onto the switched lines' final edge), the
+(hole-margin reduction, the vertical ladder for top/bottom holes - the rigid
+block slide and the inter-line packing - the edge-margin slide for
+edge-aligned text, the alignment switch to center plus horizontal
+compression, and the sibling flush onto the switched lines' final edge), the
 unresolvable-collision diagnostics, and the job-level
 :func:`assert_no_collisions` gate.
+
+Which ladder runs is decided by :func:`collision.holes.hole_escape_axes`: the
+edges the label's holes sit on are the ONLY axes a clearance can be bought on,
+so a label with nothing but top/bottom holes never squeezes glyph widths.
 
 The compression sweep must re-render text to measure the compressed
 bounds; the renderer lives in
@@ -27,7 +32,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from plt_optimizer.generate.collision.geometry import CollisionResult, circle_aabb_gap
-from plt_optimizer.generate.collision.holes import hole_circles_local
+from plt_optimizer.generate.collision.holes import hole_circles_local, hole_escape_axes
 from plt_optimizer.generate.collision.shapes import rounded_rect_corner
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
@@ -50,6 +55,14 @@ LineBoundsRender = Callable[["ResolvedLabel"], Tuple[Any, List["_LineEntry"]]]
 _MARGIN_ADJUST_STEPS: int = 32
 _COMPRESSION_RESOLVE_STEPS: int = 16
 
+# Resolution sweep granularity for the vertical packing phase (2c). Like the
+# compression sweep it re-renders the text per step, so it stays small; the
+# block slide (2b) is analytical and needs no sweep at all.
+_SPACING_RESOLVE_STEPS: int = 16
+
+# The tolerance under which a slide/scale is treated as no movement at all.
+_SHIFT_EPSILON_IN: float = 1e-12
+
 
 class LabelRenderError(Exception):
     """Raised to abort a job containing unavoidable text-hole collisions.
@@ -61,6 +74,33 @@ class LabelRenderError(Exception):
     time); only collisions that survive every enabled avoidance phase are
     unacceptable output requiring a jobspec revision.
     """
+
+
+def _frame_shift_y(label: ResolvedLabel, band_center_offset_inches: float = 0.0) -> float:
+    """The Y the export centers the text block on, in the label-local frame.
+
+    Single source of truth for the collision frame, mirroring
+    ``label_renderer._center_text_layer_vertically``: the label center,
+    lowered by the band-centering offset, by the hole-diameter shift, and by
+    the Phase-2b collision slide (all three lower the expected center, so all
+    three are subtracted). Every detection site measures in this one frame, so
+    a clone carrying any combination of shifts cannot desynchronise from the
+    geometry that is emitted.
+
+    Args:
+        label: The resolved label whose shift terms should be summed.
+        band_center_offset_inches: The band-center offset of the bounds being
+            measured (inches); ``0.0`` when the label centers by ink.
+
+    Returns:
+        The collision frame's Y origin, inches.
+    """
+    return (
+        label.height / 2.0
+        - band_center_offset_inches
+        - label.hole_aware_vertical_shift_inches
+        - label.collision_vertical_shift_inches
+    )
 
 
 def collision_threshold(label: ResolvedLabel, line_index: int) -> float:
@@ -148,11 +188,9 @@ def detect_text_hole_collisions(
         return []
 
     circles = hole_circles_local(label)
-    # Mirrors _center_text_layer_vertically: band offset + hole-aware shift both
-    # lower the expected center, so both are subtracted here.
-    shift_y = (
-        label.height / 2.0 - band_center_offset_inches - label.hole_aware_vertical_shift_inches
-    )
+    # Mirrors _center_text_layer_vertically: band offset + hole-aware shift +
+    # collision slide all lower the expected center, so all are subtracted.
+    shift_y = _frame_shift_y(label, band_center_offset_inches)
     results: List[CollisionResult] = []
 
     for entry in line_entries:
@@ -290,6 +328,350 @@ def resolve_via_margin_adjustment(
                 candidate,
                 line_desc or "colliding text",
                 floor,
+            )
+            return candidate_label
+    return None
+
+
+def _content_band(label: ResolvedLabel) -> Tuple[float, float]:
+    """The alignment content box ``[bottom_edge, top_edge]`` in LABEL-LOCAL Y.
+
+    The Y mirror of :func:`_content_edges`: the band spans
+    ``[v_margin, height - v_margin]``, where a rounded-rectangle label's
+    effective ``v_margin`` is widened by the corner inset (the same rule
+    :func:`_render_text_local_with_bounds` applies, so the caps match where the
+    renderer will actually place the block).
+
+    Same frame as the ``frame`` list inside
+    :func:`resolve_via_vertical_shift` (the entries' collision bounds lifted by
+    :func:`_frame_shift_y`), which is what makes a block that fills its box
+    report ZERO slack in both directions -- the condition that stands the slide
+    down and hands the label to the packing phase.
+
+    Args:
+        label: The resolved label to measure.
+
+    Returns:
+        ``(bottom_edge, top_edge)`` in inches, label-local Y.
+    """
+    v_margin = label.v_margin
+    corner = rounded_rect_corner(label)
+    if corner is not None:
+        _content_width, content_height = rounded_rect_content_inset(
+            label.width, label.height, label.h_margin, v_margin, corner
+        )
+        v_margin = max(v_margin, (label.height - content_height) / 2.0)
+    return v_margin, label.height - v_margin
+
+
+def _required_vertical_shift(
+    bounds: Tuple[float, float, float, float],
+    center_x: float,
+    center_y: float,
+    radius: float,
+    threshold: float,
+    direction: str,
+) -> float:
+    """The block slide that clears one (line, hole) collision on the Y axis.
+
+    The Y mirror of :func:`_required_edge_shift`. Sliding the block is a rigid
+    vertical translate of the line's AABB, so ``circle_aabb_gap`` is monotonic
+    in the slide once the line's edge has passed the hole's centre, and the
+    slide reaching the threshold solves in closed form: the near edge travels to
+    ``centre -+ root`` with ``root = sqrt((threshold + r)^2 - dx^2)``. A
+    colliding hole sits inside the line's Y span, so the slide is the edge-to-
+    centre distance plus ``root`` (the edge has to pass the far side of the
+    hole's clearance ring).
+
+    Args:
+        bounds: The line's collision-frame AABB.
+        center_x: Hole centre X.
+        center_y: Hole centre Y.
+        radius: Hole radius.
+        threshold: The line's stroke-aware collision threshold, inches.
+        direction: ``"down"`` (slide away from a hole ABOVE the line) or
+            ``"up"`` (away from a hole BELOW it).
+
+    Returns:
+        The minimum non-negative slide in inches.
+    """
+    x_min, y_min, x_max, _y_max = bounds
+    dx = max(x_min - center_x, 0.0, center_x - x_max)
+    root = math.sqrt(max(0.0, (threshold + radius) ** 2 - dx * dx))
+    if direction == "down":
+        return max(0.0, bounds[3] - center_y + root)
+    return max(0.0, center_y - y_min + root)
+
+
+def _max_vertical_shift(
+    bounds: Tuple[float, float, float, float],
+    direction: str,
+    circles: Sequence[Tuple[float, float, float]],
+    threshold: float,
+) -> float:
+    """How far the block may slide before a far-side hole starts colliding.
+
+    The Y mirror of :func:`_max_edge_shift` (the user's rule: slide until a
+    hole collides on the far side, never past it). The content band is NOT
+    measured here -- the caller caps the slide by the band's slack as well.
+
+    "Far side" is decided against the line's CENTRE, not its near edge: a hole
+    whose centre lies inside the line's Y span is on the side the block is
+    running toward, and the cap is then 0.0 (the slide would carry the line
+    deeper into it). Deciding on ``center_y < y_min`` would call such a hole
+    "near side", report no cap, and let a squeezed block slide into the very
+    hole it is fleeing.
+
+    Args:
+        bounds: The line's collision-frame AABB.
+        direction: ``"down"`` (the far side is BELOW) or ``"up"``.
+        circles: All hole circles (label-local, collision frame).
+        threshold: The line's stroke-aware collision threshold, inches.
+
+    Returns:
+        The maximum non-negative slide in inches.
+    """
+    x_min, y_min, x_max, y_max = bounds
+    center_y_line = (y_min + y_max) / 2.0
+    cap = math.inf
+    for center_x, center_y, radius in circles:
+        dx = max(x_min - center_x, 0.0, center_x - x_max)
+        root_sq = (threshold + radius) ** 2 - dx * dx
+        root = math.sqrt(root_sq) if root_sq > 0.0 else 0.0
+        if direction == "down" and center_y < center_y_line:
+            cap = min(cap, y_min - center_y - root)
+        elif direction == "up" and center_y > center_y_line:
+            cap = min(cap, center_y - y_max - root)
+    return max(0.0, cap)
+
+
+def resolve_via_vertical_shift(
+    label: ResolvedLabel,
+    line_entries: Sequence[_LineEntry],
+    band_center_offset_inches: float = 0.0,
+    line_desc: str = "",
+) -> Optional[ResolvedLabel]:
+    """Phase 2b: slide the whole text block off its top/bottom holes.
+
+    A hole on the top edge is escaped by opening room on the Y axis: nothing a
+    line does in X moves it off a hole that spans the row. This phase moves the
+    block as one rigid unit (``collision_vertical_shift_inches``, positive =
+    downward) by the closed-form slide that clears the dominant side, so every
+    glyph keeps its width and every inter-line gap keeps its value -- which is
+    what an engraver sees: a block that sits a little off-centre, not squeezed
+    type.
+
+    The slide is capped twice, and never past either cap:
+
+    * by the shift at which a hole on the FAR side starts colliding (the block
+      may not be pushed into the hole it is running away from), and
+    * by the content band's slack: the block's own extremes stay inside
+      ``[v_margin, height - v_margin]``, so a slide can never put ink in a
+      margin.
+
+    When holes on both sides collide, each direction's reach is its capped slide
+    (``min(need, cap)``) and the side that gets FURTHEST moves; the residual is
+    what the next phase (2c, packing) cleans up. A direction with no room at all
+    (a block squeezed between a near hole and the opposite margin) has reach 0
+    and is not chosen. The slide is analytical, so this phase costs no sweep
+    renders; the caller re-renders to verify. Each run ADDS to the slide a
+    previous round applied (measured from the already-shifted bounds), so
+    re-running converges instead of compounding.
+
+    Args:
+        label: The label whose collision should be resolved (may already carry
+            a Phase 2 margin reduction and an earlier slide of this phase).
+        line_entries: Rendered text bounds (the current frame).
+        band_center_offset_inches: The band-center offset of ``line_entries``.
+        line_desc: Optional description of the offending lines for the
+            resolution WARNING.
+
+    Returns:
+        A clone of ``label`` with a larger ``collision_vertical_shift_inches``
+        when the block can slide, otherwise ``None`` (no holes, no collisions,
+        or the slide is fully capped). The clone may only PARTIALLY resolve the
+        collisions; the caller re-detects and escalates.
+    """
+    if not label.holes or not line_entries:
+        return None
+    circles = hole_circles_local(label)
+    shift_y = _frame_shift_y(label, band_center_offset_inches)
+    frame = [
+        (
+            entry.line_index,
+            (
+                entry.bounds[0],
+                entry.bounds[1] + shift_y,
+                entry.bounds[2],
+                entry.bounds[3] + shift_y,
+            ),
+        )
+        for entry in line_entries
+    ]
+    bounds_by_line = dict(frame)
+    collisions = detect_text_hole_collisions(label, line_entries, band_center_offset_inches)
+    if not collisions:
+        return None
+
+    # What the block must move, per direction: every collision whose hole is
+    # above the line's centre pushes the block down, every one below pushes it
+    # up. The block is one rigid unit, so a direction's need is its tightest.
+    need: Dict[str, float] = {}
+    for collision in collisions:
+        bounds = bounds_by_line.get(collision.line_index)
+        if bounds is None:  # pragma: no cover - a collision always has an entry
+            continue
+        center_x, center_y, radius = circles[collision.hole_index]
+        direction = "down" if center_y > (bounds[1] + bounds[3]) / 2.0 else "up"
+        required = _required_vertical_shift(
+            bounds,
+            center_x,
+            center_y,
+            radius,
+            collision_threshold(label, collision.line_index),
+            direction,
+        )
+        need[direction] = max(need.get(direction, 0.0), required)
+    if not need:
+        return None
+
+    # The dominant side moves (the larger need clears the tighter constraint;
+    # the other side is what the packing phase inherits). Ties prefer "down" so
+    # a symmetric job resolves deterministically.
+    direction = max(need, key=lambda side: (need[side], side == "down"))
+
+    # Caps, per direction: (1) the far-side holes, over every line of the block
+    # (the slide is shared, so the tightest line binds the whole block), and
+    # (2) the content frame -- the block's own extremes may not enter a margin.
+    # Frame 2 is measured from the BAND box (the renderer centres
+    # ``band`` in ``[v_margin, height - v_margin]``, so the slack to the far
+    # edge is exactly the shift that puts a block extreme on the box). A block
+    # that overflows its box (the renderer clamps its gaps to the box on every
+    # pass) gets 0.0 slack: the slide stands down and the packing phase below
+    # takes the label over.
+    block_bottom = min(bounds[1] for _index, bounds in frame)
+    block_top = max(bounds[3] for _index, bounds in frame)
+    bottom_edge, top_edge = _content_band(label)
+    far_cap: Dict[str, float] = {}
+    band_slack: Dict[str, float] = {}
+    slack: Dict[str, float] = {}
+    for side in need:
+        far = math.inf
+        for line_index, bounds in frame:
+            far = min(
+                far,
+                _max_vertical_shift(bounds, side, circles, collision_threshold(label, line_index)),
+            )
+        far_cap[side] = far
+        band_slack[side] = max(
+            0.0, (block_bottom - bottom_edge) if side == "down" else (top_edge - block_top)
+        )
+        slack[side] = min(far, band_slack[side])
+
+    # Both directions are capped, so the side that gets FURTHEST toward clearing
+    # moves -- reach = min(need, cap), ties preferring "down" for determinism.
+    # A block squeezed between a near hole and the opposite margin has no room
+    # away from the hole (reach 0), so the slack side's partial slide runs first
+    # and the label then falls through to the packing phase.
+    direction = max(need, key=lambda side: (min(need[side], slack[side]), side == "down"))
+    cap = slack[direction]
+
+    slide = min(need[direction], cap)
+    if slide <= _SHIFT_EPSILON_IN:
+        return None
+
+    capped_by = ""
+    if slide < need[direction] - _SHIFT_EPSILON_IN:
+        capped_by = (
+            ", capped by the content band"
+            if band_slack[direction] <= far_cap[direction]
+            else ", capped by the far-side hole"
+        )
+    logger.warning(
+        "Label %s: slid the text block %.4fin %s to avoid text-hole collision on %s "
+        "(needed %.4fin%s).",
+        label.id,
+        slide,
+        "downward" if direction == "down" else "upward",
+        line_desc or "colliding text",
+        need[direction],
+        capped_by,
+    )
+    return replace(
+        label,
+        collision_vertical_shift_inches=label.collision_vertical_shift_inches
+        + (slide if direction == "down" else -slide),
+    )
+
+
+def resolve_via_spacing_reduction(
+    label: ResolvedLabel,
+    *,
+    render: LineBoundsRender,
+    band_center_offset_inches: float = 0.0,
+    line_desc: str = "",
+) -> Optional[ResolvedLabel]:
+    """Phase 2c: pack the text block by shrinking every inter-line gap.
+
+    The last vertical knob: with the holes at their ``min_hole_margin`` floor
+    and the block pinned by the band and the far-side holes, the only room left
+    is BETWEEN the lines. Sweeps one label-level factor
+    (``collision_spacing_scale``) from its current value down to the value that
+    puts every gap at the cascaded ``min_line_spacing`` floor, and returns the
+    least packing that clears every collision. Gaps shrink proportionally, so
+    the block's rhythm survives; glyph widths do not move.
+
+    Inert by construction where there is nothing to pack: a single-line label
+    has no inter-line gap at all (Phase 2b is what saves those), and a label
+    whose every gap already sits at the floor has no budget.
+
+    Args:
+        label: The label whose collision should be resolved (may already carry
+            a Phase 2 margin reduction and a Phase 2b slide).
+        render: Callback re-rendering a label's text and reporting the per-line
+            bounds records (the injected
+            ``label_renderer._render_text_local_with_bounds``).
+        band_center_offset_inches: The band-center offset of the current bounds.
+        line_desc: Optional description of the offending lines for the
+            resolution WARNING.
+
+    Returns:
+        A clone of ``label`` with a reduced ``collision_spacing_scale`` when one
+        clears all collisions, otherwise ``None``.
+    """
+    gaps = [line.line_spacing for line in label.content[:-1]]
+    if not gaps:
+        return None  # A single line has no gap to pack.
+    floor = max(0.0, label.min_line_spacing or 0.0)
+    shrinkable = [gap for gap in gaps if gap > floor + _SHIFT_EPSILON_IN]
+    if not shrinkable:
+        return None  # Every gap already sits at the configured floor.
+
+    # The scale at which the LAST open gap reaches the floor: below it every
+    # gap is clamped, so sweeping further changes nothing.
+    scale_floor = min(floor / gap for gap in shrinkable)
+    base = min(1.0, max(0.0, label.collision_spacing_scale))
+    if base <= scale_floor + _SHIFT_EPSILON_IN:
+        return None
+
+    steps = max(1, _SPACING_RESOLVE_STEPS)
+    for i in range(1, steps + 1):
+        scale = base - (base - scale_floor) * i / steps
+        candidate_label = replace(label, collision_spacing_scale=scale)
+        _candidate_lc, candidate_entries = render(candidate_label)
+        if not detect_text_hole_collisions(
+            candidate_label, candidate_entries, band_center_offset_inches
+        ):
+            logger.warning(
+                "Label %s: packed the text block to %.1f%% of its inter-line "
+                "spacing (%s -> %s gaps, floor %.4fin) to avoid text-hole "
+                "collision on %s.",
+                label.id,
+                scale * 100.0,
+                ", ".join(f"{gap:.4f}in" for gap in gaps),
+                ", ".join(f"{min(gap, max(floor, gap * scale)):.4f}in" for gap in gaps),
+                floor,
+                line_desc or "colliding text",
             )
             return candidate_label
     return None
@@ -508,9 +890,7 @@ def resolve_via_edge_margin(
     if not label.holes:
         return None
     circles = hole_circles_local(label)
-    shift_y = (
-        label.height / 2.0 - band_center_offset_inches - label.hole_aware_vertical_shift_inches
-    )
+    shift_y = _frame_shift_y(label, band_center_offset_inches)
     bounds_by_line = {
         entry.line_index: (
             entry.bounds[0],
@@ -725,9 +1105,7 @@ def flush_siblings_to_switched_edge(
     """
     if not label.align_margin_adjust_global or not label.collision_center_by_line:
         return None
-    shift_y = (
-        label.height / 2.0 - band_center_offset_inches - label.hole_aware_vertical_shift_inches
-    )
+    shift_y = _frame_shift_y(label, band_center_offset_inches)
     bounds_by_line = {
         entry.line_index: (
             entry.bounds[0],
@@ -988,7 +1366,8 @@ def format_unresolvable_collision(
 
     Args:
         label: The label state after all resolution phases ran (may carry
-            a reduced ``hole_margin``, per-line edge margins, and the
+            a reduced ``hole_margin``, a vertical block slide, packed
+            inter-line gaps, per-line edge margins, and the
             compression state at the most aggressive scale tried).
         collisions: The collisions still present after all phases ran.
         attempted_scale: Most aggressive collision-compression scale tried
@@ -996,8 +1375,13 @@ def format_unresolvable_collision(
 
     Returns:
         A multi-line diagnostic string naming each colliding pair plus the
-        current margin/compression state and actionable recommendations.
+        current margin/vertical/compression state and actionable
+        recommendations, restricted to the escape axes the label's holes
+        actually leave open (a top/bottom-only label is told to grow its
+        vertical room, and is never told a compression it did not apply was
+        insufficient).
     """
+    axes = hole_escape_axes(label)
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     if attempted_scale is not None:
         scale_text = f"{attempted_scale:.3f}"
@@ -1017,7 +1401,17 @@ def format_unresolvable_collision(
         (collision_threshold(label, c.line_index) - c.gap for c in collisions),
         default=0.0,
     )
-    if label.min_hole_margin is None and budget <= 0.0:
+    if not axes.horizontal:
+        # The X axis buys no clearance on this label, so its budget is not
+        # part of the story -- naming it would send the operator to the wrong
+        # knob (and claim a squeeze that never ran).
+        advice = (
+            "increase label height, reduce text height, lower "
+            "min_hole_margin, lower min_line_spacing, or reduce the vertical "
+            "margin (these holes sit on the top/bottom edge only, so the "
+            "collision is cleared vertically)."
+        )
+    elif label.min_hole_margin is None and budget <= 0.0:
         advice = (
             "enable collision avoidance (set min_hole_margin and/or "
             "max_h_compress), increase label width, or reduce text height."
@@ -1025,7 +1419,7 @@ def format_unresolvable_collision(
     else:
         advice = (
             "increase label width, reduce text height, lower "
-            "min_hole_margin, or increase max_h_compress."
+            "min_hole_margin, lower min_line_spacing, or increase max_h_compress."
         )
     edge_lines = [
         f"line {line_index} (+{shift:.4f}in)"
@@ -1039,14 +1433,36 @@ def format_unresolvable_collision(
         if label.collision_center_by_line
         else ""
     )
+    shift_text = (
+        f"\n- Vertical block slide: {label.collision_vertical_shift_inches:+.4f}in "
+        f"({'downward' if label.collision_vertical_shift_inches > 0.0 else 'upward'})"
+        if abs(label.collision_vertical_shift_inches) > 1e-12
+        else ""
+    )
+    spacing_text = (
+        f"\n- Inter-line packing: {label.collision_spacing_scale * 100.0:.1f}% of the "
+        f"requested gaps (min_line_spacing floor "
+        f"{max(0.0, label.min_line_spacing or 0.0):.4f}in)"
+        if label.collision_spacing_scale < 1.0 - 1e-12
+        else ""
+    )
+    if axes.horizontal:
+        compression_text = (
+            f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
+            f"(most aggressive text scale {scale_text})\n"
+        )
+    else:
+        compression_text = (
+            "- Compression: not attempted (no left/right/corner hole on this "
+            "label, so the horizontal axis buys no clearance)\n"
+        )
     return (
         f"Label {label.id}: text-hole collision cannot be resolved.\n"
         f"- Collisions: {details}\n"
         f"- Hole margin: {label.hole_margin:.4f}in "
         f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})"
-        f"{edge_text}{center_text}\n"
-        f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
-        f"(most aggressive text scale {scale_text})\n"
+        f"{edge_text}{center_text}{shift_text}{spacing_text}\n"
+        f"{compression_text}"
         f"- Worst clearance shortfall: {worst_shortfall:.4f}in\n"
         f"- Recommendations: {advice}"
     )

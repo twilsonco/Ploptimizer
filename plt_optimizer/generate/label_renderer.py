@@ -55,9 +55,11 @@ from plt_optimizer.generate.collision.detection import (
     resolve_via_compression,
     resolve_via_edge_margin,
     resolve_via_margin_adjustment,
+    resolve_via_spacing_reduction,
+    resolve_via_vertical_shift,
     switch_edge_aligned_to_center,
 )
-from plt_optimizer.generate.collision.holes import render_holes_hpgl
+from plt_optimizer.generate.collision.holes import hole_escape_axes, render_holes_hpgl
 from plt_optimizer.generate.collision.shapes import (
     rounded_rect_corner,
     uses_ellipse_boundary,
@@ -601,7 +603,13 @@ def render_label_to_plt(
     re-derived by every pipeline pass; baking it into a shared typography
     decision double-charges it in the final render.
 
-    Text-hole collision avoidance runs in four phases. A (line, hole)
+    Text-hole collision avoidance runs in six phases, on the axes the label's
+    holes leave open (see
+    :func:`plt_optimizer.generate.collision.holes.hole_escape_axes`): a hole on
+    the top/bottom edge is cleared on the Y axis and a hole on the left/right
+    edge on the X axis, so a label with nothing but top/bottom holes never
+    squeezes its glyph widths -- sliding text sideways cannot move it off a hole
+    that spans the row. A (line, hole)
     pair collides when its geometric gap falls below the stroke-aware
     threshold ``0.5 * (hole_cutter + text_cutter) +
     hole_text_collision_distance`` (see :func:`collision_threshold`), so
@@ -614,8 +622,23 @@ def render_label_to_plt(
        :attr:`RenderedLabel.has_collisions` when unresolved).
     2. **Hole-margin reduction** (opt-in via ``min_hole_margin``): holes
        are moved toward the label edge (margin reduced toward the floor)
-       until the text clears them.
-    3. **Edge-margin slide** (opt-in via ``max_h_compress``): a
+       until the text clears them. Works on both axes -- a top hole's margin
+       is a vertical distance.
+    2b. **Vertical block slide** (gated on a top/bottom/corner hole, no budget
+       knob): the whole text block slides off the dominant side
+       (``collision_vertical_shift_inches``, positive = downward) by the
+       closed-form slide that clears the collision, capped by a far-side hole
+       starting to collide and by the content band's slack (the block never
+       enters a margin). Glyph widths and inter-line gaps are untouched.
+       Re-runs to a fixed point like Phase 3.
+    2c. **Inter-line packing** (gated on a top/bottom/corner hole and on the
+       label having a gap to pack): one label-level factor
+       (``collision_spacing_scale``) shrinks every inter-line gap toward the
+       cascaded ``min_line_spacing`` floor until the collisions clear. The last
+       vertical knob, tried when the holes are at their floor and the block is
+       pinned by the band and the far-side holes.
+    3. **Edge-margin slide** (opt-in via ``max_h_compress``, and only when a
+       left/right/corner hole exists): a
        ``left``/``right``-aligned line colliding with a hole on its
        anchored side slides off that margin (its edge margin increases,
        capped by a far-side hole starting to collide; the content-area box
@@ -629,10 +652,11 @@ def render_label_to_plt(
        escalating to the switch below. Compression cannot free such a line
        -- its anchored end stays pinned -- so the slide is tried first.
     4. **Alignment switch + horizontal compression** (opt-in via
-       ``max_h_compress``): a colliding line that is still edge-aligned
+       ``max_h_compress``, and only when a left/right/corner hole exists):
+       a colliding line that is still edge-aligned
        (its slide budget is exhausted, i.e. holes collide on both sides)
        switches to ``center``, then text is compressed horizontally
-       (stacked on top of any Phase 2/3 adjustment) until the collisions
+       (stacked on top of any Phase 2/2b/2c/3 adjustment) until the collisions
        clear. When ``align_margin_adjust_global`` is enabled and a switch
        happened, the unswitched same-alignment lines are then flushed so
        their anchored edges line up with the switched lines' final edges
@@ -807,15 +831,96 @@ def render_label_to_plt(
                 len(collisions),
             )
 
+    axes = hole_escape_axes(label)
+
+    # ---- Phase 2b: slide the text block off its top/bottom holes ----
+    # A hole on the top (bottom) edge is escaped only on the Y axis: sliding a
+    # line sideways, centering it, or squeezing its glyph widths moves the ink
+    # PARALLEL to the constraint and buys no clearance. This is the vertical
+    # twin of Phase 3's edge-margin slide -- analytical, capped by a far-side
+    # hole starting to collide and by the content band's slack -- and it is
+    # gated on the holes, NOT on the max_h_compress budget: a label with
+    # top/bottom holes gets its vertical escape even with compression disabled.
+    # A band with no slack (a block that already fills its box) caps the slide
+    # below one device unit, the resolver reports no progress, and the packing
+    # phase below takes over -- it is the one knob that shrinks the band itself.
+    # Re-run to a fixed point (the slide is capped, so the tightest line
+    # catches up on the next round) then verified with a full re-render.
+    if axes.vertical:
+        for _ in range(len(base_label.content) + 1):
+            shift_label = resolve_via_vertical_shift(
+                base_label,
+                line_entries,
+                band_center_offset_inches=band_offset,
+                line_desc=line_desc,
+            )
+            if shift_label is None:
+                break
+            shift_rendered, shift_entries = _render_label_once(
+                shift_label,
+                pen_map=pen_map,
+                check_glyph_coverage=check_glyph_coverage,
+                line_block_cache=line_block_cache,
+            )
+            shift_collisions = detect_text_hole_collisions(
+                shift_label, shift_entries, shift_rendered.band_center_offset_inches
+            )
+            base_label = shift_label
+            line_entries = shift_entries
+            band_offset = shift_rendered.band_center_offset_inches
+            collisions = shift_collisions
+            if not shift_collisions:
+                log_collisions(label, detected_collisions, level=logging.WARNING)
+                flushed = _apply_edge_flush(shift_label, shift_rendered, shift_entries)
+                return flushed or replace(shift_rendered, collision_detected=True)
+
+        # ---- Phase 2c: pack the inter-line gaps ----
+        # The last vertical knob: holes at their floor, the block pinned by the
+        # band and the far-side holes, the only room left is BETWEEN the lines.
+        # Floored by the cascaded min_line_spacing, and inert on a single-line
+        # label (it has no gap to pack).
+        spacing_label = resolve_via_spacing_reduction(
+            base_label,
+            render=lambda sweep_label: _render_text_local_with_bounds(
+                sweep_label, line_block_cache=line_block_cache
+            ),
+            band_center_offset_inches=band_offset,
+            line_desc=line_desc,
+        )
+        if spacing_label is not None:
+            # Verify the packing in the full render (the sweep measures the
+            # text renderer's bounds, the export emits the real ones) and keep
+            # the packed state for the phases -- and the diagnostics -- below.
+            packed_rendered, packed_entries = _render_label_once(
+                spacing_label,
+                pen_map=pen_map,
+                check_glyph_coverage=check_glyph_coverage,
+                line_block_cache=line_block_cache,
+            )
+            packed_collisions = detect_text_hole_collisions(
+                spacing_label, packed_entries, packed_rendered.band_center_offset_inches
+            )
+            base_label = spacing_label
+            line_entries = packed_entries
+            band_offset = packed_rendered.band_center_offset_inches
+            collisions = packed_collisions
+            if not packed_collisions:
+                log_collisions(label, detected_collisions, level=logging.WARNING)
+                flushed = _apply_edge_flush(spacing_label, packed_rendered, packed_entries)
+                return flushed or replace(packed_rendered, collision_detected=True)
+
     # ---- Phase 3: slide edge-aligned lines off their near-side holes ----
     # Compression cannot free a left/right-aligned line from a hole on its
     # anchored side (the anchored edge stays pinned at the margin), so an
     # edge-aligned collision first increases that line's edge margin. Gated on
     # the same max_h_compress budget as Phase 4: a job with compression
-    # disabled behaves exactly as before this phase existed.
+    # disabled behaves exactly as before this phase existed. Gated on the holes
+    # too: with nothing but top/bottom holes the X axis is no escape, so the
+    # horizontal ladder is locked and the vertical ladder above is the whole
+    # story (a collision it cannot clear fails the job, per the axis rule).
     budget = min((line.max_h_compress for line in label.content), default=0.0)
     attempted_scale: Optional[float] = None
-    if budget > 0.0:
+    if budget > 0.0 and axes.horizontal:
         # Phase 3 iterates to a fixed point: with ``align_margin_adjust_global``
         # the shared shift is the tightest need among the colliding lines, so a
         # line needing MORE stays colliding after the first slide. Re-running
@@ -1410,7 +1515,13 @@ def _export_to_plt_with_postprocessing(
         label,
         text_pens=center_pens,
         band_center_offset_inches=band_center_offset_inches,
-        hole_aware_vertical_shift_inches=label.hole_aware_vertical_shift_inches,
+        # The hole-diameter centering shift plus the Phase-2b collision slide:
+        # both lower the expected center, and the collision checks measure the
+        # sum (see collision.detection._frame_shift_y), so the emitted geometry
+        # must apply it exactly once, here.
+        hole_aware_vertical_shift_inches=(
+            label.hole_aware_vertical_shift_inches + label.collision_vertical_shift_inches
+        ),
     )
 
     # Invert Y-axis to device convention so rendered labels display upright.
@@ -6508,6 +6619,16 @@ def _render_positioned_lines(
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
     spacings = [rendered.line_spacing for rendered in rendered_lines[:-1]]
+    # Collision-avoidance packing (Phase 2c): one label-level factor shrinks
+    # every gap toward the cascaded min_line_spacing floor. Applied BEFORE the
+    # margin clamp so the two compose (margins keep precedence, exactly as they
+    # keep it over the requested spacing), and as a pure shrink -- a gap at or
+    # below the floor is left alone, never grown. Inert at the 1.0 default, so
+    # every label without a vertical collision renders bit-identically.
+    collision_scale = min(1.0, max(0.0, label.collision_spacing_scale))
+    if collision_scale < 1.0:
+        spacing_floor = max(0.0, label.min_line_spacing or 0.0)
+        spacings = [min(s, max(spacing_floor, s * collision_scale)) for s in spacings]
     # Vertical margin applies as-is; no cutter compensation needed since the
     # margin is user-specified and text already accounts for per-line cutter diameter
     # via horizontal compensation.

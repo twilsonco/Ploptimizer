@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass
 from typing import List, Tuple
 
 from plt_optimizer.core.units import inches_to_units
@@ -30,6 +31,65 @@ from plt_optimizer.generate.resolution import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The atomic hole locations that constrain each axis. A location string names
+# the edge(s) it sits on, so the classification is a substring test: the four
+# corners name one horizontal and one vertical edge and therefore constrain
+# BOTH axes.
+_VERTICAL_EDGE_TOKENS: Tuple[str, ...] = ("top", "bottom")
+_HORIZONTAL_EDGE_TOKENS: Tuple[str, ...] = ("left", "right")
+
+
+@dataclass(frozen=True)
+class EscapeAxes:
+    """The axes along which text can escape a label's drill holes.
+
+    Collision avoidance moves text (and holes) on the axis the holes leave
+    free: a hole on the top edge is escaped by opening vertical room, a hole
+    on the left edge by opening horizontal room. A label whose holes sit on
+    the top and bottom edges ONLY has no horizontal escape at all -- sliding a
+    line left/right, centering it, or squeezing its glyph widths moves the ink
+    parallel to the constraint, so those phases cannot clear the collision
+    (they squeeze text that is already clear of every hole on its own axis).
+
+    Attributes:
+        vertical: True when at least one hole sits on the top or bottom edge
+            (the four corners included), i.e. the vertical ladder
+            (hole margin -> block shift -> line spacing) has work to do.
+        horizontal: True when at least one hole sits on the left or right edge
+            (the four corners included), i.e. the horizontal ladder
+            (edge-margin slide -> center switch -> compression) is eligible.
+    """
+
+    vertical: bool
+    horizontal: bool
+
+
+def hole_escape_axes(label: ResolvedLabel) -> EscapeAxes:
+    """Classify a label's drill holes into the escape axes they constrain.
+
+    Pure function of :attr:`ResolvedHoleSpec.location` (the schema expands the
+    `corners` / `sides` group shorthands to atomic locations at validation
+    time, and the location strings always name the edge they sit on, so a
+    substring test is exact). A corner hole names one horizontal and one
+    vertical edge, so it unlocks both ladders.
+
+    Args:
+        label: The resolved label whose ``holes`` should be classified.
+
+    Returns:
+        The :class:`EscapeAxes` for the label. A label with no holes returns
+        ``(vertical=False, horizontal=False)`` -- it has nothing to avoid.
+    """
+    vertical = False
+    horizontal = False
+    for hole in label.holes:
+        location = str(hole.location)
+        if any(token in location for token in _VERTICAL_EDGE_TOKENS):
+            vertical = True
+        if any(token in location for token in _HORIZONTAL_EDGE_TOKENS):
+            horizontal = True
+    return EscapeAxes(vertical=vertical, horizontal=horizontal)
 
 
 def hole_circles_local(label: ResolvedLabel) -> List[Tuple[float, float, float]]:
