@@ -220,6 +220,20 @@
       "description": "Default collision-avoidance floor for the hole margin in inches (job layer; required-when-unconfigured).",
       "title": "Min Hole Margin"
     },
+    "min_line_spacing": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default collision-avoidance floor for an inter-line gap, in inches (job layer). The vertical packing phase (2c) never closes a gap below it. Unlike `min_hole_margin` this is NOT a required-when-unconfigured field: unset lets a gap close all the way to `0.0`.",
+      "title": "Min Line Spacing"
+    },
     "hole_text_collision_distance": {
       "anyOf": [
         {

@@ -60,6 +60,20 @@
           "description": "Extra spacing between text lines in inches, or `auto` to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is `auto`.",
           "title": "Line Spacing"
         },
+        "min_line_spacing": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "title": "Min Line Spacing"
+        },
         "max_h_compress": {
           "anyOf": [
             {
@@ -828,6 +842,20 @@
           "description": "Extra spacing between text lines in inches, or `auto` to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is `auto`.",
           "title": "Line Spacing"
         },
+        "min_line_spacing": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "title": "Min Line Spacing"
+        },
         "max_h_compress": {
           "anyOf": [
             {
@@ -1586,6 +1614,20 @@
           "description": "Extra spacing between text lines in inches, or `auto` to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is `auto`.",
           "title": "Line Spacing"
         },
+        "min_line_spacing": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "title": "Min Line Spacing"
+        },
         "max_h_compress": {
           "anyOf": [
             {
@@ -2313,6 +2355,20 @@
           "default": null,
           "description": "Extra spacing between text lines in inches, or `auto` to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is `auto`.",
           "title": "Line Spacing"
+        },
+        "min_line_spacing": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "title": "Min Line Spacing"
         },
         "max_h_compress": {
           "anyOf": [
@@ -3605,6 +3661,20 @@
           "description": "Minimum hole margin in inches (schema parity; not applied at plate level).",
           "title": "Min Hole Margin"
         },
+        "min_line_spacing": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum inter-line spacing in inches (schema parity; collision avoidance resolves the floor label -> job; not applied at plate level).",
+          "title": "Min Line Spacing"
+        },
         "cutter_buffer_text": {
           "anyOf": [
             {
@@ -4570,6 +4640,20 @@
           "description": "Extra spacing between text lines in inches, or `auto` to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is `auto`.",
           "title": "Line Spacing"
         },
+        "min_line_spacing": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "title": "Min Line Spacing"
+        },
         "max_h_compress": {
           "anyOf": [
             {
@@ -5296,6 +5380,20 @@
       "default": null,
       "description": "Extra spacing between text lines in inches, or `auto` to calculate spacing automatically based on label height, margins, and text line count (default when unspecified). Fallback when not specified at any level is `auto`.",
       "title": "Line Spacing"
+    },
+    "min_line_spacing": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+      "title": "Min Line Spacing"
     },
     "max_h_compress": {
       "anyOf": [

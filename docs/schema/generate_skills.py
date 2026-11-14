@@ -1073,6 +1073,7 @@ THEMES: Tuple[Theme, ...] = (
             "sides",
             "hole_margin",
             "min_hole_margin",
+            "min_line_spacing",
             "collision",
             "drill",
             "align_margin_adjust_global",
@@ -1084,6 +1085,7 @@ THEMES: Tuple[Theme, ...] = (
             "hole_margin",
             "hole_adjust_for_cutter",
             "min_hole_margin",
+            "min_line_spacing",
             "hole_text_collision_distance",
             "align_margin_adjust_global",
         ),
@@ -1093,16 +1095,24 @@ THEMES: Tuple[Theme, ...] = (
             "time into the atomic locations; downstream only ever sees the 8 atomic values.",
             "Label `holes` REPLACES the job's list entirely; `holes: []` suppresses the "
             "job's holes on that label.",
-            "Collision handling is 4 phases: always-on detection -> opt-in "
-            "`min_hole_margin` sweep -> opt-in `max_h_compress` edge-margin slide "
-            "(left/right-aligned text slides off its anchored margin; "
-            "`align_margin_adjust_global: true` makes same-alignment siblings take "
-            "the full increased margin) -> alignment switch to `center` + "
-            "`max_h_compress` squeeze (with the flag on, unswitched siblings then "
-            "FLUSH onto the switched lines' final anchored edge). The content box "
-            "is a compression constraint, never an alignment-stopping one: a "
-            "shared slide a line's budget cannot compress into the box fails the "
-            "job. Unresolved collisions abort the job (`LabelRenderError`).",
+            "Collision handling is a ladder run on the AXES the label's holes "
+            "leave open: a hole on the TOP/BOTTOM edge is escaped only on the Y "
+            "axis, a hole on the LEFT/RIGHT edge only on the X axis, a corner hole "
+            "on both. A top/bottom-only job NEVER squeezes glyph widths -- sliding "
+            "text sideways cannot move it off a hole that spans the row -- and one "
+            "that runs out of vertical room FAILS the job (no sideways fallback). "
+            "Phases: always-on detection -> opt-in `min_hole_margin` sweep -> "
+            "(top/bottom/corner holes only) text-block slide -> (same gate, "
+            "multi-line only) inter-line packing down to `min_line_spacing` -> "
+            "opt-in `max_h_compress` edge-margin slide (left/right-aligned text "
+            "slides off its anchored margin; `align_margin_adjust_global: true` "
+            "makes same-alignment siblings take the full increased margin) -> "
+            "alignment switch to `center` + `max_h_compress` squeeze (with the "
+            "flag on, unswitched siblings then FLUSH onto the switched lines' "
+            "final anchored edge). The content box is a compression constraint, "
+            "never an alignment-stopping one: a shared slide a line's budget "
+            "cannot compress into the box fails the job. Unresolved collisions "
+            "abort the job (`LabelRenderError`).",
             "The stroke floor is `0.5 * (hole_cutter + text_cutter) + "
             "hole_text_collision_distance` — raise the distance for more air, not the "
             "hole diameter.",

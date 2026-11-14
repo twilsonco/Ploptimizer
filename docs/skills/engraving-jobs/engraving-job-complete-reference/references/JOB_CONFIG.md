@@ -172,6 +172,7 @@ the docs byte-pin; everything above is derived purely from the model.
 |---|---|---|---|---|
 | `hole_margin` | float \| null | null (unset) | >=0 | Default hole margin in inches (job layer; required-when-unconfigured). |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | Default collision-avoidance floor for the hole margin in inches (job layer; required-when-unconfigured). |
+| `min_line_spacing` | float \| null | null (unset) | >=0 | Default collision-avoidance floor for an inter-line gap, in inches (job layer). The vertical packing phase (2c) never closes a gap below it. Unlike `min_hole_margin` this is NOT a required-when-unconfigured field: unset lets a gap close all the way to `0.0`. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | Default engraved-stroke air gap in inches between text and drill-hole strokes (job layer; required-when-unconfigured). |
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Default drill-hole list (job layer; group locations expand like spec holes). |
 | `hole_diameter` | float \| null | null (unset) | >0 | Default drill-hole diameter in inches, applied to hole entries (config- or spec-provided) that omit 'diameter'. |
@@ -341,6 +342,7 @@ excluded from the docs byte-pin.
 | `v_margin` | float \| null | `None` | unset | label-geometry |
 | `hole_margin` | float \| null | `0.1875` | **set** | holes-and-collision |
 | `min_hole_margin` | float \| null | `None` | **set** | holes-and-collision |
+| `min_line_spacing` | float \| null | `None` | unset | holes-and-collision |
 | `hole_text_collision_distance` | float \| null | `0.15` | **set** | holes-and-collision |
 | `cutter_buffer_text` | float \| null | `0.0` | **set** | cutters |
 | `cutter_buffer_routing` | float \| null | `0.0` | **set** | cutters |

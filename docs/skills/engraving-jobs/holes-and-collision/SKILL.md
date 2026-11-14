@@ -1,6 +1,6 @@
 ---
 name: holes-and-collision
-description: 'Mounting-hole placement, sizes, and text/hole clearance rules. Use when: adding mounting holes; holes overlap text; choosing hole margins and collision distances. Keywords: holes, location, corners, sides, hole_margin, min_hole_margin, collision, drill, align_margin_adjust_global.'
+description: 'Mounting-hole placement, sizes, and text/hole clearance rules. Use when: adding mounting holes; holes overlap text; choosing hole margins and collision distances. Keywords: holes, location, corners, sides, hole_margin, min_hole_margin, min_line_spacing, collision, drill, align_margin_adjust_global.'
 version: 1.0.0
 metadata:
   hermes:
@@ -20,6 +20,7 @@ metadata:
 
 | Field | Type | Default | Constraints | Tiers | Description |
 |---|---|---|---|---|---|
+| `min_line_spacing` | float \| null | null (unset) | >=0 | job / label / content entry / line / list block | Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack). |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | job / label / content entry / line / list block | Minimum hole margin in inches; hole margins will not shrink below this value during collision avoidance. |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | job / label / content entry / line / list block | Minimum air gap in inches between engraved text and drill hole strokes, on top of the stroke floor `0.5 * (hole_cutter + text_cutter)`. |
 | `hole_margin` | float \| null | null (unset) | >=0 | job / label | Distance from hole edge to label edge in inches (label -> job, fallback 0.1875). |
@@ -28,6 +29,7 @@ metadata:
 | `align_margin_adjust_global` | bool \| null | null (unset) | — | job / label | Share the collision-avoidance edge-margin increase across the text lines of one label: when a `left`/`right`-aligned line has to slide off its anchored margin to clear a drill hole, every other line of the label sharing that exact `text_h_alignment` matches the increased margin, so the group's anchored edges stay flush. When the avoidance switches a colliding line to `center`, the unswitched same-alignment lines are additionally flushed onto the switched lines' final anchored edge. Flushness is a guarantee: a shared slide that pushes a line's far end past the content area is absorbed by horizontal compression, and a line whose `max_h_compress` budget cannot absorb it fails the job. False (the default) moves only the colliding line. Only the automatic collision-avoidance slide is shared - declared margins are never touched. Setting the option at the job level enables it for every label; sharing is always per-label. Cascades label -> job (fallback false); explicit true is honored. Accepted on plates for schema parity only. |
 | `hole_margin` | float \| null | null (unset) | >=0 | plate | Hole margin in inches (must be >= 0). |
 | `min_hole_margin` | float \| null | null (unset) | >=0 | plate | Minimum hole margin in inches (schema parity; not applied at plate level). |
+| `min_line_spacing` | float \| null | null (unset) | >=0 | plate | Minimum inter-line spacing in inches (schema parity; collision avoidance resolves the floor label -> job; not applied at plate level). |
 | `hole_text_collision_distance` | float \| null | null (unset) | >=0 | plate | Minimum engraved-stroke air gap in inches (schema parity; not applied at plate level). |
 | `hole_adjust_for_cutter` | bool \| null | null (unset) | — | plate | Cutter-compensated drill-hole diameter (schema parity; not applied at plate level -- labels render before packing). |
 | `align_margin_adjust_global` | bool \| null | null (unset) | — | plate | Per-label sharing of the collision-avoidance edge-margin increase (schema parity; not applied at plate level -- labels render before packing). |
@@ -73,6 +75,7 @@ Applied when unset at every tier (including `job-config.json`):
 | `DEFAULT_HOLE_MARGIN` | `0.1875` | Hole margin when unset everywhere. Required from config-or-spec when a job-config is in play. |
 | `DEFAULT_HOLE_TEXT_COLLISION_DISTANCE` | `0.15` | Engraved-stroke air gap on top of the stroke floor `0.5 * (hole_cutter + text_cutter)`. Required from config-or-spec when a job-config is in play (the shop `job-config.json` currently sets 0.1). |
 | `DEFAULT_MIN_HOLE_MARGIN` | `None` | None = collision avoidance may shrink `hole_margin` all the way to 0.0. Required from config-or-spec when a job-config is in play. |
+| `DEFAULT_MIN_LINE_SPACING` | `None` | None = collision avoidance may pack a multi-line text block's inter-line gaps all the way to 0.0 when a top/bottom hole leaves no other vertical room. Optional (not in the job-config gate): the shop default comes from the `line_spacing` cascade, and a job that wants a floor declares it at job or label level. |
 
 ## Example
 
@@ -95,7 +98,7 @@ job:
 
 - `location: corners` / `sides` are group shorthands expanded AT VALIDATION time into the atomic locations; downstream only ever sees the 8 atomic values.
 - Label `holes` REPLACES the job's list entirely; `holes: []` suppresses the job's holes on that label.
-- Collision handling is 4 phases: always-on detection -> opt-in `min_hole_margin` sweep -> opt-in `max_h_compress` edge-margin slide (left/right-aligned text slides off its anchored margin; `align_margin_adjust_global: true` makes same-alignment siblings take the full increased margin) -> alignment switch to `center` + `max_h_compress` squeeze (with the flag on, unswitched siblings then FLUSH onto the switched lines' final anchored edge). The content box is a compression constraint, never an alignment-stopping one: a shared slide a line's budget cannot compress into the box fails the job. Unresolved collisions abort the job (`LabelRenderError`).
+- Collision handling is a ladder run on the AXES the label's holes leave open: a hole on the TOP/BOTTOM edge is escaped only on the Y axis, a hole on the LEFT/RIGHT edge only on the X axis, a corner hole on both. A top/bottom-only job NEVER squeezes glyph widths -- sliding text sideways cannot move it off a hole that spans the row -- and one that runs out of vertical room FAILS the job (no sideways fallback). Phases: always-on detection -> opt-in `min_hole_margin` sweep -> (top/bottom/corner holes only) text-block slide -> (same gate, multi-line only) inter-line packing down to `min_line_spacing` -> opt-in `max_h_compress` edge-margin slide (left/right-aligned text slides off its anchored margin; `align_margin_adjust_global: true` makes same-alignment siblings take the full increased margin) -> alignment switch to `center` + `max_h_compress` squeeze (with the flag on, unswitched siblings then FLUSH onto the switched lines' final anchored edge). The content box is a compression constraint, never an alignment-stopping one: a shared slide a line's budget cannot compress into the box fails the job. Unresolved collisions abort the job (`LabelRenderError`).
 - The stroke floor is `0.5 * (hole_cutter + text_cutter) + hole_text_collision_distance` — raise the distance for more air, not the hole diameter.
 - `hole_adjust_for_cutter: true` shrinks the EMITTED circle by the boundary cutter diameter so the ENGRAVED hole measures `diameter`; the centre never moves.
 

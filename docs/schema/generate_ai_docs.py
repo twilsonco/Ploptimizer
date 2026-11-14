@@ -240,6 +240,7 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     "holes-and-collision": (
         "hole_margin",
         "min_hole_margin",
+        "min_line_spacing",
         "hole_text_collision_distance",
         "holes",
         "hole_diameter",
@@ -278,6 +279,10 @@ _FALLBACK_NOTES: dict[str, str] = {
     "a job-config is in play.",
     "DEFAULT_MIN_HOLE_MARGIN": "None = collision avoidance may shrink `hole_margin` all the way "
     "to 0.0. Required from config-or-spec when a job-config is in play.",
+    "DEFAULT_MIN_LINE_SPACING": "None = collision avoidance may pack a multi-line text block's "
+    "inter-line gaps all the way to 0.0 when a top/bottom hole leaves no other vertical room. "
+    "Optional (not in the job-config gate): the shop default comes from the `line_spacing` "
+    "cascade, and a job that wants a floor declares it at job or label level.",
     "DEFAULT_HOLE_TEXT_COLLISION_DISTANCE": "Engraved-stroke air gap on top of the stroke floor "
     "`0.5 * (hole_cutter + text_cutter)`. Required from config-or-spec when a job-config is in "
     "play (the shop `job-config.json` currently sets 0.1).",
@@ -794,7 +799,7 @@ def _model_description(node: dict[str, Any]) -> str:
     Returns:
         The trimmed single-paragraph-friendly description (may be empty).
     """
-    description = node.get("description", "")
+    description: str = node.get("description", "")
     for marker in ("\nAttributes:", "\nAttributes :"):
         if marker in description:
             description = description.split(marker, 1)[0]
@@ -824,8 +829,12 @@ def _enum_value_descriptions(node: dict[str, Any]) -> dict[str, str]:
     for line in block.splitlines():
         match = re.match(r"^    (\w+): (.+)$", line)
         if match:
-            current = match.group(1).lower().replace("_", "-")
-            result[current] = match.group(2)
+            # Local `key`: `current` is declared Optional[str] for the
+            # continuation branch below, and a loop-carried Optional is not a
+            # dict key as far as the type checker is concerned.
+            key = match.group(1).lower().replace("_", "-")
+            current = key
+            result[key] = match.group(2)
         elif current and re.match(r"^        \S", line):
             result[current] += " " + line.strip()
     return result
@@ -976,7 +985,8 @@ def _load_tool_options() -> dict[str, Any]:
         return {}
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
-        return config.get("tool_options", {})
+        tool_options: dict[str, Any] = config.get("tool_options", {})
+        return tool_options
     except (OSError, json.JSONDecodeError):
         return {}
 

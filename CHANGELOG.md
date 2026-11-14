@@ -243,6 +243,55 @@
     `cutter_buffer_*` job-config key tests (`test_job_config.py`, adaptive to the shop
     config) and the report key tests (`test_generation_report.py`).
 
+### Fixes
+
+* **generate:** a **top/bottom-only** drill-hole layout no longer buys clearance by
+  squeezing glyph widths. Every collision-avoidance phase now asks which axis can
+  actually move the text off the hole
+  (`collision.holes.hole_escape_axes` -> `EscapeAxes(vertical, horizontal)`): a
+  `left`/`right` hole spans the label's full Y band (no vertical escape), a
+  `top`/`bottom` hole spans the full X range at its centre (no horizontal escape -
+  the edge-margin slide, the compression sweep and the center switch all leave the
+  gap unchanged), a `corner` hole unlocks both. The horizontal ladder (Phases 3/4)
+  is gated on `axes.horizontal`, and two vertical rungs fill the gap: **Phase 2b**
+  slides the whole text block rigidly
+  (`resolve_via_vertical_shift` -> `ResolvedLabel.collision_vertical_shift_inches`,
+  label-local y-up, negative = down; directed by the dominant per-line need, capped
+  by the far-side hole so the block never slides into the hole it flees and by the
+  content band so ink never enters a margin), and **Phase 2c** packs the inter-line
+  gaps (`resolve_via_spacing_reduction` -> `collision_spacing_scale`, applied
+  BEFORE the margin-fit clamp) down to the new cascading **`min_line_spacing`**
+  field (line -> label -> job; `None` = may pack to 0.0 - a collision-avoidance
+  floor, separate from the `1.5 * cutter` multi-stroke spacing floor). The order is
+  strictly `hole_margin` sweep -> slide -> packing, each verified by a full
+  re-render + re-detection and iterated to a fixed point (bounded by the line count
+  + 1), because a slide translates the block's centre and changes the margin
+  sweep's anchor. Side/corner-hole behaviour is unchanged. The slide is folded into
+  `_frame_shift_y()` and `plate_optimizer._label_transform()`, so the packer, the
+  relief stages, the boundary, the drill cuts, the PDF proofs and the PLT export all
+  engrave the escaped layout, and the `hole_margin` sweep is re-anchored on the
+  block's actual centre on a `hole_aware_centered` label (it was measuring at the
+  box centre, which is not where the text is - the sweep walked the holes toward
+  the text and could never clear a bottom hole). When the vertical rungs are
+  exhausted the job fails with vertical advice: `format_unresolvable_collision`
+  names `min_hole_margin` / `min_line_spacing` / the vertical margin and states
+  that compression was "not attempted (no left/right/corner hole on this label, so
+  the horizontal axis buys no clearance)". The slide's progress epsilon is
+  **one device unit (0.005in)** - the same quantisation rule as the edge flush - so
+  a slide smaller than a plotter step reports no progress and the ladder self-caps;
+  no band-overflow guard is needed (a blanket ban breaks the band-capped-slide
+  contract).
+  - Pins: `TestHoleEscapeAxes`, `TestVerticalBlockShift`,
+    `TestVerticalBlockShiftSelfCaps`, `TestSpacingReduction`,
+    `TestVerticalUnresolvableDiagnostics`, `TestTopBottomAxisGate`
+    (`tests/test_collision_resolution.py`), the re-pinned Phase 2 fixtures whose
+    outcome moved from "unresolvable, compressed to 0.900" to "the block slid",
+    and `tests_deps/top_bottom_holes_job.yaml` +
+    `TestTopBottomHoleCollisionDemo` (`tests/test_phase3_export.py`). Docs:
+    `generate/collision/AGENTS.md` (the axis rule + Phases 2b/2c),
+    `generate/AGENTS.md`, `docs/DONE.md`, regenerated `JOB_SPEC.md` /
+    `JOB_CONFIG.md` / both JSON schemas / the `holes-and-collision` skill.
+
 ### Features
 
 * **watch/optimize/generate:** output filenames are now **character-sanitized**, not
