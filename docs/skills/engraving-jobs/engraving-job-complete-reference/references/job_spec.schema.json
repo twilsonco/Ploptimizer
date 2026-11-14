@@ -3290,6 +3290,19 @@
           "description": "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`. Accepted on plates for schema parity only.",
           "title": "Hole Adjust For Cutter"
         },
+        "balanced_centering": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gap-balanced vertical centering for a label with a lone `top` (or lone `bottom`) drill hole. The hole-aware shift centers the text between the lone hole and the OPPOSITE vertical margin, which leaves the block about a quarter of a hole diameter off true center; this rule equalizes the two gaps instead -- the block's gap to the lone hole equals its gap to the opposite label BORDER (the engraved outline), measured swept-edge to swept-edge exactly like the collision rules. Only the axis holes (`top`/`bottom`) count, so corner holes never trigger it, and a label with holes on both sides keeps the plain centering. Inert when there is no border ink to measure against, when the block cannot be balanced inside its band, and when the equal-gaps point would put less than the collision threshold between the text and the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`. Accepted on plates for schema parity only.",
+          "title": "Balanced Centering"
+        },
         "align_margin_adjust_global": {
           "anyOf": [
             {
@@ -4296,6 +4309,19 @@
           "default": null,
           "description": "Cutter-compensated drill-hole diameter (schema parity; not applied at plate level -- labels render before packing).",
           "title": "Hole Adjust For Cutter"
+        },
+        "balanced_centering": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Gap-balanced centering for a lone top/bottom drill hole (equal gaps to the hole and the opposite border) (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "Balanced Centering"
         },
         "align_margin_adjust_global": {
           "anyOf": [
@@ -6314,6 +6340,19 @@
       "default": null,
       "description": "Shrink the emitted drill-hole circle by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. The hole centre is untouched (placed from the specified diameter); a hole at or below the cutter diameter clamps to the smallest emittable circle with a WARNING. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `true`. Accepted on plates for schema parity only.",
       "title": "Hole Adjust For Cutter"
+    },
+    "balanced_centering": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Gap-balanced vertical centering for a label with a lone `top` (or lone `bottom`) drill hole. The hole-aware shift centers the text between the lone hole and the OPPOSITE vertical margin, which leaves the block about a quarter of a hole diameter off true center; this rule equalizes the two gaps instead -- the block's gap to the lone hole equals its gap to the opposite label BORDER (the engraved outline), measured swept-edge to swept-edge exactly like the collision rules. Only the axis holes (`top`/`bottom`) count, so corner holes never trigger it, and a label with holes on both sides keeps the plain centering. Inert when there is no border ink to measure against, when the block cannot be balanced inside its band, and when the equal-gaps point would put less than the collision threshold between the text and the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`. Accepted on plates for schema parity only.",
+      "title": "Balanced Centering"
     },
     "align_margin_adjust_global": {
       "anyOf": [

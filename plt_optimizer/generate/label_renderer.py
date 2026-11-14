@@ -29,6 +29,7 @@ from typing import (
     NamedTuple,
     Optional,
     Sequence,
+    Set,
     Tuple,
 )
 
@@ -45,9 +46,16 @@ from plt_optimizer.generate.arc_fit import (
     fit_ellipse_arc,
     fit_superellipse_arc,
 )
+from plt_optimizer.generate.collision.balance import (
+    BalanceInputs,
+    lone_vertical_hole,
+    solve_balance,
+)
 from plt_optimizer.generate.collision.detection import (
     LabelRenderError,
+    _content_band,
     collision_line_desc,
+    collision_threshold,
     detect_text_hole_collisions,
     flush_siblings_to_switched_edge,
     format_unresolvable_collision,
@@ -1668,12 +1676,200 @@ def _linecollection_to_hpgl(
     return result
 
 
+def _section_x_coords(section: str) -> List[int]:
+    """Collect every X extent in one pen section (points + swept arcs).
+
+    The mirror of :func:`_center_text_layer_vertically`'s local Y collector:
+    the horizontal span of a section's *swept* geometry, which the gap
+    measurements need because a rounded label's border closes in on the left
+    and right, so a block's corners are what come near.
+    """
+    section_points, section_arcs = _collect_hpgl_geometry(section)
+    xs: List[int] = [x for x, _y in section_points]
+    for arc in section_arcs:
+        x_min, _y_min, x_max, _y_max = arc.swept_bounds()
+        xs.append(int(math.floor(x_min)))
+        xs.append(int(math.ceil(x_max)))
+    return xs
+
+
+def _arc_to_polyline(arc: ArcExtent) -> Tuple[Tuple[float, float], ...]:
+    """Return an ``AA`` arc's swept outline as a polyline, in inches.
+
+    The hole-side and border-side gaps are measured with
+    :func:`~plt_optimizer.generate.collision.geometry.polyline_gap`, which walks
+    polyline segments; a full circle closes on itself, and an arc is sampled
+    finely enough that the chord error is far below one plotter unit.
+    """
+    steps = max(8, int(math.ceil(abs(arc.sweep_angle) / (math.pi / 24))))
+    radius = arc.radius / HPGL_UNITS_PER_INCH
+    cx = arc.cx / HPGL_UNITS_PER_INCH
+    cy = arc.cy / HPGL_UNITS_PER_INCH
+    return tuple(
+        (
+            cx + radius * math.cos(arc.start_angle + arc.sweep_angle * i / steps),
+            cy + radius * math.sin(arc.start_angle + arc.sweep_angle * i / steps),
+        )
+        for i in range(steps + 1)
+    )
+
+
+def _section_polylines_in_inches(section: str) -> List[Tuple[Tuple[float, float], ...]]:
+    """Return one pen section's drawn paths, in inches.
+
+    Consecutive ``PA``/``PD`` points form a polyline (a label border emits its
+    four corners as one path); each ``AA`` arc forms its own, so a border's
+    swept ink is the set of paths that actually engrave.
+    """
+    points, arcs = _collect_hpgl_geometry(section)
+    paths: List[Tuple[Tuple[float, float], ...]] = [
+        tuple((x / HPGL_UNITS_PER_INCH, y / HPGL_UNITS_PER_INCH) for x, y in points)
+    ]
+    if len(paths[0]) < 2:
+        paths.pop(0)
+    paths.extend(_arc_to_polyline(arc) for arc in arcs)
+    return paths
+
+
+def _section_circles_in_inches(section: str) -> List[Tuple[float, float, float]]:
+    """Return one pen section's arc circles ``(cx, cy, radius)``, in inches.
+
+    A drill hole emits as a full circle (one ``AA`` arc, or a few contiguous
+    ones), so the section's arcs are the holes -- already *engraved* radii, the
+    cutter kerf included by the emitter that drew them.
+    """
+    _points, arcs = _collect_hpgl_geometry(section)
+    return [
+        (
+            arc.cx / HPGL_UNITS_PER_INCH,
+            arc.cy / HPGL_UNITS_PER_INCH,
+            arc.radius / HPGL_UNITS_PER_INCH,
+        )
+        for arc in arcs
+    ]
+
+
+def _balance_shift_inches(
+    label: ResolvedLabel,
+    parts: Sequence[str],
+    text_pens: Set[int],
+    block_x_min: float,
+    block_y_min: float,
+    block_x_max: float,
+    block_y_max: float,
+    lift_units: float,
+) -> float:
+    """Return the gap-balancing shift for a one-sided-hole label, in inches.
+
+    Reads the label's own emitted geometry (the file this centering pass is
+    rewriting): the drill circles on the hole pens, the border ink on the
+    boundary pen, and the text block's swept box on the text pens. Positive
+    moves the block up, in the same direction as
+    ``hole_aware_vertical_shift_inches`` moves it down.
+
+    Args:
+        label: The label being placed.
+        parts: The pen-sectioned HPGL stream (see
+            :func:`_center_text_layer_vertically`'s split).
+        text_pens: Pens carrying the text block.
+        block_x_min: Swept left edge of the text block, plotter units, in the
+            pre-centering frame of ``parts``.
+        block_y_min: Swept bottom edge of the text block in that frame.
+        block_x_max: Swept right edge of the text block in that frame.
+        block_y_max: Swept top edge of the text block in that frame.
+        lift_units: The legacy centering shift about to be applied to the text
+            pens, in plotter units. The block is measured where that shift
+            leaves it: the border ink and the drill circles are already
+            label-local, so measuring the pre-centering ink against them is off
+            by the whole centering shift.
+
+    Returns:
+        The shift to add to the block's placement (inches); ``0.0`` for any
+        label this rule does not address (holes on both sides, no lone vertical
+        hole, no border ink, a block that centering cannot balance).
+    """
+    side = lone_vertical_hole(label)
+    if side is None:
+        return 0.0
+
+    # The rule measures what the plotter cuts, so it reads the label's own
+    # emitted geometry: the drill circles on the hole pen (radii the emitter
+    # already widened by the cutter kerf) and the border ink on the boundary
+    # pen. Both are label-local, +y up, in plotter units.
+    holes: List[Tuple[float, float, float]] = []
+    border_ink: List[Polyline] = []
+    for i in range(1, len(parts), 2):
+        try:
+            pen_id = int(parts[i][2:-1])
+        except ValueError:  # pragma: no cover - SP token always numeric
+            continue
+        if pen_id == LAYER_HOLES:
+            holes.extend(_section_circles_in_inches(parts[i + 1]))
+        elif pen_id == LAYER_BOUNDARY:
+            border_ink.extend(_section_polylines_in_inches(parts[i + 1]))
+    if not holes or not border_ink:
+        return 0.0
+
+    # Search caps: the block's ink may not leave the alignment content band
+    # (the region the hole-aware shift and the Phase-2b ladder were allowed to
+    # move it in), and on the hole side it may not cross the collision threshold
+    # of the lone hole -- the escape rule that decides a slide is unsafe at all.
+    # The border side needs no extra cap: a rounded label's border ink is
+    # engraved at the band's own edge, so the band limit is the tighter bound.
+    threshold = collision_threshold(label, 0)
+    lower, upper = _content_band(label)
+    if side == "top":
+        upper = min(upper, min(cy - r for _cx, cy, r in holes) - threshold)
+    else:
+        lower = max(lower, max(cy + r for _cx, cy, r in holes) + threshold)
+
+    u = HPGL_UNITS_PER_INCH
+    top_ink = (block_y_max + lift_units) / u
+    bottom_ink = (block_y_min + lift_units) / u
+    x_min, x_max = block_x_min / u, block_x_max / u
+    # The block travels with the face nearest the lone hole leading: that face
+    # carries the hole-side cap, the far face carries the border-side one.
+    if side == "top":
+        min_delta = lower - bottom_ink
+        max_delta = upper - top_ink
+    else:
+        min_delta = lower - top_ink
+        max_delta = upper - bottom_ink
+
+    # The hole-side face of the block is the one facing the lone hole; the
+    # border-side face is the opposite one. BalanceInputs calls the hole-side
+    # box ``top_box`` whichever side the hole sits on, and the solve is
+    # sign-agnostic, so a bottom hole is the mirrored case.
+    hole_box = (
+        (x_min, top_ink, x_max, top_ink)
+        if side == "top"
+        else (x_min, bottom_ink, x_max, bottom_ink)
+    )
+    border_box = (
+        (x_min, bottom_ink, x_max, bottom_ink)
+        if side == "top"
+        else (x_min, top_ink, x_max, top_ink)
+    )
+    return solve_balance(
+        BalanceInputs(
+            top_box=hole_box,
+            bottom_box=border_box,
+            origin=0.0,
+            top_holes=tuple(holes),
+            border_ink=tuple(border_ink),
+            min_delta=min_delta,
+            max_delta=max_delta,
+        )
+    )
+
+
 def _center_text_layer_vertically(
     file_path: Path,
     label: ResolvedLabel,
     text_pens: Iterable[int] = (LAYER_TEXT,),
     band_center_offset_inches: float = 0.0,
     hole_aware_vertical_shift_inches: float = 0.0,
+    balance: bool = False,
 ) -> None:
     """Center the text pen(s) vertically within label bounds after scaling.
 
@@ -1711,6 +1907,15 @@ def _center_text_layer_vertically(
             for asymmetric top/bottom holes (positive = downward). Computed
             from ``label.hole_aware_vertical_shift_inches``. ``0.0`` (the
             default) applies no shift.
+        balance: Evaluate gap-balanced centering for a label with a lone top
+            (or bottom) hole, so the block's gap to that hole equals its gap to
+            the opposite label border (see
+            :func:`~plt_optimizer.generate.collision.balance.solve_balance`).
+            ``False`` (the default) keeps the legacy margin-centering exactly.
+            When ``True`` the rule still defers to the label's own
+            ``balanced_centering`` flag, and it is inert on every label it does
+            not address: holes on both sides, no vertical hole, no border ink to
+            measure against, or a block that centering cannot balance.
     """
     pens = {int(pen) for pen in text_pens}
     content = file_path.read_text(encoding="utf-8")
@@ -1737,6 +1942,7 @@ def _center_text_layer_vertically(
 
     # Union of Y coordinates across all text pens centers the whole block.
     y_coords: List[int] = []
+    x_coords: List[int] = []
     for i in range(1, len(parts), 2):
         try:
             pen_id = int(parts[i][2:-1])
@@ -1744,6 +1950,7 @@ def _center_text_layer_vertically(
             continue
         if pen_id in pens:
             y_coords.extend(_section_y_coords(parts[i + 1]))
+            x_coords.extend(_section_x_coords(parts[i + 1]))
 
     if not y_coords:
         # No text layer found
@@ -1763,12 +1970,31 @@ def _center_text_layer_vertically(
     expected_center_y = v_margin_units + available_height_units / 2.0
     expected_center_y -= band_center_offset_inches * HPGL_UNITS_PER_INCH
     expected_center_y -= hole_aware_vertical_shift_inches * HPGL_UNITS_PER_INCH
-
     # Current center of text
     current_center_y = (text_y_min + text_y_max) / 2.0
 
     # Calculate adjustment
     y_adjustment = expected_center_y - current_center_y
+
+    if balance and label.balanced_centering and x_coords:
+        # Gap-balanced centering. The block is measured where the legacy
+        # centering above leaves it (that shift is applied to the whole file in
+        # one move), because the border ink and the holes are already in this
+        # label-local frame -- measuring the pre-centering ink against them is
+        # off by the whole centering shift.
+        y_adjustment += (
+            _balance_shift_inches(
+                label,
+                parts,
+                pens,
+                min(x_coords),
+                text_y_min,
+                max(x_coords),
+                text_y_max,
+                y_adjustment,
+            )
+            * HPGL_UNITS_PER_INCH
+        )
 
     if abs(y_adjustment) < 0.1:
         # Already centered

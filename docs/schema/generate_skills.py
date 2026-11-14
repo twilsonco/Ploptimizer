@@ -1077,6 +1077,7 @@ THEMES: Tuple[Theme, ...] = (
             "collision",
             "drill",
             "align_margin_adjust_global",
+            "balanced_centering",
         ),
         fields=(
             "holes",
@@ -1088,6 +1089,7 @@ THEMES: Tuple[Theme, ...] = (
             "min_line_spacing",
             "hole_text_collision_distance",
             "align_margin_adjust_global",
+            "balanced_centering",
         ),
         enums=("HoleLocation",),
         pitfalls=(

@@ -1555,6 +1555,13 @@ class LabelAttributes(TextAttributes):
             + PLATE_PARITY_TAIL
         ),
     )
+    balanced_centering: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Gap-balanced vertical centering for a label with a lone `top` (or lone `bottom`) drill hole. The hole-aware shift centers the text between the lone hole and the OPPOSITE vertical margin, which leaves the block about a quarter of a hole diameter off true center; this rule equalizes the two gaps instead -- the block's gap to the lone hole equals its gap to the opposite label BORDER (the engraved outline), measured swept-edge to swept-edge exactly like the collision rules. Only the axis holes (`top`/`bottom`) count, so corner holes never trigger it, and a label with holes on both sides keeps the plain centering. Inert when there is no border ink to measure against, when the block cannot be balanced inside its band, and when the equal-gaps point would put less than the collision threshold between the text and the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`."
+            + PLATE_PARITY_TAIL
+        ),
+    )
     align_margin_adjust_global: Optional[bool] = Field(
         default=None,
         description=(
@@ -2414,6 +2421,15 @@ class PlateSpec(BaseModel):
         default=None,
         description=(
             _parity("Cutter-compensated drill-hole diameter", reason="labels render before packing")
+        ),
+    )
+    balanced_centering: Optional[bool] = Field(
+        default=None,
+        description=(
+            _parity(
+                "Gap-balanced centering for a lone top/bottom drill hole (equal gaps to the hole and the opposite border)",
+                reason="labels render before packing",
+            )
         ),
     )
     align_margin_adjust_global: Optional[bool] = Field(

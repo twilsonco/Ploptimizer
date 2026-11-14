@@ -288,6 +288,14 @@ _FALLBACK_NOTES: dict[str, str] = {
     "play (the shop `job-config.json` currently sets 0.1).",
     "DEFAULT_BOUNDARY_HOLE_CUTTER": "Boundary/hole cutter diameter feeding the collision stroke "
     "floor; `tools.json` `boundary_hole_cutter_size` overrides it.",
+    "DEFAULT_BALANCED_CENTERING": "`False` = a label with a lone `top` (or lone `bottom`) drill "
+    "hole keeps the legacy centering: the hole-aware shift centers the text block between the lone "
+    "hole and the OPPOSITE vertical margin, about a quarter of a hole diameter off true center. "
+    "`True` equalizes the two gaps instead - the block's gap to the lone hole equals its gap to the "
+    "opposite label BORDER, swept-edge to swept-edge, clamped to the alignment content band and "
+    "never inside the collision threshold. Off by default so every shipped job centers the legacy "
+    "way until it opts in; cascades label/job (accepted on plates for schema parity only, never text "
+    "lines); `job-config.json` supplies the shop default.",
     "DEFAULT_HOLE_ADJUST_FOR_CUTTER": "`True` = the emitted drill-hole circle shrinks by the "
     "boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the "
     "engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits "

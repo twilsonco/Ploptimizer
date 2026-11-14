@@ -237,6 +237,16 @@ DEFAULT_CUTTER_BUFFER_ROUTING: float = 0.0
 # hole centre is untouched (placed from the specified diameter), so hole
 # positions stay bit-identical. See :func:`hole_engraved_radius`.
 DEFAULT_HOLE_ADJUST_FOR_CUTTER: bool = True
+# Gap-balanced centering for a label with a lone top (or bottom) drill hole.
+# The hole-aware shift centres the block between the two hole margins, which on
+# a one-sided label means between the lone hole and the OPPOSITE vertical margin
+# -- so the block ends up ~0.25 of a hole diameter off true center. Turning this
+# on replaces that with equal gaps: the block's gap to the lone hole equals its
+# gap to the opposite label BORDER (the engraved outline), measured swept-edge
+# to swept-edge, the same frame the collision rules use. See
+# :mod:`plt_optimizer.generate.collision.balance`. Defaults OFF: every shipped
+# job centres the legacy way until a job opts in.
+DEFAULT_BALANCED_CENTERING: bool = False
 # Smallest emittable drill-hole radius, in inches: ONE plotter unit
 # (`1 / HPGL_UNITS_PER_INCH`). Emitted coordinates are integer plotter
 # units, and `inches_to_units` rounds half-to-even, so a half-unit radius
@@ -2694,6 +2704,7 @@ class ResolvedLabel:
     hole_aware_horizontal_shift_inches: float = 0.0
     adjust_h_center_for_single_side_hole: bool = False
     hole_adjust_for_cutter: bool = DEFAULT_HOLE_ADJUST_FOR_CUTTER
+    balanced_centering: bool = DEFAULT_BALANCED_CENTERING
     align_margin_adjust_global: bool = DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
     relief_engraving: bool = DEFAULT_RELIEF_ENGRAVING
     relief_engraving_quality: str = DEFAULT_RELIEF_ENGRAVING_QUALITY
@@ -5640,6 +5651,18 @@ def _resolve_label(
     else:
         label_hole_adjust_for_cutter = DEFAULT_HOLE_ADJUST_FOR_CUTTER
 
+    # Gap-balanced centering (cascades label -> job; the plate tier is schema
+    # parity only, see schema.PlateSpec). Resolved at the LABEL level because
+    # the rule places one label's text block. Explicit `False` is honored; only
+    # `None` means unset. Consumed by the renderer's
+    # `_center_text_layer_vertically` and by the plate optimizer's mirror of it.
+    if label_input.balanced_centering is not None:
+        label_balanced_centering: bool = label_input.balanced_centering
+    elif job.balanced_centering is not None:
+        label_balanced_centering = job.balanced_centering
+    else:
+        label_balanced_centering = DEFAULT_BALANCED_CENTERING
+
     # Sharing of the collision-avoidance edge-margin increase (cascades
     # label -> job; the plate tier is schema parity only, see
     # schema.PlateSpec). Resolved at the LABEL level because the adjustment
@@ -5933,6 +5956,7 @@ def _resolve_label(
         hole_cutter_diameter=hole_cutter,
         hole_cutter_buffer=label_hole_cutter_buffer,
         hole_adjust_for_cutter=label_hole_adjust_for_cutter,
+        balanced_centering=label_balanced_centering,
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,
         material=label_material,
