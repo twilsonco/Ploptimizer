@@ -12,7 +12,11 @@ Status:
   `resolution.py` (`DEFAULT_BALANCED_CENTERING`, `ResolvedLabel.balanced_centering`),
   generated docs/schemas regenerated.
 - Stage 4 packing-path parity — NOT IMPLEMENTED (below).
-- Stage 5 shop default — `job-config.json` currently ships `balanced_centering: true`.
+- Stage 5 shop default — `job-config.json` carries NO `balanced_centering` key, so the
+  effective default is `DEFAULT_BALANCED_CENTERING = False`: every shipped job centers
+  the legacy way. Flipping the shop default is a human call (it changes the engraved
+  output of every one-sided-hole job in the library), and Stage 4 must land first or
+  packed and unpacked jobs would center differently on the same setting.
 
 ## Stage 4 (packing-path parity) — found, not implemented
 
