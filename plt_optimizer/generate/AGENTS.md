@@ -171,6 +171,9 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
 - Hole geometry, all **label → job** (parity), contract in
   [`collision/AGENTS.md`](collision/AGENTS.md): `hole_margin` (**required**) · `min_hole_margin` (the
   floor it may be reduced to; `None` = collision avoidance disabled) ·
+  `min_line_spacing` (the floor the collision **inter-line packing** may shrink
+  `line_spacing` to; `None` = may pack to 0.0; a collision-avoidance floor, not
+  typography, and **not** in the `job-config.json` required-fields gate) ·
   `hole_text_collision_distance` (air between the engraved text and hole strokes; fallback 0.15; explicit 0.0
   honored - strokes may touch, never overlap) · `holes` (a label value **replaces** the job list; `[]`
   suppresses; `corners`/`sides` expand at validation via `HOLE_LOCATION_GROUPS`) ·

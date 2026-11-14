@@ -51,7 +51,59 @@ intersection-invariant.
   before/after margins and the offending text line. (Any geometry-altering
   avoidance action — margin reduction, edge-margin slide, or collision
   compression — always logs at WARNING and names the label id plus the
-  affected text line.)
+  affected text line.) The sweep moves the hole ring, so on a
+  `hole_aware_centered` label it is re-anchored on the block's actual centre
+  (the same rule Phase 4's threshold uses) — otherwise the sweep walks the holes
+  toward the text and can never clear a bottom hole.
+- **The escape axis is chosen by hole location (`hole_escape_axes`).** A
+  `left`/`right` hole spans the label's full Y band, so no vertical escape
+  exists for it; symmetrically a `top`/`bottom` hole spans the full X range at
+  its centre, so every horizontal knob (the Phase 3 slide, the Phase 4
+  compression, the center switch) leaves the gap unchanged. `EscapeAxes`
+  (`.vertical`, `.horizontal`) maps the hole locations to the knobs that can buy
+  clearance: a `corner` hole (a substring test on the location string, never an
+  enum) unlocks both, and a label with no holes unlocks both (nothing to
+  escape). The renderer gates Phase 3/4 on `axes.horizontal` and Phase 2b/2c on
+  `axes.vertical`, so a top/bottom-only job never squeezes glyph widths — the
+  behaviour docs/TODO.md "top/bottom holes" reported — and an unresolvable one
+  fails the job with vertical advice (`format_unresolvable_collision` prints the
+  vertical knob set and states that compression "buys no clearance").
+- **Phase 2b (no knob): the rigid block slide.** The text block translates as a
+  unit, so the slide is ONE number for the label, recorded on
+  `ResolvedLabel.collision_vertical_shift_inches` (label-local y-up, NEGATIVE =
+  down) and folded into `_frame_shift_y()` — the single place that lifts
+  band-centred render bounds into label-local — plus
+  `plate_optimizer._label_transform()` (the label's rect grows by |shift|; the
+  holes stay put). Direction: the dominant (largest) per-line clearing need,
+  ties preferring down. Distance: that need, capped by (i) the far-side hole cap
+  — the slide at which a hole beyond the block's centre *starts* colliding, so
+  a block squeezed by its own height never slides into the hole it flees — and
+  (ii) the content-band slack (`_content_band(label)`: the box widened by the
+  rounded-rect corner inset, the band the block occupies). Iterated to a fixed
+  point bounded by the line count + 1, re-rendering each round. A sub-quantum
+  slide reports no progress and the phase self-caps: `_SHIFT_EPSILON_IN` is
+  **one device unit (0.005in)**, the same rule as `label_renderer._FLUSH_EPSILON_IN`,
+  and coordinates are emitted `round(v*1016)/1016`, so a quantum-sized nudge
+  converges to zero progress on its own. Phase 2b therefore needs no overflow
+  guard — a label whose band exceeds its box caps itself (the band-capped-slide
+  test pins that the cap is nonzero, which a blanket ban would break).
+- **Phase 2c (opt-in via `min_line_spacing`): inter-line packing.**
+  `resolve_via_spacing_reduction()` scales every gap (`content[:-1].line_spacing`)
+  by ONE factor, recorded on `ResolvedLabel.collision_spacing_scale`, sweeping
+  down to the `min_line_spacing` floor (the floor is a fraction OF the declared
+  spacing: `gap = max(min_line_spacing, declared * scale)`). The renderer applies
+  it BEFORE the margin-fit clamp, so a collision-driven pack can never re-widen a
+  line the margins already squeezed. Packing shrinks the block symmetrically about
+  the band centre, so it moves the FAR line off a near hole: a single-line label
+  has no gaps (the phase says the block's centre is pinned by the box) and a
+  slide-capped block cannot be helped (the box clamp pins the block). A multi-line
+  stack whose gap carries the collision is the case it exists for.
+  `min_line_spacing` cascades label → job → `DEFAULT_MIN_LINE_SPACING` (`None` =
+  the phase may pack to 0.0), declared on `TextAttributes` (inherited by
+  `LabelSpec`/`JobDefaults`) with a `PlateSpec` parity declaration, and it is a
+  collision-avoidance floor, not typography — a LOWER value gives the phase more
+  room. The `line_spacing >= 1.5 * cutter` multi-stroke floor is untouched: that
+  floor keeps a bold pass set overlapping, this knob is a separate ladder.
 - **Phase 3 (opt-in via `max_h_compress`): the edge-margin slide.**
   Horizontal compression cannot free a `left`/`right`-aligned line from a
   hole on its *anchored* side: the anchored edge stays pinned at the margin,
@@ -137,8 +189,10 @@ intersection-invariant.
   `collision_detected=True`, `has_collisions=False`. When no enabled phase
   clears a collision, `render_label_to_plt` logs the detections plus full
   diagnostics (gap shortfalls, margin/compression state, recommendations)
-  at ERROR and flags `has_collisions=True`. The job-level gate
-  `assert_no_collisions()` — wired into `layout.generate_layout_with_bounds`
+  at ERROR and flags `has_collisions=True`. The diagnostics are axis-aware:
+  on a top/bottom-only label the slide and packing lines replace the
+  edge-margin/compression ones (see `hole_escape_axes` above). The job-level
+  gate `assert_no_collisions()` — wired into `layout.generate_layout_with_bounds`
   (covering `vectorize.export_per_cutter_plts`) — raises `LabelRenderError`
   once every label has been rendered (so all per-label ERRORs print
   first), naming every unresolved label id. The `generate` CLI surfaces the
