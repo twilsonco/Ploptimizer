@@ -283,7 +283,10 @@
   contract).
   - Pins: `TestHoleEscapeAxes`, `TestVerticalBlockShift`,
     `TestVerticalBlockShiftSelfCaps`, `TestSpacingReduction`,
-    `TestVerticalUnresolvableDiagnostics`, `TestTopBottomAxisGate`
+    `TestVerticalUnresolvableDiagnostics`, `TestAxisGate` (a top hole spends
+    zero compression — the reported bug — the mirror case spends no vertical
+    room, and a top/bottom-only label with no vertical room left fails the job
+    with zero compression)
     (`tests/test_collision_resolution.py`), the re-pinned Phase 2 fixtures whose
     outcome moved from "unresolvable, compressed to 0.900" to "the block slid",
     and `tests_deps/top_bottom_holes_job.yaml` +
