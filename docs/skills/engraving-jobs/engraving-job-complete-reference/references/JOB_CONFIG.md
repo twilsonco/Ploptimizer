@@ -177,6 +177,7 @@ the docs byte-pin; everything above is derived purely from the model.
 | `holes` | list[HoleSpec] \| null | null (unset) | — | Default drill-hole list (job layer; group locations expand like spec holes). |
 | `hole_diameter` | float \| null | null (unset) | >0 | Default drill-hole diameter in inches, applied to hole entries (config- or spec-provided) that omit 'diameter'. |
 | `hole_adjust_for_cutter` | bool \| null | null (unset) | — | Default cutter-compensation permission for drill holes (job layer; cascades label -> job, never text lines). When true, the emitted hole circle shrinks by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. Unset falls back to true. |
+| `balanced_centering` | bool \| null | null (unset) | — | Default gap-balanced vertical centering for labels with a lone `top` (or lone `bottom`) drill hole (job layer; cascades label -> job, never text lines). When true, the text block is slid so its gap to that hole equals its gap to the opposite label border (swept edge to swept edge, clamped to the alignment content band) instead of the legacy centering between the hole and the opposite vertical margin. Unset falls back to false. Labels with holes on both sides, no border ink, or a block centering cannot balance are unaffected. |
 | `align_margin_adjust_global` | bool \| null | null (unset) | — | Default per-label sharing of the collision-avoidance edge-margin increase (job layer; cascades label -> job, never text lines). When true, a left/right-aligned line that slides off its anchored margin to clear a drill hole makes every other line of the label sharing that exact `text_h_alignment` match the increased margin, so the group's anchored edges stay flush. Unset falls back to false (only the colliding line moves). |
 
 ### Plates, Layout and Packing
@@ -399,6 +400,7 @@ excluded from the docs byte-pin.
 | `counter_suffix` | str \| null | `''` | **set** | lists |
 | `list_marker_gap_fraction` | float \| null | `0.5` | **set** | lists |
 | `hole_adjust_for_cutter` | bool \| null | `True` | **set** | holes-and-collision |
+| `balanced_centering` | bool \| null | `False` | **set** | holes-and-collision |
 | `align_margin_adjust_global` | bool \| null | `False` | **set** | holes-and-collision |
 | `text_chunk_mode` | `line` \| `word` \| null | — | unset | plates-layout-and-packing |
 | `layout` | LayoutMode \| null | — | **set** | plates-layout-and-packing |

@@ -925,6 +925,20 @@ class JobDefaults(BaseModel):
             "true."
         ),
     )
+    balanced_centering: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Default gap-balanced vertical centering for labels with a lone "
+            "`top` (or lone `bottom`) drill hole (job layer; cascades label -> "
+            "job, never text lines). When true, the text block is slid so its "
+            "gap to that hole equals its gap to the opposite label border "
+            "(swept edge to swept edge, clamped to the alignment content band) "
+            "instead of the legacy centering between the hole and the opposite "
+            "vertical margin. Unset falls back to false. Labels with holes on "
+            "both sides, no border ink, or a block centering cannot balance are "
+            "unaffected."
+        ),
+    )
     align_margin_adjust_global: Optional[bool] = Field(
         default=None,
         description=(
@@ -1272,6 +1286,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "descending_character_reciprocal_scale",
     "adjust_h_center_for_single_side_hole",
     "hole_adjust_for_cutter",
+    "balanced_centering",
     "align_margin_adjust_global",
     "allow_rotation",
     "text_chunk_mode",

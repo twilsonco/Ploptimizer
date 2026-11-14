@@ -245,6 +245,7 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "holes",
         "hole_diameter",
         "hole_adjust_for_cutter",
+        "balanced_centering",
         "align_margin_adjust_global",
     ),
     "plates-layout-and-packing": (

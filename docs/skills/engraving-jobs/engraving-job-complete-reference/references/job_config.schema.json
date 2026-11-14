@@ -1004,6 +1004,19 @@
       "description": "Default cutter-compensation permission for drill holes (job layer; cascades label -> job, never text lines). When true, the emitted hole circle shrinks by the boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits a 0.085in circle. Unset falls back to true.",
       "title": "Hole Adjust For Cutter"
     },
+    "balanced_centering": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default gap-balanced vertical centering for labels with a lone `top` (or lone `bottom`) drill hole (job layer; cascades label -> job, never text lines). When true, the text block is slid so its gap to that hole equals its gap to the opposite label border (swept edge to swept edge, clamped to the alignment content band) instead of the legacy centering between the hole and the opposite vertical margin. Unset falls back to false. Labels with holes on both sides, no border ink, or a block centering cannot balance are unaffected.",
+      "title": "Balanced Centering"
+    },
     "align_margin_adjust_global": {
       "anyOf": [
         {
