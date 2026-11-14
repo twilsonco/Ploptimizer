@@ -262,7 +262,11 @@
   gaps (`resolve_via_spacing_reduction` -> `collision_spacing_scale`, applied
   BEFORE the margin-fit clamp) down to the new cascading **`min_line_spacing`**
   field (line -> label -> job; `None` = may pack to 0.0 - a collision-avoidance
-  floor, separate from the `1.5 * cutter` multi-stroke spacing floor). The order is
+  floor, separate from the `1.5 * cutter` multi-stroke spacing floor). Packing
+  spends room in the GAPS, so it resolves a multi-line stack whose gaps carry the
+  band height - including one whose slide is pinned at 0.0000in by the box (the
+  fixture's `vertical_spacing_pack`); it cannot help a single-line label (no gaps)
+  nor a stack whose ink alone fills the box. The order is
   strictly `hole_margin` sweep -> slide -> packing, each verified by a full
   re-render + re-detection and iterated to a fixed point (bounded by the line count
   + 1), because a slide translates the block's centre and changes the margin
@@ -289,7 +293,9 @@
     with zero compression)
     (`tests/test_collision_resolution.py`), the re-pinned Phase 2 fixtures whose
     outcome moved from "unresolvable, compressed to 0.900" to "the block slid",
-    and `tests_deps/top_bottom_holes_job.yaml` +
+    `TestTopBottomHoleCollisionDemo::test_the_multiline_label_escaped_by_packing`
+    (the fixture's 3-line stack: packing ~0.72, slide 0, no compression), and
+    `tests_deps/top_bottom_holes_job.yaml` +
     `TestTopBottomHoleCollisionDemo` (`tests/test_phase3_export.py`). Docs:
     `generate/collision/AGENTS.md` (the axis rule + Phases 2b/2c),
     `generate/AGENTS.md`, `docs/DONE.md`, regenerated `JOB_SPEC.md` /

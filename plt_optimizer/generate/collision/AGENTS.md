@@ -95,9 +95,12 @@ intersection-invariant.
   it BEFORE the margin-fit clamp, so a collision-driven pack can never re-widen a
   line the margins already squeezed. Packing shrinks the block symmetrically about
   the band centre, so it moves the FAR line off a near hole: a single-line label
-  has no gaps (the phase says the block's centre is pinned by the box) and a
-  slide-capped block cannot be helped (the box clamp pins the block). A multi-line
-  stack whose gap carries the collision is the case it exists for.
+  has no gaps (the phase says the block's centre is pinned by the box). Phase 2c
+  spends room in the GAPS, so a multi-line stack whose gap carries the collision
+  is the case it exists for — even one whose slide is pinned at 0.0000in by the
+  box (the fixture's `vertical_spacing_pack` resolves by packing alone); what it
+  can never clear is a stack whose ink alone fills the box, because the box clamp
+  pins the block's extremes.
   `min_line_spacing` cascades label → job → `DEFAULT_MIN_LINE_SPACING` (`None` =
   the phase may pack to 0.0), declared on `TextAttributes` (inherited by
   `LabelSpec`/`JobDefaults`) with a `PlateSpec` parity declaration, and it is a
