@@ -47,15 +47,14 @@ from plt_optimizer.generate.arc_fit import (
     fit_superellipse_arc,
 )
 from plt_optimizer.generate.collision.balance import (
-    BalanceInputs,
-    lone_vertical_hole,
-    solve_balance,
+    BalanceCircle,
+    BalanceGeometry,
+    balance_shift,
+    top_and_bottom_line_ink,
 )
 from plt_optimizer.generate.collision.detection import (
     LabelRenderError,
-    _content_band,
     collision_line_desc,
-    collision_threshold,
     detect_text_hole_collisions,
     flush_siblings_to_switched_edge,
     format_unresolvable_collision,
@@ -1120,6 +1119,22 @@ def _render_label_once(
     # 64 separate line segments. Arcs are preserved end-to-end, and the
     # parser creates efficient single-path structures.
 
+    # The gap-balance rule measures ink, not bounding boxes: hand the centering
+    # step the engraved strokes of the block's top and bottom lines. Lines are
+    # the chunk records' ``line_index`` groups (in WORD chunk mode several
+    # records share one line, so the groups are concatenated), and WORD mode
+    # leaves a line's ungrouped remainder as its own record -- both land in the
+    # same group here, which is why this is keyed by ``line_index`` rather than
+    # by record order.
+    ink_by_line: dict[int, List[Ink]] = {}
+    for record in chunk_records:
+        ink_by_line.setdefault(record.line_index, []).extend(
+            block.as_ink() for block in record.blocks
+        )
+    top_line_ink, bottom_line_ink = top_and_bottom_line_ink(
+        [tuple(poly for ink in inks for poly in ink) for inks in ink_by_line.values()]
+    )
+
     # Export to temporary file with postprocessing
     with tempfile.NamedTemporaryFile(mode="w", suffix=".plt", delete=False) as f:
         temp_path = Path(f.name)
@@ -1134,6 +1149,8 @@ def _render_label_once(
             band_center_offset_inches=band_center_offset[0] if band_center_offset else 0.0,
             boundary_hpgl=boundary_hpgl,
             holes_hpgl=holes_hpgl,
+            top_line_ink=top_line_ink,
+            bottom_line_ink=bottom_line_ink,
         )
         plt_content = temp_path.read_text().strip()
 
@@ -1450,6 +1467,8 @@ def _export_to_plt_with_postprocessing(
     band_center_offset_inches: float = 0.0,
     boundary_hpgl: str = "",
     holes_hpgl: str = "",
+    top_line_ink: Ink = (),
+    bottom_line_ink: Ink = (),
 ) -> None:
     """Export vpype Document to PLT for a single label.
 
@@ -1491,6 +1510,11 @@ def _export_to_plt_with_postprocessing(
             or ellipse), emitted on ``SP2``. Empty string for degenerate labels.
         holes_hpgl: Native HPGL commands for drill holes (circles as arcs),
             emitted on ``SP3``. Empty string when the label has no holes.
+        top_line_ink: The top text line's engraved strokes in the renderer's
+            own inch frame, handed to the gap-balance solve so it measures ink
+            rather than the block's swept box (see
+            :func:`_center_text_layer_vertically`). Empty falls back to the box.
+        bottom_line_ink: The same for the bottom text line.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1530,6 +1554,12 @@ def _export_to_plt_with_postprocessing(
         hole_aware_vertical_shift_inches=(
             label.hole_aware_vertical_shift_inches + label.collision_vertical_shift_inches
         ),
+        # Gap-balanced centering is opt-in per label (and the shop default): the
+        # rule itself declines on every label it does not address, so passing
+        # the label's flag is the whole gate.
+        balance=bool(label.balanced_centering),
+        top_line_ink=top_line_ink,
+        bottom_line_ink=bottom_line_ink,
     )
 
     # Invert Y-axis to device convention so rendered labels display upright.
@@ -1720,6 +1750,10 @@ def _section_polylines_in_inches(section: str) -> List[Tuple[Tuple[float, float]
     Consecutive ``PA``/``PD`` points form a polyline (a label border emits its
     four corners as one path); each ``AA`` arc forms its own, so a border's
     swept ink is the set of paths that actually engrave.
+
+    Only valid for a pen whose coordinates are all pen-down draws (the text
+    layer). A **border** must go through :func:`_section_border_ink_in_inches`,
+    which knows rapid moves from engraved ones.
     """
     points, arcs = _collect_hpgl_geometry(section)
     paths: List[Tuple[Tuple[float, float], ...]] = [
@@ -1728,6 +1762,89 @@ def _section_polylines_in_inches(section: str) -> List[Tuple[Tuple[float, float]
     if len(paths[0]) < 2:
         paths.pop(0)
     paths.extend(_arc_to_polyline(arc) for arc in arcs)
+    return paths
+
+
+def _section_border_ink_in_inches(section: str) -> List[Tuple[Tuple[float, float], ...]]:
+    """Return one boundary pen section's **engraved** ink, in inches.
+
+    Two kinds of engraved path, walked in emission order:
+
+    * every ``AA`` arc, sampled by :func:`_arc_to_polyline` (a round label is
+      four quadrants; a rounded rectangle is four corner arcs plus edge runs);
+    * every **pen-down** line run -- a ``PA``/``PD`` that carries coordinates
+      while the pen is down, started from the position the pen was left at.
+
+    The raw point list is **not** ink, which is what makes this separate from
+    :func:`_section_polylines_in_inches`. A border emits one
+    ``PU x,y;PD;AA cx,cy,sweep`` group per arc, so the ``PU`` positions are
+    *rapid* moves onto each arc's start. Connecting them into a polyline
+    fabricates a phantom inscribed polygon -- a diamond through the four
+    cardinal points of a round label -- that the text block always crosses,
+    which pins the border-side gap at exactly ``0.0`` and silently disables
+    every gap rule on a round label.
+
+    Args:
+        section: One pen section's HPGL body (the boundary layer).
+
+    Returns:
+        Ink paths in inches, label-local, +y up.
+    """
+    u = HPGL_UNITS_PER_INCH
+    _points, arcs = _collect_hpgl_geometry(section)
+    paths: List[Tuple[Tuple[float, float], ...]] = [_arc_to_polyline(arc) for arc in arcs]
+
+    stroke: List[Tuple[float, float]] = []
+    pen_down = False
+    pos: Optional[Tuple[float, float]] = None
+
+    def _flush() -> None:
+        if len(stroke) > 1:
+            paths.append(tuple(stroke))
+        stroke.clear()
+
+    for match in re.finditer(r"(PA|PU|PD|AA)([\d,\.\-]*)", section):
+        cmd = match.group(1)
+        values = [p for p in match.group(2).split(",") if p != ""]
+        if cmd == "AA":
+            # An arc engraves on its own (recorded above); the pen is left on
+            # its END, so a line run that follows starts there, not at the
+            # arc's start. Same geometry the collector uses.
+            if len(values) >= 3 and pos is not None:
+                try:
+                    cx = int(float(values[0])) / u
+                    cy = int(float(values[1])) / u
+                    sweep = float(values[2])
+                except ValueError:  # pragma: no cover - malformed numeric token
+                    continue
+                radius = math.hypot(pos[0] - cx, pos[1] - cy)
+                end = math.atan2(pos[1] - cy, pos[0] - cx) + math.radians(sweep)
+                pos = (cx + radius * math.cos(end), cy + radius * math.sin(end))
+            continue
+        coords: List[Tuple[float, float]] = []
+        for i in range(0, len(values) - 1, 2):
+            try:
+                coords.append((int(float(values[i])) / u, int(float(values[i + 1])) / u))
+            except ValueError:  # pragma: no cover - malformed numeric token
+                break
+        if not coords:
+            # ``PD;`` with no coordinates: a pure pen-state change (the
+            # emitter's arc preamble).
+            pen_down = cmd == "PD"
+            continue
+        if cmd == "PU":
+            _flush()
+            pen_down = False
+            pos = coords[-1]
+            continue
+        if cmd == "PD":
+            pen_down = True
+        if pen_down:
+            if not stroke and pos is not None:
+                stroke.append(pos)
+            stroke.extend(coords)
+        pos = coords[-1]
+    _flush()
     return paths
 
 
@@ -1758,20 +1875,27 @@ def _balance_shift_inches(
     block_x_max: float,
     block_y_max: float,
     lift_units: float,
+    top_line_ink: Ink = (),
+    bottom_line_ink: Ink = (),
 ) -> float:
     """Return the gap-balancing shift for a one-sided-hole label, in inches.
 
-    Reads the label's own emitted geometry (the file this centering pass is
-    rewriting): the drill circles on the hole pens, the border ink on the
-    boundary pen, and the text block's swept box on the text pens. Positive
-    moves the block up, in the same direction as
+    The renderer's thin adapter to
+    :func:`plt_optimizer.generate.collision.balance.balance_shift`, which owns
+    the rule (side selection, adjacency, band clamp, travel cap, no-op guards).
+    This function only reads the label's own emitted geometry -- the drill
+    circles on the hole pen, the border ink on the boundary pen -- and converts
+    plotter units to the label-local inches the solve works in.
+
+    Positive moves the block up, in the same direction as
     ``hole_aware_vertical_shift_inches`` moves it down.
 
     Args:
         label: The label being placed.
         parts: The pen-sectioned HPGL stream (see
             :func:`_center_text_layer_vertically`'s split).
-        text_pens: Pens carrying the text block.
+        text_pens: Pens carrying the text block (unused by the solve: the block
+            box is passed in, already measured over those pens).
         block_x_min: Swept left edge of the text block, plotter units, in the
             pre-centering frame of ``parts``.
         block_y_min: Swept bottom edge of the text block in that frame.
@@ -1782,21 +1906,25 @@ def _balance_shift_inches(
             leaves it: the border ink and the drill circles are already
             label-local, so measuring the pre-centering ink against them is off
             by the whole centering shift.
+        top_line_ink: The engraved strokes of the block's top text line
+            (label-local inches, ``+y`` up, pre-centering frame), lifted here
+            by ``lift_units``. The gaps are measured on this ink -- a bounding
+            box reads the block's corners, which on a round label stick out
+            past every stroke. Empty falls back to the box.
+        bottom_line_ink: The same for the block's bottom text line. Empty falls
+            back, as above.
 
     Returns:
         The shift to add to the block's placement (inches); ``0.0`` for any
         label this rule does not address (holes on both sides, no lone vertical
         hole, no border ink, a block that centering cannot balance).
     """
-    side = lone_vertical_hole(label)
-    if side is None:
-        return 0.0
-
+    u = HPGL_UNITS_PER_INCH
     # The rule measures what the plotter cuts, so it reads the label's own
     # emitted geometry: the drill circles on the hole pen (radii the emitter
     # already widened by the cutter kerf) and the border ink on the boundary
     # pen. Both are label-local, +y up, in plotter units.
-    holes: List[Tuple[float, float, float]] = []
+    holes: List[BalanceCircle] = []
     border_ink: List[Polyline] = []
     for i in range(1, len(parts), 2):
         try:
@@ -1804,63 +1932,34 @@ def _balance_shift_inches(
         except ValueError:  # pragma: no cover - SP token always numeric
             continue
         if pen_id == LAYER_HOLES:
-            holes.extend(_section_circles_in_inches(parts[i + 1]))
+            holes.extend(
+                BalanceCircle(cx, cy, radius)
+                for cx, cy, radius in _section_circles_in_inches(parts[i + 1])
+            )
         elif pen_id == LAYER_BOUNDARY:
-            border_ink.extend(_section_polylines_in_inches(parts[i + 1]))
-    if not holes or not border_ink:
-        return 0.0
+            border_ink.extend(_section_border_ink_in_inches(parts[i + 1]))
 
-    # Search caps: the block's ink may not leave the alignment content band
-    # (the region the hole-aware shift and the Phase-2b ladder were allowed to
-    # move it in), and on the hole side it may not cross the collision threshold
-    # of the lone hole -- the escape rule that decides a slide is unsafe at all.
-    # The border side needs no extra cap: a rounded label's border ink is
-    # engraved at the band's own edge, so the band limit is the tighter bound.
-    threshold = collision_threshold(label, 0)
-    lower, upper = _content_band(label)
-    if side == "top":
-        upper = min(upper, min(cy - r for _cx, cy, r in holes) - threshold)
-    else:
-        lower = max(lower, max(cy + r for _cx, cy, r in holes) + threshold)
-
-    u = HPGL_UNITS_PER_INCH
-    top_ink = (block_y_max + lift_units) / u
-    bottom_ink = (block_y_min + lift_units) / u
-    x_min, x_max = block_x_min / u, block_x_max / u
-    # The block travels with the face nearest the lone hole leading: that face
-    # carries the hole-side cap, the far face carries the border-side one.
-    if side == "top":
-        min_delta = lower - bottom_ink
-        max_delta = upper - top_ink
-    else:
-        min_delta = lower - top_ink
-        max_delta = upper - bottom_ink
-
-    # The hole-side face of the block is the one facing the lone hole; the
-    # border-side face is the opposite one. BalanceInputs calls the hole-side
-    # box ``top_box`` whichever side the hole sits on, and the solve is
-    # sign-agnostic, so a bottom hole is the mirrored case.
-    hole_box = (
-        (x_min, top_ink, x_max, top_ink)
-        if side == "top"
-        else (x_min, bottom_ink, x_max, bottom_ink)
-    )
-    border_box = (
-        (x_min, bottom_ink, x_max, bottom_ink)
-        if side == "top"
-        else (x_min, top_ink, x_max, top_ink)
-    )
-    return solve_balance(
-        BalanceInputs(
-            top_box=hole_box,
-            bottom_box=border_box,
-            origin=0.0,
-            top_holes=tuple(holes),
+    # The stroke ink arrives in the pre-centering frame (the renderer's own
+    # inches, +y up) and must be lifted by the centering move to sit where the
+    # block actually lands -- the same lift the block's faces get above.
+    lift_in = lift_units / u
+    solve = balance_shift(
+        label,
+        BalanceGeometry(
+            block_bottom=(block_y_min + lift_units) / u,
+            block_top=(block_y_max + lift_units) / u,
+            block_x_min=block_x_min / u,
+            block_x_max=block_x_max / u,
+            holes=tuple(holes),
             border_ink=tuple(border_ink),
-            min_delta=min_delta,
-            max_delta=max_delta,
-        )
+            top_line_ink=tuple(tuple((x, y + lift_in) for x, y in poly) for poly in top_line_ink),
+            bottom_line_ink=tuple(
+                tuple((x, y + lift_in) for x, y in poly) for poly in bottom_line_ink
+            ),
+            legacy_travel_inches=lift_in,
+        ),
     )
+    return 0.0 if solve is None else solve.delta
 
 
 def _center_text_layer_vertically(
@@ -1870,6 +1969,8 @@ def _center_text_layer_vertically(
     band_center_offset_inches: float = 0.0,
     hole_aware_vertical_shift_inches: float = 0.0,
     balance: bool = False,
+    top_line_ink: Ink = (),
+    bottom_line_ink: Ink = (),
 ) -> None:
     """Center the text pen(s) vertically within label bounds after scaling.
 
@@ -1916,6 +2017,15 @@ def _center_text_layer_vertically(
             ``balanced_centering`` flag, and it is inert on every label it does
             not address: holes on both sides, no vertical hole, no border ink to
             measure against, or a block that centering cannot balance.
+        top_line_ink: The engraved strokes of the block's top text line in the
+            pre-centering frame (label-local inches, ``+y`` up), as
+            :func:`~plt_optimizer.generate.text_geometry.TextBlock.as_ink`
+            returns them. The gaps are measured on this ink, so a label whose
+            text is narrower than its block span balances on the ink the plotter
+            actually cuts. Empty (the default) falls back to the block's swept
+            box.
+        bottom_line_ink: The same for the block's bottom text line; identical to
+            ``top_line_ink`` on a one-line label.
     """
     pens = {int(pen) for pen in text_pens}
     content = file_path.read_text(encoding="utf-8")
@@ -1992,6 +2102,8 @@ def _center_text_layer_vertically(
                 max(x_coords),
                 text_y_max,
                 y_adjustment,
+                top_line_ink=top_line_ink,
+                bottom_line_ink=bottom_line_ink,
             )
             * HPGL_UNITS_PER_INCH
         )

@@ -71,12 +71,21 @@ from plt_optimizer.core.pipeline import (
 )
 from plt_optimizer.core.profiler import ProfileResult
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units
-from plt_optimizer.generate.geometry import arc_swept_bounds
+from plt_optimizer.generate.collision.balance import (
+    BalanceCircle,
+    BalanceGeometry,
+    balance_shift,
+    top_and_bottom_line_ink,
+)
+from plt_optimizer.generate.collision.holes import hole_circles_local
+from plt_optimizer.generate.geometry import Ink, arc_swept_bounds
 from plt_optimizer.generate.label_renderer import (
     PLT_FOOTER,
     PLT_HEADER,
     RenderedLabel,
     TextChunkRecord,
+    _render_boundary_hpgl,
+    _section_border_ink_in_inches,
 )
 from plt_optimizer.generate.packing.layout import PackedLabel
 from plt_optimizer.generate.resolution import ResolvedLabel
@@ -214,6 +223,131 @@ def _block_text_y_extents(block: TextBlock) -> List[int]:
     return ys
 
 
+def _block_text_x_extents(block: TextBlock) -> List[int]:
+    """Collect a text block's X extents in plotter units (label-local frame).
+
+    The X mirror of :func:`_block_text_y_extents`, recording exactly the same
+    points (so the measured pen, the re-anchoring ``PU`` and the arc swept
+    extent behave identically) and returning the X coordinate of each. The
+    gap-balanced centering needs the block's horizontal span to decide which
+    drill holes sit *under* it: adjacency is an X-overlap test, and on a label
+    with holes at both ends only the centred ones must count.
+
+    An ``AA`` contributes its *swept* X extent, never the full circle's box --
+    the same rule the Y view uses.
+
+    Args:
+        block: The label-local text block.
+
+    Returns:
+        X extents in integer plotter units (empty for empty blocks).
+    """
+    xs: List[int] = []
+    last_x: Optional[int] = None
+    last_y: Optional[int] = None
+
+    def _record(x_units: int, y_units: int) -> None:
+        nonlocal last_x, last_y
+        xs.append(x_units)
+        last_x, last_y = x_units, y_units
+
+    for stroke in block.strokes:
+        pen: complex = stroke.pen_up
+        _record(_units(pen.real), _units(pen.imag))
+        prev_was_line = False
+        for segment in stroke.segments:
+            if isinstance(segment, LineSeg):
+                if not prev_was_line and segment.start != pen:
+                    _record(_units(segment.start.real), _units(segment.start.imag))
+                _record(_units(segment.end.real), _units(segment.end.imag))
+                pen = segment.end
+                prev_was_line = True
+                continue
+            prev_was_line = False
+            if segment.start != pen:
+                _record(_units(segment.start.real), _units(segment.start.imag))
+            assert last_x is not None and last_y is not None  # noqa: S101 - PU always records
+            center_x = _units(segment.center.real)
+            center_y = _units(segment.center.imag)
+            radius = int(round(math.hypot(last_x - center_x, last_y - center_y)))
+            start_angle = math.degrees(math.atan2(last_y - center_y, last_x - center_x))
+            x_min, _y_min, x_max, _y_max = arc_swept_bounds(
+                center_x, center_y, radius, start_angle, segment.sweep_deg
+            )
+            xs.append(int(math.floor(x_min)))
+            xs.append(int(math.ceil(x_max)))
+            pen = segment.end
+    return xs
+
+
+def _balance_shift_units(
+    label: ResolvedLabel,
+    ys: List[int],
+    xs: List[int],
+    current_center: float,
+    expected_center: float,
+    top_line_ink: Ink = (),
+    bottom_line_ink: Ink = (),
+) -> float:
+    """Return the gap-balancing shift for a packed label, in plotter units.
+
+    The packing path's thin adapter to
+    :func:`plt_optimizer.generate.collision.balance.balance_shift` -- the same
+    single entry point the renderer uses, so a packed label balances to the
+    placement an unpacked one gets. This function only supplies the structured
+    geometry the local rendering path materialises as HPGL pens.
+
+    Frame: the block is measured **where the legacy centering above leaves it**
+    (``expected_center`` is that placement's centre), because the border ink and
+    the holes are absolute label-local coordinates. Measuring the pre-centering
+    ink against them loses exactly the centering shift.
+
+    Args:
+        label: The label being placed.
+        ys: The text block's Y extents, plotter units, pre-centering frame.
+        xs: The text block's X extents, same frame.
+        current_center: The block's swept centre Y in that frame, plotter units.
+        expected_center: The legacy centering's target centre Y, plotter units.
+        top_line_ink: The top text line's engraved strokes (label-local inches,
+            ``+y`` up, pre-centering frame), lifted here by the legacy
+            centering move so the solve measures ink where the block lands.
+            Empty falls back to the block's swept box.
+        bottom_line_ink: The same for the bottom text line.
+
+    Returns:
+        The shift in plotter units to add to ``expected_center`` (``0.0`` when
+        the rule does not address this label).
+    """
+    if not ys or not xs:
+        return 0.0
+    lift = expected_center - current_center
+    u = _UNITS_PER_INCH
+    # The border ink is the label's own engraved contour: reuse the boundary
+    # emitter (a pure function of the label) and the renderer's pen parser, so
+    # the packing path measures the same ink the local path does -- an ellipse's
+    # lowest point over the block's X span, not its bounding box.
+    border_ink = _section_border_ink_in_inches(_render_boundary_hpgl(label))
+    solve = balance_shift(
+        label,
+        BalanceGeometry(
+            block_bottom=(min(ys) + lift) / u,
+            block_top=(max(ys) + lift) / u,
+            block_x_min=min(xs) / u,
+            block_x_max=max(xs) / u,
+            holes=tuple(
+                BalanceCircle(cx, cy, radius) for cx, cy, radius in hole_circles_local(label)
+            ),
+            border_ink=tuple(border_ink),
+            top_line_ink=tuple(tuple((x, y + lift / u) for x, y in poly) for poly in top_line_ink),
+            bottom_line_ink=tuple(
+                tuple((x, y + lift / u) for x, y in poly) for poly in bottom_line_ink
+            ),
+            legacy_travel_inches=lift / u,
+        ),
+    )
+    return 0.0 if solve is None else solve.delta * u
+
+
 def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTransform:
     """Compute the label-local -> device-unit transform constants.
 
@@ -227,9 +361,11 @@ def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTra
         yield an identity-like transform (unused).
     """
     ys: List[int] = []
+    xs: List[int] = []
     for record in rendered.text_chunks:
         for block in record.blocks:
             ys.extend(_block_text_y_extents(block))
+            xs.extend(_block_text_x_extents(block))
     if ys:
         current_center = (min(ys) + max(ys)) / 2.0
     else:  # No text: centering is a no-op.
@@ -244,6 +380,33 @@ def _label_transform(rendered: RenderedLabel, label: ResolvedLabel) -> _LabelTra
         - label.hole_aware_vertical_shift_inches
         - label.collision_vertical_shift_inches
     ) * _UNITS_PER_INCH
+    if label.balanced_centering:
+        # Gap-balanced centering, the same solve the local rendering path runs
+        # (see :func:`_balance_shift_units`). The block is measured where the
+        # legacy centering above leaves it, so the term is relative to
+        # ``expected_center`` -- never to the raw ink.
+        #
+        # The rule measures ink, so hand the solve the top and bottom lines'
+        # engraved strokes exactly as the renderer does: grouped by the chunk
+        # records' ``line_index`` (WORD mode splits one line across records and
+        # leaves its remainder as its own), so both paths measure the same ink.
+        ink_by_line: Dict[int, List[Ink]] = {}
+        for record in rendered.text_chunks:
+            ink_by_line.setdefault(record.line_index, []).extend(
+                block.as_ink() for block in record.blocks
+            )
+        top_line_ink, bottom_line_ink = top_and_bottom_line_ink(
+            [tuple(poly for ink in inks for poly in ink) for inks in ink_by_line.values()]
+        )
+        expected_center += _balance_shift_units(
+            label,
+            ys,
+            xs,
+            current_center,
+            expected_center,
+            top_line_ink=top_line_ink,
+            bottom_line_ink=bottom_line_ink,
+        )
     return _LabelTransform(
         shift=expected_center - current_center,
         flip_span=_units(rendered.y_min) + _units(rendered.y_max),

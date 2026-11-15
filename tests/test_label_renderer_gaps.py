@@ -204,6 +204,8 @@ class TestRenderLabelOnceTerminator:
             band_center_offset_inches: float = 0.0,
             boundary_hpgl: str = "",
             holes_hpgl: str = "",
+            top_line_ink: tuple[tuple[tuple[float, float], ...], ...] = (),
+            bottom_line_ink: tuple[tuple[tuple[float, float], ...], ...] = (),
         ) -> None:
             Path(output_path).write_text(content, encoding="utf-8")
 
