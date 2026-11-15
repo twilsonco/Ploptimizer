@@ -109,7 +109,8 @@ Solver invariant: find the rigid vertical translate where `A == B`.
 
 ### Scope — exactly one hole, on the middle of an edge
 
-Recorded verbatim from the user (2026-11-15):
+Recorded verbatim from the user (2026-11-15), answering the structured question
+*"Which holes count toward A on the hole side?"* (answer text below, unaltered):
 
 > This whole feature is exclusively for the case when there is only one top hole
 > or only one bottom hole. Clearly, if there is only one "top" (i.e. top-middle;
@@ -143,7 +144,9 @@ sets. They come from the **measured line ink extremes**:
 The box metric was monotone in the shift, so `solve_balance`'s "unique root"
 argument held. Real ink against a **curved** border need not be monotone — an arc
 can approach the ink, recede, then approach again. Replacement search, recorded
-from the user's choice (2026-11-15): **nearest root to the shipped placement**.
+from the user's choice (2026-11-15) on the structured question *"When several
+placements equalize A and B, which do we pick?"* — answer: **nearest root to the
+shipped placement**.
 
 1. Coarse-scan the travel bracket `[-travel, +travel]` (64 steps) evaluating
    `f(d) = A(d) - B(d)`.
