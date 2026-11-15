@@ -342,6 +342,73 @@ def ink_gap(upper: Ink, lower: Ink) -> float:
     return best
 
 
+def polyline_circle_gap(polyline: Polyline, center: Point, radius: float) -> float:
+    """Return the signed clearance between a circle and a polyline's ink.
+
+    The counterpart of
+    :func:`~plt_optimizer.generate.collision.geometry.circle_aabb_gap` for
+    real stroke ink instead of a bounding box. The gap is measured from the
+    circle's **perimeter** to the chain:
+
+    - ``gap > 0``: the nearest ink lies ``gap`` outside the circle.
+    - ``gap == 0``: the ink touches the circle tangentially.
+    - ``gap < 0``: the ink reaches inside the perimeter; ``abs(gap)`` is a
+      lower bound on the penetration depth.
+
+    This is the ``A`` distance of the gap-balanced centering rule -- the
+    minimum distance between a drill hole and any stroke of a text line -- so
+    it measures the ink the plotter cuts, never a box: a glyph whose widest
+    stroke is well inside the line's bounding box reports the true clearance.
+
+    The distance from a point ``p`` to a circle centred at ``c`` with radius
+    ``r`` is ``|dist(p, c) - r|``; taking the signed minimum over the chain's
+    points gives ``min(dist) - r``, because the closest point of the chain
+    decides. Inside the perimeter the sign flips, which is what makes the
+    value usable as a clearance rather than just a distance.
+
+    Args:
+        polyline: One chain of pen-down vertices (inches).
+        center: Circle centre ``(cx, cy)``.
+        radius: Circle radius, in the same units as the polyline.
+
+    Returns:
+        The signed clearance in the caller's length units, or ``math.inf``
+        when the chain carries no ink (nothing to measure).
+    """
+    segments = _polyline_segments(polyline)
+    if not segments:
+        return math.inf
+    nearest = min(point_segment_gap(center, (x1, y1), (x2, y2)) for (x1, y1, x2, y2) in segments)
+    return nearest - radius
+
+
+def ink_circle_gap(ink: Ink, center: Point, radius: float) -> float:
+    """Return the signed clearance between a circle and a set of ink chains.
+
+    :func:`polyline_circle_gap` over every chain of one glyph or line: the
+    binding chain is the one whose nearest stroke is closest to the circle.
+
+    Args:
+        ink: The ink (polylines) to measure, in inches.
+        center: Circle centre ``(cx, cy)``.
+        radius: Circle radius, in the same units as the ink.
+
+    Returns:
+        The signed clearance in the caller's length units, or ``math.inf``
+        when the ink is empty.
+    """
+    best = math.inf
+    for polyline in ink:
+        gap = polyline_circle_gap(polyline, center, radius)
+        if gap < best:
+            best = gap
+            if best <= -radius:
+                # The centre itself is on the chain: the deepest reachable
+                # penetration, so nothing can beat it.
+                return best
+    return best
+
+
 def polyline_bounds(polyline: Polyline) -> Optional[TextBounds]:
     """Return the axis-aligned bounding box of a polyline's vertices.
 

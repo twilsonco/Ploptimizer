@@ -25,8 +25,12 @@ import pytest
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.collision.balance import (
+    BalanceCircle,
+    BalanceGeometry,
     BalanceInputs,
+    BalanceSolve,
     GapPair,
+    balance_shift,
     box_loop,
     lone_vertical_hole,
     measure_gaps,
@@ -77,6 +81,8 @@ def _inputs(
     max_delta: float = CAP_UP,
     top_box: Tuple[float, float, float, float] = TOP_BOX,
     bottom_box: Tuple[float, float, float, float] = BOTTOM_BOX,
+    top_ink: Sequence[Tuple[Tuple[float, float], ...]] = (),
+    bottom_ink: Sequence[Tuple[Tuple[float, float], ...]] = (),
 ) -> BalanceInputs:
     """Return solver inputs over the shared fixture."""
     return BalanceInputs(
@@ -87,6 +93,8 @@ def _inputs(
         border_ink=tuple(border_ink),
         min_delta=min_delta,
         max_delta=max_delta,
+        top_ink=tuple(top_ink),
+        bottom_ink=tuple(bottom_ink),
     )
 
 
@@ -393,3 +401,179 @@ class TestGeometryHelpersAgainstReferenceCircle:
         straight_down = 1.0 - math.sqrt(max(0.0, 1.0 - corner[0] ** 2)) - (corner[1] - 1.0)
         assert pair.to_border == pytest.approx(radial, abs=2e-3)
         assert straight_down > radial
+
+
+def _geometry(
+    *,
+    block_bottom: float,
+    block_top: float,
+    holes: Sequence[BalanceCircle],
+    border_ink: Sequence[Sequence[Tuple[float, float]]] = (((-1.0, 0.2), (1.0, 0.2)),),
+    travel: float = 1.0,
+) -> BalanceGeometry:
+    """Return a :class:`BalanceGeometry` over a 2in-wide centered block."""
+    return BalanceGeometry(
+        block_bottom=block_bottom,
+        block_top=block_top,
+        block_x_min=-0.75,
+        block_x_max=0.75,
+        holes=tuple(holes),
+        border_ink=tuple(tuple(poly) for poly in border_ink),
+        legacy_travel_inches=travel,
+    )
+
+
+_TOP_HOLE = [ResolvedHoleSpec(diameter=0.6, location="top")]
+
+
+class TestBandLimitBindsTravelNotStart:
+    """A block parked above the band must still balance (the real-job shape).
+
+    The band caps how far the block may travel; it is not a box the shipped
+    placement has to fit inside. A top-anchored layout parks the block above the
+    band ceiling, so a symmetric clamp demands "top face below the ceiling"
+    simultaneously with the hole-side cap, and the bracket inverts (``lo > hi``)
+    -- which made the rule decline on every label of the job that motivated it.
+    Each limit is therefore relaxed to the shipped face: it blocks further
+    travel in its own direction, it never *demands* travel back toward the band
+    (centering cannot shrink a block into a shorter band; spacing and
+    compression own that).
+
+    Fixture, label-local inches (+y up), on the 2in label of ``_label`` (band
+    ``[0.2, 1.8]``): a top-anchored block ``[3.0, 3.5]``, a lone hole centred
+    ``(0, 3.75)`` with r 0.15 (engraved edge y = 3.6), bottom border ink at
+    y = 0.2, legacy centering travel 2.0in.
+
+    * gap to the hole at delta 0: ``3.6 - 3.5 = 0.1``
+    * gap to the border at delta 0: ``3.0 - 0.2 = 2.8``
+    * equalizing: ``3.6 - 3.5 - d = 3.0 + d - 0.2`` -> ``d = -1.35``
+
+    The un-relaxed ceiling gives ``max_delta = 1.8 - 3.5 = -1.7``, so the root
+    at -1.35 lies outside the bracket and the rule declines.
+    """
+
+    # The hole's engraved edge (3.6) sits 0.1in above the block's top face.
+    _HIGH_HOLE = BalanceCircle(cx=0.0, cy=3.75, radius=0.15)
+    _BORDER = (((-1.0, 0.2), (1.0, 0.2)),)
+
+    def _solve(self, *, travel: float = 2.0) -> Optional[BalanceSolve]:
+        label = _label(_TOP_HOLE)
+        geometry = _geometry(
+            block_bottom=3.0,
+            block_top=3.5,
+            holes=[self._HIGH_HOLE],
+            border_ink=self._BORDER,
+            travel=travel,
+        )
+        return balance_shift(label, geometry)
+
+    def test_parked_above_the_band_it_still_balances(self) -> None:
+        """The regression: the root above the ceiling is reached, not declined."""
+        solve = self._solve()
+        assert solve is not None, "a block parked above the band must not disable the rule"
+        assert solve.delta == pytest.approx(-1.35, abs=2 * UNIT)
+        assert solve.to_hole == pytest.approx(solve.to_border, abs=2 * UNIT)
+        assert solve.to_hole == pytest.approx(1.45, abs=2 * UNIT)
+
+    def test_band_ceiling_still_blocks_ascent(self) -> None:
+        """Relaxed, not removed: the block may travel down, never up past its face.
+
+        The border ink here is 0.1in under the block's bottom face and the hole
+        far above, so the equalizing root is a *rise* of +1.125in. The ceiling
+        relaxes to the shipped top face -- it never demands travel, and it does
+        not open a path upward either -- so no travel is available upward and
+        the rule declines.
+        """
+        label = _label(_TOP_HOLE)
+        geometry = _geometry(
+            block_bottom=3.0,
+            block_top=3.5,
+            holes=[BalanceCircle(cx=0.0, cy=6.0, radius=0.15)],
+            border_ink=(((-1.0, 2.9), (1.0, 2.9)),),
+            travel=2.0,
+        )
+        solve = balance_shift(label, geometry)
+        assert solve is None
+
+    def test_block_inside_band_is_unchanged(self) -> None:
+        """The un-violating case: identical bracket with and without the fix."""
+        label = _label(_TOP_HOLE)
+        geometry = _geometry(
+            block_bottom=1.0,
+            block_top=1.4,
+            holes=[BalanceCircle(cx=0.0, cy=1.75, radius=0.10)],
+            border_ink=self._BORDER,
+            travel=1.0,
+        )
+        solve = balance_shift(label, geometry)
+        assert solve is not None
+        # gap to hole edge 1.65: 1.65 - 1.4 - d ; gap to border 0.2: 1.0 + d - 0.2
+        # equalizing: 0.25 - d = 0.8 + d -> d = -0.275
+        assert solve.delta == pytest.approx(-0.275, abs=2 * UNIT)
+
+    def test_travel_cap_yields_the_best_effort_shift(self) -> None:
+        """Root out of reach: apply the nearest cap, and report it as partial.
+
+        The equalizing root is a -1.35in descent while the legacy centering only
+        travels 0.01in, so the shift clamps to that cap: the gaps become
+        ``0.11in`` to the hole and ``2.79in`` to the border, unequal by the
+        ``2.68in`` residual. The shop gets the improvement the caps allow plus
+        the imbalance they could not close.
+        """
+        solve = self._solve(travel=0.01)
+        assert solve is not None
+        assert solve.delta == pytest.approx(-0.01, abs=2 * UNIT)
+        assert solve.partial
+        assert solve.to_hole == pytest.approx(0.11, abs=2 * UNIT)
+        assert solve.to_border == pytest.approx(2.79, abs=2 * UNIT)
+        assert solve.residual == pytest.approx(2.68, abs=0.02)
+
+    def test_exact_balance_is_not_reported_partial(self) -> None:
+        """The ordinary case: the root inside the caps balances, not partial."""
+        solve = self._solve()
+        assert solve is not None
+        assert not solve.partial
+        assert solve.residual == pytest.approx(0.0, abs=2 * UNIT)
+
+
+class TestInkMeasurement:
+    """The gaps are ink distances when the caller supplies the strokes.
+
+    Both lines' strokes sit just inside the swept box here (``0.03in`` and
+    ``0.05in``), so a gap measured on the box and one measured on the ink differ
+    by exactly that inset -- which is how the adapters' plumbing is proven: a
+    path that drops the ink silently falls back to the box numbers.
+    """
+
+    TOP_STROKE: Tuple[Tuple[float, float], ...] = ((-0.1, 0.22), (0.1, 0.22))
+    BOTTOM_STROKE: Tuple[Tuple[float, float], ...] = ((-0.5, -0.20), (0.5, -0.20))
+
+    def test_ink_replaces_the_box_on_the_hole_side(self) -> None:
+        """A stroke below the box's top face measures a wider hole gap."""
+        box_pair = measure_gaps(_inputs(), 0.0)
+        ink_pair = measure_gaps(_inputs(top_ink=(self.TOP_STROKE,)), 0.0)
+        assert box_pair.to_hole == pytest.approx(0.40, abs=1e-9)
+        assert ink_pair.to_hole == pytest.approx(0.43, abs=1e-9)
+
+    def test_ink_replaces_the_box_on_the_border_side(self) -> None:
+        """A stroke above the box's bottom face measures a wider border gap."""
+        box_pair = measure_gaps(_inputs(), 0.0)
+        ink_pair = measure_gaps(_inputs(bottom_ink=(self.BOTTOM_STROKE,)), 0.0)
+        assert box_pair.to_border == pytest.approx(0.75, abs=1e-9)
+        assert ink_pair.to_border == pytest.approx(0.80, abs=1e-9)
+
+    def test_solve_balances_the_ink_gaps(self) -> None:
+        """The root equalizes 0.43 against 0.80, not the box's 0.40/0.75."""
+        inputs = _inputs(top_ink=(self.TOP_STROKE,), bottom_ink=(self.BOTTOM_STROKE,))
+        delta = solve_balance(inputs)
+        assert delta == pytest.approx(-0.185, abs=2 * UNIT)
+        pair = measure_gaps(inputs, delta)
+        assert pair.to_hole == pytest.approx(0.615, abs=2 * UNIT)
+        assert pair.to_border == pytest.approx(0.615, abs=2 * UNIT)
+
+    def test_ink_only_on_one_side_leaves_the_other_on_the_box(self) -> None:
+        """Each side picks its own metric: a half-supplied input still solves."""
+        inputs = _inputs(top_ink=(self.TOP_STROKE,))
+        pair = measure_gaps(inputs, 0.0)
+        assert pair.to_hole == pytest.approx(0.43, abs=1e-9)
+        assert pair.to_border == pytest.approx(0.75, abs=1e-9)

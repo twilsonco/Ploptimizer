@@ -57,7 +57,7 @@ import vpype as vp
 from plt_optimizer.core.models import ArcSegment, StrokePath, StrokeSegment
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH, inches_to_units
 from plt_optimizer.generate.arc_fit import fit_arc
-from plt_optimizer.generate.geometry import TextBounds, arc_swept_bounds
+from plt_optimizer.generate.geometry import Ink, TextBounds, arc_swept_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -737,6 +737,32 @@ class TextBlock:
     def is_empty(self) -> bool:
         """True when the block carries no segments at all."""
         return all(stroke.is_empty for stroke in self.strokes)
+
+    def as_ink(self) -> Ink:
+        """Return this line's engraved ink as polylines, in inches.
+
+        The form the gap metrics consume (:func:`~plt_optimizer.generate.geometry.ink_gap`,
+        :func:`~plt_optimizer.generate.geometry.ink_circle_gap`). Arcs are
+        **sampled** by :meth:`Stroke.polyline_chains` at
+        :data:`ARC_FLATTEN_CHORD_TOL_INCHES`, never reduced to their chord: the
+        PLT-extracted fonts are arc-bearing, and a chord is off by the sagitta --
+        for a 90-degree arc of radius 1 inch that is 0.29in, several times the
+        clearances these rules measure, so a chord would silently overstate
+        every gap involving a curved stroke.
+
+        Points are the block's own coordinates (``+y`` up, label-local inches),
+        so a caller in the emitted-PGHL frame must mirror before comparing.
+        Chains shorter than two points carry no measurable ink and are dropped;
+        a line with no ink returns ``()``.
+
+        Returns:
+            One polyline per engraved chain, arcs already flattened.
+        """
+        return tuple(
+            tuple((point.real, point.imag) for point in chain)
+            for stroke in self.strokes
+            for chain in stroke.polyline_chains()
+        )
 
     def bounds(self) -> Optional[TextBounds]:
         """Return the union swept bounds, or ``None`` when empty.
