@@ -1,0 +1,22 @@
+job:
+    job_name: balance demo
+    material: wb
+    type: round
+    height: 2
+    text_height: 0.2
+    holes:
+        - location: top
+    font: helv1
+    labels:
+        - id: demo round 2x2 balanced
+          balanced_centering: true
+          content:
+              - text: SCO2
+              - text: CHARGING
+              - text: LINE
+        - id: demo round 2x2 not balanced
+          balanced_centering: false
+          content:
+              - text: SCO2
+              - text: CHARGING
+              - text: LINE
