@@ -13,22 +13,27 @@ the *closest point of the curved boundary* to the bottom line's outer ink). The
 border is a curve, not a margin line, so the block's height and the bottom
 line's width no longer cancel: the answer depends on rendered ink.
 
-Both gaps are measured with the collision system's own metrics, in the
-label-local y-up frame:
+Both gaps are measured **ink to ink**, in the label-local y-up frame, over the
+strokes a line actually engraves:
 
-* the **top** gap is the circle-vs-box gap
-  (:func:`~plt_optimizer.generate.collision.geometry.circle_aabb_gap`), exactly
-  what :func:`~plt_optimizer.generate.collision.detection.detect_text_hole_collisions`
-  tests against the stroke-aware threshold;
-* the **bottom** gap is the true 2D ink distance
-  (:func:`plt_optimizer.generate.geometry.polyline_gap`) from the bottom line's
-  swept box to the boundary ink the renderer supplies (the bottom edge for a
-  rectangular label, the lower arc for a ``round`` one, the inset corner arcs
-  for a rounded rectangle).
+* the **hole-side** gap is the minimum distance from the lone hole's emitted
+  circle to any stroke of the line facing it
+  (:func:`plt_optimizer.generate.geometry.ink_circle_gap`);
+* the **border-side** gap is the minimum distance from any stroke of the
+  opposite line to the boundary ink the renderer supplies
+  (:func:`plt_optimizer.generate.geometry.polyline_gap`) -- the bottom edge for
+  a rectangular label, the lower arc for a ``round`` one, the inset corner arcs
+  for a rounded rectangle.
 
-Two layers live here. :func:`solve_balance` is the kernel: it takes the
-boxes, ink and caps as :class:`BalanceInputs` and bisects for the equal-gap
-placement. :func:`balance_shift` is the ONE entry point every caller uses: it
+There is deliberately no bounding-box fallback. A swept box measures the
+line's *corners*: on a round label those corners reach past the ink into empty
+space, so a box gap is the distance to a point the plotter never cuts and it
+dominates the result (the same real label reads 0.75/0.25 on boxes and
+0.2834/0.2841 on ink). A caller with no stroke data would silently get the
+wrong metric, so ink is required and a line with none makes the rule decline.
+
+Two layers live here. :func:`solve_balance` is the kernel: it takes the ink
+and caps as :class:`BalanceInputs` and bisects for the equal-gap placement. :func:`balance_shift` is the ONE entry point every caller uses: it
 takes a structured :class:`BalanceGeometry` (the block's swept box, the border
 ink, the hole circles, all in label-local inches) plus the label, and owns
 everything that is not geometry format -- the lone-side selection, the
@@ -56,11 +61,9 @@ from typing import List, Optional, Sequence, Tuple
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate.collision.detection import _content_band, collision_threshold
-from plt_optimizer.generate.collision.geometry import circle_aabb_gap
 from plt_optimizer.generate.geometry import (
     Ink,
     Polyline,
-    TextBounds,
     ink_circle_gap,
     polyline_gap,
 )
@@ -213,20 +216,15 @@ class BalanceInputs:
     """Everything the balance solver needs, in the label-local y-up frame.
 
     Attributes:
-        top_box: Swept bounds of the block's TOP line (the line the lone hole
-            threatens), band-centred as :class:`_LineEntry` records them. Only
-            read when :attr:`top_ink` is empty.
-        bottom_box: Swept bounds of the block's BOTTOM line. The same box on a
-            single-line label, which is the degenerate case the rule handles
-            unchanged. Only read when :attr:`bottom_ink` is empty.
-        top_ink: The engraved strokes of the hole-side line, lifted into the
-            same frame as :attr:`top_box`. When non-empty the hole-side gap is
-            the true minimum distance from the hole's emitted circle to any
-            stroke, which is what makes a round label balance on the ink the
+        top_ink: The engraved strokes of the hole-side line (the line the lone
+            hole threatens), lifted into the label-local frame. The hole-side
+            gap is the minimum distance from the hole's emitted circle to any
+            of them, which is what makes a round label balance on the ink the
             plotter cuts instead of on the block's corners.
-        bottom_ink: The engraved strokes of the border-side line. When
-            non-empty the border-side gap is the minimum distance from that
-            line's ink to the boundary ink.
+        bottom_ink: The engraved strokes of the border-side line. The
+            border-side gap is the minimum distance from any stroke to the
+            boundary ink. A one-line label passes the same strokes to both,
+            which is the rule's degenerate case and needs no branch.
         origin: The Y that lifts the band-centred boxes into label-local
             coordinates for the placement as it stands (``_frame_shift_y``).
         top_holes: The hole circles on the hole's side of the block's centre.
@@ -244,15 +242,13 @@ class BalanceInputs:
             circle), so the search must stay below.
     """
 
-    top_box: TextBounds
-    bottom_box: TextBounds
+    top_ink: Tuple[Polyline, ...]
+    bottom_ink: Tuple[Polyline, ...]
     origin: float
     top_holes: Tuple[HoleCircle, ...]
     border_ink: Tuple[Polyline, ...]
     min_delta: float
     max_delta: float
-    top_ink: Tuple[Polyline, ...] = ()
-    bottom_ink: Tuple[Polyline, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -260,9 +256,9 @@ class GapPair:
     """The two clearances the balance rule equalizes, in inches.
 
     Attributes:
-        to_hole: Gap from the top line's swept box to the nearest hole circle
-            (negative = the box overlaps the hole's emitted circle).
-        to_border: Gap from the bottom line's swept box to the nearest point of
+        to_hole: Gap from the hole-side line's ink to the nearest hole circle's
+            emitted edge (negative = a stroke crosses into the drilled hole).
+        to_border: Gap from the border-side line's ink to the nearest point of
             the boundary ink (negative never happens: it is a distance).
     """
 
@@ -273,20 +269,6 @@ class GapPair:
     def binding(self) -> float:
         """The smaller of the two gaps -- the one the rule maximizes."""
         return min(self.to_hole, self.to_border)
-
-
-def box_loop(box: TextBounds, dy: float) -> Polyline:
-    """Return a swept box lifted by ``dy`` as a closed polyline.
-
-    Args:
-        box: ``(x_min, y_min, x_max, y_max)`` in the band-centred frame.
-        dy: The Y offset to apply (inches).
-
-    Returns:
-        Five points closing the rectangle's outline, label-local.
-    """
-    x0, y0, x1, y1 = box[0], box[1] + dy, box[2], box[3] + dy
-    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0))
 
 
 def _lift_ink(ink: Ink, dy: float) -> Ink:
@@ -319,8 +301,8 @@ def top_and_bottom_line_ink(line_inks: Sequence[Ink]) -> Tuple[Ink, Ink]:
 
     Returns:
         ``(top_line_ink, bottom_line_ink)``. A one-line label returns its ink
-        for both; no ink at all returns two empty tuples, which leaves the
-        solve on the box fallback.
+        for both; a label with no ink at all returns two empty tuples, which
+        makes the solve decline.
     """
     ranked: List[Tuple[float, float, Ink]] = []
     for ink in line_inks:
@@ -337,60 +319,39 @@ def top_and_bottom_line_ink(line_inks: Sequence[Ink]) -> Tuple[Ink, Ink]:
 def measure_gaps(inputs: BalanceInputs, delta: float) -> GapPair:
     """Measure the hole-side and border-side gaps with the block shifted by ``delta``.
 
-    Each gap is an **ink** distance when the caller supplied that line's strokes
-    (:attr:`BalanceInputs.top_ink` / :attr:`BalanceInputs.bottom_ink`): the
-    minimum distance from any stroke of the line to the hole's emitted circle
-    or to the boundary ink. That is the definition the rule is specified in
-    terms of -- a bounding box measures the block's corners, which on a round
-    label reach into empty space past the ink and dominate the result. The
-    swept box remains as the fallback for callers that hold no structured
-    stroke data.
+        Each gap is an **ink** distance: the minimum distance from any stroke of the
+        line to the hole's emitted circle (:attr:`BalanceInputs.top_ink`) or to the
+        boundary ink (:attr:`BalanceInputs.bottom_ink`). That is the definition the
+        rule is specified in terms of -- a bounding box measures the block's
+        corners, which on a round label reach into empty space past the ink and
+    dominate the result.
 
-    Args:
-        inputs: The label's rendered geometry.
-        delta: The rigid vertical translate to evaluate, in inches, relative to
-            the placement ``inputs.origin`` describes (negative = down).
+        Args:
+            inputs: The label's rendered geometry.
+            delta: The rigid vertical translate to evaluate, in inches, relative to
+                the placement ``inputs.origin`` describes (negative = down).
 
-    Returns:
-        The :class:`GapPair` at that placement. ``to_border`` is ``inf`` when
-        the label carries no border ink, which makes the hole the sole binding
-        side (the solver then declines to move).
+        Returns:
+            The :class:`GapPair` at that placement. ``to_border`` is ``inf`` when
+            the label carries no border ink, which makes the hole the sole binding
+            side (the solver then declines to move).
     """
     dy = inputs.origin + delta
-    if inputs.top_ink:
-        hole_line = _lift_ink(inputs.top_ink, dy)
-        to_hole = min(
-            (ink_circle_gap(hole_line, (cx, cy), radius) for cx, cy, radius in inputs.top_holes),
-            default=math.inf,
-        )
-    else:
-        top_box = (
-            inputs.top_box[0],
-            inputs.top_box[1] + dy,
-            inputs.top_box[2],
-            inputs.top_box[3] + dy,
-        )
-        to_hole = min(
-            (circle_aabb_gap(top_box, (cx, cy), radius) for cx, cy, radius in inputs.top_holes),
-            default=math.inf,
-        )
-    if inputs.bottom_ink:
-        border_line = _lift_ink(inputs.bottom_ink, dy)
-        to_border = min(
-            (
-                polyline_gap(stroke, border)
-                for stroke in border_line
-                for border in inputs.border_ink
-                if stroke and border
-            ),
-            default=math.inf,
-        )
-    else:
-        bottom = box_loop(inputs.bottom_box, dy)
-        to_border = min(
-            (polyline_gap(bottom, poly) for poly in inputs.border_ink if poly),
-            default=math.inf,
-        )
+    hole_line = _lift_ink(inputs.top_ink, dy)
+    to_hole = min(
+        (ink_circle_gap(hole_line, (cx, cy), radius) for cx, cy, radius in inputs.top_holes),
+        default=math.inf,
+    )
+    border_line = _lift_ink(inputs.bottom_ink, dy)
+    to_border = min(
+        (
+            polyline_gap(stroke, border)
+            for stroke in border_line
+            for border in inputs.border_ink
+            if stroke and border
+        ),
+        default=math.inf,
+    )
     return GapPair(to_hole=to_hole, to_border=to_border)
 
 
@@ -625,6 +586,11 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
     )
     if not holes or not geometry.border_ink:
         return None
+    # Both gaps are ink distances, so a line that engraves nothing leaves that
+    # side unmeasurable: there is nothing to balance, and a bbox stand-in would
+    # measure a corner the plotter never cuts.
+    if not geometry.top_line_ink or not geometry.bottom_line_ink:
+        return None
 
     # Search caps: the block's ink may not leave the alignment content band
     # (the region the hole-aware shift and the Phase-2b ladder were allowed to
@@ -633,7 +599,6 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
     # The border side needs no extra cap: a rounded label's border ink is
     # engraved at the band's own edge, so the band limit is the tighter bound.
     top_ink, bottom_ink = geometry.block_top, geometry.block_bottom
-    x_min, x_max = geometry.block_x_min, geometry.block_x_max
     lower, upper = _content_band(label)
     # Search caps. On the hole side the block's leading face may not cross the
     # collision threshold of the lone hole -- the escape rule that decides a
@@ -680,31 +645,17 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
     lo = max(min_delta, -travel)
     hi = min(max_delta, travel)
 
-    # The hole-side face of the block is the one facing the lone hole; the
-    # border-side face is the opposite one. BalanceInputs calls the hole-side
-    # box ``top_box`` whichever side the hole sits on, and the solve is
-    # sign-agnostic, so a bottom hole is the mirrored case.
-    hole_box = (
-        (x_min, top_ink, x_max, top_ink)
-        if side == "top"
-        else (x_min, bottom_ink, x_max, bottom_ink)
-    )
-    border_box = (
-        (x_min, bottom_ink, x_max, bottom_ink)
-        if side == "top"
-        else (x_min, top_ink, x_max, top_ink)
-    )
-    # The ink distances are measured on the line facing each side; a one-line
-    # label hands the same strokes to both, which is the rule's degenerate case
-    # and needs no branch.
+    # The gaps are measured on the line facing each side; a one-line label
+    # hands the same strokes to both, which is the rule's degenerate case and
+    # needs no branch. ``BalanceInputs.top_ink`` is the hole-side line whichever
+    # side the hole sits on, and the solve is sign-agnostic, so a bottom hole is
+    # the mirrored case.
     hole_line_ink, border_line_ink = (
         (geometry.top_line_ink, geometry.bottom_line_ink)
         if side == "top"
         else (geometry.bottom_line_ink, geometry.top_line_ink)
     )
     inputs = BalanceInputs(
-        top_box=hole_box,
-        bottom_box=border_box,
         origin=0.0,
         top_holes=tuple((hole.cx, hole.cy, hole.radius) for hole in holes),
         border_ink=geometry.border_ink,
@@ -745,28 +696,6 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
         partial=partial,
         residual=residual,
     )
-
-
-def outermost_hole_radii(label: ResolvedLabel, side: str) -> Tuple[float, float]:
-    """Return the outermost emitted hole radius on each vertical side.
-
-    The emitted hole circle (see
-    :func:`~plt_optimizer.generate.collision.holes.hole_circles_local`) is the
-    material the drill removes, so the text block must clear it, and the band
-    limit on a side is set by the *largest* axis hole on that side -- the same
-    term
-    :func:`~plt_optimizer.generate.resolution._compute_hole_aware_shifts` reads.
-
-    Args:
-        label: The label being centered.
-        side: ``"top"`` or ``"bottom"`` -- the lone hole's side.
-
-    Returns:
-        ``(hole_side_diameter, opposite_diameter)`` in inches.
-    """
-    top = max((hole.diameter for hole in label.holes if hole.location == "top"), default=0.0)
-    bottom = max((hole.diameter for hole in label.holes if hole.location == "bottom"), default=0.0)
-    return (top, bottom) if side == "top" else (bottom, top)
 
 
 def vertical_band(
@@ -837,10 +766,8 @@ __all__ = [
     "GapPair",
     "adjacent_holes",
     "balance_shift",
-    "box_loop",
     "lone_vertical_hole",
     "measure_gaps",
-    "outermost_hole_radii",
     "solve_balance",
     "vertical_band",
 ]

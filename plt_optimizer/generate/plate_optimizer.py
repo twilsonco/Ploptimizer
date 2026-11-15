@@ -311,7 +311,8 @@ def _balance_shift_units(
         top_line_ink: The top text line's engraved strokes (label-local inches,
             ``+y`` up, pre-centering frame), lifted here by the legacy
             centering move so the solve measures ink where the block lands.
-            Empty falls back to the block's swept box.
+            Ink is the only metric: an empty line makes the solve decline
+            rather than measure the block's swept box.
         bottom_line_ink: The same for the bottom text line.
 
     Returns:

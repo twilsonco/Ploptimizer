@@ -2,9 +2,9 @@
 
 Frame convention (the same one the module documents): every geometry is
 label-local, y-up, with the label's **bottom edge at y = 0** and x centred on
-the label (the stacked frame the renderer builds). The band-centred line boxes
-are lifted by ``origin``. ``origin = height / 2`` places a band-centred block on
-the label's own centre.
+the label (the stacked frame the renderer builds). The band-centred line ink is
+lifted by ``origin``. ``origin = height / 2`` places a band-centred block on the
+label's own centre.
 
 Shared fixture: a 2in square label whose bottom border edge is ``y = 0``, a text
 block 0.5in tall centred on the label (band-centred boxes ``[0, 0.25]`` for the
@@ -12,6 +12,11 @@ top line, ``[-0.25, 0]`` for the bottom line, 1.5in wide), and a lone
 ``center/top`` hole whose engraved edge sits at ``y = 1.65``. At the shipped
 placement the top line is 0.40in from the hole and the bottom line 0.75in from
 the border -- the imbalance the rule removes.
+
+The solver measures **ink**, so the fixture models a line as its rectangular
+outline (``_outline``): outside the block an outline and a filled box measure
+the same gap, which keeps these numbers comparable with the box-metric history
+while every value the solver reads still comes from strokes.
 """
 
 from __future__ import annotations
@@ -31,10 +36,8 @@ from plt_optimizer.generate.collision.balance import (
     BalanceSolve,
     GapPair,
     balance_shift,
-    box_loop,
     lone_vertical_hole,
     measure_gaps,
-    outermost_hole_radii,
     solve_balance,
     vertical_band,
 )
@@ -43,10 +46,24 @@ from plt_optimizer.generate.resolution import ResolvedHoleSpec, ResolvedLabel
 U = HPGL_UNITS_PER_INCH
 UNIT = 1.0 / U
 
+Box = Tuple[float, float, float, float]
+Polyline = Tuple[Tuple[float, float], ...]
 
-def _flip_y(box: Tuple[float, float, float, float]) -> Tuple[float, float, float, float]:
-    """Return ``box`` mirrored about y = 0 (the band-centred frame)."""
-    return (box[0], -box[3], box[2], -box[1])
+
+def _outline(box: Box) -> Polyline:
+    """Return ``box``'s outline as a closed polyline -- the fixture's line ink."""
+    x0, y0, x1, y1 = box
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0))
+
+
+def _stroke(y: float, half_width: float = 0.75) -> Polyline:
+    """Return one pen-down stroke at height ``y``, the width of the block."""
+    return ((-half_width, y), (half_width, y))
+
+
+def _flip_poly(poly: Polyline) -> Polyline:
+    """Return ``poly`` mirrored about y = 0 (the band-centred frame)."""
+    return tuple((x, -y) for x, y in poly)
 
 
 HEIGHT = 2.0
@@ -74,27 +91,29 @@ def _label(holes: Sequence[ResolvedHoleSpec] = (), height: float = HEIGHT) -> Re
 
 def _inputs(
     *,
-    border_ink: Sequence[Tuple[Tuple[float, float], ...]] = (BOTTOM_EDGE,),
+    border_ink: Sequence[Polyline] = (BOTTOM_EDGE,),
     holes: Optional[Sequence[Tuple[float, float, float]]] = None,
     origin: float = HEIGHT / 2.0,
     min_delta: float = CAP_DOWN,
     max_delta: float = CAP_UP,
-    top_box: Tuple[float, float, float, float] = TOP_BOX,
-    bottom_box: Tuple[float, float, float, float] = BOTTOM_BOX,
-    top_ink: Sequence[Tuple[Tuple[float, float], ...]] = (),
-    bottom_ink: Sequence[Tuple[Tuple[float, float], ...]] = (),
+    top_box: Box = TOP_BOX,
+    bottom_box: Box = BOTTOM_BOX,
+    top_ink: Sequence[Polyline] = (),
+    bottom_ink: Sequence[Polyline] = (),
 ) -> BalanceInputs:
-    """Return solver inputs over the shared fixture."""
+    """Return solver inputs over the shared fixture.
+
+    ``top_box``/``bottom_box`` describe the block's shape; they become ink via
+    :func:`_outline` unless a case supplies the strokes itself.
+    """
     return BalanceInputs(
-        top_box=top_box,
-        bottom_box=bottom_box,
+        top_ink=tuple(top_ink) if top_ink else (_outline(top_box),),
+        bottom_ink=tuple(bottom_ink) if bottom_ink else (_outline(bottom_box),),
         origin=origin,
         top_holes=tuple([HOLE] if holes is None else holes),
         border_ink=tuple(border_ink),
         min_delta=min_delta,
         max_delta=max_delta,
-        top_ink=tuple(top_ink),
-        bottom_ink=tuple(bottom_ink),
     )
 
 
@@ -117,22 +136,6 @@ def _arc(
     )
 
 
-class TestBoxLoop:
-    """The band-centred box -> closed polyline lift."""
-
-    def test_lifts_and_closes(self) -> None:
-        loop = box_loop((0.0, 1.0, 2.0, 3.0), 10.0)
-        assert loop[0] == (0.0, 11.0)
-        assert loop[2] == (2.0, 13.0)  # the whole box lifts, not just y_min
-        assert loop[-1] == loop[0]
-        assert len(loop) == 5
-
-    def test_zero_lift_is_the_box_outline(self) -> None:
-        loop = box_loop(BOTTOM_BOX, 0.0)
-        assert loop[0] == (BOTTOM_BOX[0], BOTTOM_BOX[1])
-        assert loop[2] == (BOTTOM_BOX[2], BOTTOM_BOX[3])
-
-
 class TestMeasureGaps:
     """The two gaps the rule equalizes, measured with the pipeline's metrics."""
 
@@ -152,6 +155,18 @@ class TestMeasureGaps:
         far = (-0.5, 3.0, 0.05)
         pair = measure_gaps(_inputs(holes=[far, near]), 0.0)
         assert pair.to_hole == pytest.approx(measure_gaps(_inputs(holes=[near]), 0.0).to_hole)
+
+    def test_a_line_with_no_ink_declines_the_solve(self) -> None:
+        """Ink is required: a line that engraves nothing leaves nothing to balance."""
+        inputs = _inputs(border_ink=((),))
+        assert math.isinf(measure_gaps(inputs, 0.0).to_border)
+        assert (
+            balance_shift(
+                _label(_TOP_HOLE),
+                _geometry(block_bottom=1.0, block_top=1.4, holes=[], border_ink=()),
+            )
+            is None
+        )
 
     def test_border_gap_is_a_true_2d_distance_not_a_vertical_drop(self) -> None:
         """The nearest point of the arc sits diagonally out from the corner.
@@ -271,11 +286,11 @@ class TestSolveBalance:
         """
         inputs = _inputs()
         flipped = BalanceInputs(
-            top_box=_flip_y(inputs.top_box),
-            bottom_box=_flip_y(inputs.bottom_box),
+            top_ink=tuple(_flip_poly(poly) for poly in inputs.top_ink),
+            bottom_ink=tuple(_flip_poly(poly) for poly in inputs.bottom_ink),
             origin=-inputs.origin,
             top_holes=tuple((cx, -cy, r) for cx, cy, r in inputs.top_holes),
-            border_ink=tuple(tuple((x, -y) for x, y in poly) for poly in inputs.border_ink),
+            border_ink=tuple(_flip_poly(poly) for poly in inputs.border_ink),
             min_delta=-inputs.max_delta,
             max_delta=-inputs.min_delta,
         )
@@ -319,20 +334,6 @@ class TestBandLimits:
             hole_adjust_for_cutter=False,
         )
         assert vertical_band(label, 0.30, 0.10) == pytest.approx((-0.70, 0.50))
-
-    def test_radii_pick_the_largest_hole_on_each_side(self) -> None:
-        label = _label(
-            [
-                ResolvedHoleSpec(diameter=0.25, location="top"),
-                ResolvedHoleSpec(diameter=0.30, location="top"),
-                ResolvedHoleSpec(diameter=0.10, location="bottom"),
-            ]
-        )
-        assert outermost_hole_radii(label, "top") == (0.30, 0.10)
-        assert outermost_hole_radii(label, "bottom") == (0.10, 0.30)
-
-    def test_radii_are_zero_on_a_side_without_holes(self) -> None:
-        assert outermost_hole_radii(_label(), "top") == (0.0, 0.0)
 
 
 class TestLoneVerticalHole:
@@ -411,7 +412,12 @@ def _geometry(
     border_ink: Sequence[Sequence[Tuple[float, float]]] = (((-1.0, 0.2), (1.0, 0.2)),),
     travel: float = 1.0,
 ) -> BalanceGeometry:
-    """Return a :class:`BalanceGeometry` over a 2in-wide centered block."""
+    """Return a :class:`BalanceGeometry` over a 2in-wide centered block.
+
+    The block's faces carry a stroke each, so the ink the solver measures sits
+    exactly where the swept faces are -- the numbers stay the hand-computable
+    ones without reintroducing a box metric.
+    """
     return BalanceGeometry(
         block_bottom=block_bottom,
         block_top=block_top,
@@ -419,6 +425,8 @@ def _geometry(
         block_x_max=0.75,
         holes=tuple(holes),
         border_ink=tuple(tuple(poly) for poly in border_ink),
+        top_line_ink=(_stroke(block_top),),
+        bottom_line_ink=(_stroke(block_bottom),),
         legacy_travel_inches=travel,
     )
 
@@ -537,33 +545,34 @@ class TestBandLimitBindsTravelNotStart:
 
 
 class TestInkMeasurement:
-    """The gaps are ink distances when the caller supplies the strokes.
+    """The gaps are ink distances measured on the strokes, not on the block.
 
-    Both lines' strokes sit just inside the swept box here (``0.03in`` and
-    ``0.05in``), so a gap measured on the box and one measured on the ink differ
-    by exactly that inset -- which is how the adapters' plumbing is proven: a
-    path that drops the ink silently falls back to the box numbers.
+    The fixture models each line as its rectangular outline; these cases use the
+    line's real strokes instead, which sit just inside that outline (`0.03in`
+    and `0.05in`), so the two metrics differ by exactly that inset. The numbers
+    are the ones the contract names: a block's corners are not what the plotter
+    cuts.
     """
 
     TOP_STROKE: Tuple[Tuple[float, float], ...] = ((-0.1, 0.22), (0.1, 0.22))
     BOTTOM_STROKE: Tuple[Tuple[float, float], ...] = ((-0.5, -0.20), (0.5, -0.20))
 
-    def test_ink_replaces_the_box_on_the_hole_side(self) -> None:
-        """A stroke below the box's top face measures a wider hole gap."""
-        box_pair = measure_gaps(_inputs(), 0.0)
+    def test_the_hole_side_measures_the_stroke_not_the_outline(self) -> None:
+        """A stroke below the block's top face measures a wider hole gap."""
+        outline_pair = measure_gaps(_inputs(), 0.0)
         ink_pair = measure_gaps(_inputs(top_ink=(self.TOP_STROKE,)), 0.0)
-        assert box_pair.to_hole == pytest.approx(0.40, abs=1e-9)
+        assert outline_pair.to_hole == pytest.approx(0.40, abs=1e-9)
         assert ink_pair.to_hole == pytest.approx(0.43, abs=1e-9)
 
-    def test_ink_replaces_the_box_on_the_border_side(self) -> None:
-        """A stroke above the box's bottom face measures a wider border gap."""
-        box_pair = measure_gaps(_inputs(), 0.0)
+    def test_the_border_side_measures_the_stroke_not_the_outline(self) -> None:
+        """A stroke above the block's bottom face measures a wider border gap."""
+        outline_pair = measure_gaps(_inputs(), 0.0)
         ink_pair = measure_gaps(_inputs(bottom_ink=(self.BOTTOM_STROKE,)), 0.0)
-        assert box_pair.to_border == pytest.approx(0.75, abs=1e-9)
+        assert outline_pair.to_border == pytest.approx(0.75, abs=1e-9)
         assert ink_pair.to_border == pytest.approx(0.80, abs=1e-9)
 
     def test_solve_balances_the_ink_gaps(self) -> None:
-        """The root equalizes 0.43 against 0.80, not the box's 0.40/0.75."""
+        """The root equalizes 0.43 against 0.80, not the outline's 0.40/0.75."""
         inputs = _inputs(top_ink=(self.TOP_STROKE,), bottom_ink=(self.BOTTOM_STROKE,))
         delta = solve_balance(inputs)
         assert delta == pytest.approx(-0.185, abs=2 * UNIT)
@@ -571,8 +580,8 @@ class TestInkMeasurement:
         assert pair.to_hole == pytest.approx(0.615, abs=2 * UNIT)
         assert pair.to_border == pytest.approx(0.615, abs=2 * UNIT)
 
-    def test_ink_only_on_one_side_leaves_the_other_on_the_box(self) -> None:
-        """Each side picks its own metric: a half-supplied input still solves."""
+    def test_each_side_measures_its_own_line(self) -> None:
+        """A half-supplied input still solves: the sides never share a metric."""
         inputs = _inputs(top_ink=(self.TOP_STROKE,))
         pair = measure_gaps(inputs, 0.0)
         assert pair.to_hole == pytest.approx(0.43, abs=1e-9)

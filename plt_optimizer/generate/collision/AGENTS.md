@@ -203,6 +203,52 @@ intersection-invariant.
 - Adjusted label clones propagate to downstream rendering via
   `RenderedLabel.source_label` (consumed by `layout.unroll_labels_with_rendered_bounds`).
 
+### Gap-Balanced Centering (`balanced_centering`, `collision/balance.py`)
+
+A label with **exactly one** zero-less hole on one vertical side (`top` XOR
+`bottom`) has no second hole to balance against, so the shipped placement
+centres the block between the margins -- which leaves it asymmetric relative to
+the hole the cutter actually has to clear. `balanced_centering` (default true;
+cascades label -> job -> `job-config.json`) moves the block so that
+
+* **A** = min gap from the **hole ink** (the emitted, kerf-compensated drill
+  circle) to any stroke of the text line facing it, and
+* **B** = min gap from the **label border ink** to any stroke of the opposite
+  text line (a one-line label measures both on its only line),
+
+are equal (`|A - B| <= 1/1016 in`, one device unit, or a PARTIAL solve that
+logs a WARNING naming both gaps).
+
+**The metric is ink, never a bounding box.** A swept box measures the block's
+*corners*; on a round label those corners reach past the ink into empty space,
+so a box-based gap is the distance from a point the plotter never touches. On
+the same real label the box metric reported 0.75/0.25 while the ink metric
+reports 0.2834/0.2841. Ink comes from `text_geometry.TextBlock.as_ink()`, which
+**samples** arcs (`Stroke.polyline_chains`) -- never chords: a 90-degree chord on
+a 1016-unit arc errs ~0.147in, larger than every clearance this rule measures.
+
+**One frame, three producers.** Everything is label-local inches, `+y` up, label
+bottom edge at `y = 0`. The emitted stream supplies the border ink and the drill
+circles; `TextBlock.as_ink()` arrives in the renderer's *pre-centering* frame and
+both adapters lift it by their own centering move (`lift_units` / `lift` in
+`_balance_shift_inches` / `_balance_shift_units`) before handing it over. A
+frame disagreement is silent -- the solve still returns a plausible number, it
+just moves the block the wrong way. `tests/test_balance_frame.py` pins it by
+re-measuring A and B **on the emitted stream**, on both hole sides, plus a
+mirror-antisymmetry test.
+
+**It redirects travel, it never adds its own**: the search bracket is
+`+/- |legacy centering move|`, so a block already band-centred (zero travel) is
+left alone. The hole-side cap is the hole's collision threshold; the border side
+needs none because a rounded label's border ink is engraved at the content
+band's own edge. `BalanceGeometry.legacy_travel_inches` is that travel.
+
+`balance.py` has one entry point (`balance_shift`); the renderer
+(`label_renderer._center_text_layer_vertically`) and the packer
+(`plate_optimizer._label_transform`) are thin adapters that must agree --
+three solves per label (renderer x2 + packer x1) are expected to return the same
+delta.
+
 ### Cutter-Compensated Drill Holes (`hole_adjust_for_cutter`)
 
 The drill path is the circle the cutter **centre** follows, so the cutter

@@ -1513,7 +1513,8 @@ def _export_to_plt_with_postprocessing(
         top_line_ink: The top text line's engraved strokes in the renderer's
             own inch frame, handed to the gap-balance solve so it measures ink
             rather than the block's swept box (see
-            :func:`_center_text_layer_vertically`). Empty falls back to the box.
+            :func:`_center_text_layer_vertically`). Ink is the only metric --
+            an empty line makes the solve decline rather than measure a box.
         bottom_line_ink: The same for the bottom text line.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1910,9 +1911,9 @@ def _balance_shift_inches(
             (label-local inches, ``+y`` up, pre-centering frame), lifted here
             by ``lift_units``. The gaps are measured on this ink -- a bounding
             box reads the block's corners, which on a round label stick out
-            past every stroke. Empty falls back to the box.
-        bottom_line_ink: The same for the block's bottom text line. Empty falls
-            back, as above.
+            past every stroke. Ink is the only metric: an empty line makes the
+            solve decline rather than measure a box.
+        bottom_line_ink: The same for the block's bottom text line.
 
     Returns:
         The shift to add to the block's placement (inches); ``0.0`` for any

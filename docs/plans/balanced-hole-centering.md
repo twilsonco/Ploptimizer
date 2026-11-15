@@ -165,18 +165,33 @@ to the y-down stream. Skipping this mirror is what made the whole feature inert:
 a `top` hole read as sitting below the block, the adjacency test returned no
 holes, and `balance_shift` declined on every label.
 
-IMPLEMENTED. `BalanceInputs` carries `top_ink`/`bottom_ink`, `measure_gaps`
-prefers them and keeps the swept box as the fallback, and the geometry record
-threads `top_line_ink`/`bottom_line_ink` through `BalanceGeometry` so every
-caller that owns strokes supplies them.
+IMPLEMENTED. `BalanceInputs` carries `top_ink`/`bottom_ink` **as required
+fields**, `measure_gaps` measures only ink, and the geometry record threads
+`top_line_ink`/`bottom_line_ink` through `BalanceGeometry` so every caller that
+owns strokes supplies them.
 
-Measured on real jobs (`.probe/trace_solve.py`, which wraps both adapters):
+Measured on real jobs, through both adapters (throwaway probe, removed after the
+measurement; re-derive with `scripts/run_integration_test.py <yaml>` plus a
+solve wrapper around `_balance_shift_units` / `_balance_shift_inches`):
 
 | label | hole gap | border gap | delta | residual |
 |---|---|---|---|---|
 | `balance-demo-round` | 0.3008 | 0.3010 | -0.0719 | 0.0002 |
 | coolsys `round walmart 3620_0002` | 0.2834 | 0.2841 | -0.062 | 0.0007 |
 | coolsys `round walmart 3620_0004` | 0.2832 | 0.2836 | -0.062 | 0.0005 |
+
+Sweep of **all 24 balanced coolsys labels** (48 solves: renderer twice + packer
+once per label, all agreeing):
+
+| quantity | min | max | mean |
+|---|---|---|---|
+| residual `|A - B|` | 0.0001 | 0.0009 | 0.00035 |
+| hole-side gap A | 0.2832 | 0.3009 | -- |
+| border-side gap B | 0.2832 | 0.3010 | -- |
+| applied delta | -0.0738 | -0.0620 | -- |
+
+Every residual is at or below one device unit (0.000984in), so all 24 labels are
+exact solves -- none fell back to a partial root.
 
 The residual is a device-unit rounding artefact (1 unit = 0.00098in), i.e. the
 gaps are equal to the plotter's own resolution. Under the box metric the same
@@ -187,6 +202,26 @@ NOTE the decline seen on the first renderer pass of every coolsys label: that
 pass runs on the pre-collision label (different `legacy_travel_inches`, no
 adjacent hole in X) and returns `None`; the second pass, on the final label,
 solves exactly. Both are renderer passes -- no stale state.
+
+### Stage 7 -- the box metric is gone
+
+Removed once Stages 6 and 4-6 were green: `BalanceInputs.top_box` /
+`bottom_box`, the `box_loop()` helper that turned a box into a polyline, the
+`circle_aabb_gap` import, and every fallback branch in `measure_gaps`. The
+fallback was the trap this whole project was about -- a caller that forgot its
+strokes silently got the corner metric with no error -- so ink is now a
+required field and `balance_shift` declines when a line engraves nothing.
+
+Kept, because grep shows them live and not dead: `adjacent_holes()` (the
+X-overlap filter, balance.py:618), `block_x_padding` (its reach parameter,
+balance.py:582) and `circle_aabb_gap` (collision detection's own metric,
+`detection.py:214`). Removed as dead: `outermost_hole_radii()`, whose only
+references were its own `__all__` entry and two tests.
+
+The kernel tests kept their numbers by modelling each fixture line as its
+rectangular outline: outside the block an outline and a filled box measure the
+same gap, so 0.40/0.75 still pin the fixture while every value the solver reads
+comes from strokes.
 
 ### Ink sources
 
