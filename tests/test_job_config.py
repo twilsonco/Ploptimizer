@@ -35,7 +35,12 @@ from plt_optimizer.generate.job_config import (
     load_job_config,
 )
 from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import CounterStyle, JobSpec, parse_yaml
+from plt_optimizer.generate.schema import (
+    BalancedCenteringHoleTextMode,
+    CounterStyle,
+    JobSpec,
+    parse_yaml,
+)
 
 # A complete config supplying every required field (plus a few optional
 # ones), used as the baseline in injection tests.
@@ -211,6 +216,41 @@ class TestJobDefaultsModel:
         assert JobDefaults(enforce_cap_line=True).enforce_cap_line is True
         assert JobDefaults(enforce_cap_line=False).enforce_cap_line is False
         assert JobDefaults().enforce_cap_line is None
+
+    def test_balanced_centering_config_fields(self) -> None:
+        """The two gap-balancing parameters are legal shop defaults.
+
+        The enum accepts its string form (the JSON shape) and the factor mirrors
+        the schema's closed ``[0.0, 1.0]`` range -- ``0.0`` and ``1.0`` are real
+        placements (text against the border / against the hole), so the bounds
+        are inclusive and an explicit ``0.0`` must never read as unset.
+
+        The shipped ``job-config.json``'s own values are deliberately not
+        asserted: they are hand-tuned shop state (AGENTS.md / ``tests/AGENTS.md``
+        -- "tests must derive from these, never pin their values"). Presence in
+        the generated ``JOB_CONFIG.md`` is pinned by
+        ``test_job_spec_skills.py::test_skill_docs_cover_every_schema_field``.
+        """
+        defaults = JobDefaults(
+            balanced_centering=True,
+            balanced_centering_hole_text_mode="top_line",
+            balanced_centering_hole_border_factor=0.0,
+        )
+        assert defaults.balanced_centering_hole_text_mode is BalancedCenteringHoleTextMode.TOP_LINE
+        assert defaults.balanced_centering_hole_border_factor == 0.0
+        assert (
+            JobDefaults(
+                balanced_centering_hole_border_factor=1.0
+            ).balanced_centering_hole_border_factor
+            == 1.0
+        )
+        assert JobDefaults().balanced_centering_hole_text_mode is None
+        assert JobDefaults().balanced_centering_hole_border_factor is None
+        for bad in (-0.1, 1.5):
+            with pytest.raises(ValidationError):
+                JobDefaults(balanced_centering_hole_border_factor=bad)
+        with pytest.raises(ValidationError):
+            JobDefaults(balanced_centering_hole_text_mode="topline")
 
     def test_optimize_line_content_max_lines_config_field(self) -> None:
         """optimize_line_content_max_lines is a legal shop default (int, ge=1)."""

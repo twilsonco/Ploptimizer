@@ -49,7 +49,12 @@ from plt_optimizer.generate.label_renderer import (
     _section_border_ink_in_inches,
     _section_circles_in_inches,
 )
-from plt_optimizer.generate.resolution import ResolvedHoleSpec, ResolvedLabel
+from plt_optimizer.generate.resolution import (
+    DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR,
+    DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE,
+    ResolvedHoleSpec,
+    ResolvedLabel,
+)
 
 U = HPGL_UNITS_PER_INCH
 UNIT = 1.0 / U
@@ -125,8 +130,18 @@ def _stream(hole_y: float, bottom_y: float = BOTTOM_LINE_Y, top_y: float = TOP_L
     )
 
 
-def _label(location: str) -> ResolvedLabel:
-    """Return the fixture label carrying one lone drill hole on ``location``."""
+def _label(
+    location: str,
+    *,
+    mode: Optional[str] = None,
+    factor: Optional[float] = None,
+) -> ResolvedLabel:
+    """Return the fixture label carrying one lone drill hole on ``location``.
+
+    ``mode``/``factor`` set the two cascading gap-balancing parameters on the
+    resolved label; leaving them unset keeps the code defaults
+    (``closest_ink`` / ``0.5``), the shipped rule.
+    """
     return ResolvedLabel(
         id="L1",
         count=1,
@@ -137,6 +152,12 @@ def _label(location: str) -> ResolvedLabel:
         v_margin=V_MARGIN,
         holes=[ResolvedHoleSpec(diameter=2 * HOLE_RADIUS, location=location)],
         balanced_centering=True,
+        balanced_centering_hole_text_mode=(
+            mode if mode is not None else DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE
+        ),
+        balanced_centering_hole_border_factor=(
+            factor if factor is not None else DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR
+        ),
     )
 
 
@@ -195,13 +216,21 @@ def _shift_inches(
     )
 
 
-def _emitted(hole_y: float, location: str, tmp_path: Path) -> str:
+def _emitted(
+    hole_y: float,
+    location: str,
+    tmp_path: Path,
+    *,
+    mode: Optional[str] = None,
+    factor: Optional[float] = None,
+    name: str = "frame",
+) -> str:
     """Run the real centering adapter over the fixture; return the emitted stream."""
-    path = tmp_path / f"frame-{location}.plt"
+    path = tmp_path / f"{name}-{location}.plt"
     path.write_text(_stream(hole_y), encoding="utf-8")
     _center_text_layer_vertically(
         path,
-        _label(location),
+        _label(location, mode=mode, factor=factor),
         text_pens={LAYER_TEXT},
         balance=True,
         top_line_ink=_ink(TOP_LINE_Y),
@@ -311,3 +340,87 @@ class TestRendererAdapterMirror:
         inventing a slide.
         """
         assert _shift_inches(TOP_HOLE_Y, "top", lift_in=0.0) == 0.0
+
+
+class TestHoleTextModeAndFactorEndToEnd:
+    """The two cascading parameters, through the real centering adapter.
+
+    The fixture's top line is a flat horizontal stroke sitting directly below
+    the hole's centre, so its closest ink point and its box face are the same
+    ``y`` -- which makes this the place to pin that ``top_line`` is inert at a
+    flat block (byte-identical output) and that the factor's landing obeys
+    ``f * A = (1 - f) * B`` on the emitted stream. The metrics' disagreement is
+    pinned on a shape where they differ in
+    :class:`tests.test_collision_balance.TestHoleTextMode`.
+    """
+
+    @staticmethod
+    def _top_stroke_y(content: str) -> float:
+        """Return the emitted block's top stroke height, inches."""
+        strokes = sorted(_horizontal_strokes(_sections(content)[LAYER_TEXT]), key=lambda s: s[0][1])
+        return strokes[-1][0][1]
+
+    def test_top_line_is_byte_identical_to_closest_ink_on_a_flat_block(
+        self, tmp_path: Path
+    ) -> None:
+        """Legacy values are inert: the enum cannot move a flat block's solve."""
+        closest = _emitted(TOP_HOLE_Y, "top", tmp_path, mode="closest_ink", name="ci")
+        face = _emitted(TOP_HOLE_Y, "top", tmp_path, mode="top_line", name="tl")
+        assert face == closest
+
+    def test_half_is_byte_identical_to_the_shipped_rule(self, tmp_path: Path) -> None:
+        """``f = 0.5`` (with the default mode) reproduces the shipped stream."""
+        shipped = _emitted(TOP_HOLE_Y, "top", tmp_path, name="ship")
+        half = _emitted(TOP_HOLE_Y, "top", tmp_path, factor=0.5, name="half")
+        assert half == shipped
+        # ...and the shipped stream is the balanced one the frame tests pin.
+        a, b = _emitted_gaps(shipped, "top")
+        assert abs(a - b) <= UNIT
+
+    def test_the_factor_moves_the_block_monotonically(self, tmp_path: Path) -> None:
+        """``f = 0.2`` sits nearer the border, ``f = 0.8`` nearer the hole."""
+        ys = {
+            f: self._top_stroke_y(_emitted(TOP_HOLE_Y, "top", tmp_path, factor=f, name=f"m{f}"))
+            for f in (0.2, 0.5, 0.8)
+        }
+        assert ys[0.2] < ys[0.5] < ys[0.8]
+        assert ys[0.5] - ys[0.2] > 0.1
+        assert ys[0.8] - ys[0.5] > 0.1
+
+    @pytest.mark.parametrize("f", [0.4, 0.5, 0.6])
+    def test_the_landing_satisfies_the_factor_equation(self, tmp_path: Path, f: float) -> None:
+        """The weighted gaps close to within two device quanta.
+
+        Only factors whose root lies inside the travel the caps allow: this
+        fixture gives the block 0.2in of travel, and ``f = 0.2`` / ``f = 0.8``
+        want more than that, so they land on the clamp (pinned by
+        :meth:`test_an_unclosable_factor_reports_a_capped_partial`).
+        """
+        content = _emitted(TOP_HOLE_Y, "top", tmp_path, factor=f, name=f"eq{f}")
+        a, b = _emitted_gaps(content, "top")
+        assert abs(f * a - (1.0 - f) * b) <= 2 * UNIT
+
+    def test_an_unclosable_factor_reports_a_capped_partial(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A factor asking for more travel than the caps give says so loudly."""
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            _emitted(TOP_HOLE_Y, "top", tmp_path, factor=0.8, name="cap")
+        text = caplog.text
+        assert "PARTIAL" in text
+        assert "factor=0.800" in text
+        assert "the maximum the caps allow" in text or "(the maximum)" in text
+
+    def test_the_solve_logs_the_mode_and_the_factor(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Operator transparency: the balance: INFO line names both parameters."""
+        import logging
+
+        with caplog.at_level(logging.INFO):
+            _emitted(TOP_HOLE_Y, "top", tmp_path, mode="top_line", factor=0.8, name="log")
+        text = caplog.text
+        assert "mode=top_line" in text
+        assert "factor=0.800" in text

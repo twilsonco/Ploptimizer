@@ -19,6 +19,8 @@ from plt_optimizer.generate.resolution import (
     DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL,
     DEFAULT_ARC_PRESERVE_COMPRESSION,
     DEFAULT_AUTO_DESCENDING_CHARACTER_ADJUSTMENT,
+    DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR,
+    DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE,
     DEFAULT_BOLD_BOLDNESS_MULTIPLIER,
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     DEFAULT_BULLET_STRING,
@@ -118,6 +120,7 @@ from plt_optimizer.generate.resolution import (
 )
 from plt_optimizer.generate.schema import (
     DEFAULT_HOLE_DIAMETER,
+    BalancedCenteringHoleTextMode,
     HoleLocation,
     HoleSpec,
     JobSpec,
@@ -8666,3 +8669,135 @@ class TestReliefEngravingCascade:
             available_cutters=[0.005, 0.06],
         )[0]
         assert resolved.content[0].cutter_buffer == 0.015
+
+
+def _balanced_job(**label_kwargs: object) -> JobSpec:
+    """Return a lone-top-hole job, optionally declaring label-level fields.
+
+    ``mode``/``factor`` are the two gap-balancing parameters' short test names,
+    so a case reads ``_balanced_job(mode="top_line", factor=0.25)``.
+    """
+    renames = {
+        "mode": "balanced_centering_hole_text_mode",
+        "factor": "balanced_centering_hole_border_factor",
+    }
+    kwargs = {renames.get(str(k), str(k)): v for k, v in label_kwargs.items()}
+    return JobSpec(
+        job_name="BAL",
+        balanced_centering=True,
+        labels=[
+            LabelSpec(
+                id="lbl",
+                width=2.0,
+                height=2.0,
+                holes=[HoleSpec(location=HoleLocation.TOP)],
+                content=[TextLine(text="X")],
+                **kwargs,
+            )
+        ],
+    )
+
+
+class TestBalancedCenteringParameterCascade:
+    """The two gap-balancing parameters resolve label -> job -> code default.
+
+    Both are falsy-hostile (the enum's string form, and the factor's meaningful
+    ``0.0``), so precedence is pinned at every level and an explicit zero is
+    proven to be carried rather than defaulted. The plate tier is schema parity
+    only: labels render before packing, so a plate can never reach a label.
+    """
+
+    def test_code_defaults_when_all_levels_omit(self) -> None:
+        label = resolve_job_spec(_balanced_job())[0]
+        assert label.balanced_centering_hole_text_mode == DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE
+        assert (
+            label.balanced_centering_hole_border_factor
+            == DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR
+        )
+
+    def test_job_level_used_when_label_omits(self) -> None:
+        job = _balanced_job()
+        cascaded = job.model_copy(
+            update={
+                "balanced_centering_hole_text_mode": BalancedCenteringHoleTextMode.TOP_LINE,
+                "balanced_centering_hole_border_factor": 0.3,
+            }
+        )
+        label = resolve_job_spec(cascaded)[0]
+        assert label.balanced_centering_hole_text_mode == "top_line"
+        assert label.balanced_centering_hole_border_factor == pytest.approx(0.3)
+
+    def test_label_overrides_job(self) -> None:
+        job = _balanced_job(mode="top_line", factor=0.25)
+        cascaded = job.model_copy(
+            update={
+                "balanced_centering_hole_text_mode": BalancedCenteringHoleTextMode.CLOSEST_INK,
+                "balanced_centering_hole_border_factor": 0.75,
+            }
+        )
+        label = resolve_job_spec(cascaded)[0]
+        # The label's own declaration wins over the job tier it sits under.
+        assert label.balanced_centering_hole_text_mode == "top_line"
+        assert label.balanced_centering_hole_border_factor == pytest.approx(0.25)
+
+    def test_explicit_zero_factor_is_not_read_as_unset(self) -> None:
+        """``f = 0.0`` (text against the border) is falsy and must survive."""
+        label = resolve_job_spec(_balanced_job(factor=0.0))[0]
+        assert label.balanced_centering_hole_border_factor == 0.0
+        assert label.balanced_centering_hole_border_factor != (
+            DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR
+        )
+
+    def test_job_config_layer_fills_the_job_tier(self, tmp_path: Path) -> None:
+        """The shop config lands at the job tier and the label inherits it."""
+        config = JobConfig(
+            path=tmp_path / "job-config.json",
+            defaults=JobDefaults(
+                balanced_centering=True,
+                balanced_centering_hole_text_mode=BalancedCenteringHoleTextMode.TOP_LINE,
+                balanced_centering_hole_border_factor=0.3,
+            ),
+        )
+        filled = apply_job_config_defaults(
+            {
+                "job_name": "J",
+                "labels": [
+                    {"id": "lbl", "width": 2.0, "height": 2.0, "content": [{"text": "X"}]},
+                ],
+            },
+            config,
+        )
+        assert filled["balanced_centering_hole_text_mode"] == "top_line"
+        assert filled["balanced_centering_hole_border_factor"] == pytest.approx(0.3)
+        label = resolve_job_spec(JobSpec.model_validate(filled))[0]
+        assert label.balanced_centering_hole_text_mode == "top_line"
+        assert label.balanced_centering_hole_border_factor == pytest.approx(0.3)
+
+    def test_plate_tier_is_parity_only(self) -> None:
+        """A plate-level declaration is accepted by the schema and never used."""
+        job = JobSpec(
+            job_name="PLT",
+            plates=[
+                PlateSpec(
+                    id="p1",
+                    width=12.0,
+                    height=8.0,
+                    balanced_centering_hole_text_mode=BalancedCenteringHoleTextMode.TOP_LINE,
+                    balanced_centering_hole_border_factor=0.1,
+                )
+            ],
+            labels=[
+                LabelSpec(
+                    id="lbl",
+                    width=2.0,
+                    height=2.0,
+                    holes=[HoleSpec(location=HoleLocation.TOP)],
+                    content=[TextLine(text="X")],
+                )
+            ],
+        )
+        label = resolve_job_spec(job)[0]
+        assert label.balanced_centering_hole_text_mode == "closest_ink"
+        assert label.balanced_centering_hole_border_factor == (
+            DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR
+        )

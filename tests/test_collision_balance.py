@@ -36,8 +36,11 @@ from plt_optimizer.generate.collision.balance import (
     BalanceSolve,
     GapPair,
     balance_shift,
+    face_gap_to_hole,
+    imbalance,
     lone_vertical_hole,
     measure_gaps,
+    residual_inches,
     solve_balance,
     vertical_band,
 )
@@ -100,11 +103,18 @@ def _inputs(
     bottom_box: Box = BOTTOM_BOX,
     top_ink: Sequence[Polyline] = (),
     bottom_ink: Sequence[Polyline] = (),
+    hole_face_y: Optional[float] = None,
+    hole_side: str = "top",
+    hole_border_factor: float = 0.5,
 ) -> BalanceInputs:
     """Return solver inputs over the shared fixture.
 
     ``top_box``/``bottom_box`` describe the block's shape; they become ink via
-    :func:`_outline` unless a case supplies the strokes itself.
+    :func:`_outline` unless a case supplies the strokes itself. The three
+    trailing keyword arguments are the two cascading parameters' kernel surface:
+    ``hole_face_y`` selects the ``top_line`` hole-text metric (``None`` =
+    ``closest_ink``, the shipped rule), ``hole_side`` gives it a direction, and
+    ``hole_border_factor`` is the ``f`` of ``f * A = (1 - f) * B``.
     """
     return BalanceInputs(
         top_ink=tuple(top_ink) if top_ink else (_outline(top_box),),
@@ -114,6 +124,9 @@ def _inputs(
         border_ink=tuple(border_ink),
         min_delta=min_delta,
         max_delta=max_delta,
+        hole_face_y=hole_face_y,
+        hole_side=hole_side,
+        hole_border_factor=hole_border_factor,
     )
 
 
@@ -586,3 +599,117 @@ class TestInkMeasurement:
         pair = measure_gaps(inputs, 0.0)
         assert pair.to_hole == pytest.approx(0.43, abs=1e-9)
         assert pair.to_border == pytest.approx(0.75, abs=1e-9)
+
+
+class TestHoleTextMode:
+    """``hole_text_mode``: which distance the hole-side gap ``A`` measures.
+
+    The shared fixture lifts the top box face to ``y = 1.25`` and the hole's
+    engraved edge sits at ``y = 1.65`` (``HOLE`` = centre 1.75, radius 0.10), so
+    ``closest_ink`` and ``top_line`` agree there -- the outline's top edge IS the
+    box face. The cases that separate them supply hole-side ink that reaches
+    past that face.
+    """
+
+    def test_face_gap_measures_faces_on_both_sides(self) -> None:
+        assert face_gap_to_hole(1.25, 0.0, [HOLE], "top") == pytest.approx(0.40, abs=1e-12)
+        # Mirrored: a lone bottom hole at centre 0.25 (edge y = 0.35) facing a
+        # box bottom at 0.65.
+        assert face_gap_to_hole(0.65, 0.0, [(0.0, 0.25, 0.10)], "bottom") == pytest.approx(
+            0.30, abs=1e-12
+        )
+
+    def test_face_gap_travels_with_the_block(self) -> None:
+        """``dy`` is the absolute Y the face sits at, so the gap opens downward."""
+        assert face_gap_to_hole(1.25, -0.1, [HOLE], "top") == pytest.approx(0.50, abs=1e-12)
+        assert face_gap_to_hole(1.25, 0.1, [HOLE], "top") == pytest.approx(0.30, abs=1e-12)
+        assert face_gap_to_hole(1.25, 0.5, [HOLE], "top") == pytest.approx(-0.10, abs=1e-12)
+        assert face_gap_to_hole(1.25, 0.0, (), "top") == math.inf
+
+    def test_top_line_reads_the_box_face_not_the_closest_glyph(self) -> None:
+        """A descender reaching toward the hole moves ``closest_ink``, not ``top_line``."""
+        descender = _stroke(0.5)  # lifted to y = 1.5, 0.15in under the hole edge
+        top_line = _inputs(
+            top_ink=(_outline(TOP_BOX), descender), hole_face_y=0.25, hole_side="top"
+        )
+        closest = replace(top_line, hole_face_y=None)
+        assert measure_gaps(top_line, 0.0).to_hole == pytest.approx(0.40, abs=1e-12)
+        assert measure_gaps(closest, 0.0).to_hole == pytest.approx(0.15, abs=1e-12)
+
+    def test_modes_agree_when_no_ink_passes_the_box_face(self) -> None:
+        """The fixture's own shape: outline top == box face, one gap both ways."""
+        pair_top = measure_gaps(_inputs(hole_face_y=0.25, hole_side="top"), 0.0)
+        pair_ink = measure_gaps(_inputs(), 0.0)
+        assert pair_top.to_hole == pytest.approx(pair_ink.to_hole, abs=1e-12)
+        assert pair_top.to_border == pytest.approx(pair_ink.to_border, abs=1e-12)
+
+    def test_border_gap_is_ink_to_ink_under_both_modes(self) -> None:
+        """The mode is hole-side only: ``B`` never reads a box face."""
+        top_line = _inputs(hole_face_y=0.25, hole_side="top")
+        closest = _inputs()
+        assert measure_gaps(top_line, 0.1).to_border == measure_gaps(closest, 0.1).to_border
+
+    def test_bottom_hole_mirrors_the_face_metric(self) -> None:
+        """With the hole below, ``top_line`` measures the block's bottom face."""
+        hole_below = (0.0, 0.25, 0.10)  # engraved edge y = 0.35
+        inputs = _inputs(
+            holes=[hole_below],
+            border_ink=(_stroke(2.0),),  # the border ink is now the top edge
+            origin=HEIGHT / 2.0,
+            hole_face_y=-0.25,  # the bottom box face, unlifted
+            hole_side="bottom",
+            min_delta=-0.4,
+            max_delta=0.7,
+        )
+        pair = measure_gaps(inputs, 0.0)
+        assert pair.to_hole == pytest.approx(0.40, abs=1e-12)
+        # Pushing the block UP (positive delta) opens the bottom face's gap.
+        assert measure_gaps(inputs, 0.1).to_hole == pytest.approx(0.50, abs=1e-12)
+
+
+class TestHoleBorderFactor:
+    """``f`` charges the hole-side gap: the solve lands on ``f * A = (1 - f) * B``.
+
+    On the shared fixture ``A(d) = 0.40 - d`` and ``B(d) = 0.75 + d``, so the
+    root is ``d = 1.15 * f - 0.75`` clamped to the caps ``[-0.75, 0.50]`` -- an
+    exact model of every case below.
+    """
+
+    @pytest.mark.parametrize("f", [0.0, 0.25, 0.5, 0.75, 1.0])
+    def test_landings_follow_the_equation(self, f: float) -> None:
+        inputs = _inputs(hole_border_factor=f)
+        expected = max(CAP_DOWN, min(CAP_UP, 1.15 * f - 0.75))
+        assert solve_balance(inputs) == pytest.approx(expected, abs=2 * UNIT)
+
+    def test_half_reproduces_the_shipped_equal_gaps_rule(self) -> None:
+        assert solve_balance(_inputs()) == pytest.approx(
+            solve_balance(_inputs(hole_border_factor=0.5)), abs=1e-12
+        )
+        assert solve_balance(_inputs()) == pytest.approx(-0.175, abs=UNIT)
+
+    def test_imbalance_is_the_weighted_difference(self) -> None:
+        pair = GapPair(to_hole=0.4, to_border=0.8)
+        assert imbalance(pair, 0.5) == pytest.approx(-0.2, abs=1e-12)
+        assert imbalance(pair, 0.25) == pytest.approx(-0.5, abs=1e-12)
+        assert imbalance(pair, 1.0) == pytest.approx(0.4, abs=1e-12)
+        assert imbalance(pair, 0.0) == pytest.approx(-0.8, abs=1e-12)
+
+    def test_the_block_moves_monotonically_with_the_factor(self) -> None:
+        factors = (0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0)
+        deltas = [solve_balance(_inputs(hole_border_factor=f)) for f in factors]
+        assert deltas == sorted(deltas)
+        assert deltas[0] < deltas[-1]
+
+    def test_an_unweighted_solve_lands_within_two_device_units(self) -> None:
+        for f in (0.0, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0):
+            inputs = _inputs(hole_border_factor=f)
+            root = 1.15 * f - 0.75
+            if not (CAP_DOWN < root < CAP_UP):
+                continue  # capped, the residual is expected to stay open
+            pair = measure_gaps(inputs, solve_balance(inputs))
+            assert residual_inches(pair, f) <= 2.0 * UNIT, f"factor {f} left {pair}"
+
+    @pytest.mark.parametrize("f", [-0.1, 1.5])
+    def test_a_factor_outside_the_unit_interval_is_rejected(self, f: float) -> None:
+        with pytest.raises(ValueError, match="hole_border_factor"):
+            solve_balance(_inputs(hole_border_factor=f))
