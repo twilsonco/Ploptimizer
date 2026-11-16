@@ -11,7 +11,7 @@
   "hole_adjust_for_cutter": false,
   "balanced_centering": true,
   "balanced_centering_hole_text_mode": "top_line",
-  "balanced_centering_hole_border_factor": 0.5,
+  "balanced_centering_hole_border_factor": 0.56,
   "h_margin": 0.3,
   "cutter_buffer_text": 0.015,
   "cutter_buffer_routing": 0.060,
