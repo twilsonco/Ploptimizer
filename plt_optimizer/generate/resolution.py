@@ -45,6 +45,7 @@ from plt_optimizer.generate.markup import (
     split_brackets,
 )
 from plt_optimizer.generate.schema import (
+    BalancedCenteringHoleTextMode,
     ContentEntry,
     CounterStyle,
     JobSpec,
@@ -247,6 +248,20 @@ DEFAULT_HOLE_ADJUST_FOR_CUTTER: bool = True
 # :mod:`plt_optimizer.generate.collision.balance`. Defaults OFF: every shipped
 # job centres the legacy way until a job opts in.
 DEFAULT_BALANCED_CENTERING: bool = False
+# Which gap-balanced centering metric measures the hole-text distance (the
+# hole-side gap `A`). `closest_ink` is the shipped stroke-to-circle minimum, where
+# the glyph that reaches furthest toward the hole decides -- the code default, so
+# a spec with no `job-config.json` centers exactly as it always has. `top_line`
+# is the vertical face-to-face gap between the lone hole's engraved edge and the
+# facing edge of the text box, the reading a designer reasons about; `job-config.json`
+# supplies it as the shop default. Consumed by
+# :mod:`plt_optimizer.generate.collision.balance`.
+DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE: str = BalancedCenteringHoleTextMode.CLOSEST_INK.value
+# Border-side factor `f` of the balanced-centering solve `f * A = (1 - f) * B`,
+# where `A` is the hole-text gap and `B` the text-border gap. 0.5 centres the
+# block at equal gaps (the shipped rule); 0.0 pushes it against the border and
+# 1.0 against the hole. Valid range [0.0, 1.0].
+DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR: float = 0.5
 # Smallest emittable drill-hole radius, in inches: ONE plotter unit
 # (`1 / HPGL_UNITS_PER_INCH`). Emitted coordinates are integer plotter
 # units, and `inches_to_units` rounds half-to-even, so a half-unit radius
@@ -2705,6 +2720,8 @@ class ResolvedLabel:
     adjust_h_center_for_single_side_hole: bool = False
     hole_adjust_for_cutter: bool = DEFAULT_HOLE_ADJUST_FOR_CUTTER
     balanced_centering: bool = DEFAULT_BALANCED_CENTERING
+    balanced_centering_hole_text_mode: str = DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE
+    balanced_centering_hole_border_factor: float = DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR
     align_margin_adjust_global: bool = DEFAULT_ALIGN_MARGIN_ADJUST_GLOBAL
     relief_engraving: bool = DEFAULT_RELIEF_ENGRAVING
     relief_engraving_quality: str = DEFAULT_RELIEF_ENGRAVING_QUALITY
@@ -5663,6 +5680,25 @@ def _resolve_label(
     else:
         label_balanced_centering = DEFAULT_BALANCED_CENTERING
 
+    # The two knobs of that rule (same cascade, same plate-parity convention as
+    # the flag above). Resolved at the LABEL level because the rule places one
+    # label's text block. An explicit `0.0` factor is honored (text against the
+    # border); only `None` means unset. Consumed by
+    # :mod:`plt_optimizer.generate.collision.balance`.
+    if label_input.balanced_centering_hole_text_mode is not None:
+        label_balance_mode: str = label_input.balanced_centering_hole_text_mode.value
+    elif job.balanced_centering_hole_text_mode is not None:
+        label_balance_mode = job.balanced_centering_hole_text_mode.value
+    else:
+        label_balance_mode = DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE
+
+    if label_input.balanced_centering_hole_border_factor is not None:
+        label_balance_factor: float = label_input.balanced_centering_hole_border_factor
+    elif job.balanced_centering_hole_border_factor is not None:
+        label_balance_factor = job.balanced_centering_hole_border_factor
+    else:
+        label_balance_factor = DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR
+
     # Sharing of the collision-avoidance edge-margin increase (cascades
     # label -> job; the plate tier is schema parity only, see
     # schema.PlateSpec). Resolved at the LABEL level because the adjustment
@@ -5957,6 +5993,8 @@ def _resolve_label(
         hole_cutter_buffer=label_hole_cutter_buffer,
         hole_adjust_for_cutter=label_hole_adjust_for_cutter,
         balanced_centering=label_balanced_centering,
+        balanced_centering_hole_text_mode=label_balance_mode,
+        balanced_centering_hole_border_factor=label_balance_factor,
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,
         material=label_material,

@@ -173,6 +173,32 @@ class LabelShape(str, Enum):
     ROUND = "round"
 
 
+class BalancedCenteringHoleTextMode(str, Enum):
+    """Enumeration of hole-text distance metrics for gap-balanced centering.
+
+    Gap-balanced centering (see
+    :attr:`plt_optimizer.generate.schema.LabelAttributes.balanced_centering`
+    and :mod:`plt_optimizer.generate.collision.balance`) slides a label's text
+    block so the block's gap to its lone top (or lone bottom) drill hole and
+    its gap to the opposite border hit a chosen split. This field picks how the
+    **hole-side** gap is measured; the border side stays ink-to-ink.
+
+    Attributes:
+        CLOSEST_INK: True ink-to-ink. The minimum distance from the hole's
+            engraved edge to the closest stroke of any character in the
+            hole-side line -- a glyph that reaches furthest toward the hole
+            decides the gap. The shipped metric (the legacy behavior).
+        TOP_LINE: Vertical face-to-face. The distance from the hole's engraved
+            edge to the **edge of the text box** on the facing side: for a hole
+            above the block, `(hole_center_y - hole_radius) - (top line's
+            y_max)`; mirrored for a hole below. The box edge the user reasons
+            about, independent of which glyph happens to be tallest.
+    """
+
+    CLOSEST_INK = "closest_ink"
+    TOP_LINE = "top_line"
+
+
 class CounterStyle(str, Enum):
     """Enumeration of enumerated-list counter styles.
 
@@ -1562,6 +1588,22 @@ class LabelAttributes(TextAttributes):
             + PLATE_PARITY_TAIL
         ),
     )
+    balanced_centering_hole_text_mode: Optional[BalancedCenteringHoleTextMode] = Field(
+        default=None,
+        description=(
+            "How gap-balanced centering measures the hole-text distance (the hole-side gap `A`). `closest_ink` (the legacy metric) is the true stroke-to-circle minimum: the distance from the closest ink of any character in the hole-side line to the lone hole's engraved edge, so the glyph that reaches furthest toward the hole decides the gap. `top_line` is the vertical face-to-face gap: from the hole's engraved edge to the facing edge of the text box -- `(hole_center_y - hole_radius) - (top line's y_max)` for a lone top hole, mirrored for a lone bottom hole -- which ignores which glyph happens to be tallest. The border-side gap is ink-to-ink under both values. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `top_line`."
+            + PLATE_PARITY_TAIL
+        ),
+    )
+    balanced_centering_hole_border_factor: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Where gap-balanced centering lands the text block in the span between the lone hole and the opposite border, as a factor `f` in [0.0, 1.0] charged to the border side: the solve equalizes `f * A = (1 - f) * B`, where `A` is the hole-text gap (see `balanced_centering_hole_text_mode`) and `B` the text-border gap. 0.5 (the default) puts the block at equal gaps, 0.0 pushes it against the border (the text's border-side ink touches the border ink) and 1.0 against the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 0.5."
+            + PLATE_PARITY_TAIL
+        ),
+    )
     align_margin_adjust_global: Optional[bool] = Field(
         default=None,
         description=(
@@ -2428,6 +2470,26 @@ class PlateSpec(BaseModel):
         description=(
             _parity(
                 "Gap-balanced centering for a lone top/bottom drill hole (equal gaps to the hole and the opposite border)",
+                reason="labels render before packing",
+            )
+        ),
+    )
+    balanced_centering_hole_text_mode: Optional[BalancedCenteringHoleTextMode] = Field(
+        default=None,
+        description=(
+            _parity(
+                "Hole-text gap metric for gap-balanced centering: `closest_ink` (stroke-to-circle minimum) or `top_line` (vertical box-face-to-hole-face)",
+                reason="labels render before packing",
+            )
+        ),
+    )
+    balanced_centering_hole_border_factor: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            _parity(
+                "Border-side factor `f` in [0.0, 1.0] of the gap-balanced centering solve `f * A = (1 - f) * B` (0.5 = equal gaps, 0.0 = against the border, 1.0 = against the hole)",
                 reason="labels render before packing",
             )
         ),

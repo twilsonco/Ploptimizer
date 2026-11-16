@@ -68,6 +68,7 @@ from plt_optimizer.generate.geometry import (
     polyline_gap,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel
+from plt_optimizer.generate.schema import BalancedCenteringHoleTextMode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -237,9 +238,29 @@ class BalanceInputs:
         min_delta: Most the block may move down (in inches), i.e. the shift at
             which its bottom ink reaches the content band's lower edge.
         max_delta: Most the block may move up, i.e. the shift at which the top
-            line's top edge reaches the shallowest hole's centre. Past it the
-            box-to-circle gap stops shrinking (it is unsigned outside the
-            circle), so the search must stay below.
+            line's box face (its ``y_max``) reaches the shallowest hole's centre.
+            Past it the box-to-circle gap stops shrinking (it is unsigned outside
+            the circle), so the search must stay below.
+        hole_face_y: The hole-side face of the text box -- the swept ``y_max``
+            for a lone top hole, the swept ``y_min`` for a lone bottom one -- at
+            ``delta = 0``, in the same unlifted band-centred frame as
+            :attr:`top_ink` (:func:`measure_gaps` lifts it by :attr:`origin` +
+            the shift, exactly as it lifts the ink). Set only by the ``top_line``
+            hole-text metric, which measures the vertical face-to-face gap to it;
+            ``None`` (the default) selects the ``closest_ink`` metric, the minimum
+            distance from the hole's emitted circle to any stroke of
+            :attr:`top_ink`.
+        hole_side: ``"top"`` when :attr:`top_holes` sit ABOVE the block,
+            ``"bottom"`` when below, which flips the direction the
+            :attr:`hole_face_y` gap opens in (the face is the top one for
+            ``top``, the bottom one for ``bottom``). Ignored by the
+            ``closest_ink`` metric (unsigned, so the two sides are the same
+            computation).
+        hole_border_factor: The border-side factor ``f`` of the solve
+            ``f * A = (1 - f) * B``, where ``A`` is the hole-text gap and ``B``
+            the text-border gap. ``0.5`` (the shipped rule) centers the block at
+            equal gaps; ``0.0`` puts it against the border, ``1.0`` against the
+            hole. Must stay in ``[0.0, 1.0]``.
     """
 
     top_ink: Tuple[Polyline, ...]
@@ -249,6 +270,9 @@ class BalanceInputs:
     border_ink: Tuple[Polyline, ...]
     min_delta: float
     max_delta: float
+    hole_face_y: Optional[float] = None
+    hole_side: str = "top"
+    hole_border_factor: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -257,7 +281,9 @@ class GapPair:
 
     Attributes:
         to_hole: Gap from the hole-side line's ink to the nearest hole circle's
-            emitted edge (negative = a stroke crosses into the drilled hole).
+            emitted edge (negative = a stroke crosses into the drilled hole), or
+            from the text box's hole-side face to that edge under the
+            ``top_line`` metric -- see :attr:`BalanceInputs.hole_face_y`.
         to_border: Gap from the border-side line's ink to the nearest point of
             the boundary ink (negative never happens: it is a distance).
     """
@@ -269,6 +295,89 @@ class GapPair:
     def binding(self) -> float:
         """The smaller of the two gaps -- the one the rule maximizes."""
         return min(self.to_hole, self.to_border)
+
+
+def imbalance(pair: GapPair, factor: float) -> float:
+    """Return the gap imbalance ``f * A - (1 - f) * B`` the balance solve roots.
+
+    ``A`` is the hole-text gap and ``B`` the text-border gap, as
+    :func:`measure_gaps` reports them; ``f`` is
+    :attr:`BalanceInputs.hole_border_factor`. The factor is charged to the
+    BORDER side, so ``f = 0.5`` makes this ``A - B`` (equal gaps, the shipped
+    rule), ``f = 0.0`` makes it ``-B`` (root where the text touches the border)
+    and ``f = 1.0`` makes it ``A`` (root where the text touches the hole). The
+    endpoint values need no special case: the equation degrades to a single
+    gap, and ``A`` and ``B`` stay monotone in the shift (opposite directions),
+    so the root stays unique.
+
+    Args:
+        pair: The two gaps at one placement.
+        factor: The border-side factor ``f`` in ``[0.0, 1.0]``.
+
+    Returns:
+        The signed imbalance, inches. Zero is the requested placement.
+    """
+    return factor * pair.to_hole - (1.0 - factor) * pair.to_border
+
+
+def residual_inches(pair: GapPair, factor: float) -> float:
+    """Return how far ``pair`` is from the balance ``factor`` asks for, in inches.
+
+    :func:`imbalance` is the signed root function of the solve, so its magnitude
+    carries the weighting's own scale -- at ``f = 0.5`` it is ``(A - B) / 2``.
+    The device-quantum tests ("is this an exact root, or the clamp?") need a
+    length, so the imbalance is normalized by the larger weight. At ``f = 0.5``
+    that is exactly ``abs(A - B)``, bit for bit (every ``0.5`` product is an
+    exact power-of-two scale), so the shipped partial/residual thresholds keep
+    their meaning; at the endpoints it degrades to the single gap being closed
+    (``B`` at ``f = 0``, ``A`` at ``f = 1``).
+
+    Args:
+        pair: The two gaps at one placement.
+        factor: The border-side factor ``f`` in ``[0.0, 1.0]``.
+
+    Returns:
+        The non-negative imbalance in inches.
+    """
+    return abs(imbalance(pair, factor)) / max(factor, 1.0 - factor)
+
+
+def face_gap_to_hole(
+    face_y: float,
+    dy: float,
+    holes: Sequence[HoleCircle],
+    side: str,
+) -> float:
+    """Return the vertical gap from a text-box face to the nearest lone hole.
+
+    The ``top_line`` hole-text metric: the distance between the hole's engraved
+    edge and the facing edge of the text box, measured on the Y axis only. This
+    is deliberately NOT a true ink-to-circle distance (a capital's top edge, not
+    the glyph that reaches furthest toward the hole) -- that is
+    :func:`~plt_optimizer.generate.geometry.ink_circle_gap`, which the
+    ``closest_ink`` metric uses. The border-side gap stays ink-to-ink either way.
+
+    Sign convention follows :class:`BalanceSolve`: a positive gap is clear, a
+    negative one means the box face has passed into the drilled circle. The face
+    travels with the block, so it is lifted by ``dy`` before the comparison.
+
+    Args:
+        face_y: The box's hole-side face at ``delta = 0``, inches, label-local.
+        dy: The absolute Y the block sits at (its origin plus the shift).
+        holes: The lone side's hole circles.
+        side: ``"top"`` when the holes are above the block, ``"bottom"`` below.
+
+    Returns:
+        The smallest face-to-edge gap over ``holes``, inches; ``inf`` when there
+        are none (the same no-hole answer :func:`measure_gaps` gives, so the
+        solver declines).
+    """
+    if not holes:
+        return math.inf
+    face = face_y + dy
+    if side == "top":
+        return min((cy - radius) - face for cx, cy, radius in holes)
+    return min(face - (cy + radius) for cx, cy, radius in holes)
 
 
 def _lift_ink(ink: Ink, dy: float) -> Ink:
@@ -319,29 +428,45 @@ def top_and_bottom_line_ink(line_inks: Sequence[Ink]) -> Tuple[Ink, Ink]:
 def measure_gaps(inputs: BalanceInputs, delta: float) -> GapPair:
     """Measure the hole-side and border-side gaps with the block shifted by ``delta``.
 
-        Each gap is an **ink** distance: the minimum distance from any stroke of the
-        line to the hole's emitted circle (:attr:`BalanceInputs.top_ink`) or to the
-        boundary ink (:attr:`BalanceInputs.bottom_ink`). That is the definition the
-        rule is specified in terms of -- a bounding box measures the block's
-        corners, which on a round label reach into empty space past the ink and
-    dominate the result.
+    The border-side gap is an **ink** distance: the minimum distance from any
+    stroke of the border-side line to the boundary ink
+    (:attr:`BalanceInputs.bottom_ink`). That is the definition the rule is
+    specified in terms of -- a bounding box measures the block's corners,
+    which on a round label reach into empty space past the ink and dominate
+    the result.
 
-        Args:
-            inputs: The label's rendered geometry.
-            delta: The rigid vertical translate to evaluate, in inches, relative to
-                the placement ``inputs.origin`` describes (negative = down).
+    The hole-side gap depends on :attr:`BalanceInputs.hole_face_y`. With it
+    ``None`` (the ``closest_ink`` metric, the shipped rule) it is the minimum
+    distance from any stroke of the hole-side line
+    (:attr:`BalanceInputs.top_ink`) to the hole's emitted circle. With a face
+    Y set (the ``top_line`` metric) it is the vertical gap between the box's
+    hole-side face and the hole's engraved edge, which ignores which glyph
+    happens to reach furthest.
 
-        Returns:
-            The :class:`GapPair` at that placement. ``to_border`` is ``inf`` when
-            the label carries no border ink, which makes the hole the sole binding
-            side (the solver then declines to move).
+    Args:
+        inputs: The label's rendered geometry.
+        delta: The rigid vertical translate to evaluate, in inches, relative to
+            the placement ``inputs.origin`` describes (negative = down).
+
+    Returns:
+        The :class:`GapPair` at that placement. ``to_border`` is ``inf`` when
+        the label carries no border ink, which makes the hole the sole binding
+        side (the solver then declines to move).
     """
     dy = inputs.origin + delta
-    hole_line = _lift_ink(inputs.top_ink, dy)
-    to_hole = min(
-        (ink_circle_gap(hole_line, (cx, cy), radius) for cx, cy, radius in inputs.top_holes),
-        default=math.inf,
-    )
+    if inputs.hole_face_y is None:
+        hole_line = _lift_ink(inputs.top_ink, dy)
+        to_hole = min(
+            (ink_circle_gap(hole_line, (cx, cy), radius) for cx, cy, radius in inputs.top_holes),
+            default=math.inf,
+        )
+    else:
+        to_hole = face_gap_to_hole(
+            inputs.hole_face_y,
+            dy,
+            inputs.top_holes,
+            inputs.hole_side,
+        )
     border_line = _lift_ink(inputs.bottom_ink, dy)
     to_border = min(
         (
@@ -361,21 +486,24 @@ def _bisect_equal_gap(
     hi: float,
     f_lo: float,
     f_hi: float,
+    factor: float = 0.5,
 ) -> float:
-    """Find the shift inside ``[lo, hi]`` where the two gaps are equal.
+    """Find the shift inside ``[lo, hi]`` where the weighted gaps are balanced.
 
     Args:
         inputs: The label's rendered geometry.
         lo: Lower search bound, inches.
         hi: Upper search bound, inches.
-        f_lo: ``to_hole - to_border`` at ``lo``.
-        f_hi: ``to_hole - to_border`` at ``hi``.
+        f_lo: ``imbalance`` (see :func:`imbalance`) at ``lo``.
+        f_hi: ``imbalance`` at ``hi``.
+        factor: The border-side factor ``f`` of :func:`imbalance`; ``0.5`` (the
+            default) is the plain equal-gap root.
 
     Returns:
         The root in inches. When the bracket does not straddle zero the gaps are
-        unequal at both ends -- no equalizing placement exists inside the caps --
-        and the cap that comes CLOSEST to the root is returned, so the caller
-        applies the best shift the caps allow instead of nothing.
+        unbalanced at both ends -- no placement inside the caps satisfies the
+        factor -- and the cap that comes CLOSEST to the root is returned, so the
+        caller applies the best shift the caps allow instead of nothing.
     """
     if f_lo == 0.0:
         return lo
@@ -388,7 +516,7 @@ def _bisect_equal_gap(
             break
         mid = (lo + hi) / 2.0
         pair = measure_gaps(inputs, mid)
-        f_mid = pair.to_hole - pair.to_border
+        f_mid = imbalance(pair, factor)
         # Keep the bracket straddling zero, whichever way the difference runs.
         if (f_mid > 0.0) == (f_lo > 0.0):
             lo = mid
@@ -398,13 +526,15 @@ def _bisect_equal_gap(
 
 
 def solve_balance(inputs: BalanceInputs) -> float:
-    """Return the shift that equalizes the two gaps, in inches.
+    """Return the shift that balances the two gaps, in inches.
 
     The gap pair is monotone inside the bracket the inputs describe, so the
-    equal-gap placement is the unique root of ``to_hole - to_border``, found by
-    bisection, and moving *toward* it can only raise the smaller gap (a
-    min-max rule: it strictly improves the binding clearance until the two are
-    equal).
+    placement the factor asks for is the unique root of ``f * A - (1 - f) * B``
+    (see :func:`imbalance`), found by bisection. At ``f = 0.5`` that root is also
+    the min-max placement -- moving toward it can only raise the smaller of the
+    two gaps, the property the shipped rule relied on -- and any other factor
+    slides along the same monotone curve to the split the weights ask for, which
+    trades one gap up and the other down on purpose.
 
     The result is quantized to one plotter device unit (``1 /
     HPGL_UNITS_PER_INCH`` inches). Coordinates are emitted as
@@ -418,65 +548,83 @@ def solve_balance(inputs: BalanceInputs) -> float:
         The shift to apply (in inches, in the same direction the block's own
         placement grows: positive = up), relative to ``inputs.origin``; ``0.0``
         when the block cannot be improved (no hole, no border ink, a degenerate
-        bracket, or a move that would not raise the binding gap). When the root
+        bracket, or a move that would not close the weighted gap). When the root
         lies outside the caps the NEAREST cap is returned -- the best the
         allowed travel can do -- and the caller detects it from the residual the
         gaps still show.
     """
     if not inputs.top_holes or not inputs.border_ink:
         return 0.0
+    if not 0.0 <= inputs.hole_border_factor <= 1.0:
+        # Pydantic bounds the field at the schema layer; this guards the kernel
+        # callers that build BalanceInputs straight from resolved geometry.
+        raise ValueError(
+            f"hole_border_factor must lie in [0.0, 1.0], got {inputs.hole_border_factor!r}"
+        )
     lo, hi = inputs.min_delta, inputs.max_delta
     if not math.isfinite(lo) or not math.isfinite(hi) or hi <= lo:
         return 0.0
     low, high = measure_gaps(inputs, lo), measure_gaps(inputs, hi)
-    # ``to_hole - to_border`` is monotone in the shift, and its slope's sign
-    # follows which side the hole sits on: with the hole ABOVE the block, raising
-    # the block shrinks the hole-side gap and widens the border-side gap, so the
-    # difference falls; mirrored, it rises. A root exists exactly when the
-    # bracket ends land on opposite sides of zero.
-    f_lo = low.to_hole - low.to_border
-    f_hi = high.to_hole - high.to_border
-    root = _bisect_equal_gap(inputs, lo, hi, f_lo, f_hi)
+    factor = inputs.hole_border_factor
+    # ``f * A - (1 - f) * B`` is monotone in the shift: ``A`` (whichever metric
+    # measures it) shrinks as the block approaches its hole and ``B`` grows, so
+    # the difference falls with the hole ABOVE the block and rises mirrored. A
+    # root exists exactly when the bracket ends land on opposite sides of zero.
+    f_lo = imbalance(low, factor)
+    f_hi = imbalance(high, factor)
+    root = _bisect_equal_gap(inputs, lo, hi, f_lo, f_hi, factor)
     delta = _round_device_unit(root)
     if delta == 0.0:
         return 0.0
-    # Only ever move if the move improves the binding gap: an equalizing shift
-    # inside the caps does, and this guard makes a degenerate root (a bracket the
-    # shipped placement already sits outside) a no-op instead of a shuffle.
+    # Only ever move if the move improves the placement the factor asks for. The
+    # test is the weighted objective, not the raw binding gap: at ``f = 0.5`` the
+    # two agree (the equal-gaps root maximizes ``min(A, B)``, so a shift toward it
+    # raises the binding gap and this guard rejects only a degenerate root -- a
+    # bracket the shipped placement already sits outside), while ``f > 0.5``
+    # deliberately trades the hole-side gap DOWN toward the border, which a
+    # binding-gap test would refuse every time. What keeps a high factor safe is
+    # the collision-threshold check in :func:`balance_shift` plus the travel caps
+    # that bound ``max_delta`` at the hole's centre, not this guard.
     shipped_pair = measure_gaps(inputs, 0.0)
-    shipped = shipped_pair.binding
-    moved = measure_gaps(inputs, delta).binding
-    if moved <= shipped:
+    moved_pair = measure_gaps(inputs, delta)
+    if abs(imbalance(moved_pair, factor)) >= abs(imbalance(shipped_pair, factor)):
         _LOGGER.debug(
-            "Balance declined: shift %+.4fin would not improve the binding gap %.4fin",
+            "Balance declined: shift %+.4fin would not close the weighted gap "
+            "(factor %.3f, binding gap %.4fin)",
             delta,
-            shipped,
+            factor,
+            shipped_pair.binding,
         )
         return 0.0
-    solved = measure_gaps(inputs, delta)
-    residual = solved.to_hole - solved.to_border
-    if abs(residual) <= 2.0 / HPGL_UNITS_PER_INCH:
+    solved = moved_pair
+    residual = residual_inches(solved, factor)
+    if residual <= 2.0 / HPGL_UNITS_PER_INCH:
         _LOGGER.info(
             "balance: shift %+.4fin equalizes the gaps -- hole-side gap %.4fin / "
-            "border-side gap %.4fin shipped, %.4fin / %.4fin balanced",
+            "border-side gap %.4fin shipped, %.4fin / %.4fin balanced "
+            "(mode=%s factor=%.3f)",
             delta,
             shipped_pair.to_hole,
             shipped_pair.to_border,
             solved.to_hole,
             solved.to_border,
+            "top_line" if inputs.hole_face_y is not None else "closest_ink",
+            factor,
         )
     else:
-        # The shipped move is the best the caps allow; the gaps stay unequal.
+        # The shipped move is the best the caps allow; the gaps stay unbalanced.
         _LOGGER.info(
-            "balance: shift %+.4fin is the maximum the caps allow, gaps stay "
-            "unequal by %+.4fin -- hole-side gap %.4fin / border-side gap %.4fin "
-            "shipped, %.4fin / %.4fin after",
+            "balance: shift %+.4fin is the maximum the caps allow, the gaps stay "
+            "unbalanced by %.4fin -- hole-side gap %.4fin / border-side gap %.4fin "
+            "shipped, %.4fin / %.4fin after (mode=%s factor=%.3f)",
             delta,
             residual,
             shipped_pair.to_hole,
             shipped_pair.to_border,
             solved.to_hole,
             solved.to_border,
+            "top_line" if inputs.hole_face_y is not None else "closest_ink",
+            factor,
         )
     return delta
 
@@ -663,14 +811,27 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
         max_delta=hi,
         top_ink=hole_line_ink,
         bottom_ink=border_line_ink,
+        # The hole-text metric: `top_line` measures the vertical face-to-face gap
+        # to the box face nearest the lone hole (`face`, computed above for the
+        # adjacency filter), `closest_ink` passes None and measures the true
+        # stroke-to-circle minimum. The factor is where in the span to land.
+        hole_face_y=(
+            face
+            if label.balanced_centering_hole_text_mode
+            == BalancedCenteringHoleTextMode.TOP_LINE.value
+            else None
+        ),
+        hole_side=side,
+        hole_border_factor=label.balanced_centering_hole_border_factor,
     )
     delta = solve_balance(inputs)
     if delta == 0.0:
         return None
+    factor = label.balanced_centering_hole_border_factor
     solved = measure_gaps(inputs, delta)
-    residual = abs(solved.to_hole - solved.to_border)
-    # An exact root lands inside one device quantum of equality; anything wider
-    # is the clamp, i.e. the balanced placement was unreachable.
+    residual = residual_inches(solved, factor)
+    # An exact root lands inside one device quantum of the requested balance;
+    # anything wider is the clamp, i.e. the balanced placement was unreachable.
     partial = residual > 2.0 / HPGL_UNITS_PER_INCH
     if partial:
         shipped = measure_gaps(inputs, 0.0)
@@ -680,7 +841,7 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
             "(the maximum) and the gaps stay unequal by %.4fin: hole-side %.4fin vs "
             "border-side %.4fin (shipped %.4fin / %.4fin). To close it: reduce the "
             "text height/line count, the hole diameter, or "
-            "hole_text_collision_distance.",
+            "hole_text_collision_distance. (mode=%s factor=%.3f)",
             label.id,
             delta,
             residual,
@@ -688,6 +849,8 @@ def balance_shift(label: ResolvedLabel, geometry: BalanceGeometry) -> Optional[B
             solved.to_border,
             shipped.to_hole,
             shipped.to_border,
+            label.balanced_centering_hole_text_mode,
+            factor,
         )
     return BalanceSolve(
         delta=delta,
@@ -766,8 +929,11 @@ __all__ = [
     "GapPair",
     "adjacent_holes",
     "balance_shift",
+    "face_gap_to_hole",
+    "imbalance",
     "lone_vertical_hole",
     "measure_gaps",
+    "residual_inches",
     "solve_balance",
     "vertical_band",
 ]

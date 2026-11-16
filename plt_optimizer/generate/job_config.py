@@ -70,6 +70,7 @@ from plt_optimizer.generate.font_registry import (
 )
 from plt_optimizer.generate.preview_colors import normalize_preview_background_color
 from plt_optimizer.generate.schema import (
+    BalancedCenteringHoleTextMode,
     CounterStyle,
     HoleSpec,
     LabelShape,
@@ -939,6 +940,30 @@ class JobDefaults(BaseModel):
             "unaffected."
         ),
     )
+    balanced_centering_hole_text_mode: Optional[BalancedCenteringHoleTextMode] = Field(
+        default=None,
+        description=(
+            "Default hole-text gap metric for gap-balanced centering (job layer; "
+            "cascades label -> job, never text lines). `closest_ink` measures "
+            "from the engraved stroke nearest the hole; `top_line` measures the "
+            "vertical face-to-face gap between the text box's hole-side edge and "
+            "the hole's engraved edge. Ignored unless `balanced_centering` is true. "
+            "Unset falls back to `closest_ink`."
+        ),
+    )
+    balanced_centering_hole_border_factor: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Default border-side factor f, in [0.0, 1.0], of the gap-balanced "
+            "centering equation `f * A = (1 - f) * B` (job layer; cascades label "
+            "-> job, never text lines), where A is the hole-text gap and B the "
+            "text-border gap. 0.5 centers the block at equal gaps; 0.0 puts the "
+            "text against the border; 1.0 against the hole. Ignored unless "
+            "`balanced_centering` is true. Unset falls back to 0.5."
+        ),
+    )
     align_margin_adjust_global: Optional[bool] = Field(
         default=None,
         description=(
@@ -1287,6 +1312,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "adjust_h_center_for_single_side_hole",
     "hole_adjust_for_cutter",
     "balanced_centering",
+    "balanced_centering_hole_text_mode",
+    "balanced_centering_hole_border_factor",
     "align_margin_adjust_global",
     "allow_rotation",
     "text_chunk_mode",
