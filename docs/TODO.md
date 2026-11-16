@@ -68,14 +68,56 @@
   - Include the price calculation in the JSON file as well, so that it can be programmatically accessed and used by other tools or scripts.
   - Will use pricing parameters from the "OSP label pricing and optimization" Google Sheet to calculate the price based on material usage and character count.
     - Pricing formula parameters will be stored in a config file (perhaps in `job-config.json`, or a dedicated pricing config file e.g. `pricing-config.json`).
+      - e.g. 
+      ```json
+      {
+        "acrylic": {
+          "min_label_price": 3.0,
+          "base_label_price": 2.1,
+          "material_price_per_sq_in": 0.12,
+          "character_price_per_text_height": {
+            "0.375": 0.18,
+            "0.75": 0.51,
+            "1.25": 0.62,
+            "2.0": 1.0,
+            "+": 1.5
+          },
+          "preset_label_prices": {
+            "1x3": {
+              "1-line": 4.0,
+              "2-line": 5.0,
+              "3-line": 6.0
+            },
+            "2x3": {
+              "1-line": 4.0,
+              "2-line": 5.0,
+              "3-line": 6.0
+            }
+          }
+        },
+        "diamond_drag": {
+          "min_label_price": 5.0,
+          "base_label_price": 3.0,
+          "material_price_per_sq_in": 0.15,
+          "character_price_per_text_height": {
+            "0.375": 0.25,
+            "0.75": 0.65,
+            "1.25": 0.80,
+            "2.0": 1.2,
+            "+": 2.0
+          },
+          "preset_label_prices": null
+        }
+      }
+      ```
     - Will include a table (dictionary/object) that maps character sizes to per-character pricing, where text with `text_height` $\leq$ a certain value falls into the corresponding pricing tier.
-      - `{"0.375": 0.18, "0.75": 0.51, "1.25": 0.62, "2.0": 1.0, "+": 1.5}`
       - "+" indicates any text height greater than the largest specified tier.
       - Text height prices correspond to the text height of *single-stroke* characters, e.g. $S=1$ characters. Multi-stroke character pricing is simply computed by multiplying the stroke count $S$ by the single-stroke price for the corresponding text height.
-      - Other pricing formula parameters include:
-        - `min_label_price` [3.0]: The minimum price for any label, regardless of material usage or character count.
-        - `base_label_price` [2.1]: The base price for any label, before adding material usage or character count costs.
-        - `material_price_per_sq_in` [0.12]: The price per square inch of material used for the label.
+    - `preset_label_prices`: A dictionary mapping label sizes to preset prices based on the number of lines. This allows for fixed pricing for common label configurations, overriding the formula-based pricing. (Here I'm unsure of the best approach in order to make it flexible/maintainable and also simple to implement so that prices can be automatically applied. Probably just need to establish a clear convention to allow label size and line count to be parsed.)
+    - Other pricing formula parameters include:
+      - `min_label_price`: The minimum price for any label, regardless of material usage or character count.
+      - `base_label_price`: The base price for any label, before adding material usage or character count costs.
+      - `material_price_per_sq_in`: The price per square inch of material used for the label.
 - [ ] Add to the summary txt report job timing information
   - Total time spent on each job, broken down by cutter size, job, and label. This will need to be calculated (approximated) based on different `tool_options` such as cutting velocity, plunge velocity, dwell time, z clearance, and z up velocity.
 - [ ] Add a higher-level yaml spec, `jobset`, so that a user could write a single file that points to multiple job files:
@@ -87,3 +129,5 @@
       - job: path/to/job3.yaml
     ```
   - This solves a problem related to maximal utilization of materials. Jobs often come in batches. It's desirable to keep each job in its own file for clarity and modularity, while still allowing the optimizer to consider all jobs together for material usage optimization.
+  - Because the motivation here is to combine jobs on plates in order to avoid the gaps that would otherwise result from treating each job independently, jobs will be combined into shared toolpaths for text and borders/holes.
+  - Significantly, we'll still need per-job summary txt/json reports.
