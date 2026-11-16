@@ -374,6 +374,56 @@ against the hole. `holes: false` degrades every knob to plain band centering
 the rule is off (`balanced_centering: false`, the default), so they cannot move a
 label that never opted in.
 
+### Contract conformance
+
+Five items an independent review flagged against the goal's verification
+contract. Recorded here with the measurement, because three of them are
+owner decisions that the contract text pre-dates and two were my imprecision.
+
+1. **"Bit-for-bit on every existing fixture" -- met on coolsys, not on the demo.**
+   `balance-demo-round.yaml` at `closest_ink` + `0.5` differs from the
+   pre-feature tree by one PU connector's endpoints, 1 device unit
+   (0.025 mm = the plotter step). Localized, bounded, and shown to the owner with
+   the numbers; the decision was **record it and ship** (m03431). This is a
+   genuine deviation from the contract's wording, not a rounding footnote.
+2. **`job-config.json` factor.** The contract fixes the shop default at `0.5`.
+   The owner has since tuned the live file to `0.55` by hand. That edit is the
+   shop's to make and is deliberately excluded from my commits -- `tests/AGENTS.md`
+   forbids pinning this file's values for exactly this reason.
+3. **Three contract-named test files do not exist in this repo:**
+   `test_generated_schemas_match_runtime_models.py`,
+   `test_generate_skills_docs.py`, `test_schema_cascade_parity.py`. The real
+   drift gates are `tests/test_job_spec_docs.py::TestGeneratedArtifacts` (schema
+   JSON + markdown, 4 freshness tests) and `tests/test_job_spec_skills.py`;
+   cascade precedence lives in `tests/test_resolution.py`. Both are green. The
+   contract's file names are wrong, not the coverage.
+4. **"hole-side gap equal to border-side ink gap within 2/1016 in"** (2/1016 =
+   0.00197in) -- **met**, on the live fixture, at both modes:
+
+   | mode | A (hole) | B (border ink) | \|A - B\| | device units |
+   |---|---|---|---|---|
+   | top_line, f=0.5 | 0.3066 | 0.3062 | 0.0004 | 0.41 |
+   | closest_ink, f=0.5 | 0.3110 | 0.3116 | 0.0006 | 0.61 |
+
+   The coolsys half of the clause is **vacuous**, not failed: the shipped coolsys
+   labels put holes on `sides`/`corners`, so `lone_vertical_hole()` returns
+   `None`, the rule never fires, and there is no balanced gap to measure. The
+   coolsys-content fixture with a forced lone top hole also declines (no bracket
+   on a label filled top-to-bottom). The demo is the only live committed fixture.
+5. **Remaining gates, run for the record.** `scripts/validate_job_config.py
+   --config job-config.json --strict` -> `OK job-config.json: job config is valid`
+   (the contract's positional spelling is not the script's interface).
+   Full suite via JUnit: **7068 tests, 0 failures, 0 errors, 8 skipped** -- the
+   contract's 7034 baseline plus the 34 tests this feature added. The 1655 figure
+   I quoted earlier was a coverage-scoped subset, not the suite total.
+   `git diff --stat ac99985..HEAD -- tests_deps/` is **empty** (frozen, untouched).
+   All four changed core files parse under `ast.parse(feature_version=(3, 8))`.
+   The only device-unit reference added anywhere in the diff is
+   `2.0 / HPGL_UNITS_PER_INCH` (the residual threshold, through the named
+   constant in `core/units.py`); no `1000` is introduced and all new geometry
+   math stays in inches inside the solver.
+
+
 ### Reproduce
 
 ```bash
