@@ -216,6 +216,9 @@ test_output/integration_test/
     └── all_Test_123_-_Single_Column.pdf          # combined per plate
 ```
 
+The run also writes the generation report (`report.json` + `summary.txt`) into
+`test_output/integration_test/generation_report/` — see Phase 5.
+
 File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.<ext>`
 where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
 diameter in integer thousandths of an inch, unpadded (`0.060` -> `60`). The
@@ -275,6 +278,57 @@ Enable by flipping the module-level `GENERATE_DEFAULT_PLOTS = True` flag in
 `scripts/run_integration_test.py` (equivalents elsewhere: `export_per_cutter_plts(...,
 default_plots=True)` or the CLI's `--default-plots`).
 
+### Phase 5 — Generation Report (`report.json` + `summary.txt`)
+
+Writes the same report pair the `generate` CLI leaves next to every job, in the
+same place — a sibling of `plt/` and `pdf/`:
+
+```
+test_output/integration_test/generation_report/
+├── report.json    # machine-readable document (schema below)
+└── summary.txt    # human-readable digest of the same data, echoed to stdout
+```
+
+`report.json` top-level keys, in document order:
+
+| Key | Contents |
+|-----|----------|
+| `schema_version` | Integer document version (currently `1`) |
+| `job` | `job_name`, `job_id` (sanitized, = the id in the file names), `status`, `error`, `spec_path`, `output_dir`, `report_dir`, `started_at`, `finished_at`, `duration_seconds`, `tools`, `options` |
+| `summary` | `plates`, `labels`, `lines`, `labels_with_findings`, `compressed_lines`, `downsized_cutters`, `descender_reliefs`, `distinct_cutters`, `warnings`, `errors` |
+| `timings` | Per-stage wall clock in seconds (`parse`, `resolve`, `layout`, the export's per-plate/per-layer stages) |
+| `outputs` | `plt_files`, `pdf_files`, `default_pdf_files` (paths) and `plates` — per-plate geometry with every placed label (`label_id`, `x`, `y`, `width`, `height`, `rotated`) |
+| `labels` | Per label: identity, role, material, plate placement, size, and its lines with the applied effects (`compression`, `line_spacing`, holes, relief, cutter downsize, …) |
+| `warnings` / `errors` | The captured log records: `level`, `logger`, `message`, plus the best-effort `label_id` / `line_index` attribution |
+
+`job.tools` is the cutter inventory the run used — `available_cutters`,
+`boundary_hole_cutter_size`, and the two shop kerf buffers
+(`cutter_buffer_text` / `cutter_buffer_routing`). `job.options` describes the
+run's switches and carries `"source": "scripts/run_integration_test.py"`, which
+is the only field that distinguishes an integration run's report from a CLI's.
+
+Both come from the shared builder in `plt_optimizer/generate/generation_report.py`,
+so the format can never diverge from a real `generate` run. Because the runner
+calls the pipeline in-process, it feeds the builder the same two things the CLI
+attaches:
+
+- a `ReportCapture` logging handler on the pipeline logger — the `warnings` /
+  `errors` arrays are built from the WARNING/ERROR records the pipeline logs
+  (the INFO stage-timing records are diverted out, so they never count as
+  warnings)
+- a `StageTimings` collector — the parse / resolve / layout seconds, which the
+  INFO records alone would not survive (the pipeline reconfigures the logger)
+
+and the per-line effects come from the render cache Phase 3 exposes on
+`PerCutterExport.rendered_labels`.
+
+**A failed run leaves a report too.** The `except` branch writes
+`job.status: "failed"` with `job.error: {type, message, stage}` naming the phase
+that aborted (e.g. `export`), the warnings logged before the failure, and
+whatever the export had already written. When parsing itself failed there is no
+job to read the name from, so the spec stem stands in for both `job_name` and
+`job_id`, and `summary.plates` is `0`.
+
 ## Verification Checklist
 
 After a run:
@@ -282,6 +336,8 @@ After a run:
 ### Console Output
 - [ ] No Python errors or exceptions
 - [ ] Phases 1 → 3.5 complete; Phase 4 reports disabled (or generates `*_default.pdf`)
+- [ ] Phase 5 prints the `Report:` / `Summary:` paths and the
+      `Generation report: <job name>` digest
 - [ ] Every exported PLT prints "Coordinates valid: all X≥0, all Y≥0 ✓"
 - [ ] Final line: `✓ Pipeline executed successfully` (exit code 0)
 
@@ -292,6 +348,12 @@ After a run:
       `40_k_txt_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
       `[<plate>_][<material>_]all_<job>.pdf` combined preview per plate
+- [ ] `generation_report/` contains `report.json` and `summary.txt`, and the
+      summary's cutter list / plate count / output counts match the files
+      actually written (a failed run writes the pair too, with
+      `job.status: "failed"` and the failing phase in `job.error.stage`)
+- [ ] `tests/test_run_integration_report.py` stays green — it pins this
+      contract (schema parity with the CLI, the failure report, the capture)
 - [ ] No text bleeds over label boundaries; drill holes sit at their specified
       locations with the resolved `hole_margin`
 

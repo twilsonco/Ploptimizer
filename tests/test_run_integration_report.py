@@ -1,0 +1,452 @@
+"""Unit tests for the integration runner's generation-report phase.
+
+``scripts/run_integration_test.py`` is a script (not an importable package
+module), so it is loaded by path with ``importlib`` (mirroring
+``tests/test_build_pipeline_pdf.py``).
+
+These tests pin the contract the runner has with the ``generate`` CLI's report
+surface: Phase 5 writes the same ``generation_report/`` pair a ``generate`` run
+produces, with the same document schema, and a failed run leaves a
+``status: "failed"`` report naming the phase that aborted.
+"""
+
+from __future__ import annotations
+
+import importlib.abc
+import importlib.util
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from plt_optimizer.generate.generation_report import (
+    REPORT_JSON_NAME,
+    REPORT_SUMMARY_NAME,
+    ReportCapture,
+    build_report,
+    report_dir_for,
+)
+from plt_optimizer.generate.packing.layout import PackedLabel, PackedPlate
+from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
+from plt_optimizer.generate.schema import ContentEntry, JobSpec, LabelSpec, PlateSpec
+from plt_optimizer.generate.vectorize import PerCutterExport
+from plt_optimizer.utils.stage_timing import StageTimings
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+# The single plate the fixture job declares, in inches.
+PLATE_WIDTH = 24.0
+PLATE_HEIGHT = 16.0
+
+
+@pytest.fixture(scope="module")
+def script() -> Any:
+    """Load ``scripts/run_integration_test.py`` as a module."""
+    path = REPO_ROOT / "scripts" / "run_integration_test.py"
+    spec = importlib.util.spec_from_file_location("run_integration_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    loader = spec.loader
+    assert isinstance(loader, importlib.abc.InspectLoader)
+    loader.exec_module(module)
+    return module
+
+
+def _job(name: str = "Report Phase Job") -> JobSpec:
+    """Build a minimal valid job spec declaring one plate and one label."""
+    return JobSpec(
+        job_name=name,
+        plates=[PlateSpec(id="p1", width=PLATE_WIDTH, height=PLATE_HEIGHT)],
+        labels=[
+            LabelSpec(id="greeting", width=4.0, height=2.0, content=[ContentEntry(text="Hello")])
+        ],
+    )
+
+
+def _label(label_id: str = "abc123") -> ResolvedLabel:
+    """Build one resolved label for the report's summary counts."""
+    line = ResolvedTextLine(
+        text="Hello",
+        nominal_text_height=0.3,
+        toolpath_text_height=0.27,
+        cutter_diameter=0.06,
+        character_spacing=0.0,
+        line_spacing=0.0,
+        max_h_compress=0.0,
+        text_h_alignment="center",
+    )
+    return ResolvedLabel(
+        id=label_id,
+        count=1,
+        width=4.0,
+        height=2.0,
+        margin=0.1,
+        h_margin=0.1,
+        v_margin=0.1,
+        holes=[],
+        content=[line],
+    )
+
+
+def _export(tmp_path: Path, job: JobSpec, label_id: str = "abc123") -> PerCutterExport:
+    """Build a small export result with one written PLT in ``tmp_path``."""
+    plt_dir = tmp_path / "plt"
+    plt_dir.mkdir(parents=True, exist_ok=True)
+    plt_path = plt_dir / "60_txt_Report_Phase_Job.plt"
+    plt_path.write_text("IN;PA;SP;\n", encoding="utf-8")
+
+    label = _label(label_id)
+    packed = PackedPlate(
+        plate_id="p1",
+        width=PLATE_WIDTH,
+        height=PLATE_HEIGHT,
+        labels=[
+            PackedLabel(
+                label_id=label_id,
+                x=0.0,
+                y=0.0,
+                width=4.0,
+                height=2.0,
+                rotated=False,
+                source_label=label,
+            )
+        ],
+    )
+    return PerCutterExport(
+        output_dir=tmp_path,
+        job_id="Report_Phase_Job",
+        plt_paths=[plt_path],
+        pdf_paths=[],
+        default_pdf_paths=[],
+        packed_plates=[packed],
+        rendered_labels={},
+    )
+
+
+def _read_report(tmp_path: Path) -> dict[str, Any]:
+    """Load the ``report.json`` the run wrote into ``tmp_path``."""
+    payload: dict[str, Any] = json.loads(
+        (report_dir_for(tmp_path) / REPORT_JSON_NAME).read_text(encoding="utf-8")
+    )
+    return payload
+
+
+class TestResolveOutputDir:
+    """The report must land next to the PLTs the run wrote."""
+
+    def test_default_spec_uses_the_shared_tree(self, script: Any, tmp_path: Path) -> None:
+        spec = tmp_path / "test123_spec.yaml"
+        assert script._resolve_output_dir(spec, None) == (
+            script.REPO_ROOT / "test_output" / "integration_test"
+        )
+
+    def test_override_gets_its_own_subdir(self, script: Any, tmp_path: Path) -> None:
+        spec = tmp_path / "my_job.yaml"
+        assert script._resolve_output_dir(spec, spec) == (
+            script.REPO_ROOT / "test_output" / "integration_test" / "my_job"
+        )
+
+    def test_report_dir_is_a_sibling_of_plt_and_pdf(self, tmp_path: Path) -> None:
+        assert report_dir_for(tmp_path).name == "generation_report"
+
+
+class TestStageTimer:
+    """Timing a block records one named stage in the collector."""
+
+    def test_records_elapsed_seconds(self, script: Any) -> None:
+        timings = StageTimings()
+        with script.stage_timer("parse", logging.getLogger("test.timer"), timings=timings):
+            pass
+        assert timings.order == ["parse"]
+        assert timings.seconds["parse"] >= 0.0
+
+    def test_without_collector_is_a_plain_timer(self, script: Any) -> None:
+        with script.stage_timer("layout", logging.getLogger("test.timer")):
+            pass
+
+
+class TestPhase5GenerationReport:
+    """Phase 5 writes the generate pipeline's report pair."""
+
+    def _run(self, script: Any, tmp_path: Path, **overrides: Any) -> dict[str, Any]:
+        """Call Phase 5 with sensible defaults and return the JSON document."""
+        kwargs: dict[str, Any] = {
+            "job": _job(),
+            "job_yaml": tmp_path / "job.yaml",
+            "export_result": _export(tmp_path, _job()),
+            "resolved_labels": [_label()],
+            "inventory": [0.06, 0.125],
+            "boundary_hole_cutter": 0.015,
+            "job_config": None,
+            "capture": ReportCapture(),
+            "stage_timings": StageTimings(),
+            "started_at": "2026-11-16T00:00:00+00:00",
+            "duration_seconds": 3.5,
+        }
+        kwargs.update(overrides)
+        script.phase_5_generation_report(**kwargs)
+        return _read_report(tmp_path)
+
+    def test_writes_both_artifacts_next_to_the_plts(
+        self, script: Any, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        summary_path = script.phase_5_generation_report(
+            job=_job(),
+            job_yaml=tmp_path / "job.yaml",
+            export_result=_export(tmp_path, _job()),
+            resolved_labels=[_label()],
+            inventory=[0.06],
+            boundary_hole_cutter=0.015,
+            job_config=None,
+            capture=ReportCapture(),
+            stage_timings=StageTimings(),
+            started_at="2026-11-16T00:00:00+00:00",
+            duration_seconds=3.5,
+        )
+        report_dir = report_dir_for(tmp_path)
+        assert summary_path == report_dir / REPORT_SUMMARY_NAME
+        assert summary_path.is_file()
+        assert (report_dir / REPORT_JSON_NAME).is_file()
+        # The digest is echoed to the console too.
+        assert "Generation report: Report Phase Job" in capsys.readouterr().out
+
+    def test_document_matches_the_cli_schema(self, script: Any, tmp_path: Path) -> None:
+        """The script's document has the CLI builder's keys, in the same order."""
+        payload = self._run(script, tmp_path)
+        reference = build_report(
+            job_name="x",
+            job_id="x",
+            spec_path=Path("x.yaml"),
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            status="success",
+        )
+        assert list(payload) == list(reference)
+
+    def test_job_identity_and_inventory(self, script: Any, tmp_path: Path) -> None:
+        job = _job()
+        payload = self._run(script, tmp_path, job=job, inventory=[0.06, 0.125])
+
+        assert payload["schema_version"] == 1
+        assert payload["job"]["job_name"] == "Report Phase Job"
+        # The id is the CLI's sanitized form, i.e. the one in the file names.
+        from plt_optimizer.cli.generate import _sanitize_job_id
+
+        assert payload["job"]["job_id"] == _sanitize_job_id("Report Phase Job")
+        assert payload["job"]["status"] == "success"
+        assert payload["job"]["spec_path"] == str(tmp_path / "job.yaml")
+        assert payload["job"]["output_dir"] == str(tmp_path)
+        assert payload["job"]["duration_seconds"] == 3.5
+        assert payload["job"]["tools"]["available_cutters"] == [0.06, 0.125]
+        assert payload["job"]["tools"]["boundary_hole_cutter_size"] == 0.015
+
+    def test_summary_counts_and_outputs(self, script: Any, tmp_path: Path) -> None:
+        payload = self._run(script, tmp_path)
+        assert payload["summary"]["plates"] == 1
+        assert payload["summary"]["labels"] == 1
+        assert payload["summary"]["lines"] == 1
+        assert payload["summary"]["distinct_cutters"] == 1
+
+        outputs = payload["outputs"]
+        assert outputs["plt_files"] == [str(tmp_path / "plt" / "60_txt_Report_Phase_Job.plt")]
+        assert outputs["plates"][0]["plate_id"] == "p1"
+        assert outputs["plates"][0]["labels"][0]["label_id"] == "abc123"
+        assert payload["labels"][0]["id"] == "abc123"
+
+    def test_stage_timings_are_collected(self, script: Any, tmp_path: Path) -> None:
+        timings = StageTimings()
+        timings.record("resolve", 1.25)
+        timings.record("layout", 0.5)
+        payload = self._run(script, tmp_path, stage_timings=timings)
+        assert payload["timings"] == {"resolve": 1.25, "layout": 0.5}
+
+    def test_findings_come_from_the_capture(self, script: Any, tmp_path: Path) -> None:
+        capture = ReportCapture()
+        logger = logging.getLogger("plt_optimizer.generate.test")
+        logger.addHandler(capture)
+        try:
+            logger.warning("Compressing text horizontally by 12.0% to fit content area")
+            logger.error("Label abc123 does not fit in any plate")
+        finally:
+            capture.close()
+        payload = self._run(script, tmp_path, capture=capture)
+
+        assert payload["summary"]["warnings"] == 1
+        assert payload["summary"]["errors"] == 1
+        assert payload["warnings"][0]["message"].startswith("Compressing text")
+        assert payload["errors"][0]["message"].startswith("Label abc123")
+
+    def test_default_plots_are_reported(self, script: Any, tmp_path: Path) -> None:
+        default_pdf = tmp_path / "pdf" / "60_txt_Report_Phase_Job_default.pdf"
+        default_pdf.parent.mkdir(parents=True, exist_ok=True)
+        default_pdf.write_bytes(b"%PDF-1.4\n")
+        payload = self._run(script, tmp_path, default_pdf_paths=[default_pdf])
+        assert payload["outputs"]["default_pdf_files"] == [str(default_pdf)]
+
+
+class TestFailureReport:
+    """A failed run leaves the reason on disk, like the CLI does."""
+
+    def test_writes_failed_status_with_the_stage(self, script: Any, tmp_path: Path) -> None:
+        capture = ReportCapture()
+        logger = logging.getLogger("plt_optimizer.generate.test")
+        logger.addHandler(capture)
+        try:
+            logger.warning("Hole at (0.100, 0.100) rescued by compression")
+        finally:
+            capture.close()
+
+        script._write_failure_report_for_run(
+            stage="export",
+            error=RuntimeError("Label abc123 does not fit in any plate"),
+            job_yaml=tmp_path / "job.yaml",
+            output_dir=tmp_path,
+            job=_job(),
+            job_config=None,
+            inventory=[0.06],
+            boundary_hole_cutter=0.015,
+            resolved_labels=[_label()],
+            export_result=None,
+            capture=capture,
+            stage_timings=StageTimings(),
+            started_at="2026-11-16T00:00:00+00:00",
+            duration_seconds=0.5,
+        )
+
+        payload = _read_report(tmp_path)
+        assert payload["job"]["status"] == "failed"
+        assert payload["job"]["error"] == {
+            "type": "RuntimeError",
+            "message": "Label abc123 does not fit in any plate",
+            "stage": "export",
+        }
+        assert payload["summary"]["warnings"] == 1
+        # Nothing had been written when the run aborted.
+        assert payload["outputs"]["plt_files"] == []
+        assert (report_dir_for(tmp_path) / REPORT_SUMMARY_NAME).is_file()
+        # The digest names the failure, so the console and the file agree.
+        assert "RuntimeError" in (report_dir_for(tmp_path) / REPORT_SUMMARY_NAME).read_text(
+            encoding="utf-8"
+        )
+
+    def test_survives_a_failure_before_parsing(self, script: Any, tmp_path: Path) -> None:
+        """No job: the spec stem stands in for the name, zero plates."""
+        script._write_failure_report_for_run(
+            stage="prep",
+            error=ValueError("job-config.json is missing"),
+            job_yaml=tmp_path / "cold_start.yaml",
+            output_dir=tmp_path,
+            job=None,
+            job_config=None,
+            inventory=[],
+            boundary_hole_cutter=None,
+            resolved_labels=[],
+            export_result=None,
+            capture=ReportCapture(),
+            stage_timings=StageTimings(),
+            started_at="2026-11-16T00:00:00+00:00",
+            duration_seconds=0.1,
+        )
+        payload = _read_report(tmp_path)
+        assert payload["job"]["job_name"] == "cold_start"
+        assert payload["job"]["job_id"] == "cold_start"
+        assert payload["summary"]["plates"] == 0
+        assert payload["job"]["error"]["stage"] == "prep"
+
+    def test_partial_export_is_still_reported(self, script: Any, tmp_path: Path) -> None:
+        """Failure after the export: the files already written are listed."""
+        job = _job()
+        script._write_failure_report_for_run(
+            stage="validate",
+            error=RuntimeError("negative coordinate"),
+            job_yaml=tmp_path / "job.yaml",
+            output_dir=tmp_path,
+            job=job,
+            job_config=None,
+            inventory=[0.06],
+            boundary_hole_cutter=0.015,
+            resolved_labels=[_label()],
+            export_result=_export(tmp_path, job),
+            capture=ReportCapture(),
+            stage_timings=StageTimings(),
+            started_at="2026-11-16T00:00:00+00:00",
+            duration_seconds=2.0,
+        )
+        payload = _read_report(tmp_path)
+        assert payload["job"]["status"] == "failed"
+        assert len(payload["outputs"]["plt_files"]) == 1
+        assert payload["outputs"]["plates"][0]["labels"][0]["label_id"] == "abc123"
+
+    def test_unwritable_report_dir_is_logged_not_raised(
+        self, script: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A report failure must never mask the original error."""
+
+        def _boom(report_dir: Path, report: dict[str, Any]) -> tuple[Path, Path]:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(script, "write_report", _boom)
+        script._write_failure_report_for_run(
+            stage="export",
+            error=RuntimeError("boom"),
+            job_yaml=tmp_path / "job.yaml",
+            output_dir=tmp_path,
+            job=_job(),
+            job_config=None,
+            inventory=[],
+            boundary_hole_cutter=None,
+            resolved_labels=[],
+            export_result=None,
+            capture=ReportCapture(),
+            stage_timings=StageTimings(),
+            started_at="2026-11-16T00:00:00+00:00",
+            duration_seconds=0.1,
+        )
+
+
+class TestReportHelpers:
+    """The small pure helpers Phase 5 builds its document from."""
+
+    def test_job_identity_from_the_spec(self, script: Any, tmp_path: Path) -> None:
+        job = _job()
+        name, job_id, plate_count = script._job_identity(job, tmp_path / "job.yaml")
+        assert name == "Report Phase Job"
+        assert job_id == "Report_Phase_Job"
+        assert plate_count == 1
+
+    def test_job_identity_without_a_spec(self, script: Any, tmp_path: Path) -> None:
+        name, job_id, plate_count = script._job_identity(None, tmp_path / "my job.yaml")
+        assert name == "my job"
+        assert job_id == "my_job"
+        assert plate_count == 0
+
+    def test_report_tools_mirror_the_cli(self, script: Any) -> None:
+        tools = script._report_tools([0.06, 0.125], 0.015, None)
+        assert tools == {
+            "available_cutters": [0.06, 0.125],
+            "boundary_hole_cutter_size": 0.015,
+            "cutter_buffer_text": None,
+            "cutter_buffer_routing": None,
+        }
+
+    def test_report_tools_read_the_kerf_buffers(self, script: Any, tmp_path: Path) -> None:
+
+        config_path = tmp_path / "job-config.json"
+        config_path.write_text(
+            json.dumps({"cutter_buffer_text": 0.005, "cutter_buffer_routing": 0.045}),
+            encoding="utf-8",
+        )
+        from plt_optimizer.generate.job_config import load_job_config
+
+        tools = script._report_tools([0.06], 0.015, load_job_config(config_path))
+        assert tools["cutter_buffer_text"] == 0.005
+        assert tools["cutter_buffer_routing"] == 0.045
+
+    def test_report_options_describe_the_run(self, script: Any) -> None:
+        options = script._report_options()
+        assert options["source"] == "scripts/run_integration_test.py"
+        assert options["default_plots"] is script.GENERATE_DEFAULT_PLOTS

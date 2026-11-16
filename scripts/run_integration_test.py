@@ -8,6 +8,8 @@ with intermediate state dumps for verification. Validates:
 - Cutter compensation and 3x tolerance logic
 - Bin packing and multi-plate allocation
 - Vectorization and PLT export
+- The ``generate`` pipeline's report surface (``generation_report/report.json``
+  + ``summary.txt``), written on success **and** on failure like the CLI
 
 Run with: python scripts/run_integration_test.py
 Or target a specific spec / every spec in a directory:
@@ -21,6 +23,7 @@ import json
 import logging
 import re
 import sys
+import time
 from pathlib import Path
 
 # Repo root (one level above scripts/) so the pipeline imports and every
@@ -46,6 +49,14 @@ GENERATE_DEFAULT_PLOTS = True
 
 # Import pipeline components
 from plt_optimizer.core.units import units_to_inches
+from plt_optimizer.generate.generation_report import (
+    ReportCapture,
+    build_report,
+    format_summary,
+    report_dir_for,
+    utc_now_iso,
+    write_report,
+)
 from plt_optimizer.generate.job_config import JobConfig, load_job_config
 from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
 from plt_optimizer.generate.layout_report import format_layout_report
@@ -69,6 +80,7 @@ from plt_optimizer.generate.vectorize import (
     write_default_plots,
 )
 from plt_optimizer.utils.logging import TextLogger
+from plt_optimizer.utils.stage_timing import StageTimings, stage_timer
 
 
 def load_tool_inventory(inventory_path: Path) -> tuple[list[float], float | None]:
@@ -100,6 +112,112 @@ def print_separator(title: str) -> None:
     print("\n" + "=" * 80)
     print(f"  {title}")
     print("=" * 80 + "\n")
+
+
+def _resolve_output_dir(job_yaml: Path, spec_override: Path | None) -> Path:
+    """Resolve the absolute output directory for a run.
+
+    Every artifact of a run (``plt/``, ``pdf/`` and the
+    ``generation_report/`` directory) lives under this directory, so both
+    the success path and the failure path derive it the same way. With a
+    spec override the run is namespaced by the spec's stem
+    (``test_output/integration_test/<spec-stem>/``); the default spec keeps
+    the historical ``test_output/integration_test/``.
+
+    Args:
+        job_yaml: The job spec this run is processing.
+        spec_override: The spec path the user passed (``None`` = the
+            built-in default spec).
+
+    Returns:
+        The absolute output directory.
+    """
+    if spec_override is None:
+        return REPO_ROOT / "test_output" / "integration_test"
+    return REPO_ROOT / "test_output" / "integration_test" / job_yaml.stem
+
+
+def _display_path(path: Path) -> str:
+    """Render an artifact path for the console.
+
+    Repo-relative paths read better in the run log, so they are shortened;
+    a path outside the repo (an explicit output directory, a scratch tree)
+    has no meaningful relative form and is printed absolute.
+
+    Args:
+        path: The artifact path to render.
+
+    Returns:
+        The path as a string, relative to the repo root when it is inside.
+    """
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _report_tools(
+    inventory: list[float],
+    boundary_hole_cutter: float | None,
+    job_config: JobConfig | None,
+) -> dict[str, object]:
+    """Describe the cutter inventory for the report's ``job.tools`` section.
+
+    Mirrors the mapping the ``generate`` CLI builds, so a report reader
+    cannot tell an integration run from a CLI run by shape.
+
+    Args:
+        inventory: Available cutter diameters (inches).
+        boundary_hole_cutter: Requested boundary/hole cutter size, or
+            ``None`` when unset.
+        job_config: Loaded shop defaults, or ``None``.
+
+    Returns:
+        A JSON-ready mapping.
+    """
+    defaults = job_config.defaults if job_config is not None else None
+    return {
+        "available_cutters": list(inventory),
+        "boundary_hole_cutter_size": boundary_hole_cutter,
+        "cutter_buffer_text": defaults.cutter_buffer_text if defaults is not None else None,
+        "cutter_buffer_routing": defaults.cutter_buffer_routing if defaults is not None else None,
+    }
+
+
+def _report_options() -> dict[str, object]:
+    """Describe this run's switches for the report's ``job.options`` section.
+
+    Returns:
+        A JSON-ready mapping, carrying a ``source`` marker so a reader can
+        tell an integration run from a ``generate`` CLI run.
+    """
+    return {
+        "source": "scripts/run_integration_test.py",
+        "optimize": True,
+        "plots": True,
+        "default_plots": GENERATE_DEFAULT_PLOTS,
+        "fast_mode": False,
+    }
+
+
+def _job_identity(job: JobSpec | None, job_yaml: Path) -> tuple[str, str, int]:
+    """Extract the report's job identity, tolerating a pre-parse failure.
+
+    Args:
+        job: The parsed job spec, or ``None`` when the run failed before
+            parsing finished (the spec stem is then the identity).
+        job_yaml: The job spec path being processed.
+
+    Returns:
+        Tuple of (job_name, filesystem-safe job_id, declared plate count).
+    """
+    from plt_optimizer.cli.generate import _sanitize_job_id
+
+    if job is None:
+        name = job_yaml.stem
+        return name, _sanitize_job_id(name), 0
+    plate_count = len(job.plates) if job.plates is not None else 0
+    return job.job_name, _sanitize_job_id(job.job_name), plate_count
 
 
 # ============================================================================
@@ -151,6 +269,7 @@ def phase_2_resolution_and_layout(
     inventory: list[float],
     boundary_hole_cutter_size: float | None = None,
     job_config_path: Path | None = None,
+    stage_timings: StageTimings | None = None,
 ) -> tuple[
     list[ResolvedLabel],
     list[PackedPlate],
@@ -180,6 +299,9 @@ def phase_2_resolution_and_layout(
         job_config_path: Optional path to ``job-config.json`` supplying
             top-layer defaults (and the default plate size for unbounded
             packing). ``None`` keeps the all-optional contract.
+        stage_timings: Optional per-stage timing collector; the parse,
+            resolve and reporting-layout stages are recorded into it so
+            Phase 5's report carries them.
 
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
@@ -199,7 +321,8 @@ def phase_2_resolution_and_layout(
     # Step 1: Parse JobSpec
     # =========================================================================
     logger.info("Step 1: Parsing JobSpec from YAML...")
-    job = expand_job_spec(parse_yaml(job_yaml, job_config_path=job_config_path), job_yaml)
+    with stage_timer("parse", logger, timings=stage_timings):
+        job = expand_job_spec(parse_yaml(job_yaml, job_config_path=job_config_path), job_yaml)
     logger.info(f"Parsed job: {job.job_name}")
     logger.info(f"Job-level text_height: {job.text_height}")
     logger.info(f"Job-level margin: {job.margin}")
@@ -214,12 +337,13 @@ def phase_2_resolution_and_layout(
     # Step 2: Resolve labels with cutter compensation
     # =========================================================================
     logger.info("Step 2: Resolving labels with cutter compensation...")
-    resolved_labels = resolve_job_spec(
-        job,
-        available_cutters=inventory,
-        boundary_hole_cutter_size=boundary_hole_cutter_size,
-        extents_probe=memoize_extents_probe(measure_line_vertical_extents),
-    )
+    with stage_timer("resolve", logger, timings=stage_timings):
+        resolved_labels = resolve_job_spec(
+            job,
+            available_cutters=inventory,
+            boundary_hole_cutter_size=boundary_hole_cutter_size,
+            extents_probe=memoize_extents_probe(measure_line_vertical_extents),
+        )
 
     print("\n--- RESOLUTION RESULTS ---\n")
     for label in resolved_labels:
@@ -241,14 +365,15 @@ def phase_2_resolution_and_layout(
     # Step 3: Bin packing
     # =========================================================================
     logger.info("Step 3: Running bin packing (layout generation)...")
-    packed_plates = generate_layout(
-        resolved_labels,
-        job.plates,
-        allow_rotation=job.allow_rotation,
-        layout=job.layout,
-        default_plate_size=default_plate_size,
-        default_plate_clearance=default_plate_clearance,
-    )
+    with stage_timer("layout", logger, timings=stage_timings):
+        packed_plates = generate_layout(
+            resolved_labels,
+            job.plates,
+            allow_rotation=job.allow_rotation,
+            layout=job.layout,
+            default_plate_size=default_plate_size,
+            default_plate_clearance=default_plate_clearance,
+        )
 
     print("\n--- BIN PACKING RESULTS ---\n")
     print(f"Fill order: {job.layout.value}")
@@ -305,6 +430,8 @@ def phase_3_vectorization_and_export(
     job_spec: JobSpec | None = None,
     job_config: JobConfig | None = None,
     available_cutters: list[float] | None = None,
+    capture: ReportCapture | None = None,
+    stage_timings: StageTimings | None = None,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -353,6 +480,13 @@ def phase_3_vectorization_and_export(
             every auto-allocated unbounded bin (from ``job-config.json``).
         available_cutters: Shop cutter inventory (``tools.json``); enables the
             compression-driven cutter reduction pre-pass when provided.
+        capture: Optional :class:`ReportCapture` handler attached to the
+            export logger so Phase 5's report carries the pipeline's
+            WARNING/ERROR records (mirrors the ``generate`` CLI).
+        stage_timings: Optional per-stage timing collector forwarded to
+            ``export_per_cutter_plts``; Phase 5's report publishes the
+            numbers (the stage records are INFO level, so the collector is
+            what makes them survive a quieter logger).
 
     Returns:
         The :class:`PerCutterExport` with written PLT/PDF paths and the
@@ -385,6 +519,11 @@ def phase_3_vectorization_and_export(
     # every record a second time.
     export_logger = TextLogger(log_file=REPO_ROOT / "logs_generate" / "generate.log")
     export_logger.logger.propagate = False
+    if capture is not None:
+        # The capture sits on the package logger, so every child logger in
+        # the pipeline (plt_optimizer.generate.*, the optimizer's) propagates
+        # its WARNING/ERROR records into it, exactly as in the CLI.
+        export_logger.logger.addHandler(capture)
 
     export_result = export_per_cutter_plts(
         resolved_labels,
@@ -402,6 +541,7 @@ def phase_3_vectorization_and_export(
         job_config=job_config,
         logger=export_logger,
         available_cutters=available_cutters,
+        stage_timings=stage_timings,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -516,7 +656,7 @@ def phase_3_6_layout_report(
 # ============================================================================
 # PHASE 4: VISUALIZATION (Optional)
 # ============================================================================
-def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") -> None:
+def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") -> list[Path]:
     """Phase 4: Generate color-coded PDF previews using the plotter.
 
     The simple-outline previews (one per per-cutter PLT plus one combined
@@ -540,6 +680,11 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
         export_result: The per-cutter export whose PLTs and combined
             content drive the plots.
         job_name: Human-readable job name for plot titles (optional).
+
+    Returns:
+        The ``*_default.pdf`` paths that were written (empty when the phase
+        is disabled or the plotting failed), so Phase 5's report can list
+        them alongside the export's own artifacts.
     """
     print_separator("PHASE 4: VISUALIZATION (OPTIONAL)")
 
@@ -547,7 +692,7 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
         print(
             "ℹ Default (color-coded) plots disabled; set GENERATE_DEFAULT_PLOTS = True to enable."
         )
-        return
+        return []
 
     try:
         pdf_paths = write_default_plots(
@@ -559,9 +704,102 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
         )
         for pdf_path in pdf_paths:
             print(f"✓ Generated: {pdf_path.name}")
+        return pdf_paths
     except Exception as e:
         logger.warning(f"Visualization failed (optional): {e}")
         print(f"⚠ Visualization skipped: {e}")
+        return []
+
+
+# ============================================================================
+# PHASE 5: GENERATION REPORT
+# ============================================================================
+def phase_5_generation_report(
+    job: JobSpec,
+    job_yaml: Path,
+    export_result: PerCutterExport,
+    resolved_labels: list[ResolvedLabel],
+    inventory: list[float],
+    boundary_hole_cutter: float | None,
+    job_config: JobConfig | None,
+    capture: ReportCapture,
+    stage_timings: StageTimings,
+    started_at: str,
+    duration_seconds: float,
+    default_pdf_paths: list[Path] | None = None,
+) -> Path:
+    """Phase 5: Write the ``generate`` pipeline's report artifacts.
+
+    Produces the same pair the ``generate`` CLI writes, in the same place
+    (``<output_dir>/generation_report/``, a sibling of ``plt/`` and
+    ``pdf/``):
+
+    - ``report.json`` -- the machine-readable document (job metadata, the
+      headline counts, per-stage timings, the written outputs with the
+      packed placements, and the per-label/per-line findings)
+    - ``summary.txt`` -- the human-readable digest of the same data,
+      echoed to the console
+
+    The data is gathered from the same objects the CLI uses: Phase 3's
+    export ran with a :class:`ReportCapture` handler on the pipeline logger
+    (the WARNING/ERROR records) and a :class:`StageTimings` collector (the
+    per-stage wall clock, which the INFO-level timing records would not
+    survive), and the render cache on ``PerCutterExport`` supplies the
+    per-line findings.
+
+    Args:
+        job: The parsed job spec (name, plate count for the summary).
+        job_yaml: The job spec path recorded in the report.
+        export_result: The per-cutter export (output dir, PLT/PDF paths,
+            render cache, packed plates).
+        resolved_labels: Resolved labels from Phase 2.
+        inventory: Cutter inventory from ``tools.json`` (``job.tools``).
+        boundary_hole_cutter: Requested boundary/hole cutter size.
+        job_config: Loaded shop defaults (the kerf buffers in ``job.tools``).
+        capture: The log capture to read the WARNING/ERROR records from.
+        stage_timings: The per-stage timing collector.
+        started_at: The run's start timestamp (ISO 8601).
+        duration_seconds: The run's wall-clock duration.
+        default_pdf_paths: The color-coded plots Phase 4 wrote.
+
+    Returns:
+        The ``summary.txt`` path that was written.
+    """
+    print_separator("PHASE 5: GENERATION REPORT")
+
+    job_name, job_id, plate_count = _job_identity(job, job_yaml)
+    report_dir = report_dir_for(export_result.output_dir)
+    report = build_report(
+        job_name=job_name,
+        job_id=job_id,
+        spec_path=job_yaml,
+        output_dir=export_result.output_dir,
+        report_dir=report_dir,
+        status="success",
+        started_at=started_at,
+        finished_at=utc_now_iso(),
+        duration_seconds=duration_seconds,
+        tools=_report_tools(inventory, boundary_hole_cutter, job_config),
+        options=_report_options(),
+        plate_count=plate_count,
+        resolved_labels=resolved_labels,
+        rendered_by_id=export_result.rendered_labels,
+        packed_plates=export_result.packed_plates,
+        plt_files=export_result.plt_paths,
+        pdf_files=export_result.pdf_paths,
+        default_pdf_files=list(default_pdf_paths or []),
+        records=capture.records,
+        stage_records=capture.stage_records,
+        timings=stage_timings,
+    )
+    json_path, summary_path = write_report(report_dir, report)
+
+    print(f"✓ Report:   {_display_path(json_path)}")
+    print(f"✓ Summary:  {_display_path(summary_path)}")
+    print()
+    print(format_summary(report))
+
+    return summary_path
 
 
 # ============================================================================
@@ -578,11 +816,37 @@ def _run_single_spec(spec_override: Path | None) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
+    # Run bookkeeping shared by BOTH report paths. Like the generate CLI, an
+    # integration run leaves ``generation_report/report.json`` +
+    # ``summary.txt`` behind whether it succeeded or blew up, so the reason
+    # is on disk and not only in the console scrollback. The capture and the
+    # timing collector are per-run: directory mode gives every spec its own.
+    started_at = utc_now_iso()
+    start = time.perf_counter()
+    stage = "prep"
+    capture = ReportCapture()
+    stage_timings = StageTimings()
+    job_yaml = (
+        spec_override
+        if spec_override is not None
+        else REPO_ROOT / "tests_deps" / "test123_spec.yaml"
+    )
+    if not job_yaml.is_absolute():
+        job_yaml = REPO_ROOT / job_yaml
+    output_dir = _resolve_output_dir(job_yaml, spec_override)
+    job: JobSpec | None = None
+    job_config: JobConfig | None = None
+    inventory: list[float] = []
+    boundary_hole_cutter: float | None = None
+    resolved_labels: list[ResolvedLabel] = []
+    export_result: PerCutterExport | None = None
+
     try:
         # Phase 1: Data Preparation
         job_yaml, tools_json, inventory, boundary_hole_cutter, job_config_json = phase_1_data_prep(
             spec_override
         )
+        output_dir = _resolve_output_dir(job_yaml, spec_override)
 
         # Phase 2: Resolution and Layout (nominal-dimension packing for reporting)
         (
@@ -598,21 +862,22 @@ def _run_single_spec(spec_override: Path | None) -> int:
             job,
             job_config,
         ) = phase_2_resolution_and_layout(
-            job_yaml, inventory, boundary_hole_cutter, job_config_json
+            job_yaml,
+            inventory,
+            boundary_hole_cutter,
+            job_config_json,
+            stage_timings=stage_timings,
         )
 
         # Phase 3: Per-cutter export using the clean bounds-aware pipeline.
         # The export renders labels onto per-cutter pens, assembles each
         # plate in memory, and writes plt/ + pdf/ outputs named
         # <plate>_{text|bh}_<cutter>_<job_id>.(plt|pdf).
-        if spec_override is not None:
-            phase_3_output_dir = Path("test_output") / "integration_test" / job_yaml.stem
-        else:
-            phase_3_output_dir = None
+        stage = "export"
         export_result = phase_3_vectorization_and_export(
             resolved_labels,
             provided_plates,
-            phase_3_output_dir,
+            output_dir,
             job_id,
             job_name,
             allow_rotation,
@@ -622,9 +887,12 @@ def _run_single_spec(spec_override: Path | None) -> int:
             job,
             job_config,
             available_cutters=inventory,
+            capture=capture,
+            stage_timings=stage_timings,
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)
+        stage = "validate"
         phase_3_5_validate_coordinates(export_result.plt_paths)
 
         # Phase 3.6: Applied layout report (render-time compression +
@@ -632,7 +900,26 @@ def _run_single_spec(spec_override: Path | None) -> int:
         phase_3_6_layout_report(resolved_labels, export_result)
 
         # Phase 4: Visualization (optional)
-        phase_4_visualization(export_result, job_name=job_name)
+        stage = "plots"
+        default_pdf_paths = phase_4_visualization(export_result, job_name=job_name)
+
+        # Phase 5: the generation report (report.json + summary.txt) -- the
+        # same artifacts the `generate` CLI writes, from the same builder.
+        stage = "report"
+        phase_5_generation_report(
+            job=job,
+            job_yaml=job_yaml,
+            export_result=export_result,
+            resolved_labels=resolved_labels,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter,
+            job_config=job_config,
+            capture=capture,
+            stage_timings=stage_timings,
+            started_at=started_at,
+            duration_seconds=time.perf_counter() - start,
+            default_pdf_paths=default_pdf_paths,
+        )
 
         print_separator("INTEGRATION TEST COMPLETE")
         print("✓ Pipeline executed successfully")
@@ -655,6 +942,9 @@ def _run_single_spec(spec_override: Path | None) -> int:
         )
         if GENERATE_DEFAULT_PLOTS:
             print("       *_default.pdf: color-coded toolpath with rapid travel")
+        print("   - generation_report/ (the generate pipeline's report surface)")
+        print("       report.json: machine-readable job report (findings, timings, outputs)")
+        print("       summary.txt: human-readable digest of the same data")
         print()
         print("2. Compare the simple-outline PDFs with the reference plots:")
         print("   - Reference test: test_output/test_ref_plot.png")
@@ -669,7 +959,106 @@ def _run_single_spec(spec_override: Path | None) -> int:
         logger.error(f"Pipeline failed: {e}", exc_info=True)
         print_separator("INTEGRATION TEST FAILED")
         print(f"✗ Error: {e}")
+        _write_failure_report_for_run(
+            stage=stage,
+            error=e,
+            job_yaml=job_yaml,
+            output_dir=output_dir,
+            job=job,
+            job_config=job_config,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter,
+            resolved_labels=resolved_labels,
+            export_result=export_result,
+            capture=capture,
+            stage_timings=stage_timings,
+            started_at=started_at,
+            duration_seconds=time.perf_counter() - start,
+        )
         return 1
+    finally:
+        # Detach the capture so a directory run's next spec never inherits
+        # this run's warnings (the plt_optimizer logger is reused in-process).
+        capture.close()
+
+
+def _write_failure_report_for_run(
+    *,
+    stage: str,
+    error: BaseException,
+    job_yaml: Path,
+    output_dir: Path,
+    job: JobSpec | None,
+    job_config: JobConfig | None,
+    inventory: list[float],
+    boundary_hole_cutter: float | None,
+    resolved_labels: list[ResolvedLabel],
+    export_result: PerCutterExport | None,
+    capture: ReportCapture,
+    stage_timings: StageTimings,
+    started_at: str,
+    duration_seconds: float,
+) -> None:
+    """Write ``report.json`` + ``summary.txt`` for a run that failed.
+
+    The failure report carries the exception type, its message and the
+    pipeline phase it happened in, plus every warning logged before the
+    failure and whatever the export had already written -- the same contract
+    the ``generate`` CLI keeps (see
+    :func:`plt_optimizer.cli.generate._write_failure_report`). Writing the
+    report is best-effort: a failure here is logged, never raised, so it can
+    not mask the original error.
+
+    Args:
+        stage: The phase the failure happened in.
+        error: The exception that aborted the run.
+        job_yaml: The job spec being processed.
+        output_dir: The run's output directory.
+        job: The parsed job spec (``None`` when parsing itself failed).
+        job_config: Loaded shop defaults, when available.
+        inventory: Cutter inventory, when loaded.
+        boundary_hole_cutter: Requested boundary/hole cutter size.
+        resolved_labels: Labels resolved before the failure (may be empty).
+        export_result: The export, when Phase 3 had finished.
+        capture: The log capture holding the warnings seen so far.
+        stage_timings: The per-stage timing collector.
+        started_at: The run's start timestamp (ISO 8601).
+        duration_seconds: The run's wall-clock duration so far.
+    """
+    job_name, job_id, plate_count = _job_identity(job, job_yaml)
+    report_dir = report_dir_for(output_dir)
+    report = build_report(
+        job_name=job_name,
+        job_id=job_id,
+        spec_path=job_yaml,
+        output_dir=output_dir,
+        report_dir=report_dir,
+        status="failed",
+        error={"type": type(error).__name__, "message": str(error), "stage": stage},
+        started_at=started_at,
+        finished_at=utc_now_iso(),
+        duration_seconds=duration_seconds,
+        tools=_report_tools(inventory, boundary_hole_cutter, job_config),
+        options=_report_options(),
+        plate_count=plate_count,
+        resolved_labels=resolved_labels,
+        rendered_by_id=export_result.rendered_labels if export_result is not None else None,
+        packed_plates=export_result.packed_plates if export_result is not None else (),
+        plt_files=export_result.plt_paths if export_result is not None else (),
+        pdf_files=export_result.pdf_paths if export_result is not None else (),
+        default_pdf_files=export_result.default_pdf_paths if export_result is not None else (),
+        records=capture.records,
+        stage_records=capture.stage_records,
+        timings=stage_timings,
+    )
+    try:
+        json_path, summary_path = write_report(report_dir, report)
+    except OSError as exc:
+        logger.error(f"Could not write the failure report to {report_dir}: {exc}")
+        return
+    print(f"✓ Failure report: {json_path}")
+    print(f"✓ Failure summary: {summary_path}")
+    print()
 
 
 def _collect_spec_paths(spec_dir: Path) -> list[Path]:

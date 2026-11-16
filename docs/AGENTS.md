@@ -151,7 +151,9 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   troubleshooting). Points at the component AGENTS.md files for the job-spec
   schema.
 - `INTEGRATION_TESTING.md` - the generate-pipeline walkthrough
-  (`scripts/run_integration_test.py`).
+  (`scripts/run_integration_test.py`), including the Phase 5
+  `generation_report/` pair (`report.json` + `summary.txt`) the runner writes
+  with the CLI's schema.
 - `pdf/` - the compiled **PDF handbook** (`plt-generation-pipeline.pdf`), a
   DERIVED artifact built by `scripts/build_pipeline_pdf.py` from the committed
   skill-tree markdown + live example runs (pandoc + xelatex + ghostscript,

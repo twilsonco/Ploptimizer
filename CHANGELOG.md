@@ -4,6 +4,28 @@
 
 ### Features
 
+* **scripts:** the end-to-end integration runner now writes the `generate`
+  pipeline's report pair for every job it processes (new **Phase 5**) —
+  `<out>/generation_report/report.json` + `summary.txt`, in the same directory
+  layout (`plt/`, `pdf/`, `generation_report/`) and the same document the CLI
+  builds, via the same `build_report()`/`write_report()` calls, so the two
+  surfaces cannot drift. An in-process caller has no INFO log to rebuild
+  `timings` from (the pipeline's `setup_logger()` reconfigures the logger), so
+  the runner attaches its own `ReportCapture` handler and threads a
+  `StageTimings` collector through `phase_3_vectorization_and_export()`, and it
+  times the parse / resolve / layout stages with the shared `stage_timer`. A run
+  that fails leaves a report too: the `except` branch writes
+  `job.status: "failed"` with `job.error.stage` naming the phase that aborted
+  (e.g. `export`), the warnings logged before it, and the partial
+  label/output lists. Directory mode is unchanged — each spec keeps its own
+  `test_output/integration_test/<spec-stem>/` tree with its own report, and one
+  spec failing never stops the rest.
+  - Pins: `tests/test_run_integration_report.py` (schema parity with the CLI
+    document, success + failure reports, the capture, the run-output
+    subdirectory, the helpers).
+  - Docs: `docs/INTEGRATION_TESTING.md` gains the Phase 5 section, the report
+    schema table, and the checklist entries.
+
 * **core/generate:** written PLT files now use the **EngraveLab/VisionPro line
   layout** -- one HPGL command per line, a bare `PD;`/`PU;` glued to the arc it
   governs (`PD;AA254,1016,90;`), CRLF terminators, single trailing newline --
