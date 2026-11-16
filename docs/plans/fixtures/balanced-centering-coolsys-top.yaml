@@ -1,0 +1,55 @@
+# Verification fixture for docs/plans/balanced-hole-centering.md: coolsys production
+# content (inlined, so the file is self-contained) with a LONE top drill hole per
+# label. The shipped coolsys job puts holes on sides/corners, where
+# lone_vertical_hole() returns None and the balance rule is inert, so the sweep
+# tables are recorded against this variant:
+#   .venv/bin/plt-optimizer generate \
+#       docs/plans/fixtures/balanced-centering-coolsys-top.yaml -o /tmp/sweep -v \
+#       | grep -E 'balance: shift|PARTIAL'
+job:
+    job_name: gap-balance fixture (coolsys content, lone top hole)
+    font: helv1
+    material: bw
+    labels:
+    -   id: 2x3
+        height: 2
+        width: 3
+        text_height: 0.5
+        holes:
+        -   location: top
+        replacement_text_file: 2026-11-11 coolsys C12580073 2x3.txt
+        content:
+        -   text: A06c;DX
+        -   text: A06d;DX
+        -   text: A07d;DX
+        -   text: MTF9a
+        balanced_centering: true
+    -   id: 3x5
+        height: 3
+        width: 5
+        text_height: 0.25
+        holes:
+        -   location: top
+        content:
+        -   text: 'REFRIGERANT: 1300 LBS R744'
+        -   text: 'REFRIGERANT OIL: 13 GALLONS POE'
+        -   text: COOLSYS
+        -   text: '145 S STATE COLLEGE BLVD. #200'
+        -   text: BREA, CA
+        -   text: 'START UP:   5/28/2026'
+        balanced_centering: true
+    -   id: 1x3 GO616
+        height: 1
+        width: 3
+        text_height: 0.5
+        holes:
+        -   location: top
+        replacement_text_file: 2026-11-11 coolsys GO616 1x3.txt
+        content:
+        -   text: 2E1
+        -   text: 2E2
+        -   text: 2E3
+        balanced_centering: true
+    balanced_centering: true
+    balanced_centering_hole_text_mode: top_line
+    balanced_centering_hole_border_factor: 0.5

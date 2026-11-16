@@ -236,3 +236,158 @@ comes from strokes.
   PLT fonts are arc-bearing, and a 90° chord on a 1016-unit arc is off by
   ~0.147in, larger than the whole clearance being measured). Sampling happens
   once per label, outside the bisection loop.
+
+## Feature 2: the two knobs (`hole_text_mode`, `hole_border_factor`)
+
+Shipped in the three commits at the head of this branch (`feat(generate)`,
+`test(generate)`, `docs`); the code side is described in
+`plt_optimizer/generate/collision/AGENTS.md` §Feature 2 and the field reference
+in `docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md`.
+This section is the measured verification record.
+
+### The rule is live only on a LONE top/bottom hole
+
+`lone_vertical_hole()` returns `None` when a label has holes on both faces. That
+matters for reading the numbers below:
+
+| job | hole `location` | rule |
+|---|---|---|
+| `balance-demo-round.yaml` | `top` (job level) | **live** — the sweep fixture below |
+| coolsys `2026-11-11 C12580073` | `sides` + `corners` | **inert** |
+| coolsys content, lone top hole (`docs/plans/fixtures/balanced-centering-coolsys-top.yaml`) | `top` | **declines** — no balance line, see below |
+
+A balanced label whose holes are on the sides has nothing to balance against, so
+the shipped coolsys job is a control, not a fixture. The coolsys-content variant
+is the negative control: it resolves, its labels are balanced and carry a lone
+top hole, and the rule still declines to move them (no `balance:` line) because a
+label filled top-to-bottom by four 0.5in lines leaves the solve no bracket. A
+rule that declines silently is worth pinning, so it is named here.
+
+The sweep is recorded on the demo, which is small, committed, and live.
+
+### No-regression: legacy values vs the pre-feature tree
+
+`closest_ink` + `f = 0.5` against the feature-1 tree, same input, same
+`--output`, compared byte-for-byte per emitted file.
+
+| job | rule | files | result |
+|---|---|---|---|
+| coolsys `2026-11-11 C12580073` | inert (sides/corners) | 2/2 | **identical** |
+| `balance-demo-round.yaml` | live (lone top hole) | 3/3 | 2 lines: one connector's endpoints 1 unit |
+| pd_control | live | 3/3 | **identical** |
+| demo with the rule off | off | 3/3 | **identical** |
+
+The `balance-demo-round.yaml` diff is the only non-identity, and it is bounded:
+
+```text
+bw_15_txt_balance_demo.plt:  (one PU line)
+  32120,31306 -> 32120,31307      (+1 unit)
+  32120,29512 -> 32120,29513      (+1 unit)
+```
+
+1 unit = 1/1016 in = 0.025 mm, the plotter's own step size — a line lands on the
+smallest representable position, and the solver's `delta` agrees to 15 significant
+figures (`-0.0758464566929134`), so the block is in the same place; an integer
+rounding of that line's coordinates crossed by one quantum. `to_hole` is bit-identical
+between the trees (the `closest_ink` metric is untouched), so this is the
+`f*A - (1-f)*B` product reorder landing on a tie in a downstream stage, not the
+metric. Decision (owner): record it and ship — it is below the device's
+repeatability, and the strict byte-identity claim is carried by pd_control, where
+the rule is live and the output is identical.
+
+### The mode, measured
+
+`examples/job_specs/balance-demo-round.yaml` with the knobs at the job tier, in
+inches. `A₀`/`B₀` are the **shipped** gaps, `Aₑ`/`Bₑ` the gaps **after** the solve.
+The label is `round`, 2in tall, with a 0.25in top hole, so the two gap metrics do
+not coincide here the way they do on a centred rectangular label.
+
+| mode | f | A₀ | B₀ | delta | Aₑ | Bₑ |
+|---|---|---|---|---|---|---|
+| closest_ink | 0.5 | 0.2374 | 0.3798 | -0.0758 | 0.3110 | 0.3116 |
+| top_line | 0.5 | 0.2249 | 0.3798 | -0.0817 | 0.3066 | 0.3062 |
+
+The mode is worth **0.0125in** in the hole-side gap and **0.0059in** in the
+placement. The mechanism is the one the modes exist to separate: `closest_ink`
+measures the true stroke-to-circle minimum -- the ink nearest the hole -- while
+`top_line` measures the Y-only gap from the block's facing face, and the 0.0125in
+is the distance between those two on this glyph.
+
+Two things worth stating plainly, because both were assumed here first and
+measured second:
+
+* It is **not** the hole radius. Reading the metric definitions suggested the two
+  would differ by exactly `r` (0.0625in on this fixture); the measurement says
+  0.0125in, so the number recorded is the measurement.
+* The sign is the opposite of the intuition. `closest_ink`'s gap is the LARGER
+  one (0.2374 vs 0.2249): the ink nearest the hole sits above the face
+  `top_line` reads, so the true-stroke metric is the more conservative of the two
+  and `top_line` lets the block come closer to the hole.
+
+Where the two metrics provably coincide is a centred hole above a flat, full-width
+line: the nearest ink is then straight below the centre, so the diagonal is the
+vertical and subtracting the radius is what both modes do. That is why the mode is
+nearly inert (about 1 mil) on the rectangular coolsys-style labels it was first
+swept on, and it is the case `tests/test_collision_balance.py::TestHoleTextMode`
+pins as the separated one -- an off-centre hole, where the nearest ink is a
+diagonal to a corner.
+
+### The factor, measured
+
+Same fixture, `top_line`, inches. `Aₑ`/`Bₑ` are the balanced gaps, so the last
+two columns are the two sides of the balance equation evaluated where the solve
+landed -- an exact root makes them equal, a capped one does not.
+
+| f | delta | Aₑ | Bₑ | f·Aₑ | (1-f)·Bₑ | root? |
+|---|---|---|---|---|---|---|
+| 0.20 | -0.1230 | 0.3479 | 0.2683 | 0.0696 | 0.2146 | capped |
+| 0.50 | -0.0817 | 0.3066 | 0.3062 | 0.1533 | 0.1531 | **yes** |
+| 0.80 | +0.0197 | 0.2052 | 0.3973 | 0.1642 | 0.0795 | capped |
+
+What it pins:
+
+* **Monotonicity, the contract.** The block travels `-0.1230 → -0.0817 → +0.0197`
+  as `f` goes `0.2 → 0.5 → 0.8` -- toward the hole as `f` rises, and it crosses
+  zero, i.e. it ends up on the far side of the shipped placement.
+* **The root is exact where it is reachable.** At `f = 0.5` the two sides of
+  `f*A = (1-f)*B` agree to 0.0002in, inside the 2/1016in = 0.00197in the contract
+  asks for; the log says `equalizes the gaps`.
+* **The endpoints clamp, and that is the design.** At `f = 0.2` the target is
+  `A = 4B`, which needs the block below the band, and at `f = 0.8` the target is
+  `B = 4A`, above it; both log `is the maximum the caps allow` and the `PARTIAL`
+  warning. `residual` in those lines is `residual_inches` (balance.py:333),
+  `|f*A - (1-f)*B| / max(f, 1-f)` -- NOT the raw equation value, a distinction
+  worth pinning because the two differ by the weight ratio: the `f = 0.2` line
+  logs `unbalanced by 0.2645in` and `|0.0696 - 0.2146| / 0.8 = 0.1813` against
+  the raw `0.1450`.
+
+The uncapped sweep across the whole `[0.0, 1.0]` range is `pd_control`'s `-sweep`
+fixture and `tests/test_collision_balance.py::TestHoleBorderFactor`, which pins
+the parametrized root `d = 1.15f - 0.75` analytically.
+
+### Controls
+
+`hole_border_factor` alone (at `closest_ink`) is monotone, and the endpoints
+confirm the knob's meaning — `f = 0.0` puts the text against the border, `f = 1.0`
+against the hole. `holes: false` degrades every knob to plain band centering
+(no shift, `top_line` == `closest_ink`), and both knob fields are inert whenever
+the rule is off (`balanced_centering: false`, the default), so they cannot move a
+label that never opted in.
+
+### Reproduce
+
+```bash
+# The sweep tables, from the committed fixture (the knobs are job-tier here):
+.venv/bin/plt-optimizer generate docs/plans/fixtures/balanced-centering-coolsys-top.yaml \
+    -o /tmp/sweep -v | grep -E 'balance: shift|PARTIAL'
+# The live fixture, with mode/factor set on the `job:` block:
+#   examples/job_specs/balance-demo-round.yaml   (same command)
+.venv/bin/python -m pytest tests/test_collision_balance.py \
+    tests/test_resolution.py::TestBalancedCenteringParameterCascade \
+    tests/test_balance_frame.py -q
+.venv/bin/python scripts/validate_job_config.py job-config.json
+```
+
+Full suite at this record: 1655 passed, 1 skipped. `ruff format --check`,
+`ruff check`, `mypy plt_optimizer` clean; schema/`JOB_SPEC.md` regeneration
+drift-free.

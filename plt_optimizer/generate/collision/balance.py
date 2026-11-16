@@ -317,6 +317,15 @@ def imbalance(pair: GapPair, factor: float) -> float:
     Returns:
         The signed imbalance, inches. Zero is the requested placement.
     """
+    # ``0.5*A - 0.5*B`` is bit-identical to ``0.5*(A - B)`` (every 0.5 product is
+    # an exact power-of-two scale) and to feature 1's own ``(A - B) / 2``, so the
+    # shipped default reproduces feature 1's root exactly -- which is its whole
+    # no-regression argument. ``A - B`` is NOT (measured: it rounds in the last
+    # bit against the equation, always), and 1 ULP in the solve is enough to
+    # settle a tie between two equal-length strokes in the downstream travel
+    # optimizer. The scale stays the equation's, so :func:`residual_inches`
+    # keeps dividing by the same weights and the partial thresholds keep
+    # their meaning.
     return factor * pair.to_hole - (1.0 - factor) * pair.to_border
 
 

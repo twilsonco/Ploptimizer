@@ -1041,6 +1041,8 @@
     "balanced_centering_hole_border_factor": {
       "anyOf": [
         {
+          "maximum": 1.0,
+          "minimum": 0.0,
           "type": "number"
         },
         {
