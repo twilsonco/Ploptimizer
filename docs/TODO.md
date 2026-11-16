@@ -87,11 +87,3 @@
       - job: path/to/job3.yaml
     ```
   - This solves a problem related to maximal utilization of materials. Jobs often come in batches. It's desirable to keep each job in its own file for clarity and modularity, while still allowing the optimizer to consider all jobs together for material usage optimization.
-- [ ] Improve the balanced centering logic for labels with lone top/bottom holes:
-  1. Add a new enum parameter, `balanced_centering_hole_text_mode` to control how the hole-text distance is calculated, either `closest_ink` or `top_line`. Cascades job -> plate -> label, and defaults in job-config.json to `top_line`.
-     - `closest_ink`: Measure the distance from the closest ink stroke to the hole.
-     - `top_line`: Measure the distance from the top text line to the hole. This is not the same as the line's capline, but rather from the topmost ink stroke of the line to the hole.
-  2. Add a new float parameter to control the desired ratio of hole-text:text-border distances, `balanced_centering_hole_border_ratio`. Cascades job -> plate -> label, and defaults in job-config.json to 1.0.
-     - A value of 1.0 gives the current behavior, where the two distances are made to be equal.
-     - A value of e.g. 1.1 will result in the hole-text distance being 10% larger than the text-border distance.
-     - A value of e.g. 0.9 will result in the hole-text distance being 10% smaller than the text-border distance.
