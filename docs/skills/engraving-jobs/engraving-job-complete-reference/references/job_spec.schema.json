@@ -1,5 +1,14 @@
 {
   "$defs": {
+    "BalancedCenteringHoleTextMode": {
+      "description": "Enumeration of hole-text distance metrics for gap-balanced centering.\n\nGap-balanced centering (see\n:attr:`plt_optimizer.generate.schema.LabelAttributes.balanced_centering`\nand :mod:`plt_optimizer.generate.collision.balance`) slides a label's text\nblock so the block's gap to its lone top (or lone bottom) drill hole and\nits gap to the opposite border hit a chosen split. This field picks how the\n**hole-side** gap is measured; the border side stays ink-to-ink.\n\nAttributes:\n    CLOSEST_INK: True ink-to-ink. The minimum distance from the hole's\n        engraved edge to the closest stroke of any character in the\n        hole-side line -- a glyph that reaches furthest toward the hole\n        decides the gap. The shipped metric (the legacy behavior).\n    TOP_LINE: Vertical face-to-face. The distance from the hole's engraved\n        edge to the **edge of the text box** on the facing side: for a hole\n        above the block, `(hole_center_y - hole_radius) - (top line's\n        y_max)`; mirrored for a hole below. The box edge the user reasons\n        about, independent of which glyph happens to be tallest.",
+      "enum": [
+        "closest_ink",
+        "top_line"
+      ],
+      "title": "BalancedCenteringHoleTextMode",
+      "type": "string"
+    },
     "ContentEntry": {
       "additionalProperties": false,
       "description": "One entry of a label's `content` list: a text line or a list block.\n\nA plain entry carries `text` (the historical :class:`TextLine` shape,\nso every existing spec validates unchanged). A list entry carries exactly\none of `itemize` / `enumerate` (and no `text`), nesting the list\nblock's fields and items. The three slots are mutually exclusive.",
@@ -3303,6 +3312,33 @@
           "description": "Gap-balanced vertical centering for a label with a lone `top` (or lone `bottom`) drill hole. The hole-aware shift centers the text between the lone hole and the OPPOSITE vertical margin, which leaves the block about a quarter of a hole diameter off true center; this rule equalizes the two gaps instead -- the top text line's gap to the lone hole equals the bottom text line's gap to the opposite label BORDER (the engraved outline). Both distances are measured ink to ink: from the strokes the plotter actually cuts to the hole's engraved circle and to the border's engraved outline, so a round border or a line narrower than the block reads true. (A swept bounding box reads the block's corners instead, which on a round label reach into empty space past the ink and leave the text visibly off center -- the reason this rule measures ink.) Only the axis holes (`top`/`bottom`) count, so corner holes never trigger it, and a label with holes on both sides keeps the plain centering. Inert when there is no border ink to measure against, when the block cannot be balanced inside its band, and when the equal-gaps point would put less than the collision threshold between the text and the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`. Accepted on plates for schema parity only.",
           "title": "Balanced Centering"
         },
+        "balanced_centering_hole_text_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BalancedCenteringHoleTextMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How gap-balanced centering measures the hole-text distance (the hole-side gap `A`). `closest_ink` (the legacy metric) is the true stroke-to-circle minimum: the distance from the closest ink of any character in the hole-side line to the lone hole's engraved edge, so the glyph that reaches furthest toward the hole decides the gap. `top_line` is the vertical face-to-face gap: from the hole's engraved edge to the facing edge of the text box -- `(hole_center_y - hole_radius) - (top line's y_max)` for a lone top hole, mirrored for a lone bottom hole -- which ignores which glyph happens to be tallest. The border-side gap is ink-to-ink under both values. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `top_line`. Accepted on plates for schema parity only."
+        },
+        "balanced_centering_hole_border_factor": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where gap-balanced centering lands the text block in the span between the lone hole and the opposite border, as a factor `f` in [0.0, 1.0] charged to the border side: the solve equalizes `f * A = (1 - f) * B`, where `A` is the hole-text gap (see `balanced_centering_hole_text_mode`) and `B` the text-border gap. 0.5 (the default) puts the block at equal gaps, 0.0 pushes it against the border (the text's border-side ink touches the border ink) and 1.0 against the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 0.5. Accepted on plates for schema parity only.",
+          "title": "Balanced Centering Hole Border Factor"
+        },
         "align_margin_adjust_global": {
           "anyOf": [
             {
@@ -4322,6 +4358,33 @@
           "default": null,
           "description": "Gap-balanced centering for a lone top/bottom drill hole (equal gaps to the hole and the opposite border) (schema parity; not applied at plate level -- labels render before packing).",
           "title": "Balanced Centering"
+        },
+        "balanced_centering_hole_text_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BalancedCenteringHoleTextMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hole-text gap metric for gap-balanced centering: `closest_ink` (stroke-to-circle minimum) or `top_line` (vertical box-face-to-hole-face) (schema parity; not applied at plate level -- labels render before packing)."
+        },
+        "balanced_centering_hole_border_factor": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Border-side factor `f` in [0.0, 1.0] of the gap-balanced centering solve `f * A = (1 - f) * B` (0.5 = equal gaps, 0.0 = against the border, 1.0 = against the hole) (schema parity; not applied at plate level -- labels render before packing).",
+          "title": "Balanced Centering Hole Border Factor"
         },
         "align_margin_adjust_global": {
           "anyOf": [
@@ -6353,6 +6416,33 @@
       "default": null,
       "description": "Gap-balanced vertical centering for a label with a lone `top` (or lone `bottom`) drill hole. The hole-aware shift centers the text between the lone hole and the OPPOSITE vertical margin, which leaves the block about a quarter of a hole diameter off true center; this rule equalizes the two gaps instead -- the top text line's gap to the lone hole equals the bottom text line's gap to the opposite label BORDER (the engraved outline). Both distances are measured ink to ink: from the strokes the plotter actually cuts to the hole's engraved circle and to the border's engraved outline, so a round border or a line narrower than the block reads true. (A swept bounding box reads the block's corners instead, which on a round label reach into empty space past the ink and leave the text visibly off center -- the reason this rule measures ink.) Only the axis holes (`top`/`bottom`) count, so corner holes never trigger it, and a label with holes on both sides keeps the plain centering. Inert when there is no border ink to measure against, when the block cannot be balanced inside its band, and when the equal-gaps point would put less than the collision threshold between the text and the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `false`. Accepted on plates for schema parity only.",
       "title": "Balanced Centering"
+    },
+    "balanced_centering_hole_text_mode": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BalancedCenteringHoleTextMode"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "How gap-balanced centering measures the hole-text distance (the hole-side gap `A`). `closest_ink` (the legacy metric) is the true stroke-to-circle minimum: the distance from the closest ink of any character in the hole-side line to the lone hole's engraved edge, so the glyph that reaches furthest toward the hole decides the gap. `top_line` is the vertical face-to-face gap: from the hole's engraved edge to the facing edge of the text box -- `(hole_center_y - hole_radius) - (top line's y_max)` for a lone top hole, mirrored for a lone bottom hole -- which ignores which glyph happens to be tallest. The border-side gap is ink-to-ink under both values. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then `top_line`. Accepted on plates for schema parity only."
+    },
+    "balanced_centering_hole_border_factor": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Where gap-balanced centering lands the text block in the span between the lone hole and the opposite border, as a factor `f` in [0.0, 1.0] charged to the border side: the solve equalizes `f * A = (1 - f) * B`, where `A` is the hole-text gap (see `balanced_centering_hole_text_mode`) and `B` the text-border gap. 0.5 (the default) puts the block at equal gaps, 0.0 pushes it against the border (the text's border-side ink touches the border ink) and 1.0 against the hole. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 0.5. Accepted on plates for schema parity only.",
+      "title": "Balanced Centering Hole Border Factor"
     },
     "align_margin_adjust_global": {
       "anyOf": [

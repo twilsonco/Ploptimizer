@@ -1,10 +1,5 @@
 # TODO List
 
-- [ ] Finish the `<space>` dynamic-space markup coverage (the feature itself shipped, geometry + docs complete — see `docs/DONE.md`). Three units remain:
-  - **Reflow unit** `TestSpaceAwareReflow` in `tests/test_line_content.py`, mirroring `TestKernAwareReflow` (L1304): a marker-bearing word tokenizes through `_word_tokens` as a legal soft break, a moved line keeps the tag in `text` and the space in `plain_text` at the same index, a split at the marker round-trips through `serialize_runs` on both sides.
-  - **Layout report**: `LineFinding` gains a `dynamic_space` field counted from the line's own `styled_runs` (no new renderer plumbing — `space_slack` is already recorded per rendered line), included in `has_effect` so a marker-only line appears, and rendered in the per-line table. Plus `TestDynamicSpaceReport` in `tests/test_layout_report.py`. NOTE: a `<space>` that got NO room to expand is currently indistinguishable from one that consumed fill — decide whether the column shows the marker count, the slack in inches, or both, and pin an untagged job showing the "no adjustments" summary.
-  - **PLT export demo**: `tests_deps/space_job.yaml` (new fixture — `tests_deps/` is frozen, adding is allowed) + `TestSpaceDemoExample` in `tests/test_phase3_export.py`, mirroring `TestUnderlineDemoExample` (~L3214) / `TestScaleDemoExample` (~L3666). Cover a mid-line bare tag, a leading tag, a trailing tag, `<space:0>`, a tag nested in `<u>`, and a 2-line case; assert the ink spans the box margins, the per-cutter file names are unchanged, and the same spec without the tag renders identically to plain text.
-
 - [ ] Add relief engraving support
   - A ground truth example has been created with EngraveLab and provided:
     - `examples/plt_relief_engraving/A_no_relief.plt` is the toolpath for a capital "A" centered on a 1x1 plate using single-stroke dino font, 1/2" text height (0.44" with a 0.06" cutter).
@@ -61,10 +56,42 @@
 - [ ] Add spiral rastering pattern for relief engraving. See `examples/plt_relief_engraving/A_relief_spiral_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_spiral_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_spiral_0.005-only.plt` for reference.
 - [ ] Add "island" rastering for relief engraving. See `examples/plt_relief_engraving/A_relief_island_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_island_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_island_0.005-only.plt` for reference.
 - [ ] Optimize unit tests so they complete faster. Let's aim for 120s or less for the entire test suite.
-- [ ] When only top and/or bottom holes are specified, the behavior of text-hole collision avoidance should be different from when left/right/corner holes are specified. If top/bottom holes, then the only "knob" we can adjust to avoid collisions is the line spacing and the hole margin (which, clearly, for top/bottom holes implies the vertical margin). Please ensure that text-hole collision avoidance works correctly in this scenario as described above. I saw with a test file that it was increasing horizontal text compression in order to try and avoid collision with top holes, which is not the desired behavior.
-- [ ] Modify the `summary.txt` report that is generated when running the generation pipeline to include job information:
+- [ ] Extend the `summary.txt` report that is generated when running the generation pipeline to include job information:
   - Number of labels, in total and broken down by type/size/material
   - Number of characters, without counting spaces, in total and per text height
   - Number of drill holes, in total and per diameter
   - Amount of material used, in square inches and feet, in total and per material. Include a simple sum of label areas, as well as the total material required using a bounding box around labels (important for not fully packed plates, round labels, etc.).
+  - Total distance traveled by the tool in total and broken down by cutter size, type of movement (cutting vs rapid travel), job/label, material, and text vs borders/holes (routing)
+  - In addition to the `summary.txt` report, create a JSON file that contains the material/character/holes breakdown so that it's more easily consumable by other tools or scripts.
   - *Also update the generation AGENTS.md to add instructions that, as new job/label types etc. are added, they should be included in the summary report accordingly.*
+- [ ] Extend the `summary.txt` report to include price calculation based on the material use and size/number of characters. 
+  - Include the price calculation in the JSON file as well, so that it can be programmatically accessed and used by other tools or scripts.
+  - Will use pricing parameters from the "OSP label pricing and optimization" Google Sheet to calculate the price based on material usage and character count.
+    - Pricing formula parameters will be stored in a config file (perhaps in `job-config.json`, or a dedicated pricing config file e.g. `pricing-config.json`).
+    - Will include a table (dictionary/object) that maps character sizes to per-character pricing, where text with `text_height` $\leq$ a certain value falls into the corresponding pricing tier.
+      - `{"0.375": 0.18, "0.75": 0.51, "1.25": 0.62, "2.0": 1.0, "+": 1.5}`
+      - "+" indicates any text height greater than the largest specified tier.
+      - Text height prices correspond to the text height of *single-stroke* characters, e.g. $S=1$ characters. Multi-stroke character pricing is simply computed by multiplying the stroke count $S$ by the single-stroke price for the corresponding text height.
+      - Other pricing formula parameters include:
+        - `min_label_price` [3.0]: The minimum price for any label, regardless of material usage or character count.
+        - `base_label_price` [2.1]: The base price for any label, before adding material usage or character count costs.
+        - `material_price_per_sq_in` [0.12]: The price per square inch of material used for the label.
+- [ ] Add to the summary txt report job timing information
+  - Total time spent on each job, broken down by cutter size, job, and label. This will need to be calculated (approximated) based on different `tool_options` such as cutting velocity, plunge velocity, dwell time, z clearance, and z up velocity.
+- [ ] Add a higher-level yaml spec, `jobset`, so that a user could write a single file that points to multiple job files:
+  - e.g.
+    ```yaml
+    jobset:
+      - job: path/to/job1.yaml
+      - job: path/to/job2.yaml
+      - job: path/to/job3.yaml
+    ```
+  - This solves a problem related to maximal utilization of materials. Jobs often come in batches. It's desirable to keep each job in its own file for clarity and modularity, while still allowing the optimizer to consider all jobs together for material usage optimization.
+- [ ] Improve the balanced centering logic for labels with lone top/bottom holes:
+  1. Add a new enum parameter, `balanced_centering_hole_text_mode` to control how the hole-text distance is calculated, either `closest_ink` or `top_line`. Cascades job -> plate -> label, and defaults in job-config.json to `top_line`.
+     - `closest_ink`: Measure the distance from the closest ink stroke to the hole.
+     - `top_line`: Measure the distance from the top text line to the hole. This is not the same as the line's capline, but rather from the topmost ink stroke of the line to the hole.
+  2. Add a new float parameter to control the desired ratio of hole-text:text-border distances, `balanced_centering_hole_border_ratio`. Cascades job -> plate -> label, and defaults in job-config.json to 1.0.
+     - A value of 1.0 gives the current behavior, where the two distances are made to be equal.
+     - A value of e.g. 1.1 will result in the hole-text distance being 10% larger than the text-border distance.
+     - A value of e.g. 0.9 will result in the hole-text distance being 10% smaller than the text-border distance.

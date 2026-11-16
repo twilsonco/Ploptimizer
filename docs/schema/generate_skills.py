@@ -1078,6 +1078,8 @@ THEMES: Tuple[Theme, ...] = (
             "drill",
             "align_margin_adjust_global",
             "balanced_centering",
+            "balanced_centering_hole_text_mode",
+            "balanced_centering_hole_border_factor",
         ),
         fields=(
             "holes",
@@ -1090,8 +1092,10 @@ THEMES: Tuple[Theme, ...] = (
             "hole_text_collision_distance",
             "align_margin_adjust_global",
             "balanced_centering",
+            "balanced_centering_hole_text_mode",
+            "balanced_centering_hole_border_factor",
         ),
-        enums=("HoleLocation",),
+        enums=("HoleLocation", "BalancedCenteringHoleTextMode"),
         pitfalls=(
             "`location: corners` / `sides` are group shorthands expanded AT VALIDATION "
             "time into the atomic locations; downstream only ever sees the 8 atomic values.",

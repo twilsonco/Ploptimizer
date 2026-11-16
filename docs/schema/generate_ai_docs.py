@@ -246,6 +246,8 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "hole_diameter",
         "hole_adjust_for_cutter",
         "balanced_centering",
+        "balanced_centering_hole_text_mode",
+        "balanced_centering_hole_border_factor",
         "align_margin_adjust_global",
     ),
     "plates-layout-and-packing": (
@@ -297,6 +299,23 @@ _FALLBACK_NOTES: dict[str, str] = {
     "never inside the collision threshold. Off by default so every shipped job centers the legacy "
     "way until it opts in; cascades label/job (accepted on plates for schema parity only, never text "
     "lines); `job-config.json` supplies the shop default.",
+    "DEFAULT_BALANCED_CENTERING_HOLE_TEXT_MODE": "`closest_ink` = the hole-side gap `A` of "
+    "gap-balanced centering is the minimum distance from any engraved stroke of the hole-side text "
+    "line to the hole's emitted circle, so the glyph that reaches furthest toward the hole decides "
+    "(a capital's top edge is not special). `top_line` measures the vertical face-to-face gap between "
+    "the lone hole's engraved edge and the facing edge of the text box - the reading a designer "
+    "reasons about, and what `job-config.json` supplies as the shop default. The border-side gap stays "
+    "ink-to-ink either way, and the metric is inert unless `balanced_centering` is true. Cascades "
+    "label/job (accepted on plates for schema parity only, never text lines).",
+    "DEFAULT_BALANCED_CENTERING_HOLE_BORDER_FACTOR": "`0.5` = gap-balanced centering solves "
+    "`f * A = (1 - f) * B` at equal weights, so the block lands where the hole-text gap `A` equals the "
+    "text-border gap `B` - the shipped rule, unchanged. Raising `f` toward `1.0` moves the block toward "
+    "the hole, lowering it toward `0.0` moves it toward the border; the travel stays inside the same "
+    "caps (alignment content band, collision threshold, the legacy centering move), so an extreme "
+    "factor clamps to the best placement the caps allow and logs PARTIAL rather than engraving a "
+    "collision. Valid range [0.0, 1.0]; inert unless `balanced_centering` is true. Cascades label/job "
+    "(accepted on plates for schema parity only, never text lines); `job-config.json` supplies the shop "
+    "default.",
     "DEFAULT_HOLE_ADJUST_FOR_CUTTER": "`True` = the emitted drill-hole circle shrinks by the "
     "boundary/hole cutter diameter (the cutter radius on each side of the hole's path) so the "
     "engraved hole measures the specified diameter: a 0.1in hole cut by a 0.015in cutter emits "
