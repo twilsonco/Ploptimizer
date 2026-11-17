@@ -32,25 +32,27 @@ Metric sources
 Per-label attribution
 ---------------------
 
-The combined per-plate content the export keeps in memory
-(:attr:`PerCutterExport.combined_by_plate`) is assembled by
-:func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`,
-which emits the literal anchor ``PU0,0;`` (pen up to the safe position) before
-every label it places. Splitting on that anchor yields one section per placed
-label, in **device plotter units** -- the same frame the written files use, with
-rotation, the per-plate origin shift, and the Y-axis mirror already applied by
-production code. Nothing here re-derives a coordinate transform.
+The packer records every placement as a ``PackedLabel`` rect in inches, and
+:func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`
+lands that label on the plate with a plain **additive** translate of the
+placement offset - no mirror, no Y flip (``[x, x + H] x [y, y + W]`` for a
+sideways placement) - so a placement's slot is exactly
+``[x, x + width] x [y, y + height]`` in the same device plotter-unit frame the
+written files use. Rotation, the plate origin shift and the plate's Y direction
+are applied by production code; nothing here re-derives a coordinate transform.
 
-Each section's bounding box is matched to the packer's placement slot (the
-``PackedLabel`` rect, converted through
-:func:`~plt_optimizer.core.units.inches_to_units`), which names the section's
-owner and keeps the mapping correct when a label contributes no content to a
-layer. Two slot conventions are probed per plate (the plate content's Y axis
-runs up, the packer's runs down) and the convention that actually covers the
-sections wins. A stroke is attributed to the slot that contains its geometry
-box, falling back to the nearest slot centre, and a stroke that nothing can
-explain is reported under ``unattributed`` -- never silently dropped, so the
-per-label rows always sum to the file totals.
+Distance is attributed **per segment**, not per path: the sweep and merge
+optimizers routinely join contours that were laid out apart, so one parsed path
+can carry geometry belonging to several labels, and a label whose content
+overruns its reserved box straddles its neighbours. A cutting segment follows
+the slot containing its midpoint, a rapid lead follows its destination (that is
+the label the tool is travelling TO), and the inter-path gap the point the tool
+arrived at. A segment no slot explains is reported under ``unattributed`` --
+never silently dropped - so the per-label rows always sum to the file totals.
+
+The border/hole split of a ``bh`` file comes from the combined content's pen
+layers (:data:`LAYER_BOUNDARY` / :data:`LAYER_HOLES`), keyed by stroke
+signature, because the per-cutter files carry no ``SP`` pen selects.
 
 Determinism
 -----------
@@ -65,9 +67,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from plt_optimizer.core.models import ArcSegment, PLTDocument, Segment, StrokePath
+from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.units import inches_to_units, units_to_inches
 from plt_optimizer.generate.resolution import ResolvedLabel, hole_engraved_radius
@@ -93,11 +95,6 @@ SQ_IN_PER_SQ_FT: float = 144.0
 
 #: Inches per foot (distances are reported in inches with a foot conversion).
 IN_PER_FT: float = 12.0
-
-#: The literal pen-up anchor
-#: :func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`
-#: emits before every placed label. The section split depends on it.
-SECTION_ANCHOR: str = "PU0,0;"
 
 #: Stroke classes. Text-layer strokes of a relief label are
 #: :data:`RELIEF_CLASS` because the relief passes share the text cutter's pen
@@ -128,13 +125,13 @@ KIND_STRUCTURAL: str = "bh"
 #: neighbouring slot (the packer keeps a larger gap than this).
 SLOT_TOL_IN: float = 0.02
 
-#: How far a stroke's **centre** may sit outside every slot and still be
-#: attributed to the nearest one, in inches. A stroke that overhangs (a relief
-#: pass covering the whole island, a descender relief, a cutter-radius bleed)
-#: keeps its centre inside the label, so this only has to absorb the overhang
-#: itself. Anything further out - a full-plate border, a drill guide, a stroke
-#: the packer never placed - is charged to :data:`UNATTRIBUTED_CLASS` instead of
-#: being silently dumped on the closest label.
+#: How far a segment's measured **point** may sit outside every slot and still
+#: be attributed to the nearest one, in inches. A stroke can legitimately
+#: overhang (a relief pass covering the whole island, a descender relief, a
+#: cutter-radius bleed). Anything further out - a full-plate border, a drill
+#: guide, geometry the packer never placed - is charged to
+#: :data:`UNATTRIBUTED_CLASS` instead of being silently dumped on the closest
+#: label.
 SLOT_CENTRE_TOL_IN: float = 0.25
 
 #: Placeholder for "no cutter size recorded" in the cutter buckets (a stem the
@@ -216,29 +213,6 @@ class _Rect:
             and self.y_max >= other.y_max
         )
 
-    @staticmethod
-    def union(rects: Iterable[_Rect]) -> Optional[_Rect]:
-        """Return the bounding rectangle of ``rects``, or ``None`` when empty.
-
-        Args:
-            rects: The rectangles to combine.
-
-        Returns:
-            The union rectangle, or ``None`` when there is nothing to bound.
-        """
-        result: Optional[_Rect] = None
-        for rect in rects:
-            if result is None:
-                result = rect
-            else:
-                result = _Rect(
-                    x_min=min(result.x_min, rect.x_min),
-                    y_min=min(result.y_min, rect.y_min),
-                    x_max=max(result.x_max, rect.x_max),
-                    y_max=max(result.y_max, rect.y_max),
-                )
-        return result
-
 
 @dataclass(frozen=True)
 class _Slot:
@@ -267,8 +241,6 @@ class _PlateFrame:
         material: The plate's stock material name (``None`` = the plate
             carries no material).
         slots: The placement slots, in packing order.
-        sections: One bounding box per :data:`SECTION_ANCHOR` section of the
-            plate's combined content that carries cutting geometry.
         stroke_class: Stroke signature to :data:`BORDER_CLASS` /
             :data:`HOLE_CLASS`, used to split a ``bh`` file's travel (the
             per-cutter files carry no ``SP`` pen selects).
@@ -277,50 +249,7 @@ class _PlateFrame:
     plate_number: int
     material: Optional[str] = None
     slots: List[_Slot] = field(default_factory=list)
-    sections: List[_Rect] = field(default_factory=list)
     stroke_class: Dict[Tuple[Any, ...], str] = field(default_factory=dict)
-
-
-def _segment_box(seg: Segment) -> _Rect:
-    """Return the bounding rectangle a segment can reach.
-
-    Arcs are boxed by their centre and radius, not their endpoints: a drill hole
-    (``AA ...,360``) draws a circle whose extreme points are not listed in the
-    command, and the box must contain the whole circle.
-
-    Args:
-        seg: The parsed segment.
-
-    Returns:
-        The segment's device-unit bounding rectangle.
-    """
-    if isinstance(seg, ArcSegment):
-        radius = seg.radius
-        return _Rect(
-            x_min=seg.center.x - radius,
-            y_min=seg.center.y - radius,
-            x_max=seg.center.x + radius,
-            y_max=seg.center.y + radius,
-        )
-    return _Rect(
-        x_min=min(seg.start.x, seg.end.x),
-        y_min=min(seg.start.y, seg.end.y),
-        x_max=max(seg.start.x, seg.end.x),
-        y_max=max(seg.start.y, seg.end.y),
-    )
-
-
-def _path_box(path: StrokePath) -> Optional[_Rect]:
-    """Return the bounding rectangle of a path's cutting geometry.
-
-    Args:
-        path: The parsed stroke path.
-
-    Returns:
-        The box of the path's cutting segments, or ``None`` when the path
-        carries no cutting segment (pure rapid travel).
-    """
-    return _Rect.union([_segment_box(seg) for seg in path.segments if seg.is_cutting])
 
 
 def _path_signature(path: StrokePath) -> Tuple[Any, ...]:
@@ -369,34 +298,6 @@ def _path_signature(path: StrokePath) -> Tuple[Any, ...]:
     return tuple(parts)
 
 
-def _section_boxes(combined: str) -> List[_Rect]:
-    """Split a plate's combined content into per-label bounding boxes.
-
-    Args:
-        combined: The plate's combined (all pens) PLT content.
-
-    Returns:
-        One rectangle per :data:`SECTION_ANCHOR` section that carries cutting
-        geometry, in placement order. The slot matching below is
-        order-independent, so a label that contributes no geometry to this
-        content simply produces no box.
-    """
-    parser = PLTParser()
-    boxes: List[_Rect] = []
-    for section in combined.split(SECTION_ANCHOR)[1:]:
-        box = _Rect.union(
-            [
-                _segment_box(seg)
-                for path in parser.parse_string(section).stroke_paths
-                for seg in path.segments
-                if seg.is_cutting
-            ]
-        )
-        if box is not None:
-            boxes.append(box)
-    return boxes
-
-
 def _structural_classes(combined: str) -> Dict[Tuple[Any, ...], str]:
     """Split a plate's combined content into border and hole stroke classes.
 
@@ -428,25 +329,26 @@ def _slot_rect(
     width: float,
     height: float,
     rotated: bool,
-    y_down: bool,
 ) -> _Rect:
     """Return a placement slot as a device-unit rectangle.
 
-    The packer works in inches with the Y axis running down; the assembled plate
-    content works in plotter units with the Y axis running up, and
-    :func:`~plt_optimizer.generate.vectorize.translate_plt_coordinates` mirrors
-    the label's local Y into that frame (a label placed at ``y`` draws into
-    ``[y - height, y]``). Both conventions are produced (``y_down``) so the
-    caller can probe which one the plate's content actually uses.
+    The plate frame is fixed by the assembly, not probed: the renderer draws a
+    label into its local ``[0, width] x [0, height]`` box (Y up, origin at the
+    slot's lower-left) and
+    :func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`
+    lands it with a plain additive
+    :func:`~plt_optimizer.generate.vectorize.translate_plt_coordinates` of
+    ``(placement.x, placement.y)`` -- no mirroring and no Y flip (see the
+    ``[x, x+H] x [y, y+W]`` slot comment there for a rotated placement). So the
+    slot of a placement is exactly ``[x, x+width] x [y, y+height]`` in the
+    emitted content's frame, in inches.
 
     Args:
-        x: Slot origin X in inches (from the left edge of the plate).
-        y: Slot origin Y in inches (from the top edge of the plate).
+        x: Slot origin X in inches (from the plate frame's origin).
+        y: Slot origin Y in inches (from the plate frame's origin).
         width: The label's nominal width in inches (unrotated).
         height: The label's nominal height in inches (unrotated).
         rotated: Whether the packer placed the label sideways.
-        y_down: True for the packer's own frame, False for the content frame
-            the assembly produces.
 
     Returns:
         The slot rectangle in device plotter units.
@@ -457,17 +359,14 @@ def _slot_rect(
     span_h = inches_to_units(height)
     # A sideways placement occupies the swapped slot [x, x + H] x [y, y + W].
     x_span, y_span = (span_h, span_w) if rotated else (span_w, span_h)
-    if y_down:
-        return _Rect(origin_x, origin_y, origin_x + x_span, origin_y + y_span)
-    return _Rect(origin_x, origin_y - y_span, origin_x + x_span, origin_y)
+    return _Rect(origin_x, origin_y, origin_x + x_span, origin_y + y_span)
 
 
-def _slots_for(placements: Sequence[Any], y_down: bool) -> List[_Slot]:
+def _slots_for(placements: Sequence[Any]) -> List[_Slot]:
     """Build the slot list of one plate's placements.
 
     Args:
         placements: The plate's ``PackedLabel`` placements, in packing order.
-        y_down: The Y convention to use (see :func:`_slot_rect`).
 
     Returns:
         One slot per placement, in packing order.
@@ -485,7 +384,6 @@ def _slots_for(placements: Sequence[Any], y_down: bool) -> List[_Slot]:
                     float(placement.width),
                     float(placement.height),
                     bool(placement.rotated),
-                    y_down,
                 ),
                 is_relief=bool(getattr(source, "relief_engraving", False)),
             )
@@ -493,80 +391,45 @@ def _slots_for(placements: Sequence[Any], y_down: bool) -> List[_Slot]:
     return slots
 
 
-def _coverage(slots: Sequence[_Slot], sections: Sequence[_Rect]) -> float:
-    """Return the section area a slot set explains.
-
-    Args:
-        slots: The candidate slots.
-        sections: The measured section boxes (device units).
-
-    Returns:
-        The summed area of the sections some slot contains (padded by
-        :data:`SLOT_TOL_IN`).
-    """
-    tol = inches_to_units(SLOT_TOL_IN)
-    return sum(
-        box.area for box in sections if any(slot.rect.padded(tol).covers(box) for slot in slots)
-    )
-
-
-def _matched_slots(placements: Sequence[Any], sections: Sequence[_Rect]) -> List[_Slot]:
-    """Turn the packer's placements into slots in the content's frame.
-
-    The content's Y convention is probed, not assumed: the convention that
-    covers more of the measured section area wins.
-
-    Args:
-        placements: The plate's ``PackedLabel`` placements, in packing order.
-        sections: The plate's per-label section boxes (device units).
-
-    Returns:
-        One slot per placement, in packing order.
-    """
-    y_up = _slots_for(placements, y_down=False)
-    if not y_up or not sections:
-        return y_up
-    y_down = _slots_for(placements, y_down=True)
-    return y_down if _coverage(y_down, sections) > _coverage(y_up, sections) else y_up
-
-
-def _stroke_owner(
+def _point_owner(
     frame: Optional[_PlateFrame],
-    box: Optional[_Rect],
+    x: float,
+    y: float,
 ) -> Optional[_Slot]:
-    """Return the slot that owns a stroke's geometry.
+    """Return the slot that owns a point of toolpath geometry.
 
     Args:
         frame: The owning plate's frame, or ``None`` when unresolved.
-        box: The path's cutting bounding box, or ``None`` for pure rapid travel.
+        x: Device-unit X of the point to attribute.
+        y: Device-unit Y of the point to attribute.
 
     Returns:
-        The slot that contains the box (padded by :data:`SLOT_TOL_IN`); the
-        nearest slot when the box only overhangs, i.e. its centre stays within
+        The slot containing the point (padded by :data:`SLOT_TOL_IN`, nearest
+        centre winning when overlapping slots both contain it); the nearest slot
+        when the point only overhangs, i.e. it stays within
         :data:`SLOT_CENTRE_TOL_IN` of a slot; ``None`` when the plate carries no
-        placements or the stroke belongs to no label (charged to
+        placements or the point belongs to no label (charged to
         :data:`UNATTRIBUTED_CLASS`).
     """
-    if frame is None or box is None or not frame.slots:
+    if frame is None or not frame.slots:
         return None
-    tol = inches_to_units(SLOT_TOL_IN)
-    for slot in frame.slots:
-        if slot.rect.padded(tol).covers(box):
-            return slot
-    # A stroke can legitimately overhang (a relief pass covering the whole
-    # label, cutter-radius overhang): attribute on the box centre, but only
-    # while that centre is still close to a slot.
-    center_x, center_y = box.center
-    reach = inches_to_units(SLOT_CENTRE_TOL_IN)
-    nearest = min(
-        frame.slots,
-        key=lambda slot: (
-            (slot.rect.center[0] - center_x) ** 2 + (slot.rect.center[1] - center_y) ** 2,
-            slot.label_id,
-        ),
-    )
-    centre_box = _Rect(center_x, center_y, center_x, center_y)
-    if nearest.rect.padded(reach).covers(centre_box):
+    point = _Rect(x, y, x, y)
+
+    def distance(slot: _Slot) -> Tuple[float, str]:
+        cx, cy = slot.rect.center
+        return ((cx - x) ** 2 + (cy - y) ** 2, slot.label_id)
+
+    inside = [
+        slot for slot in frame.slots if slot.rect.padded(inches_to_units(SLOT_TOL_IN)).covers(point)
+    ]
+    if inside:
+        return min(inside, key=distance)
+    # The point sits outside every slot (a relief pass covering the whole
+    # island, a descender relief, cutter-radius bleed, a label that overruns
+    # its reserved box): attribute on proximity, but only while the point is
+    # still close to a slot.
+    nearest = min(frame.slots, key=distance)
+    if nearest.rect.padded(inches_to_units(SLOT_CENTRE_TOL_IN)).covers(point):
         return nearest
     return None
 
@@ -1082,6 +945,11 @@ def _measure_document(
 ) -> int:
     """Measure one parsed per-cutter file into the accumulators.
 
+    Attribution walks the path's segments (see the module docstring): the
+    per-segment lengths sum to the path's own ``cutting_distance`` /
+    ``rapid_distance``, so the per-file, per-cutter and per-plate rows stay
+    exact while a path that spans labels is split across them.
+
     Args:
         document: The parsed file.
         frame: The owning plate's frame, or ``None`` when unresolved.
@@ -1094,29 +962,47 @@ def _measure_document(
     strokes = 0
     position: Optional[Tuple[float, float]] = None
     for path in document.stroke_paths:
-        box = _path_box(path)
-        slot = _stroke_owner(frame, box)
-        label_id = slot.label_id if slot is not None else None
-        stroke_class = _stroke_class(path, kind, frame, slot)
-        cut_in = units_to_inches(path.cutting_distance)
-        # Intra-path air travel (one path can carry several pen-up led
-        # contours) plus the inter-path gap that lands on this path. The
-        # gap is charged to this path's destination label, which is the
-        # label the tool is travelling TO.
-        rapid_in = units_to_inches(path.rapid_distance)
+        layer_class = (
+            frame.stroke_class.get(_path_signature(path), BORDER_CLASS)
+            if kind == KIND_STRUCTURAL and frame is not None
+            else None
+        )
+        cutting = [seg for seg in path.segments if seg.is_cutting]
+        if cutting:
+            strokes += 1
+        # A stroke (path) is unattributed when no cutting segment of it found an
+        # owner - the unit that matches the per-file "strokes" count.
+        owned_cutting = 0
+        # The gap the tool flew between the previous path's end and this path's
+        # pen-up destination lands on the label it arrived at.
         if position is not None and path.pen_up_position is not None:
             gap = (
                 (path.pen_up_position.x - position[0]) ** 2
                 + (path.pen_up_position.y - position[1]) ** 2
             ) ** 0.5
-            rapid_in += units_to_inches(gap)
-        totals.add_cutting(cut_in, stroke_class, label_id)
-        totals.add_rapid(rapid_in, label_id)
-        if box is not None:
-            # A pure-rapid path travels, cuts nothing, and owns no stroke.
-            strokes += 1
-            if label_id is None:
-                totals.unattributed_strokes += 1
+            arrival = _point_owner(frame, path.pen_up_position.x, path.pen_up_position.y)
+            totals.add_rapid(
+                units_to_inches(gap), arrival.label_id if arrival is not None else None
+            )
+        for seg in path.segments:
+            # Cutting travel follows the segment's midpoint; a rapid lead
+            # follows its destination, which is where the next cut starts.
+            if seg.is_cutting:
+                owner = _point_owner(
+                    frame, (seg.start.x + seg.end.x) / 2.0, (seg.start.y + seg.end.y) / 2.0
+                )
+            else:
+                owner = _point_owner(frame, seg.end.x, seg.end.y)
+            label_id = owner.label_id if owner is not None else None
+            length = units_to_inches(seg.length)
+            if seg.is_cutting:
+                totals.add_cutting(length, _segment_class(kind, layer_class, owner), label_id)
+                if label_id is not None:
+                    owned_cutting += 1
+            else:
+                totals.add_rapid(length, label_id)
+        if cutting and owned_cutting == 0:
+            totals.unattributed_strokes += 1
         # Where the tool stops is where the next path starts from.
         if path.segments:
             last = path.segments[-1]
@@ -1126,30 +1012,27 @@ def _measure_document(
     return strokes
 
 
-def _stroke_class(
-    path: StrokePath,
+def _segment_class(
     kind: Optional[str],
-    frame: Optional[_PlateFrame],
-    slot: Optional[_Slot],
+    layer_class: Optional[str],
+    owner: Optional[_Slot],
 ) -> str:
-    """Return the stroke class of a path.
+    """Return the stroke class of one segment.
 
     Args:
-        path: The parsed stroke path.
         kind: The file's layer kind.
-        frame: The owning plate's frame.
-        slot: The owning placement slot, or ``None`` when unattributed.
+        layer_class: The path's class from the plate's pen layers, or ``None``
+            for a text file.
+        owner: The owning placement slot, or ``None`` when unattributed.
 
     Returns:
         One of :data:`DISTANCE_CLASSES`.
     """
-    if slot is None:
+    if owner is None:
         return UNATTRIBUTED_CLASS
     if kind == KIND_STRUCTURAL:
-        if frame is None:
-            return UNATTRIBUTED_CLASS
-        return frame.stroke_class.get(_path_signature(path), BORDER_CLASS)
-    return RELIEF_CLASS if slot.is_relief else TEXT_CLASS
+        return layer_class if layer_class is not None else UNATTRIBUTED_CLASS
+    return RELIEF_CLASS if owner.is_relief else TEXT_CLASS
 
 
 def _file_plate_number(
@@ -1437,17 +1320,12 @@ def build_usage_stats(
     frames: Dict[int, _PlateFrame] = {}
     for number, plate in enumerate(packed_plates, start=1):
         combined = combined_by_plate.get(number)
-        slots = _matched_slots(
-            list(getattr(plate, "labels", ()) or ()),
-            _section_boxes(combined) if combined else [],
-        )
         frame = _PlateFrame(
             plate_number=number,
             material=material_by_plate.get(number, getattr(plate, "material", None)),
-            slots=slots,
+            slots=_slots_for(list(getattr(plate, "labels", ()) or ())),
         )
         if combined:
-            frame.sections = _section_boxes(combined)
             frame.stroke_class = _structural_classes(combined)
         frames[number] = frame
     return {

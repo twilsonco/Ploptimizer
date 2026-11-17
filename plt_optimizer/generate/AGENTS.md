@@ -898,8 +898,14 @@ A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsiz
   because that is what the machine will actually run, and attributed back through
   `combined_by_plate`: cutter + layer kind from the file name, plate/material from the
   writer's `_{job_id}` suffix + `material_by_plate`, stroke class from the pen-layer
-  (`SP2` boundary / `SP3` hole) signatures of the assembled plate content, label from the
-  placement slot containment. Character bands are keyed by the
+  (`SP2` boundary / `SP3` hole) signatures of the assembled plate content, and label from
+  **per-segment** slot ownership: a placement at `(x, y)` occupies
+  `[x, x+width] x [y, y+height]` in the emitted frame (the assembly translates a label
+  ADDITIVELY - no mirror, no Y flip), a cutting segment is owned by the slot holding its
+  midpoint, a rapid lead by the slot holding its destination, and the inter-path gap by the
+  label the tool arrived at. Segment-level (not path-level) attribution is required because
+  the sweep/merge optimizers join contours laid out apart, so one path can carry several
+  labels' geometry and a label can overrun its reserved box. Character bands are keyed by the
   **`(nominal_text_height, text_height)` pair** - the size the shop ordered and
   the size the machine cuts (compression, the cutter downsize, `<scale:N>` and a
   bold partner move the second only) - so `summary.txt` prints
@@ -909,8 +915,12 @@ A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsiz
   mode, layer kind, material or output file naming pattern needs a bucket in `usage` **and**
   a bucket test; a new distance **class** means a `DISTANCE_CLASSES` entry, and a per-cutter
   file that must not be measured at all means a `KIND_*` skip - otherwise new strokes land in
-  `unattributed` (which is reported, never dropped). All counters reconcile with
-  `distance.total`; `summary.txt` renders the same dict, so the two surfaces cannot diverge.
+  `unattributed` (which is reported, never dropped). A whole file of `unattributed` travel is
+  the symptom of a **frame** bug (slots no longer matching the emitted content), not of
+  missing labels: check `_slot_rect`'s additive convention first, because a mirrored frame
+  keeps every total correct and silently moves each label's distance onto its neighbour. All
+  counters reconcile with `distance.total`; `summary.txt` renders the same dict, so the two
+  surfaces cannot diverge.
   Breaking changes to the block bump `generation_report.REPORT_SCHEMA_VERSION`.
 - `scripts/run_integration_test.py` prints the full report as the
   **Phase 3.6: LAYOUT REPORT** section; the `generate` CLI prints it **only under `-v`**

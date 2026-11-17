@@ -111,7 +111,11 @@ def placement(
     height: Optional[float] = None,
     rotated: bool = False,
 ) -> PackedLabel:
-    """A placement of ``source`` on a plate (``y`` is the y-up top edge)."""
+    """A placement of ``source`` on a plate.
+
+    ``x``/``y`` are the slot's lower-left corner in the emitted plate frame (the
+    frame :func:`rect_path` draws into), inches.
+    """
     return PackedLabel(
         label_id=label_id or f"{source.id}_0",
         x=x,
@@ -146,11 +150,16 @@ def plate(
 
 
 def rect_path(x: float, y: float, w: float, h: float) -> str:
-    """Pen-up-led closed rectangle from the y-up top-left ``(x, y)``.
+    """Pen-up-led closed rectangle with its lower-left corner at ``(x, y)``.
+
+    The plate frame is the additive one the assembly produces: a label placed at
+    ``(x, y)`` draws into ``[x, x + w] x [y, y + h]`` (device Y up), so a fixture
+    built around a placement at ``(x, y)`` lands inside that placement's slot by
+    passing the same ``y`` here.
 
     Cutting distance: ``2 * (w + h)`` inches.
     """
-    x0, y0, x1, y1 = u(x), u(y), u(x + w), u(y - h)
+    x0, y0, x1, y1 = u(x), u(y), u(x + w), u(y + h)
     return f"PU{x0},{y0};PD{x1},{y0},{x1},{y1},{x0},{y1},{x0},{y0};"
 
 
@@ -170,8 +179,10 @@ def section(*parts: str) -> str:
     """One assembled label section: the production anchor plus its content.
 
     :func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`
-    emits the literal ``PU0,0;`` (pen up to the safe position) before every
-    label it places, which is the anchor the per-label attribution splits on.
+    emits the literal ``PU0,0;`` (pen up to the safe position) before every label
+    it places, so the fixture content looks like a real assembled plate. The
+    attribution does not split on it: slots come from the placements and geometry
+    is owned by point containment.
     """
     return "PU0,0;" + "".join(parts)
 
@@ -615,24 +626,31 @@ ROUND_RELIEF_SPEC = label(
 UV_TEXT_IN = 3.0  # rect_path(0.5, 2.5, 1.0, 0.5)
 WB_TEXT_IN = 6.0  # rect_path(1.0, 4.0, 2.0, 1.0)
 WB_BORDER_IN = 18.0  # rect_path(1.0, 4.0, 6.0, 3.0)
-WB_HOLE_SIDE_IN = 0.25  # circle_path(1.5, 3.5, 0.25)
+WB_HOLE_SIDE_IN = 0.25  # circle_path(1.5, 4.5, 0.25)
 WB_HOLE_IN = 4 * WB_HOLE_SIDE_IN
 # Pen-up travel between the bh file's boundary and its hole: from the
-# rectangle's closing point (1.0, 4.0) to the hole's pen-up (1.375, 3.625).
-WB_BH_RAPID_IN = math.hypot(0.375, -0.375)
+# rectangle's closing point (1.0, 4.0) to the hole's pen-up (1.375, 4.625).
+WB_BH_RAPID_IN = math.hypot(0.375, 0.625)
 
 
 def make_job(tmp_path: Path) -> Dict[str, Any]:
     """A two-plate job whose emitted files have known total lengths.
 
-    Plate 1 (uv): ``rect-a`` at y-up (0.5, 2.5), engraved by the 0.030 txt
-    cutter as a 1.0 x 0.5 rectangle.
-    Plate 2 (wb): ``round-b`` (relief) at y-up (1.0, 4.0), engraved by the
-    0.030 txt cutter as a 2.0 x 1.0 rectangle, plus a boundary (pen 2) and a
-    drill hole (pen 3) by the 0.060 bh cutter.
+    Every piece of a label's geometry is drawn inside the box the packer
+    reserved for it - that is what production does, and it is what lets the
+    per-segment attribution name an owner for each stroke.
+
+    Plate 1 (uv): ``rect-a`` in the slot at ``(0.5, 2.5)``, engraved by the
+    0.030 txt cutter as a 1.0 x 0.5 rectangle.
+    Plate 2 (wb): ``round-b`` (relief) in the 6.0 x 3.0 slot at ``(1.0, 4.0)``
+    (the frame it engraves), engraved by the 0.030 txt cutter as a 2.0 x 1.0
+    rectangle, plus a boundary (pen 2) and a drill hole (pen 3) by the 0.060
+    bh cutter.
     """
     rect_placement = placement(RECT_SPEC, label_id="rect-a_0", x=0.5, y=2.5)
-    round_placement = placement(ROUND_RELIEF_SPEC, label_id="round-b_0", x=1.0, y=4.0)
+    round_placement = placement(
+        ROUND_RELIEF_SPEC, label_id="round-b_0", x=1.0, y=4.0, width=6.0, height=3.0
+    )
     return {
         "resolved_labels": [RECT_SPEC, ROUND_RELIEF_SPEC],
         "packed_plates": [
@@ -645,7 +663,7 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
                 section(rect_path(1.0, 4.0, 2.0, 1.0)),
                 section(
                     f"SP2;{rect_path(1.0, 4.0, 6.0, 3.0)}",
-                    f"SP3;{circle_path(1.5, 3.5, WB_HOLE_SIDE_IN)}",
+                    f"SP3;{circle_path(1.5, 4.5, WB_HOLE_SIDE_IN)}",
                 ),
             ),
         },
@@ -657,7 +675,7 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
                 "02_wb_60_bh_job.plt",
                 document(
                     rect_path(1.0, 4.0, 6.0, 3.0),
-                    circle_path(1.5, 3.5, WB_HOLE_SIDE_IN),
+                    circle_path(1.5, 4.5, WB_HOLE_SIDE_IN),
                 ),
             ),
         ],
@@ -789,6 +807,101 @@ class TestDistanceStrokeClasses:
         assert usage["by_label"] == []
 
 
+class TestDistanceAttribution:
+    """How geometry is matched to the label that owns it."""
+
+    def test_one_path_spanning_two_labels_is_split_between_them(self, tmp_path: Path) -> None:
+        # The sweep and merge optimizers join contours that were laid out apart,
+        # so one parsed path can carry geometry of several labels. Attribution
+        # walks segments: each part lands on the label it sits on, and the
+        # per-label rows still sum to the file total.
+        a = label("a", material="uv")
+        b = label("b", material="uv")
+        content = document(
+            f"PU{u(0.5)},{u(0.5)};PD{u(1.5)},{u(0.5)},{u(2.5)},{u(0.5)},{u(3.5)},{u(0.5)};"
+        )
+        usage = stats_for(
+            resolved_labels=[a, b],
+            packed_plates=[
+                plate(
+                    material="uv",
+                    labels=[
+                        placement(a, label_id="a_0", x=0.0, y=0.0, width=2.0, height=1.0),
+                        placement(b, label_id="b_0", x=2.0, y=0.0, width=2.0, height=1.0),
+                    ],
+                )
+            ],
+            combined_by_plate={1: content},
+            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            material_by_plate={1: "uv"},
+        )["distance"]
+        rows = {row["label_id"]: row for row in usage["by_label"]}
+        # Three 1 in segments: the first two sit on a (the crossing segment's
+        # midpoint is on the shared edge, which a covers), the last on b.
+        assert rows["a_0"]["cutting"] == pytest.approx(2.0)
+        assert rows["b_0"]["cutting"] == pytest.approx(1.0)
+        assert usage["total"]["cutting"] == pytest.approx(3.0)
+        assert usage["by_class"]["unattributed"] == pytest.approx(0.0)
+        assert usage["unattributed"]["strokes"] == 0
+
+    def test_a_placement_at_y_draws_into_the_row_above_it(self, tmp_path: Path) -> None:
+        # The assembly translates a label ADDITIVELY: a placement at ``(x, y)``
+        # draws into ``[x, x + width] x [y, y + height]``. This pins that frame -
+        # a mirrored one leaves every total correct and silently shifts each
+        # label's distance onto the label stacked above it.
+        a = label("a", material="uv")
+        b = label("b", material="uv")
+        content = document(rect_path(0.0, 0.625, 1.0, 0.25))  # a box inside b's row
+        usage = stats_for(
+            resolved_labels=[a, b],
+            packed_plates=[
+                plate(
+                    material="uv",
+                    labels=[
+                        placement(a, label_id="a_0", x=0.0, y=0.0, width=1.0, height=0.5),
+                        placement(b, label_id="b_0", x=0.0, y=0.5, width=1.0, height=0.5),
+                    ],
+                )
+            ],
+            combined_by_plate={1: content},
+            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            material_by_plate={1: "uv"},
+        )["distance"]
+        assert [row["label_id"] for row in usage["by_label"]] == ["b_0"]
+        assert usage["by_label"][0]["cutting"] == pytest.approx(2 * (1.0 + 0.25))
+        assert usage["by_class"]["unattributed"] == pytest.approx(0.0)
+
+    def test_rapid_travel_lands_on_the_label_it_arrives_at(self, tmp_path: Path) -> None:
+        # The air gap between two strokes is charged to the DESTINATION label:
+        # the tool is travelling to the label it is about to engrave.
+        a = label("a", material="uv")
+        b = label("b", material="uv")
+        content = document(
+            rect_path(0.0, 0.0, 1.0, 0.5),
+            rect_path(0.0, 1.0, 1.0, 0.5),
+        )
+        usage = stats_for(
+            resolved_labels=[a, b],
+            packed_plates=[
+                plate(
+                    material="uv",
+                    labels=[
+                        placement(a, label_id="a_0", x=0.0, y=0.0, width=1.0, height=0.5),
+                        placement(b, label_id="b_0", x=0.0, y=1.0, width=1.0, height=0.5),
+                    ],
+                )
+            ],
+            combined_by_plate={1: content},
+            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            material_by_plate={1: "uv"},
+        )["distance"]
+        rows = {row["label_id"]: row for row in usage["by_label"]}
+        # The gap runs from a's closing point (0, 0) to b's pen-up (0, 1): 1 in,
+        # charged to b.
+        assert rows["a_0"]["rapid"] == pytest.approx(0.0)
+        assert rows["b_0"]["rapid"] == pytest.approx(1.0)
+
+
 class TestDistanceRapid:
     def test_pen_up_travel_between_strokes_counts_as_rapid(self, tmp_path: Path) -> None:
         spec = label("a", material="uv")
@@ -911,26 +1024,63 @@ class TestDistanceCounters:
 class TestUsageEdgeCases:
     """The defensive corners of the accounting helpers."""
 
-    def test_arc_segment_box_spans_the_sweep(self) -> None:
+    def test_arc_segment_is_measured_by_length_and_owned_by_its_point(self, tmp_path: Path) -> None:
         # The parser approximates large ``AA`` sweeps into line segments, so an
-        # ``ArcSegment`` reaches the geometry helpers from an optimised
-        # (arc-preserving) path only - box it directly.
-        from plt_optimizer.core.models import ArcSegment, Coordinate, StrokePath
-        from plt_optimizer.generate.usage_stats import _segment_box
+        # ``ArcSegment`` reaches the measurement loop from an optimised
+        # (arc-preserving) path only. Build one directly: a full circle starts
+        # and ends on the circle, so its travel is the arc length and its owner
+        # is the slot holding the point the tool is at.
+        from plt_optimizer.core.models import (
+            ArcSegment,
+            Coordinate,
+            PLTDocument,
+            StrokePath,
+        )
+        from plt_optimizer.generate.usage_stats import (
+            KIND_STRUCTURAL,
+            _DistanceTotals,
+            _measure_document,
+            _path_signature,
+            _PlateFrame,
+            _Rect,
+            _Slot,
+        )
 
+        radius = 0.25
+        centre = (1.0, 4.5)
         arc = ArcSegment(
-            start=Coordinate(x=u(1.0), y=u(1.0)),
-            end=Coordinate(x=u(3.0), y=u(1.0)),
-            center=Coordinate(x=u(2.0), y=u(1.0)),
-            sweep_angle=180.0,
+            start=Coordinate(x=u(centre[0] + radius), y=u(centre[1])),
+            end=Coordinate(x=u(centre[0] + radius), y=u(centre[1])),
+            center=Coordinate(x=u(centre[0]), y=u(centre[1])),
+            sweep_angle=360.0,
             is_cutting=True,
         )
-        assert StrokePath is not None  # documentation: the box takes a path's segments
-        box = _segment_box(arc)
-        # Boxed by centre and radius, so the result is the full circle's extent
-        # (conservative for a partial sweep, which is what slot attribution needs).
-        assert (box.x_max - box.x_min) == pytest.approx(u(2.0))
-        assert (box.y_max - box.y_min) == pytest.approx(u(2.0))
+        path = StrokePath(
+            pen_up_position=Coordinate(x=u(centre[0] + radius), y=u(centre[1])),
+            segments=(arc,),
+        )
+        slot = _Slot(
+            label_id="round-b_0",
+            spec_id="round-b",
+            rect=_Rect(x_min=u(1.0), y_min=u(4.0), x_max=u(3.0), y_max=u(5.0)),
+            is_relief=True,
+        )
+        frame = _PlateFrame(
+            plate_number=2,
+            material="wb",
+            slots=[slot],
+            stroke_class={_path_signature(path): "holes"},
+        )
+        totals = _DistanceTotals()
+        strokes = _measure_document(
+            PLTDocument(stroke_paths=[path]), frame, KIND_STRUCTURAL, totals
+        )
+
+        assert strokes == 1
+        assert totals.by_class["holes"] == pytest.approx(math.pi * 2 * radius)
+        assert totals.by_label["round-b_0"][0] == pytest.approx(math.pi * 2 * radius)
+        assert totals.class_by_label["round-b_0"]["holes"] == pytest.approx(math.pi * 2 * radius)
+        assert totals.by_class["unattributed"] == pytest.approx(0.0)
 
     def test_round_passes_none_through_and_bands_to_the_machine_grid(self) -> None:
         from plt_optimizer.generate.usage_stats import _band, _round
@@ -1082,10 +1232,136 @@ class TestUsageEdgeCases:
         assert distance["total"]["cutting"] > 0.0
         assert distance["available"] is True
 
+    # ==============================================================================
+    # SP3 - summary.txt rendering and the report.json contract
+    # ==============================================================================
 
-# ==============================================================================
-# SP3 - summary.txt rendering and the report.json contract
-# ==============================================================================
+    def test_rapid_segment_and_segmentless_path_are_measured(self) -> None:
+        # Defensive shape coverage: the parser puts the pen-up lead in
+        # ``pen_up_position`` (never as a segment) and drops a pen-up with no
+        # following cut, so both shapes reach the loop only from a synthetic
+        # document. A rapid segment is owned by its DESTINATION and a segmentless
+        # path still moves the tool's position (the next gap is measured from it).
+        from plt_optimizer.core.models import (
+            Coordinate,
+            PLTDocument,
+            StrokePath,
+            StrokeSegment,
+        )
+        from plt_optimizer.generate.usage_stats import (
+            KIND_TEXT,
+            _DistanceTotals,
+            _measure_document,
+            _PlateFrame,
+            _Rect,
+            _Slot,
+        )
+
+        slot = _Slot(
+            label_id="a_0",
+            spec_id="a",
+            rect=_Rect(x_min=u(1.0), y_min=u(1.0), x_max=u(2.0), y_max=u(2.0)),
+            is_relief=False,
+        )
+        frame = _PlateFrame(plate_number=1, material="uv", slots=[slot])
+        document = PLTDocument(
+            stroke_paths=[
+                # A pen-up move into the slot, then a cut inside it.
+                StrokePath(
+                    pen_up_position=Coordinate(x=u(0.0), y=u(0.0)),
+                    segments=(
+                        StrokeSegment(
+                            start=Coordinate(x=u(0.0), y=u(0.0)),
+                            end=Coordinate(x=u(1.5), y=u(1.5)),
+                            is_cutting=False,
+                        ),
+                        StrokeSegment(
+                            start=Coordinate(x=u(1.5), y=u(1.5)),
+                            end=Coordinate(x=u(1.5), y=u(2.0)),
+                            is_cutting=True,
+                        ),
+                    ),
+                ),
+                # A path with no segments at all: the return home.
+                StrokePath(pen_up_position=Coordinate(x=u(5.0), y=u(5.0)), segments=()),
+                # A path with neither segments nor a pen-up: it cannot move the
+                # tool, so the next gap is still measured from where we are.
+                StrokePath(pen_up_position=None, segments=()),
+            ]
+        )
+        totals = _DistanceTotals()
+        strokes = _measure_document(document, frame, KIND_TEXT, totals)
+
+        assert strokes == 1  # only the path that cuts
+        # The rapid lead (1.5*sqrt(2) in) is owned by the slot its destination
+        # sits in; the 0.5 in cut is text. The gap to the segmentless path's
+        # pen-up (5, 5) flies far outside every slot, so it is unattributed.
+        assert totals.by_class["text"] == pytest.approx(0.5)
+        assert totals.rapid == pytest.approx(math.hypot(1.5, 1.5) + math.hypot(3.5, 3.0))
+        assert totals.by_label["a_0"][1] == pytest.approx(math.hypot(1.5, 1.5))
+        assert totals.unattributed_rapid == pytest.approx(math.hypot(3.5, 3.0))
+
+    def test_label_cutter_set_skips_missing_diameters(self) -> None:
+        # ``_label_cutters`` is defensive about None diameters (a line's own is
+        # non-optional today; the hole tools are): the declared set must stay
+        # empty rather than inventing a diameter. Reach it with stubs.
+        from types import SimpleNamespace
+        from typing import cast
+
+        from plt_optimizer.generate.resolution import ResolvedLabel
+        from plt_optimizer.generate.usage_stats import _label_cutters
+
+        stub = cast(
+            ResolvedLabel,
+            SimpleNamespace(
+                content=[SimpleNamespace(effective_cutter_diameter=None)],
+                effective_hole_cutter_diameter=None,
+                hole_cutter_diameter=0.25,
+                relief_engraving_cutters=None,
+            ),
+        )
+        assert _label_cutters(stub) == [0.25]
+
+    def test_text_height_row_without_a_nominal_shows_the_engraved_size(self) -> None:
+        from plt_optimizer.generate.usage_stats import _height_band_label
+
+        assert _height_band_label({"text_height": 0.2, "nominal_text_height": None}) == "0.200"
+        assert (
+            _height_band_label({"text_height": 0.2, "nominal_text_height": 0.25}) == "0.250 (0.200)"
+        )
+
+    def test_rect_area_never_goes_negative(self) -> None:
+        # A degenerate rectangle (a zero-width slot, an inverted box) contributes
+        # no area rather than subtracting from the material totals.
+        from plt_optimizer.generate.usage_stats import _Rect
+
+        assert _Rect(x_min=u(1.0), y_min=u(1.0), x_max=u(0.0), y_max=u(0.0)).area == 0.0
+        assert _Rect(x_min=u(1.0), y_min=u(1.0), x_max=u(1.0), y_max=u(2.0)).area == 0.0
+
+    def test_arc_signature_carries_the_arc_fields(self) -> None:
+        # An arc's signature is its centre, radius and sweep - two circles that
+        # differ only by radius must not share a class entry.
+        from plt_optimizer.core.models import ArcSegment, Coordinate, StrokePath
+        from plt_optimizer.generate.usage_stats import _path_signature
+
+        def circle(radius: float) -> StrokePath:
+            return StrokePath(
+                pen_up_position=Coordinate(x=u(1.0 + radius), y=u(1.0)),
+                segments=(
+                    ArcSegment(
+                        start=Coordinate(x=u(1.0 + radius), y=u(1.0)),
+                        end=Coordinate(x=u(1.0 + radius), y=u(1.0)),
+                        center=Coordinate(x=u(1.0), y=u(1.0)),
+                        sweep_angle=360.0,
+                        is_cutting=True,
+                    ),
+                ),
+            )
+
+        assert _path_signature(circle(0.25)) != _path_signature(circle(0.5))
+        # A stroke the writer emitted without a leading pen-up has no PU term.
+        bare = StrokePath(pen_up_position=None, segments=(circle(0.25).segments[0],))
+        assert _path_signature(bare) == _path_signature(circle(0.25))[1:]
 
 
 class TestFormatUsageLines:
