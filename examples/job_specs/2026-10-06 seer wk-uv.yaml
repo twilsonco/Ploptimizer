@@ -6,7 +6,7 @@ job:
   tool_options:
     cutting_velocity: 0.4
     spindle_speed: 16000
-  
+
   labels:
     - id: 3-line placards
       width: 7
