@@ -82,6 +82,7 @@
           "min_label_price": 3.0,
           "base_label_price": 2.1,
           "material_price_per_sq_in": 0.12,
+          "per_label_price_rounded_cents": [0.25, 0.75],
           "character_price_per_text_height": {
             "0.375": 0.18,
             "0.75": 0.51,
@@ -89,23 +90,35 @@
             "2.0": 1.0,
             "+": 1.5
           },
-          "preset_label_prices": {
-            "1x3": {
-              "1-line": 4.0,
-              "2-line": 5.0,
-              "3-line": 6.0
+          "preset_label_prices": [
+            {
+              "type": "rect",
+              "height": [1, 2],
+              "width": 3,
+              "num_lines": 1,
+              "price": 4.0
             },
-            "2x3": {
-              "1-line": 4.0,
-              "2-line": 5.0,
-              "3-line": 6.0
+            {
+              "type": "rect",
+              "height": [1, 2],
+              "width": 3,
+              "num_lines": 2,
+              "price": 5.0
+            },
+            {
+              "type": "rect",
+              "height": [1, 2],
+              "width": 3,
+              "num_lines": 3,
+              "price": 6.0
             }
-          }
+          ]
         },
         "diamond_drag": {
           "min_label_price": 5.0,
           "base_label_price": 3.0,
           "material_price_per_sq_in": 0.15,
+          "per_label_price_rounded_cents": [0.25, 0.75],
           "character_price_per_text_height": {
             "0.375": 0.25,
             "0.75": 0.65,
