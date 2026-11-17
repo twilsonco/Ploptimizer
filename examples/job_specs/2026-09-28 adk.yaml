@@ -4,7 +4,7 @@
 job:
   job_name: ADK 111577 UPS2
   replacement_text_file: 2026-09-28 adk.txt
-  material: bw
+  material: kw
   width: 6.0
   height: 4.0
   text_height: 0.22

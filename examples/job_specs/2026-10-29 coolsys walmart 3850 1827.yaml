@@ -1,6 +1,6 @@
 job:
   job_name: Coolsys Walmart 3850 and Walmart 1827
-  material: bw
+  material: kw
   width: 3
   height: 2
   text_height: 0.5

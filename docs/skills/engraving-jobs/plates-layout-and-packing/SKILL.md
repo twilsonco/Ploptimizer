@@ -21,7 +21,7 @@ metadata:
 
 | Field | Type | Default | Constraints | Tiers | Description |
 |---|---|---|---|---|---|
-| `material` | str \| null | null (unset) | — | job / label | Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (`null`) labels pack with the job-level material. |
+| `material` | str \| null | null (unset) | — | job / label | Stock material name (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (`null`) labels pack with the job-level material. |
 | `plates` | list[PlateSpec] \| null | null (unset) | — | job | Plate (material sheet) definitions. Omit for unbounded mode: auto-allocated `default_plate_{i}` sheets (24x16 unless job-config `plate_width`/`plate_height` override). |
 | `allow_rotation` | bool | `true` | — | job | Allow the bin packer to rotate labels 90 degrees (clockwise at assembly) for tighter layouts. Set false to keep every label horizontal. |
 | `text_chunk_mode` | `line` \| `word` | `"line"` | — | job | Plate-space text optimization granularity: 'line' routes each text line as one node (default); 'word' routes each whitespace-delimited word separately. |
@@ -31,7 +31,7 @@ metadata:
 | `left_clearance` | float | `0.0` | >=0 | plate | Unused material width along the plate's left edge in inches (shifts the usable area rightward; must be >= 0). |
 | `top_clearance` | float | `0.0` | >=0 | plate | Unused material height along the plate's top edge in inches (shifts the usable area downward; must be >= 0). |
 | `layout` | LayoutMode \| null | null (unset) | — | plate | Per-plate fill-order override (None = inherit the job layout). Simple modes ('columns-simple'/'rows-simple') grid-fill this plate without bin packing and never rotate labels. |
-| `material` | str \| null | null (unset) | — | plate | Stock material this plate is cut from (free-form, e.g. 'wb' or 'wb(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case. |
+| `material` | str \| null | null (unset) | — | plate | Stock material this plate is cut from (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `plate_id` | str \| null | null (unset) | — | label | Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion. |
 
 ## Enums

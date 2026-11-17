@@ -165,10 +165,37 @@ class TestJobDefaultsModel:
 
         assert "preview_background_color" not in _JOB_LAYER_FIELDS
 
+    def test_rapid_velocity_defaults_to_unset(self) -> None:
+        """Unset is the shipped state: the estimate falls back to ``cutting_velocity``."""
+        assert JobDefaults().rapid_velocity is None
+
+    def test_rapid_velocity_accepts_a_travel_rate(self, tmp_path: Path) -> None:
+        """The shop's measured traverse rate loads from the config file."""
+        config = load_job_config(_write_config(tmp_path, {"rapid_velocity": 4.0}))
+        assert config is not None
+        assert config.defaults.rapid_velocity == pytest.approx(4.0)
+
+    @pytest.mark.parametrize("bad", [0.0, -1.0])
+    def test_rapid_velocity_rejects_a_non_positive_rate(self, bad: float) -> None:
+        """A zero rate would divide the rapid distance by zero at estimate time."""
+        with pytest.raises(ValidationError, match="rapid_velocity"):
+            JobDefaults(rapid_velocity=bad)
+
+    def test_rapid_velocity_is_not_injected_into_the_job(self) -> None:
+        """Estimate-only: a job spec cannot declare it, so it must not cascade."""
+        from plt_optimizer.generate.job_config import _JOB_LAYER_FIELDS
+
+        assert "rapid_velocity" not in _JOB_LAYER_FIELDS
+
+    def test_rapid_velocity_is_not_a_tool_option(self) -> None:
+        """It has no HPGL command, so it lives outside the emit-one-header-each registry."""
+        with pytest.raises(ValidationError):
+            JobDefaults(tool_options={"rapid_velocity": {"type": "float", "default": 4.0}})
+
     def test_material_is_not_a_config_field(self) -> None:
         """material is a per-job decision, not a shop-level default."""
         with pytest.raises(ValidationError):
-            JobDefaults(**{"material": "wb"})  # type: ignore
+            JobDefaults(**{"material": "wk"})  # type: ignore
 
     def test_cutter_size_is_not_a_config_field(self) -> None:
         """cutter_size is a per-job/per-line choice, not a shop default."""

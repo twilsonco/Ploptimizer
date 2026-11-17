@@ -3343,18 +3343,18 @@ class TestMaterialCascade:
         """Job-level material applies to every label that omits it."""
         job = JobSpec(
             job_name="M",
-            material="wb",
+            material="wk",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
             ],
         )
-        assert resolve_job_spec(job)[0].material == "wb"
+        assert resolve_job_spec(job)[0].material == "wk"
 
     def test_label_overrides_job(self) -> None:
         """A label-level material wins over the job-level value."""
         job = JobSpec(
             job_name="M",
-            material="wb",
+            material="wk",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -3362,22 +3362,22 @@ class TestMaterialCascade:
                     width=2.0,
                     height=1.0,
                     content=[TextLine(text="X")],
-                    material="wb(uv)",
+                    material="wk(uv)",
                 ),
             ],
         )
-        assert resolve_job_spec(job)[0].material == "wb(uv)"
+        assert resolve_job_spec(job)[0].material == "wk(uv)"
 
     def test_root_level_job_cascades(self) -> None:
         """Root-level single-label jobs carry their own material."""
         job = JobSpec(
             job_name="M",
-            material="wb",
+            material="wk",
             width=2.0,
             height=1.0,
             content=[TextLine(text="X")],
         )
-        assert resolve_job_spec(job)[0].material == "wb"
+        assert resolve_job_spec(job)[0].material == "wk"
 
     def test_resolved_label_defaults_to_none(self) -> None:
         """Manually constructed ResolvedLabel defaults material to None."""

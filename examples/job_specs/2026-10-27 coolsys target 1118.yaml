@@ -1,6 +1,6 @@
 job:
   job_name: Coolsys Target 1118
-  material: bw
+  material: kw
   width: 3
   height: 2
   holes:

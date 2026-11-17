@@ -9,8 +9,8 @@ rendering/assembly.
 Output layout (under ``-o``, defaulting to the spec's parent directory)::
 
     <out>/plt/30_txt_<job_id>.plt        # one file per text cutter (single sheet)
-    <out>/plt/wb_uv_30_m_txt_<job_id>.plt  # ... per material/color tag
-    <out>/plt/01_wb_uv_30_txt_<job_id>.plt  # ... plate number only when a
+    <out>/plt/wk_uv_30_m_txt_<job_id>.plt  # ... per material/color tag
+    <out>/plt/01_wk_uv_30_txt_<job_id>.plt  # ... plate number only when a
     #                                        material spans several sheets
     <out>/plt/15_bh_<job_id>.plt         # borders + holes together
     <out>/pdf/30_txt_<job_id>.pdf        # simple-outline previews
@@ -156,7 +156,7 @@ def _sanitize_job_id(job_name: str) -> str:
     Delegates to :func:`plt_optimizer.core.filenames.sanitize_filename_component`:
     international characters are transliterated to ASCII (``"Caf\\u00e9"`` ->
     ``"Cafe"``) and every run of punctuation or whitespace collapses to a
-    single underscore (``"2026-10-06 wb-uv"`` -> ``"2026_10_06_wb_uv"``), so an
+    single underscore (``"2026-10-06 wk-uv"`` -> ``"2026_10_06_wk_uv"``), so an
     id carries only ASCII letters, digits and underscores. The empty result
     falls back to ``"job"``.
 
@@ -618,10 +618,13 @@ def _run_generate(args: argparse.Namespace) -> int:
         return _fail(e, "export")
 
     # Production usage accounting (labels / characters / holes / material /
-    # tool distance). The distance block is measured from the PLT files the
-    # export stage just wrote, so it runs after the export and outside it:
-    # a measurement failure must never fail a job that engraved fine, it
-    # just leaves the ``usage`` block out of the report.
+    # tool distance / run time). The distance and time blocks are measured
+    # from the PLT files the export stage just wrote, so it runs after the
+    # export and outside it: a measurement failure must never fail a job that
+    # engraved fine, it just leaves the ``usage`` block out of the report.
+    # ``job`` + ``job_config`` are passed so the time estimate resolves the
+    # same per-layer tool_options the headers of those files were emitted
+    # from.
     try:
         with stage_timer("usage", _LOG, timings=stage_timings):
             usage = build_usage_stats(
@@ -630,6 +633,8 @@ def _run_generate(args: argparse.Namespace) -> int:
                 combined_by_plate=export_result.combined_by_plate,
                 plt_files=export_result.plt_paths,
                 material_by_plate=export_result.material_by_plate,
+                job_spec=job,
+                job_config=job_config,
             )
     except Exception as exc:  # noqa: BLE001 - reporting must not fail a good job
         _LOG.warning("Could not measure the job's production usage: %s", exc)

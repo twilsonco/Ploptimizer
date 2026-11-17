@@ -3060,7 +3060,7 @@ class TestBoldRenderDispatch:
             (plain_block, _pw, plain_glyphs, plain_layer, _pwidths),
             (
                 bold_block,
-                _bw,
+                _kw,
                 bold_glyphs,
                 bold_layer,
                 _bwidths,

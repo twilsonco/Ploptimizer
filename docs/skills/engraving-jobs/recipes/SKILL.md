@@ -74,14 +74,14 @@ A real multi-size shop job: a job-level `material` tag on every output stem, thr
 
 Files: `examples/2026-10-30-CES-vons-1735.yaml`, `examples/2026-10-30 CES vons 1735 1x3.txt`
 
-- `material: bw` — the material tag lands in every PLT/PDF file name (`[<plate>_][<material>_]<cutter>_...`), so mixed runs sort at the machine.
+- `material: kw` — the material tag lands in every PLT/PDF file name (`[<plate>_][<material>_]<cutter>_...`), so mixed runs sort at the machine.
 - Commented-out `plates:` blocks show how the same job is pinned to declared plate sizes when stock is fixed.
 
 ## Engraver tool options
 
 A production job setting `tool_options` (cutting velocity, spindle rpm) for the HPGL header commands.
 
-Files: `examples/2026-10-06-seer-wb-uv.yaml`, `examples/2026-10-06 seer 7x5.33.txt`
+Files: `examples/2026-10-06-seer-wk-uv.yaml`, `examples/2026-10-06 seer 7x5.33.txt`
 
 - `tool_options` keys must exist in the shop `job-config.json` metadata — an unknown key is silently ignored.
 - Options apply per output layer (text vs borders/holes defaults); the spec value overrides both.

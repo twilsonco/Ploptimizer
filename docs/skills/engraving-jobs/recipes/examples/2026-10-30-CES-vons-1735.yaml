@@ -1,6 +1,6 @@
 job:
   job_name: CES vons 1735
-  material: bw
+  material: kw
   font: helv1
 
   # plates:
@@ -11,11 +11,11 @@ job:
   #     width: 4
   #     height: 11.5
   #   - id: "uv"
-  #     material: bw(uv)
+  #     material: kw(uv)
   #     width: 10
   #     height: 16
   #   - id: "uv1"
-  #     material: bw(uv)
+  #     material: kw(uv)
   #     width: 10
   #     height: 16
 
@@ -35,7 +35,7 @@ job:
     #     - location: sides
     #   replacement_text_file: 2026-10-30 CES vons 1735 2x4.txt
     # - id: "aci labels"
-    #   material: bw(uv)
+    #   material: kw(uv)
     #   width: 7
     #   height: 5.33
     #   text_height: 1

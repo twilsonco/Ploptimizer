@@ -59,7 +59,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
   emitted `rapid_distance()` is non-increasing since intra-chunk gaps are
   reversal-invariant), and repairs the latent 2-opt staleness (2-opt reverses a
   tour segment without flipping the `reversed` flags). Fires on generated
-  multi-line text layers (e.g. the seer wbuv plate: 140979→57734 units, 59%) and
+  multi-line text layers (e.g. the seer wkuv plate: 140979→57734 units, 59%) and
   on parsed fixtures under NoOp; on tours whose construction already picks
   optimal directions it finds no gain and stays silent. When a pass is accepted
   it logs INFO with BOTH metrics (inter-chunk + emitted rapid travel), appends
@@ -103,7 +103,7 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
     `None` entries keep the chronological order, and block-level reversal
     composes by flipping both the sequence and every direction). Parsed PLTs
     (optimize/watch) carry no glyph knowledge, so the parsed path stays
-    byte-identical. Fires on generated text: across the seer/wb-uv/intrachunk
+    byte-identical. Fires on generated text: across the seer/wk-uv/intrachunk
     PLT+TTF/sunwest specs the sweep cuts emitted rapid travel 41.4% vs the
     pre-per-stroke sweep's 34.8% (**−10.2% emitted**, 289 → 527 flips); cutting
     geometry is exactly preserved (segment counts identical, arcs stay native).
@@ -357,7 +357,7 @@ for display. Not a `job-config.json` key — per-job decision only.
   material at expansion (`substitution`), the only point where the plate →
   label direction is applied (labels resolve before plate assignment).
 - Output filenames gain the material tag (see
-  [`../../cli/AGENTS.md`](../../cli/AGENTS.md)): `wb_uv_45_txt_<job>.plt`
+  [`../../cli/AGENTS.md`](../../cli/AGENTS.md)): `wk_uv_45_txt_<job>.plt`
   (tag sanitized by `core/filenames.sanitize_filename_component`; the bin **ids**
   above keep their own `[^0-9A-Za-z]`-stripped prefix — they are report
   identifiers, not filenames).

@@ -1,0 +1,6 @@
+job:
+  job_name: "2026-11-17 ADK CPR 111261"
+  font: helv1
+  material: kw
+  holes:
+    - location: sides

@@ -37,9 +37,15 @@ from plt_optimizer.generate.resolution import (
     hole_engraved_radius,
 )
 from plt_optimizer.generate.usage_stats import (
+    CUTTING_VELOCITY_KEY,
     DISTANCE_CLASSES,
+    DWELL_TIME_KEY,
+    PLUNGE_VELOCITY_KEY,
     SUMMARY_USAGE_LABEL_LIMIT,
+    TIME_OPERATIONS,
     UNKNOWN_CUTTER,
+    Z_CLEARANCE_KEY,
+    Z_UP_VELOCITY_KEY,
     build_usage_stats,
     format_usage_lines,
 )
@@ -213,6 +219,8 @@ def stats_for(
     combined_by_plate: Optional[Dict[int, str]] = None,
     plt_files: Sequence[Path] = (),
     material_by_plate: Optional[Dict[int, Optional[str]]] = None,
+    job_spec: Any = None,
+    job_config: Any = None,
 ) -> Dict[str, Any]:
     """Call the engine with every argument defaulting to empty."""
     return build_usage_stats(
@@ -221,6 +229,8 @@ def stats_for(
         combined_by_plate=combined_by_plate or {},
         plt_files=list(plt_files),
         material_by_plate=material_by_plate or {},
+        job_spec=job_spec,
+        job_config=job_config,
     )
 
 
@@ -236,6 +246,147 @@ def file_row(usage: Dict[str, Any], name: str, root: Path) -> Dict[str, Any]:
     return row_by(usage["distance"]["files"], "path", str(root / name))
 
 
+# ---------------------------------------------------------------------------
+# Run-time estimate fixtures (SP6)
+#
+# The registry below is test-owned: every expectation is exact arithmetic on
+# these numbers, so retuning the shop's ``job-config.json`` cannot break them
+# (tests/AGENTS.md). Rates are chosen to divide the fixture distances cleanly.
+# ---------------------------------------------------------------------------
+
+# Seconds of one stroke's Z cycle at these parameters: 0.2 in / 2.0 in-per-sec
+# plunge, plus 1000 ms z-up, plus 50 ms dwell.
+TIME_STROKE_CYCLE_S = 0.1 + 1.0 + 0.05
+TIME_TXT_VELOCITY = 2.0
+TIME_BH_VELOCITY = 4.0
+
+
+def tool_registry(
+    *,
+    txt_velocity: float = TIME_TXT_VELOCITY,
+    bh_velocity: float = TIME_BH_VELOCITY,
+    cutting_max: float = 100.0,
+) -> Dict[str, Any]:
+    """A ``tool_options`` registry carrying the five parameters of the time model.
+
+    Args:
+        txt_velocity: The ``text`` layer's cutting velocity (in/sec).
+        bh_velocity: The ``borders_holes`` layer's cutting velocity (in/sec).
+        cutting_max: The registry's ``max`` for ``cutting_velocity``, so a
+            clamp can be provoked without touching the other options.
+
+    Returns:
+        The registry mapping for :class:`JobDefaults`.
+    """
+    return {
+        "cutting_velocity": {
+            "name": "Cutting Velocity",
+            "command": "VS",
+            "type": "float",
+            "default": {"text": txt_velocity, "borders_holes": bh_velocity},
+            "min": 0.1,
+            "max": cutting_max,
+        },
+        "plunge_velocity": {
+            "name": "Plunge Velocity",
+            "command": "VZ",
+            "type": "float",
+            "default": 2.0,
+            "min": 0.1,
+            "max": 100.0,
+        },
+        "z_clearance": {
+            "name": "Z Clearance",
+            "command": "ZU",
+            "type": "float",
+            "default": 0.2,
+            "min": 0.0,
+            "max": 10.0,
+        },
+        "z_up_velocity": {
+            "name": "Z Up",
+            "command": "ZO105,",
+            "type": "int",
+            "default": 1000,
+            "min": 0,
+            "max": 10000,
+        },
+        "dwell_time": {
+            "name": "Dwell",
+            "command": "ZO124,",
+            "type": "int",
+            "default": 50,
+            "min": 0,
+            "max": 10000,
+        },
+    }
+
+
+def tool_config(**overrides: Any) -> Any:
+    """A :class:`JobConfig` whose defaults carry the time-model registry.
+
+    Args:
+        **overrides: Fields to set on the defaults, e.g. ``rapid_velocity=3.0``
+            or ``tool_options=tool_registry(cutting_max=1.0)``.
+
+    Returns:
+        The config.
+    """
+    from plt_optimizer.generate.job_config import JobConfig, JobDefaults
+
+    fields: Dict[str, Any] = {"tool_options": tool_registry()}
+    fields.update(overrides)
+    return JobConfig(path=Path("test-job-config.json"), defaults=JobDefaults(**fields))
+
+
+def job_spec(**tool_options: Any) -> Any:
+    """A minimal :class:`JobSpec`, optionally overriding tool options.
+
+    Args:
+        **tool_options: The spec's ``tool_options`` overrides.
+
+    Returns:
+        The spec.
+    """
+    from plt_optimizer.generate.schema import ContentEntry, JobSpec
+
+    return JobSpec(
+        job_name="timing",
+        width=4.0,
+        height=2.0,
+        content=[ContentEntry(text="SIGN")],
+        tool_options=dict(tool_options) or None,
+    )
+
+
+def time_stats(tmp_path: Path, **kwargs: Any) -> Dict[str, Any]:
+    """The ``usage`` block of :func:`make_job` measured with a rate registry.
+
+    Args:
+        tmp_path: Directory for the PLT fixtures.
+        **kwargs: Forwarded to :func:`tool_config` (the registry overrides).
+
+    Returns:
+        The full ``usage`` block.
+    """
+    return stats_for(**make_job(tmp_path), job_spec=job_spec(), job_config=tool_config(**kwargs))
+
+
+def total_of(node: Any) -> float:
+    """Sum one ``usage.time`` bucket into seconds, list of rows or mapping.
+
+    Args:
+        node: A bucket: a list of rows carrying ``total``, or a mapping of
+            name to seconds.
+
+    Returns:
+        The seconds.
+    """
+    if isinstance(node, list):
+        return float(sum(float(row["total"]) for row in node))
+    return float(sum(float(value) for value in node.values()))
+
+
 # ==============================================================================
 # SP1 - labels
 # ==============================================================================
@@ -246,7 +397,7 @@ class TestLabelsUsage:
         usage = stats_for(
             resolved_labels=[
                 label("a", count=3, material="uv"),
-                label("b", count=2, material="wb", shape_type="round"),
+                label("b", count=2, material="wk", shape_type="round"),
             ]
         )["labels"]
         assert usage["specs"] == 2
@@ -268,12 +419,12 @@ class TestLabelsUsage:
             resolved_labels=[
                 label("a", count=2, material="uv"),
                 label("b", count=1, material="uv", relief=True),
-                label("c", count=1, material="wb", shape_type="round"),
+                label("c", count=1, material="wk", shape_type="round"),
             ]
         )["labels"]
         assert {row["material"]: row["count"] for row in usage["by_material"]} == {
             "uv": 3,
-            "wb": 1,
+            "wk": 1,
         }
         assert {row["shape"]: row["count"] for row in usage["by_shape"]} == {
             "rect": 3,
@@ -308,7 +459,7 @@ class TestLabelsUsage:
         usage = stats_for(
             resolved_labels=[
                 label("a", count=2, width=4.0, height=2.0, material="uv"),
-                label("b", count=1, width=4.0, height=2.0, material="wb"),
+                label("b", count=1, width=4.0, height=2.0, material="wk"),
                 label("c", count=1, width=6.0, height=3.0, material="uv", shape_type="round"),
             ]
         )["labels"]
@@ -317,7 +468,7 @@ class TestLabelsUsage:
             for row in usage["by_size"]
         ] == [
             (4.0, 2.0, "rect", "uv", 2),
-            (4.0, 2.0, "rect", "wb", 1),
+            (4.0, 2.0, "rect", "wk", 1),
             (6.0, 3.0, "round", "uv", 1),
         ]
 
@@ -536,10 +687,10 @@ class TestMaterialUsage:
                 plate(width=12.0, height=8.0, material="ignored"),
                 plate(width=10.0, height=6.0, material="ignored"),
             ],
-            material_by_plate={1: "uv", 2: "wb"},
+            material_by_plate={1: "uv", 2: "wk"},
         )["material"]
         rows = {row["material"]: row["sq_in"] for row in usage["by_material"]}
-        assert rows == {"uv": pytest.approx(96.0), "wb": pytest.approx(60.0)}
+        assert rows == {"uv": pytest.approx(96.0), "wk": pytest.approx(60.0)}
         assert usage["total"]["sq_in"] == pytest.approx(156.0)
         assert usage["total"]["sq_ft"] == pytest.approx(156.0 / 144.0)
 
@@ -611,7 +762,7 @@ class TestMaterialUsage:
 RECT_SPEC = label("rect-a", material="uv", width=4.0, height=2.0, lines=[line("SIGN", 0.25, 0.030)])
 ROUND_RELIEF_SPEC = label(
     "round-b",
-    material="wb",
+    material="wk",
     width=6.0,
     height=3.0,
     shape_type="round",
@@ -624,13 +775,13 @@ ROUND_RELIEF_SPEC = label(
 
 # Cutting distances of the fixture geometry, in inches.
 UV_TEXT_IN = 3.0  # rect_path(0.5, 2.5, 1.0, 0.5)
-WB_TEXT_IN = 6.0  # rect_path(1.0, 4.0, 2.0, 1.0)
-WB_BORDER_IN = 18.0  # rect_path(1.0, 4.0, 6.0, 3.0)
-WB_HOLE_SIDE_IN = 0.25  # circle_path(1.5, 4.5, 0.25)
-WB_HOLE_IN = 4 * WB_HOLE_SIDE_IN
+WK_TEXT_IN = 6.0  # rect_path(1.0, 4.0, 2.0, 1.0)
+WK_BORDER_IN = 18.0  # rect_path(1.0, 4.0, 6.0, 3.0)
+WK_HOLE_SIDE_IN = 0.25  # circle_path(1.5, 4.5, 0.25)
+WK_HOLE_IN = 4 * WK_HOLE_SIDE_IN
 # Pen-up travel between the bh file's boundary and its hole: from the
 # rectangle's closing point (1.0, 4.0) to the hole's pen-up (1.375, 4.625).
-WB_BH_RAPID_IN = math.hypot(0.375, 0.625)
+WK_BH_RAPID_IN = math.hypot(0.375, 0.625)
 
 
 def make_job(tmp_path: Path) -> Dict[str, Any]:
@@ -642,7 +793,7 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
 
     Plate 1 (uv): ``rect-a`` in the slot at ``(0.5, 2.5)``, engraved by the
     0.030 txt cutter as a 1.0 x 0.5 rectangle.
-    Plate 2 (wb): ``round-b`` (relief) in the 6.0 x 3.0 slot at ``(1.0, 4.0)``
+    Plate 2 (wk): ``round-b`` (relief) in the 6.0 x 3.0 slot at ``(1.0, 4.0)``
     (the frame it engraves), engraved by the 0.030 txt cutter as a 2.0 x 1.0
     rectangle, plus a boundary (pen 2) and a drill hole (pen 3) by the 0.060
     bh cutter.
@@ -655,7 +806,7 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
         "resolved_labels": [RECT_SPEC, ROUND_RELIEF_SPEC],
         "packed_plates": [
             plate(plate_id="p1", material="uv", labels=[rect_placement]),
-            plate(plate_id="p2", material="wb", labels=[round_placement]),
+            plate(plate_id="p2", material="wk", labels=[round_placement]),
         ],
         "combined_by_plate": {
             1: document(section(rect_path(0.5, 2.5, 1.0, 0.5))),
@@ -663,23 +814,23 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
                 section(rect_path(1.0, 4.0, 2.0, 1.0)),
                 section(
                     f"SP2;{rect_path(1.0, 4.0, 6.0, 3.0)}",
-                    f"SP3;{circle_path(1.5, 4.5, WB_HOLE_SIDE_IN)}",
+                    f"SP3;{circle_path(1.5, 4.5, WK_HOLE_SIDE_IN)}",
                 ),
             ),
         },
         "plt_files": [
             write_plt(tmp_path, "01_uv_30_txt_job.plt", document(rect_path(0.5, 2.5, 1.0, 0.5))),
-            write_plt(tmp_path, "02_wb_30_txt_job.plt", document(rect_path(1.0, 4.0, 2.0, 1.0))),
+            write_plt(tmp_path, "02_wk_30_txt_job.plt", document(rect_path(1.0, 4.0, 2.0, 1.0))),
             write_plt(
                 tmp_path,
-                "02_wb_60_bh_job.plt",
+                "02_wk_60_bh_job.plt",
                 document(
                     rect_path(1.0, 4.0, 6.0, 3.0),
-                    circle_path(1.5, 4.5, WB_HOLE_SIDE_IN),
+                    circle_path(1.5, 4.5, WK_HOLE_SIDE_IN),
                 ),
             ),
         ],
-        "material_by_plate": {1: "uv", 2: "wb"},
+        "material_by_plate": {1: "uv", 2: "wk"},
     }
 
 
@@ -697,17 +848,17 @@ class TestDistanceCutting:
 
     def test_arc_length_counts_as_cutting(self, tmp_path: Path) -> None:
         usage = stats_for(**make_job(tmp_path))
-        row = file_row(usage, "02_wb_60_bh_job.plt", tmp_path)
-        assert row["cutting"] == pytest.approx(WB_BORDER_IN + WB_HOLE_IN)
+        row = file_row(usage, "02_wk_60_bh_job.plt", tmp_path)
+        assert row["cutting"] == pytest.approx(WK_BORDER_IN + WK_HOLE_IN)
         assert row["strokes"] == 2
 
     def test_totals_and_foot_conversion(self, tmp_path: Path) -> None:
         total = stats_for(**make_job(tmp_path))["distance"]["total"]
-        cutting = UV_TEXT_IN + WB_TEXT_IN + WB_BORDER_IN + WB_HOLE_IN
+        cutting = UV_TEXT_IN + WK_TEXT_IN + WK_BORDER_IN + WK_HOLE_IN
         assert total["cutting"] == pytest.approx(cutting)
-        assert total["rapid"] == pytest.approx(WB_BH_RAPID_IN)
-        assert total["total"] == pytest.approx(cutting + WB_BH_RAPID_IN)
-        assert total["total_ft"] == pytest.approx((cutting + WB_BH_RAPID_IN) / 12.0)
+        assert total["rapid"] == pytest.approx(WK_BH_RAPID_IN)
+        assert total["total"] == pytest.approx(cutting + WK_BH_RAPID_IN)
+        assert total["total_ft"] == pytest.approx((cutting + WK_BH_RAPID_IN) / 12.0)
         assert stats_for(**make_job(tmp_path))["distance"]["units"] == "inches"
 
     def test_empty_job_reports_distance_as_unavailable(self) -> None:
@@ -754,9 +905,9 @@ class TestDistanceStrokeClasses:
     def test_text_relief_borders_and_holes_are_separated(self, tmp_path: Path) -> None:
         by_class = stats_for(**make_job(tmp_path))["distance"]["by_class"]
         assert by_class["text"] == pytest.approx(UV_TEXT_IN)
-        assert by_class["relief"] == pytest.approx(WB_TEXT_IN)
-        assert by_class["borders"] == pytest.approx(WB_BORDER_IN)
-        assert by_class["holes"] == pytest.approx(WB_HOLE_IN)
+        assert by_class["relief"] == pytest.approx(WK_TEXT_IN)
+        assert by_class["borders"] == pytest.approx(WK_BORDER_IN)
+        assert by_class["holes"] == pytest.approx(WK_HOLE_IN)
         assert by_class["unattributed"] == pytest.approx(0.0)
 
     def test_rapid_travel_is_never_attributed_to_a_stroke_class(self, tmp_path: Path) -> None:
@@ -939,10 +1090,10 @@ class TestDistanceCounters:
         distance = stats_for(**make_job(tmp_path))["distance"]
         rows = {(row["cutter"], row["kind"]): row for row in distance["by_cutter"]}
         assert set(rows) == {(0.03, "txt"), (0.06, "bh")}
-        assert rows[(0.03, "txt")]["cutting"] == pytest.approx(UV_TEXT_IN + WB_TEXT_IN)
+        assert rows[(0.03, "txt")]["cutting"] == pytest.approx(UV_TEXT_IN + WK_TEXT_IN)
         assert rows[(0.03, "txt")]["files"] == 2
-        assert rows[(0.06, "bh")]["cutting"] == pytest.approx(WB_BORDER_IN + WB_HOLE_IN)
-        assert rows[(0.06, "bh")]["rapid"] == pytest.approx(WB_BH_RAPID_IN)
+        assert rows[(0.06, "bh")]["cutting"] == pytest.approx(WK_BORDER_IN + WK_HOLE_IN)
+        assert rows[(0.06, "bh")]["rapid"] == pytest.approx(WK_BH_RAPID_IN)
 
     def test_unidentifiable_cutter_is_its_own_bucket(self, tmp_path: Path) -> None:
         content = rect_path(0.5, 2.5, 1.0, 0.5)
@@ -979,11 +1130,11 @@ class TestDistanceCounters:
             combined_by_plate={},
             # Plate 3 does not exist in this job, so its material can only
             # come from the file name.
-            plt_files=[write_plt(tmp_path, "03_wbuv_30_txt_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "03_wkuv_30_txt_job.plt", document(content))],
             material_by_plate={1: "uv"},
         )["distance"]
         assert [row["plate"] for row in distance["by_plate"]] == [3]
-        assert [row["material"] for row in distance["by_material"]] == ["wbuv"]
+        assert [row["material"] for row in distance["by_material"]] == ["wkuv"]
 
     def test_cutter_from_the_file_beats_the_inferred_frame(self, tmp_path: Path) -> None:
         spec = label("a", material="uv")
@@ -1002,15 +1153,15 @@ class TestDistanceCounters:
         row = row_by(distance["by_label"], "label_id", "round-b_0")
         assert row["spec_id"] == "round-b"
         assert row["plate"] == 2
-        assert row["material"] == "wb"
-        assert row["cutting"] == pytest.approx(WB_TEXT_IN + WB_BORDER_IN + WB_HOLE_IN)
-        assert row["by_class"]["relief"] == pytest.approx(WB_TEXT_IN)
+        assert row["material"] == "wk"
+        assert row["cutting"] == pytest.approx(WK_TEXT_IN + WK_BORDER_IN + WK_HOLE_IN)
+        assert row["by_class"]["relief"] == pytest.approx(WK_TEXT_IN)
 
     def test_rows_are_sorted_by_distance_then_key(self, tmp_path: Path) -> None:
         distance = stats_for(**make_job(tmp_path))["distance"]
         assert [row["label_id"] for row in distance["by_label"]] == ["round-b_0", "rect-a_0"]
         assert [row["plate"] for row in distance["by_plate"]] == [2, 1]
-        assert [row["material"] for row in distance["by_material"]] == ["wb", "uv"]
+        assert [row["material"] for row in distance["by_material"]] == ["wk", "uv"]
         assert [row["cutter"] for row in distance["by_cutter"]] == [0.06, 0.03]
 
     def test_files_are_listed_in_write_order(self, tmp_path: Path) -> None:
@@ -1067,7 +1218,7 @@ class TestUsageEdgeCases:
         )
         frame = _PlateFrame(
             plate_number=2,
-            material="wb",
+            material="wk",
             slots=[slot],
             stroke_class={_path_signature(path): "holes"},
         )
@@ -1093,12 +1244,12 @@ class TestUsageEdgeCases:
         from plt_optimizer.generate.usage_stats import _sort_token
 
         # None first, then numbers, then strings; composite keys order by part.
-        assert sorted(["wb", 0.06, None, True, 2], key=_sort_token) == [
+        assert sorted(["wk", 0.06, None, True, 2], key=_sort_token) == [
             None,
             0.06,
             True,
             2,
-            "wb",
+            "wk",
         ]
         assert _sort_token((4.0, "rect", "uv"))[1] == pytest.approx(4.0)
 
@@ -1154,9 +1305,9 @@ class TestUsageEdgeCases:
     def test_routing_file_without_a_plate_frame_is_unattributed(self, tmp_path: Path) -> None:
         content = rect_path(1.0, 4.0, 6.0, 3.0)
         distance = stats_for(
-            plt_files=[write_plt(tmp_path, "02_wb_60_bh_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "02_wk_60_bh_job.plt", document(content))],
         )["distance"]
-        assert distance["by_class"]["unattributed"] == pytest.approx(WB_BORDER_IN)
+        assert distance["by_class"]["unattributed"] == pytest.approx(WK_BORDER_IN)
         assert distance["by_class"]["borders"] == pytest.approx(0.0)
 
     def test_plate_token_too_large_to_be_a_real_plate_still_keys_the_row(
@@ -1187,12 +1338,12 @@ class TestUsageEdgeCases:
         distance = stats_for(
             packed_plates=[
                 plate(plate_id="p1", material="uv"),
-                plate(plate_id="p2", material="wb"),
+                plate(plate_id="p2", material="wk"),
             ],
-            plt_files=[write_plt(tmp_path, "wb_60_bh_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "wk_60_bh_job.plt", document(content))],
         )["distance"]
         assert [row["plate"] for row in distance["by_plate"]] == [2]
-        assert [row["material"] for row in distance["by_material"]] == ["wb"]
+        assert [row["material"] for row in distance["by_material"]] == ["wk"]
 
     def test_ambiguous_material_tag_resolves_to_no_plate(self, tmp_path: Path) -> None:
         # Two plates of the SAME material and a file name without a plate
@@ -1387,7 +1538,7 @@ class TestFormatUsageLines:
         assert "labels: 2 labels (2 specs)" in text
         assert "rect=1  round=1" in text
         assert "plain=1  relief=1" in text
-        assert "by material: uv=1  wb=1" in text
+        assert "by material: uv=1  wk=1" in text
         # The relief label's text engraves on the finer rung of its cutter
         # ladder, so the declared set spans 0.015 / 0.030 / 0.060.
         assert "by cutter: 0.030 x2  0.015 x1  0.060 x1" in text
@@ -1465,6 +1616,359 @@ class TestFormatUsageLines:
         assert "Job usage:" in text
         assert "labels: 0 labels (0 specs)" in text
         assert "Not measured" in text
+
+
+# ==============================================================================
+# SP6 - run time estimated from the emitted tool_options
+# ==============================================================================
+
+# The registry's per-stroke Z cycle: z_clearance 0.2 / plunge 2.0 = 0.1 s,
+# z_up 1000 ms = 1.0 s, dwell 50 ms = 0.05 s.
+CYCLE_PLUNGE_S = 0.1
+CYCLE_Z_UP_S = 1.0
+CYCLE_DWELL_S = 0.05
+# The bh file's two strokes are the 18.0 in boundary and the 1.0 in hole; the
+# txt files contribute 3.0 in (uv) and 6.0 in (wk) and one stroke each.
+TXT_CUTTING_IN = UV_TEXT_IN + WK_TEXT_IN
+BH_CUTTING_IN = WK_BORDER_IN + WK_HOLE_IN
+JOB_STROKES = 4
+
+
+class TestTimeEstimate:
+    def test_the_time_block_is_always_present_beside_distance(self, tmp_path: Path) -> None:
+        assert list(time_stats(tmp_path)) == [
+            "labels",
+            "characters",
+            "holes",
+            "material",
+            "distance",
+            "time",
+        ]
+
+    def test_no_config_means_no_estimate(self, tmp_path: Path) -> None:
+        # The counts and the distance are unaffected: only the estimate stops.
+        usage = stats_for(**make_job(tmp_path))
+        assert usage["distance"]["total"]["cutting"] == pytest.approx(28.0)
+        assert usage["time"]["available"] is False
+        assert usage["time"]["total"] is None
+        assert usage["time"]["by_cutter"] == []
+        assert CUTTING_VELOCITY_KEY in usage["time"]["note"]
+
+    def test_a_registry_without_cutting_velocity_disables_the_estimate(
+        self, tmp_path: Path
+    ) -> None:
+        registry = tool_registry()
+        del registry[CUTTING_VELOCITY_KEY]
+        usage = time_stats(tmp_path, tool_options=registry)
+        assert usage["time"]["available"] is False
+
+    def test_a_layer_that_resolves_no_velocity_disables_the_whole_estimate(
+        self, tmp_path: Path
+    ) -> None:
+        # Half an estimate is worse than none: the totals would not reconcile
+        # with the distance the machine will actually travel. A non-positive
+        # velocity is the config's way of saying "not set" (a dual default
+        # that omits a layer is rejected outright by JobDefaults).
+        registry = tool_registry()
+        registry[CUTTING_VELOCITY_KEY]["min"] = 0.0
+        registry[CUTTING_VELOCITY_KEY]["default"] = {
+            "text": TIME_TXT_VELOCITY,
+            "borders_holes": 0.0,
+        }
+        usage = time_stats(tmp_path, tool_options=registry)
+        assert usage["time"]["available"] is False
+        assert usage["time"]["total"] is None
+
+    def test_cutting_time_divides_the_distance_by_the_layer_velocity(self, tmp_path: Path) -> None:
+        operations = time_stats(tmp_path)["time"]["by_operation"]
+        assert operations["cutting"] == pytest.approx(
+            TXT_CUTTING_IN / TIME_TXT_VELOCITY + BH_CUTTING_IN / TIME_BH_VELOCITY
+        )
+
+    def test_rapid_velocity_falls_back_to_the_layer_cutting_velocity(self, tmp_path: Path) -> None:
+        usage = time_stats(tmp_path)
+        model = usage["time"]["model"]["borders_holes"]
+        assert model["rapid_velocity_source"] == CUTTING_VELOCITY_KEY
+        assert model["rapid_velocity"] == pytest.approx(TIME_BH_VELOCITY)
+        assert usage["time"]["by_operation"]["rapid"] == pytest.approx(
+            WK_BH_RAPID_IN / TIME_BH_VELOCITY, abs=1e-6
+        )
+
+    def test_a_configured_rapid_velocity_moves_only_the_rapid_term(self, tmp_path: Path) -> None:
+        baseline = time_stats(tmp_path)["time"]
+        usage = time_stats(tmp_path, rapid_velocity=8.0)["time"]
+        assert usage["model"]["borders_holes"]["rapid_velocity_source"] == "rapid_velocity"
+        assert usage["by_operation"]["rapid"] == pytest.approx(WK_BH_RAPID_IN / 8.0, abs=1e-6)
+        for name in ("cutting", "plunge", "z_up", "dwell"):
+            assert usage["by_operation"][name] == pytest.approx(
+                baseline["by_operation"][name], abs=1e-6
+            )
+
+    def test_every_stroke_pays_one_z_cycle(self, tmp_path: Path) -> None:
+        total = time_stats(tmp_path)["time"]["total"]
+        assert total["strokes"] == JOB_STROKES
+        assert total["plunge"] == pytest.approx(JOB_STROKES * CYCLE_PLUNGE_S)
+        assert total["z_up"] == pytest.approx(JOB_STROKES * CYCLE_Z_UP_S)
+        assert total["dwell"] == pytest.approx(JOB_STROKES * CYCLE_DWELL_S)
+
+    def test_a_multi_subpath_stroke_pays_one_cycle(self, tmp_path: Path) -> None:
+        # One pen-down with two cutting sub-paths is one plunge, one z-up.
+        spec = label("a", material="uv")
+        content = document(
+            section(
+                f"PU{u(0.5)},{u(0.5)};PD{u(1.0)},{u(0.5)};PD{u(1.0)},{u(1.0)};",
+            )
+        )
+        usage = stats_for(
+            resolved_labels=[spec],
+            packed_plates=[plate(material="uv", labels=[placement(spec, x=0.4, y=0.4)])],
+            combined_by_plate={1: content},
+            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            material_by_plate={1: "uv"},
+            job_spec=job_spec(),
+            job_config=tool_config(),
+        )["time"]
+        assert usage["total"]["strokes"] == 1
+        assert usage["total"]["total"] == pytest.approx(
+            1.0 / TIME_TXT_VELOCITY + TIME_STROKE_CYCLE_S
+        )
+
+    def test_the_layers_are_charged_independently(self, tmp_path: Path) -> None:
+        # Same inches, different rates: the 4.0 in/sec bh layer costs half the
+        # seconds per inch of the 2.0 in/sec txt layer. Proves the dual
+        # defaults are split, not blended.
+        rows = {row["kind"]: row for row in time_stats(tmp_path)["time"]["by_cutter"]}
+        txt = rows["txt"]
+        bh = rows["bh"]
+        assert txt["by_operation"]["cutting"] / TXT_CUTTING_IN == pytest.approx(
+            1.0 / TIME_TXT_VELOCITY
+        )
+        assert bh["by_operation"]["cutting"] / BH_CUTTING_IN == pytest.approx(
+            1.0 / TIME_BH_VELOCITY
+        )
+        assert bh["files"] == 1
+        assert txt["files"] == 2
+
+    def test_a_job_spec_override_beats_the_config_default(self, tmp_path: Path) -> None:
+        usage = stats_for(
+            **make_job(tmp_path),
+            job_spec=job_spec(**{CUTTING_VELOCITY_KEY: 1.0}),
+            job_config=tool_config(),
+        )["time"]
+        assert usage["model"]["text"][CUTTING_VELOCITY_KEY] == pytest.approx(1.0)
+        assert usage["model"]["borders_holes"][CUTTING_VELOCITY_KEY] == pytest.approx(1.0)
+        assert usage["by_operation"]["cutting"] == pytest.approx(28.0)
+
+    def test_the_configured_clamp_bounds_the_estimate(self, tmp_path: Path) -> None:
+        # The registry caps cutting_velocity at 1.0 in/sec, so the 2.0/4.0
+        # defaults both clamp to it - and the estimate uses the clamped value
+        # the header was emitted with, not the configured one.
+        usage = time_stats(tmp_path, tool_options=tool_registry(cutting_max=1.0))["time"]
+        assert usage["model"]["text"][CUTTING_VELOCITY_KEY] == pytest.approx(1.0)
+        assert usage["model"]["borders_holes"][CUTTING_VELOCITY_KEY] == pytest.approx(1.0)
+        assert usage["by_operation"]["cutting"] == pytest.approx(28.0)
+
+    def test_missing_optional_parameters_charge_only_the_travel(self, tmp_path: Path) -> None:
+        registry = tool_registry()
+        for key in (PLUNGE_VELOCITY_KEY, Z_CLEARANCE_KEY, Z_UP_VELOCITY_KEY, DWELL_TIME_KEY):
+            del registry[key]
+        usage = time_stats(tmp_path, tool_options=registry)["time"]
+        assert usage["available"] is True
+        operations = usage["by_operation"]
+        # Travel is all that is left: the cutting and rapid terms, no Z cycle.
+        assert usage["total"]["total"] == pytest.approx(
+            operations["cutting"] + operations["rapid"], abs=1e-6
+        )
+        for name in ("plunge", "z_up", "dwell"):
+            assert operations[name] == pytest.approx(0.0)
+        assert usage["model"]["text"]["stroke_z_cycle_seconds"] == pytest.approx(0.0)
+
+    def test_a_zero_length_stroke_still_pays_its_z_cycle(self, tmp_path: Path) -> None:
+        # The pen travels nothing, but it still plunges, lifts and dwells: the
+        # stroke's Z cycle is charged on the stroke, not on its distance.
+        spec = label("a", material="uv")
+        content = document(section(f"PU{u(0.5)},{u(0.5)};PD{u(0.5)},{u(0.5)};"))
+        usage = stats_for(
+            resolved_labels=[spec],
+            packed_plates=[plate(material="uv", labels=[placement(spec, x=0.4, y=0.4)])],
+            combined_by_plate={1: content},
+            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            material_by_plate={1: "uv"},
+            job_spec=job_spec(),
+            job_config=tool_config(),
+        )["time"]
+        assert usage["available"] is True
+        assert usage["total"]["strokes"] == 1
+        assert usage["by_operation"]["cutting"] == pytest.approx(0.0)
+        assert usage["total"]["total"] == pytest.approx(TIME_STROKE_CYCLE_S)
+        assert usage["total"]["total_hms"] == "0:00:01"
+        assert usage["by_cutter"][0]["share"] == 100.0
+
+    def test_an_unattributed_stroke_pays_its_layers_cycle(self, tmp_path: Path) -> None:
+        spec = label("a", material="uv")
+        inside = f"PU{u(0.5)},{u(0.5)};PD{u(1.0)},{u(0.5)};"
+        outside = f"PU{u(9.0)},{u(9.0)};PD{u(10.0)},{u(9.0)};"
+        content = document(section(inside, outside))
+        usage = stats_for(
+            resolved_labels=[spec],
+            packed_plates=[plate(material="uv", labels=[placement(spec, x=0.4, y=0.4)])],
+            combined_by_plate={1: content},
+            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            material_by_plate={1: "uv"},
+            job_spec=job_spec(),
+            job_config=tool_config(),
+        )["time"]
+        unattributed = usage["unattributed"]
+        assert unattributed["strokes"] == 1
+        # The outside stroke owns its own 1.0 in of cutting AND the pen-up
+        # travel that reaches it, both at the txt layer's rates.
+        outbound_in = 1.0
+        inbound_in = math.hypot(9.0 - 1.0, 9.0 - 0.5)
+        assert unattributed["by_operation"]["cutting"] == pytest.approx(
+            outbound_in / TIME_TXT_VELOCITY, abs=1e-6
+        )
+        assert unattributed["by_operation"]["rapid"] == pytest.approx(
+            inbound_in / TIME_TXT_VELOCITY, abs=1e-6
+        )
+        assert unattributed["total"] == pytest.approx(
+            (outbound_in + inbound_in) / TIME_TXT_VELOCITY + TIME_STROKE_CYCLE_S, abs=1e-6
+        )
+        assert unattributed["total"] > 0.0
+
+    def test_every_bucket_reconciles_with_the_total(self, tmp_path: Path) -> None:
+        """Every breakdown must sum to the same job total.
+
+        This is the invariant that catches double-charging: an accumulator fed
+        from two places reads correctly inside its own bucket and inside
+        ``total``, so a per-bucket check alone passes - only the cross-bucket
+        comparison fails.
+        """
+        usage = time_stats(tmp_path)
+        time_block = usage["time"]
+        total = time_block["total"]["total"]
+        assert total > 0.0
+        assert sum(time_block["by_operation"].values()) == pytest.approx(total)
+        assert sum(time_block["by_class"].values()) == pytest.approx(total)
+        for key in ("by_cutter", "by_material", "by_plate", "by_label"):
+            assert total_of(time_block[key]) == pytest.approx(total, abs=1e-3), (
+                f"{key} does not reconcile with the total"
+            )
+        for row in time_block["by_cutter"]:
+            assert sum(row["by_operation"].values()) == pytest.approx(row["total"])
+
+    def test_the_stroke_count_matches_the_measured_geometry(self, tmp_path: Path) -> None:
+        usage = time_stats(tmp_path)
+        assert usage["time"]["total"]["strokes"] == sum(
+            int(row["strokes"]) for row in usage["distance"]["files"]
+        )
+
+    def test_the_estimate_survives_the_json_round_trip(self, tmp_path: Path) -> None:
+        usage = time_stats(tmp_path)
+        assert json.loads(json.dumps(usage)) == usage
+
+    def test_shopping_the_model_from_the_report_is_self_documenting(self, tmp_path: Path) -> None:
+        model = time_stats(tmp_path)["time"]["model"]["text"]
+        assert model["stroke_z_cycle_seconds"] == pytest.approx(TIME_STROKE_CYCLE_S)
+        assert model[CUTTING_VELOCITY_KEY] == pytest.approx(TIME_TXT_VELOCITY)
+        assert model["rapid_velocity"] == pytest.approx(TIME_TXT_VELOCITY)
+        assert model[PLUNGE_VELOCITY_KEY] == pytest.approx(2.0)
+        assert model[Z_CLEARANCE_KEY] == pytest.approx(0.2)
+        assert model[Z_UP_VELOCITY_KEY] == pytest.approx(1000.0)
+        assert model[DWELL_TIME_KEY] == pytest.approx(50.0)
+
+
+class TestRunTimeJobRollup:
+    """``usage.time.by_spec`` - one label's time summed over its placements."""
+
+    def test_the_fixture_labels_roll_up_one_row_each(self, tmp_path: Path) -> None:
+        rows = time_stats(tmp_path)["time"]["by_spec"]
+        assert [row["label_id"] for row in rows] == ["round-b", "rect-a"]
+        assert [row["copies"] for row in rows] == [1, 1]
+        assert [row["plates"] for row in rows] == [[2], [1]]
+        assert [row["materials"] for row in rows] == [["wk"], ["uv"]]
+        assert [row["placements"] for row in rows] == [["round-b_0"], ["rect-a_0"]]
+
+    def test_the_job_rows_partition_the_placement_time(self, tmp_path: Path) -> None:
+        time_block = time_stats(tmp_path)["time"]
+        assert total_of(time_block["by_spec"]) == pytest.approx(total_of(time_block["by_label"]))
+
+    def test_a_multi_copy_label_is_one_job_row(self, tmp_path: Path) -> None:
+        """Two copies of one spec on one plate: one row, both placements inside."""
+        spec = label("dup", width=1.0, height=1.0, material="ACM")
+        first = placement(spec, label_id="dup:0", x=0.0, y=0.0, width=1.0, height=1.0)
+        second = placement(spec, label_id="dup:1", x=2.0, y=0.0, width=1.0, height=1.0)
+        rect = document(
+            rect_path(0.0, 0.0, 1.0, 1.0),
+            rect_path(2.0, 0.0, 1.0, 1.0),
+        )
+        usage = stats_for(
+            resolved_labels=[spec],
+            packed_plates=[plate(plate_id="p1", material="ACM", labels=[first, second])],
+            combined_by_plate={
+                1: document(
+                    section(rect_path(0.0, 0.0, 1.0, 1.0)), section(rect_path(2.0, 0.0, 1.0, 1.0))
+                )
+            },
+            plt_files=[write_plt(tmp_path, "01_ACM_30_txt_job.plt", rect)],
+            material_by_plate={1: "ACM"},
+            job_spec=job_spec(),
+            job_config=tool_config(),
+        )
+        rows = usage["time"]["by_spec"]
+        assert [row["label_id"] for row in rows] == ["dup"]
+        assert rows[0]["copies"] == 2
+        assert rows[0]["placements"] == ["dup:0", "dup:1"]
+        assert rows[0]["plates"] == [1]
+        assert rows[0]["materials"] == ["ACM"]
+        assert rows[0]["total"] == pytest.approx(
+            sum(float(row["total"]) for row in usage["time"]["by_label"])
+        )
+
+    def test_row_shape(self, tmp_path: Path) -> None:
+        rows = time_stats(tmp_path)["time"]["by_spec"]
+        assert set(rows[0]) == {
+            "label_id",
+            "plates",
+            "materials",
+            "placements",
+            "copies",
+            "by_operation",
+            "total",
+            "share",
+        }
+        assert set(rows[0]["by_operation"]) == set(TIME_OPERATIONS)
+
+    def test_the_job_shares_match_the_placement_shares(self, tmp_path: Path) -> None:
+        time_block = time_stats(tmp_path)["time"]
+        assert sum(float(row["share"]) for row in time_block["by_spec"]) == pytest.approx(
+            sum(float(row["share"]) for row in time_block["by_label"]),
+            abs=0.2,
+        )
+
+    def test_the_rollup_is_empty_when_the_time_cannot_be_estimated(self, tmp_path: Path) -> None:
+        assert stats_for(**make_job(tmp_path))["time"]["by_spec"] == []
+
+
+class TestTimeSummaryLines:
+    def test_the_time_section_renders_beside_the_distance(self, tmp_path: Path) -> None:
+        text = "\n".join(format_usage_lines(time_stats(tmp_path)))
+        assert "  run time (seconds, estimated from the emitted tool_options):" in text
+        assert (
+            "    total: cutting 9.250 + rapid 0.182 + plunge 0.400 + z_up 4.000 "
+            "+ dwell 0.200 = 14.032 s (0:00:14)"
+        ) in text
+        assert "    strokes: 4 (one Z cycle each)" in text
+        assert "    by cutter: 0.060 bh [1 file(s)] 7.232 s (51.5%)" in text
+
+    def test_the_time_section_names_its_exclusions(self, tmp_path: Path) -> None:
+        text = "\n".join(format_usage_lines(time_stats(tmp_path)))
+        assert "Estimated from tool_options" in text
+        assert "excludes tool changes, setup, and loading" in text
+
+    def test_an_unestimable_job_says_so_instead_of_zero(self, tmp_path: Path) -> None:
+        text = "\n".join(format_usage_lines(stats_for(**make_job(tmp_path))))
+        assert f"Not estimated: No {CUTTING_VELOCITY_KEY} is configured" in text
+        assert "total: cutting 0.000" not in text
 
 
 class TestReportContract:

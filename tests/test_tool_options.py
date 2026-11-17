@@ -15,6 +15,8 @@ spec-declared values come from the frozen ``tests_deps/`` fixtures (test-owned
 constants), never from the shop config.
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 from typing import Any, Optional
@@ -22,8 +24,12 @@ from typing import Any, Optional
 import pytest
 
 from plt_optimizer.core.units import Z_UNITS_PER_INCH
-from plt_optimizer.generate.job_config import JobConfig, load_job_config
-from plt_optimizer.generate.schema import JobSpec, parse_yaml
+from plt_optimizer.generate.job_config import (
+    JobConfig,
+    JobDefaults,
+    load_job_config,
+)
+from plt_optimizer.generate.schema import ContentEntry, JobSpec, parse_yaml
 from plt_optimizer.generate.tool_options import (
     _clamp_float,
     _clamp_int,
@@ -32,6 +38,7 @@ from plt_optimizer.generate.tool_options import (
     _format_int_header,
     generate_tool_option_headers,
     prepend_tool_option_headers,
+    resolve_tool_option_values,
 )
 
 _REPO_CONFIG_PATH = Path("job-config.json")
@@ -124,9 +131,107 @@ def _job(**tool_options: Any) -> JobSpec:
         job_name="Test",
         width=3.0,
         height=1.0,
-        content=[{"text": "Test"}],
+        content=[ContentEntry(text="Test")],
         tool_options=tool_options,
     )
+
+
+class TestResolveToolOptionValues:
+    """The resolver that feeds both the HPGL header and the runtime estimate."""
+
+    def test_it_selects_the_layer_dual_default(self, repo_config: JobConfig) -> None:
+        """``text`` and ``borders_holes`` resolve to their own defaults."""
+        text = resolve_tool_option_values(_job(), repo_config, "text")
+        holes = resolve_tool_option_values(_job(), repo_config, "borders_holes")
+        for key, meta in _options(repo_config).items():
+            default = meta.get("default")
+            if isinstance(default, dict):
+                assert text[key] == _expected_value(repo_config, key, default["text"])
+                assert holes[key] == _expected_value(repo_config, key, default["borders_holes"])
+
+    def test_a_job_spec_value_beats_the_config_default(self, repo_config: JobConfig) -> None:
+        values = resolve_tool_option_values(_job(cutting_velocity=1.25), repo_config, "text")
+        assert values["cutting_velocity"] == pytest.approx(1.25)
+
+    def test_values_are_clamped_to_the_configured_range(
+        self, repo_config: JobConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The resolver clamps, and warns, exactly as the header emitter did."""
+        maximum: float = _meta(repo_config, "cutting_velocity").get("max", 100.0)
+        with caplog.at_level(logging.WARNING):
+            values = resolve_tool_option_values(
+                _job(cutting_velocity=maximum + 500.0), repo_config, "text"
+            )
+        assert values["cutting_velocity"] == pytest.approx(maximum)
+        assert "clamping to" in caplog.text
+
+    def test_options_with_no_resolvable_value_are_omitted(self, repo_config: JobConfig) -> None:
+        """A layer whose default is ``None`` gets no header and no rate.
+
+        ``default: null`` outright is rejected by ``JobDefaults`` (the option
+        must declare a default), so "unset" is per layer - the shape the shop
+        uses to enable an option on one layer only.
+        """
+        registry = dict(_options(repo_config))
+        entry = dict(registry["cutting_velocity"])
+        entry["default"] = {"text": 1.5, "borders_holes": None}
+        registry["cutting_velocity"] = entry
+        config = _config_with(registry)
+        assert "cutting_velocity" in resolve_tool_option_values(_job(), config, "text")
+        assert "cutting_velocity" not in resolve_tool_option_values(_job(), config, "borders_holes")
+
+    def test_nothing_resolves_without_a_config_registry(self) -> None:
+        """The registry is required: a bare spec declares values but no commands.
+
+        Without ``tool_options`` metadata there is no command to emit, so the
+        resolver reports nothing - which is what makes the usage estimate fall
+        back to "not estimable" instead of inventing a rate.
+        """
+        assert resolve_tool_option_values(_job(cutting_velocity=2.5), None, "text") == {}
+        assert resolve_tool_option_values(_job(), None, "text") == {}
+
+    def test_the_headers_are_formatted_from_the_resolved_values(
+        self, repo_config: JobConfig
+    ) -> None:
+        """The anti-drift guarantee: the estimate reads the numbers the PLT carries.
+
+        For every layer, formatting the resolver's output reproduces
+        :func:`generate_tool_option_headers` exactly - so a run time reported
+        from those same values can never disagree with the engraved file.
+        """
+        job = _job(cutting_velocity=1.5, dwell_time=75)
+        for plt_type in ("text", "borders_holes"):
+            values = resolve_tool_option_values(job, repo_config, plt_type)
+            headers = generate_tool_option_headers(job, repo_config, plt_type)
+            assert headers == [_expected(repo_config, key, value) for key, value in values.items()]
+
+
+def _config_with(tool_options: dict[str, Any]) -> JobConfig:
+    """A config carrying exactly the given ``tool_options`` registry."""
+    return JobConfig(
+        path=Path("test-job-config.json"),
+        defaults=JobDefaults(tool_options=tool_options),
+    )
+
+
+def _expected_value(config: JobConfig, key: str, value: Any) -> Any:
+    """The resolver's expected value for one option: the clamped default.
+
+    Args:
+        config: The loaded shipped config.
+        key: The tool option key.
+        value: The pre-clamp value.
+
+    Returns:
+        The value the resolver reports for it.
+    """
+    meta = _meta(config, key)
+    param_type = meta.get("type", "bool")
+    if param_type == "float":
+        return _clamp_float(value, key, meta)
+    if param_type == "int":
+        return _clamp_int(value, key, meta)
+    return value
 
 
 class TestToolOptionHeaderGeneration:
@@ -207,7 +312,9 @@ class TestToolOptionHeaderGeneration:
         else:
             assert _expected(repo_config, "z_clearance", 0.3) in header_strs
 
-    def test_bounds_clamping_warning(self, repo_config: JobConfig, caplog) -> None:
+    def test_bounds_clamping_warning(
+        self, repo_config: JobConfig, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Out-of-bounds values are clamped and warnings logged."""
         # The out-of-range value is derived from the shipped config's own max,
         # so the clamp fires whatever range the shop tunes to.
@@ -349,8 +456,9 @@ class TestToolOptionsIntegration:
         )
 
         # The values come from the frozen fixture, never the shop config.
+        options = job.tool_options or {}
         for key, value in _DEMO_VALUES.items():
-            assert job.tool_options[key] == value
+            assert options[key] == value
 
 
 class TestToolOptionsEdgeCases:
@@ -358,13 +466,7 @@ class TestToolOptionsEdgeCases:
 
     def test_empty_tool_options_dict(self, repo_config: JobConfig) -> None:
         """Empty tool_options dict is handled correctly."""
-        job = JobSpec(
-            job_name="Test",
-            width=3.0,
-            height=1.0,
-            content=[{"text": "Test"}],
-            tool_options={},
-        )
+        job = _job()
 
         headers = generate_tool_option_headers(job, repo_config, "text")
 
@@ -377,7 +479,7 @@ class TestToolOptionsEdgeCases:
             job_name="Test",
             width=3.0,
             height=1.0,
-            content=[{"text": "Test"}],
+            content=[ContentEntry(text="Test")],
             tool_options=None,
         )
 

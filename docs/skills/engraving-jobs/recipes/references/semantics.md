@@ -16,7 +16,7 @@ about **choosing** one and **adapting** it safely.
 | Mixed descenders (`g j p q y`) near caps | `descender_adjust_demo.yaml` |
 | Real multi-label production job (per-label data files) | `2026-10-06-seer.yaml` |
 | Multi-size production run tagged with a `material` | `2026-10-30-CES-vons-1735.yaml` |
-| Engraver header settings (`tool_options`: speed, spindle) | `2026-10-06-seer-wb-uv.yaml` |
+| Engraver header settings (`tool_options`: speed, spindle) | `2026-10-06-seer-wk-uv.yaml` |
 | Small round tags: explicit `cutter_size`, holes, SC font | `2026-10-15-coolsys-round-tags-target-910.yaml` |
 | Uniform `count` copies on a simple grid (`layout`) | `2026-07-22-sunwest.yaml` |
 | One big placard rich in inline markup | `2026-10-07-coolsys-1-big-label-sc.yaml` |

@@ -1141,6 +1141,19 @@ class JobDefaults(BaseModel):
             "Populated by the extract_headers.py script from PLT reference files."
         ),
     )
+    rapid_velocity: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "XY travel velocity in inches/sec for pen-up rapid moves and Z "
+            "retractions, used ONLY by the run-time estimate in the job "
+            "summary (`usage` block) - it emits no HPGL header, which is why "
+            "it is a job-config field and not a `tool_options` entry (every "
+            "`tool_options` key must map to a command that is written into "
+            "the PLT). Unset falls back to each layer's `cutting_velocity`. "
+            "Not a cascading default (job specs cannot declare it)."
+        ),
+    )
     preview_background_color: Optional[str] = Field(
         default=None,
         description=(

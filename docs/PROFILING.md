@@ -116,7 +116,7 @@ Five specs covering the pipeline's distinct hot paths
 | `2026-10-07 coolsys 1 big label.yaml` | line-content reflow (max_lines 8), global h-compress, full markup (`<f> <sc> <scale> <b> <u> <i> <sup> <sub>`), corner holes |
 | `2026-10-15 coolsys round tags target 910 and walmart 2206.yaml` | round labels → shapely ellipse packing, small cutter, `dino sc` small-caps |
 | `2026-10-06 seer intrachunk opt TTF.yaml` | TTF renderer (matplotlib TextPath) + intra-chunk optimization |
-| `2026-10-06 seer wb-uv.yaml` | multi-material packing (wb + uv), per-material plate pools |
+| `2026-10-06 seer wk-uv.yaml` | multi-material packing (wk + uv), per-material plate pools |
 
 ## Measured results (2026-10-17, `--repeats 3`, plots off, ensemble optimize on)
 
@@ -134,7 +134,7 @@ stage seconds = sums of the last timed run. `cpu_s` is process CPU
 | 2026-10-07 coolsys 1 big label | 68.7 | 68.2 | 26 MiB | **`reflow` 66.7** |
 | 2026-10-15 coolsys round tags 910+walmart | 51.0 | 49.9 | 31 MiB | **`layout_render_pack` 49.6** |
 | 2026-10-06 seer intrachunk opt TTF | 0.3 | 0.1 | 1 MiB | `optimize_layer` 0.2 |
-| 2026-10-06 seer wb-uv | 5.8 | 5.7 | 9 MiB | `cutter_downsize` 3.6 |
+| 2026-10-06 seer wk-uv | 5.8 | 5.7 | 9 MiB | `cutter_downsize` 3.6 |
 
 ### Bottleneck #1: descender-relief ink gaps (the `reflow`/render path) — FIXED 2026-10-18
 
@@ -184,7 +184,7 @@ Same box, same harness. Post-fix medians:
 | 2026-10-07 coolsys 1 big label | 68.7 | **3.6** | `reflow` 2.1 |
 | 2026-10-15 coolsys round tags 910+walmart | 51.0 | **2.7** | `optimize_layer` 1.3 / `layout_render_pack` 1.3 |
 | 2026-10-06 seer intrachunk opt TTF | 0.3 | 0.04 | — |
-| 2026-10-06 seer wb-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (untouched by these fixes; see Current #1) |
+| 2026-10-06 seer wk-uv | 5.8 | 6.1 | `cutter_downsize` 3.9 (untouched by these fixes; see Current #1) |
 
 What fixed what:
 
@@ -239,33 +239,33 @@ reliable signal). Memory is a non-issue everywhere (peak 1.0-31.7 MiB).
 | Spec | pre-cache | post-cache | post-relief-memo | post-shift-memo | dominant stage(s) after |
 |---|---|---|---|---|---|
 | 2026-07-22 sunwest | 11.2 | 2.08 | 2.08 | **1.99** | `optimize_layer` 1.2 (481-block layer, post-IH-cache) |
-| 2026-10-06 seer wb-uv | 3.1 | 2.27 | 2.27 | **2.20** | `cutter_downsize` 1.3 + `layout_render_pack` 0.62 |
+| 2026-10-06 seer wk-uv | 3.1 | 2.27 | 2.27 | **2.20** | `cutter_downsize` 1.3 + `layout_render_pack` 0.62 |
 | 2026-10-07 coolsys 1 big label | 2.6 | 2.57 | 2.57 | **2.61** | `reflow` 1.7 |
 | 2026-10-15 coolsys round tags 910+walmart | 2.4 | 1.83 | 1.83 | **1.90** | `layout_render_pack` 0.98 |
 | 2026-10-06 seer intrachunk opt TTF | 0.03 | 0.03 | 0.03 | **0.03** | — |
 
 TOTAL (median-of-3, shift-memo sweep `72e2e650` → `6faa75cd`):
 **8.77 → 8.73 s (-0.5 %, inside the noise band)** — the patched leaf is
-provably gone (wb-uv `_shifted_boxes` 0.41 → 0.055 s profiled, 96 %
+provably gone (wk-uv `_shifted_boxes` 0.41 → 0.055 s profiled, 96 %
 memo hits; coolsys 0.093 → 0.009 s), but the relief's remaining leaves
 (grid builds + gap measurement, Current #1) dominate its cost, so the
 wall gain is small. The previous cycle (relief memo, `a5d6d429` →
-`72e2e650`) measured **10.25 → 8.77 s (-14.5 %)**; wb-uv **-32.7 %**
+`72e2e650`) measured **10.25 → 8.77 s (-14.5 %)**; wk-uv **-32.7 %**
 (`cutter_downsize`
 2.09 → 1.32), round tags -9.1 %, coolsys -8.0 %. sunwest's 11.2 → 2.08
 across the last two cycles is the optimize-side IH incremental-insertion
 cache (its 481-block layer 10.5 → 1.3 s), not this patch — the relief
 memo is noise-level there (+1.7 %).
 
-### Current #1: the relief's grid builds + per-glyph gap measurement (wb-uv, coolsys)
+### Current #1: the relief's grid builds + per-glyph gap measurement (wk-uv, coolsys)
 
-Post-shift-memo the relief is still the top render cost (wb-uv **1.93 s
+Post-shift-memo the relief is still the top render cost (wk-uv **1.93 s
 profiled of the 4.7 s run**, coolsys 0.73 s across 11 renders), and its
 two remaining leaves are:
 
 - **`InkGrid.__init__`: 365 cold constructions / 0.60 s profiled** (272 k
   `_cells_covered` + 667 k `_segment_span`). The `lru_cache(16)` never
-  hits on wb-uv — every sweep step's X-compressed line ink is a fresh
+  hits on wk-uv — every sweep step's X-compressed line ink is a fresh
   key, so the working set exceeds the bound. The exact next win: key the
   grid on the LOCAL ink + the X scale (a scaled-ink grid is the local
   grid scaled — the cell math maps exactly), or index the line's segments
@@ -323,7 +323,7 @@ levels):
 | 2026-10-07 coolsys 1 big label | 69.03 | 69.01 | -0.0% | yes |
 | 2026-10-15 coolsys round tags 910+walmart | 49.34 | 48.92 | -0.8% | see note |
 | 2026-10-06 seer intrachunk opt TTF | 0.71 | 0.72 | +2.2% | yes |
-| 2026-10-06 seer wb-uv | 6.29 | 6.29 | +0.1% | yes |
+| 2026-10-06 seer wk-uv | 6.29 | 6.29 | +0.1% | yes |
 
 Every delta is within run-to-run noise (the harness's own median-of-3
 spread on these specs is ±1–3 s). **`-O` yields no meaningful speedup** —

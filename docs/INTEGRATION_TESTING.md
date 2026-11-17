@@ -223,7 +223,7 @@ File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job
 where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
 diameter in integer thousandths of an inch, unpadded (`0.060` -> `60`). The
 plate number appears only when a material
-spans more than one plate; the material tag (sanitized, e.g. `wb_uv`) appears
+spans more than one plate; the material tag (sanitized, e.g. `wk_uv`) appears
 only for material-declared output. Every name carries only ASCII letters,
 digits and underscores (international characters transliterate, punctuation
 collapses to a single underscore). PLT names are capped at 39 characters
@@ -300,7 +300,7 @@ test_output/integration_test/generation_report/
 | `outputs` | `plt_files`, `pdf_files`, `default_pdf_files` (paths) and `plates` — per-plate geometry with every placed label (`label_id`, `x`, `y`, `width`, `height`, `rotated`) |
 | `labels` | Per label: identity, role, material, plate placement, size, and its lines with the applied effects (`compression`, `line_spacing`, holes, relief, cutter downsize, …) |
 | `warnings` / `errors` | The captured log records: `level`, `logger`, `message`, plus the best-effort `label_id` / `line_index` attribution |
-| `usage` | Production-usage accounting (labels / characters / holes / material / tool distance) — see below; `null` on a failed run |
+| `usage` | Production-usage accounting (labels / characters / holes / material / tool distance / estimated run time) — see below; `null` on a failed run |
 
 `usage` is built by `plt_optimizer/generate/usage_stats.py` (contract: its
 module docstring) and is the only block whose numbers are **measured from the
@@ -314,13 +314,21 @@ subtotal plus its own breakdown rows:
 | `holes` | `total` per drill hole, by `by_diameter` (requested plus the cutter-compensated `engraved_diameter`) and `by_label` |
 | `material` | `total` plate area (`plates`, `sq_in`, `sq_ft`, clearance frame included) plus `by_material`; and two label-area measures: `label_nominal_area` (spec size x count) and `label_bbox_area` (the plate-frame bounding box the packer reserved, rotation-aware) |
 | `distance` | Tool travel in inches, `available`/`note` first: `total` (`cutting` + `rapid` = `total`, each with `*_ft`), `by_movement`, `by_class` (`text` / `relief` / `borders` / `holes` / `unattributed`), `by_cutter` (diameter + layer kind), `by_material`, `by_plate`, `by_label` (placement id + spec + plate + material), `files` (every measured file) and `unattributed` |
+| `time` | **Estimated** run time in seconds, `available`/`note` first: the same measured travel divided by the machine parameters those files' headers were emitted with. `model` (the exact parameters, per layer), `total` (plus `total_hms`, `strokes`, `files`), `by_operation` (`cutting` / `rapid` / `plunge` / `z_up` / `dwell`), then `by_cutter`, `by_material`, `by_plate`, `by_class`, `by_label` (per placement) and `by_spec` (per job: one label summed over its copies, plates and cutters), each row carrying the operation split, the `total` and its `share` |
 
 Every `distance` counter reconciles with `distance.total`: the breakdowns sum to
 the measured total, with strokes outside every label slot reported under
 `unattributed` so nothing is dropped. Because distance is measured from what the
 machine will actually run, the numbers include sweep/merge rewrites — they
-intentionally differ from any pre-write estimate. `summary.txt` renders the same
-block as its "Job usage:" section (2-decimal figures); see
+intentionally differ from any pre-write estimate. `time` reconciles the same way
+and adds `time.total == sum(time.by_operation)`; it is an **estimate**, not a
+measurement of the plotter, and it excludes tool changes, setup and loading.
+When no `cutting_velocity` is configured (or a layer's rate is unresolvable) the
+whole block reports `available: false` with a `note` and no numbers, so an
+unsupported estimate is never mistaken for a zero. The rapid and Z terms read
+`rapid_velocity` from `job-config.json` (falling back to the layer's
+`cutting_velocity`). `summary.txt` renders the same blocks as its "Job usage:"
+section (2-decimal figures); see
 `plt_optimizer/generate/AGENTS.md` for the rule on extending it when new job or
 label types appear.
 

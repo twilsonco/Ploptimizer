@@ -1,0 +1,25 @@
+job:
+  job_name: "2026-11-17 CES SFW3525"
+  font: helv1
+  material: kw
+  height: 2
+  width: 4
+  text_height: 1.25
+  holes:
+    - location: sides
+  labels:
+    - id: "1x3"
+      height: 1
+      width: 3
+      text_height: 0.75
+      replacement_text_file: "2026-11-17 CES SFW3525 1x3.txt"
+    - id: "2x4"
+      replacement_text_file: "2026-11-17 CES SFW3525 2x4.txt"
+    - id: "2x4 R507"
+      count: 22
+      content:
+        - text: "R507"
+    - id: "2x4 R134A"
+      count: 11
+      content:
+        - text: "R134A"

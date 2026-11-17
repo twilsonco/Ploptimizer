@@ -454,12 +454,12 @@ class TestSelectors:
     def test_combined_proofs_filters_diagnostics(self, script: Any, tmp_path: Path) -> None:
         files = [
             tmp_path / "all_Job.pdf",
-            tmp_path / "bw_all_Job.pdf",
+            tmp_path / "kw_all_Job.pdf",
             tmp_path / "all_Job_default.pdf",
             tmp_path / "30_txt_Job.pdf",
         ]
         picked = [p.name for p in script.combined_proofs(files)]
-        assert picked == ["all_Job.pdf", "bw_all_Job.pdf"]
+        assert picked == ["all_Job.pdf", "kw_all_Job.pdf"]
 
     def test_rasterize_pages_not_cross_matched(self, script: Any, tmp_path: Path) -> None:
         """A proof's page glob must not absorb a longer-named proof's pages."""
@@ -487,7 +487,7 @@ class TestSelectors:
         assert len(images) == 2
 
     def test_safe_name(self, script: Any) -> None:
-        assert script.safe_name("2026-10-06 seer wb.yaml") == "2026-10-06_seer_wb.yaml"
+        assert script.safe_name("2026-10-06 seer wk.yaml") == "2026-10-06_seer_wk.yaml"
 
 
 @pytest.mark.skipif(not (HAS_PANDOC and HAS_GS), reason="pandoc/xelatex/gs not installed")

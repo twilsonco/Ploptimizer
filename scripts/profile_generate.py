@@ -81,7 +81,7 @@ BENCHMARK_SPECS: tuple[str, ...] = (
     "examples/job_specs/2026-10-07 coolsys 1 big label.yaml",
     "examples/job_specs/2026-10-15 coolsys round tags target 910 and walmart 2206.yaml",
     "examples/job_specs/2026-10-06 seer intrachunk opt TTF.yaml",
-    "examples/job_specs/2026-10-06 seer wb-uv.yaml",
+    "examples/job_specs/2026-10-06 seer wk-uv.yaml",
 )
 
 DEFAULT_OUTPUT_DIR = "test_output/profiling"

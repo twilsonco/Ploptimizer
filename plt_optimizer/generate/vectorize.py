@@ -531,11 +531,11 @@ def _format_plate_number(plate_number: int) -> str:
 def _format_material_tag(material: Optional[str]) -> str:
     """Format a stock material name for inclusion in file names.
 
-    Material names are free-form (``"wb"``, ``"wb(uv)"``), so the name is
+    Material names are free-form (``"wk"``, ``"wk(uv)"``), so the name is
     reduced to a single safe filename component (see
     :func:`plt_optimizer.core.filenames.sanitize_filename_component`):
     international characters transliterate and every run of punctuation
-    collapses to one underscore (``"wb(uv)"`` -> ``"wb_uv"``,
+    collapses to one underscore (``"wk(uv)"`` -> ``"wk_uv"``,
     ``"3-layer black"`` -> ``"3_layer_black"``). A name that sanitizes to
     nothing (e.g. ``"---"``) falls back to ``"x"`` so the tag is never empty.
 
@@ -595,7 +595,7 @@ def _format_plate_prefix(
 
     Returns:
         Prefix ending in an underscore, e.g. ``""``, ``"02_"``,
-        ``"wb_uv_"`` or ``"02_wb_uv_"``.
+        ``"wk_uv_"`` or ``"02_wk_uv_"``.
     """
     parts: list[str] = []
     if material_plate_count > 1:
@@ -620,7 +620,7 @@ class _StemParts:
     Attributes:
         plate: Plate-number token (``"02"``), or ``None`` when the plate's
             material spans a single sheet.
-        material: Material tag token (``"wb_uv"``), or ``None``.
+        material: Material tag token (``"wk_uv"``), or ``None``.
         cutter: Cutter-diameter token in integer mils (``"40"``), or
             ``None``.
         kind: Layer kind (``"txt"`` / ``"bh"``), or ``None`` when the stem
@@ -654,8 +654,8 @@ def _parse_plt_stem(stem: str) -> _StemParts:
     Then, relative to the cutter index: index 0 -> no plate, no material;
     index >= 1 -> the leading token is the plate when it is all digits, and
     every token between (it and) the cutter is the material (a sanitized
-    material tag may itself contain underscores, e.g. ``wb(uv)`` ->
-    ``wb_uv``).
+    material tag may itself contain underscores, e.g. ``wk(uv)`` ->
+    ``wk_uv``).
 
     Known limitations (all degrade gracefully to the thin-line plot /
     fallback title): a stem shortened by the 39-character filename cap can
@@ -748,7 +748,7 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     Returns:
         A descriptive title string, e.g. ``"My Job 0.5 text (0.040 cutter)"``
         or ``"My Job borders and holes (0.015 cutter)"``. The material tag,
-        when present, is included as ``" [wb_uv]"``. The cutter is rendered in
+        when present, is included as ``" [wk_uv]"``. The cutter is rendered in
         inches for readability even though the file name carries integer mils.
     """
     parts = _parse_plt_stem(plt_path.stem)
@@ -803,7 +803,7 @@ def export_per_cutter_plts(
     - **text** gets one file per distinct cutter/color layer, named
       ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt`` (the
       ``<color>`` tag appears when the layer carries a ``text_color``,
-      e.g. ``wb_uv_40_m_txt_job.plt`` for magenta). A text cutter equal
+      e.g. ``wk_uv_40_m_txt_job.plt`` for magenta). A text cutter equal
       to the boundary/hole cutter still gets its own file (separate run).
       Lines sharing a cutter but differing in ``text_color`` split into
       separate files so the cutter depth can change between runs (3-layer
@@ -814,7 +814,7 @@ def export_per_cutter_plts(
       (zero-padded to two digits) is **omitted whenever the plate's
       material group spans a single sheet**, so its presence signals that
       *this material* needs more than one plate; the sanitized material tag
-      (e.g. ``wb(uv)`` -> ``wb_uv``) is omitted for material-agnostic
+      (e.g. ``wk(uv)`` -> ``wk_uv``) is omitted for material-agnostic
       plates. Material-agnostic plates form one group, so multi-sheet
       material-less jobs always keep their plate numbers. The cutter
       precedes the kind token so the tool size is visible before the
@@ -1316,7 +1316,7 @@ def _write_simple_plots(
     color, then black -- white over dark material backgrounds), and the
     label boundary rectangles (SP2) fill with the material's background
     color under the ink. Plates whose material is unset (or carries no
-    recognized color) proof as ``wb`` stock: white label background, black
+    recognized color) proof as ``wk`` stock: white label background, black
     text. Borders (SP2) and drill holes (SP3) share the opaque contrast
     outline (black over a white material background, white over every other
     background); the holes punch the preview background color
@@ -1583,7 +1583,7 @@ def _write_simple_plots(
         pdf_path = pdf_dir / f"{prefix}all_{job_id}.pdf"
         title = f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization"
         parsed_material = parse_material_colors(result.material_by_plate.get(plate_no))
-        # Material-agnostic (or unrecognized-name) plates proof as "wb"
+        # Material-agnostic (or unrecognized-name) plates proof as "wk"
         # stock: white label background, black text, black outlines.
         material_colors = (
             parsed_material if parsed_material.background is not None else DEFAULT_MATERIAL_COLORS
@@ -1629,7 +1629,7 @@ def _write_simple_plots(
                 )
                 if is_boundary and material_colors.background is not None:
                     # The label boundary rectangles enclose the material
-                    # background (always set: the wb default fills in for
+                    # background (always set: the wk default fills in for
                     # material-agnostic plates): fill them under the ink.
                     polygons = closed_path_polygons(pen_segments)
                     if polygons:

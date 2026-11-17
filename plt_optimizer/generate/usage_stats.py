@@ -64,6 +64,7 @@ produce byte-comparable JSON.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,6 +74,7 @@ from plt_optimizer.core.models import ArcSegment, PLTDocument, StrokePath
 from plt_optimizer.core.parser import PLTParser
 from plt_optimizer.core.units import inches_to_units, units_to_inches
 from plt_optimizer.generate.resolution import ResolvedLabel, hole_engraved_radius
+from plt_optimizer.generate.tool_options import resolve_tool_option_values
 from plt_optimizer.generate.vectorize import (
     LAYER_BOUNDARY,
     LAYER_HOLES,
@@ -81,6 +83,8 @@ from plt_optimizer.generate.vectorize import (
     _parse_plt_stem,
     extract_pens_from_plt_text,
 )
+
+logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------
 # Public constants (part of the report's contract)
@@ -148,6 +152,30 @@ SUMMARY_USAGE_LABEL_LIMIT: int = 50
 
 #: Rendered for a metric that is legitimately absent (``None`` in JSON).
 MISSING_TEXT: str = "n/a"
+
+#: The five operation types the run-time estimate is decomposed into. Every
+#: ``time`` bucket row carries one entry per name, in this order.
+TIME_OPERATIONS: Tuple[str, ...] = ("cutting", "rapid", "plunge", "z_up", "dwell")
+
+#: Registry key of the per-layer XY cutting feed (``VS``), in inches/sec. The
+#: time model needs the same names the shop's ``tool_options`` registry uses
+#: (see docs/TODO.md), so they are constants: a shop that renamed a key edits
+#: them here and the estimate degrades to "not estimable" with a log line.
+CUTTING_VELOCITY_KEY: str = "cutting_velocity"
+PLUNGE_VELOCITY_KEY: str = "plunge_velocity"
+Z_CLEARANCE_KEY: str = "z_clearance"
+Z_UP_VELOCITY_KEY: str = "z_up_velocity"
+DWELL_TIME_KEY: str = "dwell_time"
+
+#: ``tool_options`` layer of a per-cutter file, keyed by the file name's
+#: ``kind`` token - identical to the ``plt_type`` the export passes to
+#: :func:`~plt_optimizer.generate.tool_options.generate_tool_option_headers`
+#: (``_txt_`` files are text, ``_bh_`` files are borders/holes), so the
+#: estimate reads the same dual defaults the file was emitted with.
+PLT_TYPE_BY_KIND: Dict[str, str] = {KIND_TEXT: "text", KIND_STRUCTURAL: "borders_holes"}
+
+#: Milliseconds per second, for the ``ms``-unit options (``ZO105``/``ZO124``).
+MS_PER_SECOND: float = 1000.0
 
 
 # --------------------------------------------------------------------------
@@ -848,13 +876,162 @@ def _material_usage(
 
 
 # --------------------------------------------------------------------------
+# Run-time model (tool_options driven)
+# --------------------------------------------------------------------------
+
+
+def _positive(value: Any) -> Optional[float]:
+    """Return ``value`` as a float when it is a usable rate, else ``None``.
+
+    Args:
+        value: A resolved tool-option value (any declared type), or ``None``.
+
+    Returns:
+        The value as a float when it is a real number above zero.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if number > 0.0 else None
+
+
+@dataclass(frozen=True)
+class _LayerRates:
+    """Run-time rates of one ``tool_options`` layer.
+
+    Distances are divided into seconds and strokes are multiplied into the
+    per-stroke Z terms, so every rate here is a cost, never a speed.
+
+    Attributes:
+        cutting: Seconds per inch of pen-down travel (1 / cutting_velocity).
+        rapid: Seconds per inch of pen-up travel (1 / rapid_velocity, which
+            falls back to the layer's cutting_velocity when unconfigured).
+        plunge: Seconds per stroke (z_clearance / plunge_velocity).
+        z_up: Seconds per stroke (z_up_velocity, declared in ms).
+        dwell: Seconds per stroke (dwell_time, declared in ms).
+        params: The resolved parameter values that produced these rates,
+            reported verbatim in ``usage.time.model`` so the operator can see
+            what the estimate assumed.
+    """
+
+    cutting: float
+    rapid: float
+    plunge: float
+    z_up: float
+    dwell: float
+    params: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def per_stroke(self) -> float:
+        """Seconds of one stroke's full Z cycle (plunge + z-up + dwell)."""
+        return self.plunge + self.z_up + self.dwell
+
+
+def _build_layer_rates(
+    job_spec: Any,
+    job_config: Any,
+    plt_type: str,
+) -> Optional[_LayerRates]:
+    """Resolve the run-time rates of one layer from the tool options.
+
+    Values come from :func:`~plt_optimizer.generate.tool_options.resolve_tool_option_values`,
+    i.e. the job-spec override -> the config's dual default for ``plt_type``
+    -> unset, with the configured ``min``/``max`` clamps - exactly what the
+    export wrote into that layer's PLT headers. The rapid velocity is the one
+    term the registry cannot supply (it has no HPGL command of its own), so it
+    comes from the ``rapid_velocity`` job-config field and falls back to the
+    layer's cutting velocity.
+
+    Args:
+        job_spec: The resolved job spec (its ``tool_options`` are the override
+            tier), or ``None``.
+        job_config: The loaded job config, or ``None``.
+        plt_type: ``"text"`` or ``"borders_holes"``.
+
+    Returns:
+        The layer's rates, or ``None`` when no cutting velocity is configured
+        (the whole time block is then omitted - a report must never imply a
+        run time the machine parameters cannot support).
+    """
+    if job_spec is None or job_config is None:
+        return None
+    values = resolve_tool_option_values(job_spec, job_config, plt_type)
+    cutting_velocity = _positive(values.get(CUTTING_VELOCITY_KEY))
+    if cutting_velocity is None:
+        logger.debug(
+            "usage: no %s resolved for the %r layer, run time is not estimable",
+            CUTTING_VELOCITY_KEY,
+            plt_type,
+        )
+        return None
+    rapid_velocity = _positive(getattr(job_config.defaults, "rapid_velocity", None))
+    rapid_source = "rapid_velocity" if rapid_velocity is not None else CUTTING_VELOCITY_KEY
+    if rapid_velocity is None:
+        rapid_velocity = cutting_velocity
+    plunge_velocity = _positive(values.get(PLUNGE_VELOCITY_KEY))
+    z_clearance = _positive(values.get(Z_CLEARANCE_KEY))
+    plunge = (
+        z_clearance / plunge_velocity
+        if plunge_velocity is not None and z_clearance is not None
+        else 0.0
+    )
+    z_up_ms = _positive(values.get(Z_UP_VELOCITY_KEY))
+    dwell_ms = _positive(values.get(DWELL_TIME_KEY))
+    return _LayerRates(
+        cutting=1.0 / cutting_velocity,
+        rapid=1.0 / rapid_velocity,
+        plunge=plunge,
+        z_up=(z_up_ms or 0.0) / MS_PER_SECOND,
+        dwell=(dwell_ms or 0.0) / MS_PER_SECOND,
+        params={
+            CUTTING_VELOCITY_KEY: cutting_velocity,
+            "rapid_velocity": rapid_velocity,
+            "rapid_velocity_source": rapid_source,
+            PLUNGE_VELOCITY_KEY: plunge_velocity,
+            Z_CLEARANCE_KEY: z_clearance,
+            Z_UP_VELOCITY_KEY: z_up_ms,
+            DWELL_TIME_KEY: dwell_ms,
+            "stroke_z_cycle_seconds": _round(
+                plunge + (z_up_ms or 0.0) / MS_PER_SECOND + (dwell_ms or 0.0) / MS_PER_SECOND
+            ),
+        },
+    )
+
+
+def _zero_ops() -> List[float]:
+    """Return a fresh zeroed per-operation seconds accumulator.
+
+    Returns:
+        ``[cutting, rapid, plunge, z_up, dwell]`` in seconds.
+    """
+    return [0.0] * len(TIME_OPERATIONS)
+
+
+def _ops_dict(values: Sequence[float]) -> Dict[str, Optional[float]]:
+    """Render one operation accumulator as a JSON mapping.
+
+    Args:
+        values: The ``[cutting, rapid, plunge, z_up, dwell]`` seconds.
+
+    Returns:
+        The named operation totals, rounded.
+    """
+    return {name: _round(values[index]) for index, name in enumerate(TIME_OPERATIONS)}
+
+
+# --------------------------------------------------------------------------
 # Distance measurement
 # --------------------------------------------------------------------------
 
 
 @dataclass
 class _DistanceTotals:
-    """Accumulator for measured toolpath distances (inches).
+    """Accumulator for measured toolpath distances (inches) and run time.
+
+    The time accumulators are fed by the same pass as the distances (see
+    :meth:`add_cutting`, :meth:`add_rapid` and :meth:`add_stroke_cycle`) and
+    are only non-zero when :attr:`rates` was set for the measured file, so the
+    two blocks can never disagree about which geometry was counted.
 
     Attributes:
         cutting: Total pen-down distance.
@@ -869,6 +1046,18 @@ class _DistanceTotals:
         unattributed_strokes: Strokes no slot could explain.
         unattributed_cutting: Cutting distance of those strokes.
         unattributed_rapid: Rapid distance of those strokes.
+        rates: The measured file's run-time rates, set before measuring; the
+            time methods add nothing while it is ``None``.
+        strokes: Strokes measured with rates active (each carries one Z cycle).
+        time_by_op: Seconds per operation for the whole job.
+        by_label_time: Operation seconds per label placement id.
+        by_class_time: Operation seconds per stroke class.
+        unattributed_time: Operation seconds of the strokes no slot explained.
+        by_cutter_time: Operation seconds per (cutter diameter, layer kind).
+        by_material_time: Operation seconds per stock material.
+        by_plate_time: Operation seconds per plate id.
+        files_with_rates: Files measured with rates active - time is only
+            reportable when this equals the number of measured files.
     """
 
     cutting: float = 0.0
@@ -883,6 +1072,16 @@ class _DistanceTotals:
     unattributed_strokes: int = 0
     unattributed_cutting: float = 0.0
     unattributed_rapid: float = 0.0
+    rates: Optional[_LayerRates] = None
+    strokes: int = 0
+    time_by_op: List[float] = field(default_factory=_zero_ops)
+    by_label_time: Dict[str, List[float]] = field(default_factory=dict)
+    by_class_time: Dict[str, List[float]] = field(default_factory=dict)
+    by_cutter_time: Dict[Tuple[Any, Any], List[float]] = field(default_factory=dict)
+    by_material_time: Dict[Any, List[float]] = field(default_factory=dict)
+    by_plate_time: Dict[int, List[float]] = field(default_factory=dict)
+    unattributed_time: List[float] = field(default_factory=_zero_ops)
+    files_with_rates: int = 0
 
     def add_cutting(self, value: float, stroke_class: str, label_id: Optional[str]) -> None:
         """Record a cutting distance.
@@ -894,6 +1093,8 @@ class _DistanceTotals:
         """
         self.cutting += value
         self.by_class[stroke_class] = self.by_class.get(stroke_class, 0.0) + value
+        if self.rates is not None:
+            self._add_time(0, value * self.rates.cutting, stroke_class, label_id)
         if label_id is None:
             self.unattributed_cutting += value
             return
@@ -909,10 +1110,66 @@ class _DistanceTotals:
             label_id: The owning placement id, or ``None`` when unattributed.
         """
         self.rapid += value
+        if self.rates is not None:
+            self._add_time(1, value * self.rates.rapid, UNATTRIBUTED_CLASS, label_id)
         if label_id is None:
             self.unattributed_rapid += value
             return
         self.by_label.setdefault(label_id, [0.0, 0.0])[1] += value
+
+    def add_stroke_cycle(self, stroke_class: str, label_id: Optional[str]) -> None:
+        """Record one stroke's pen-down -> pen-up Z cycle (plunge, z-up, dwell).
+
+        Called once per stroke, at the stroke's first cutting segment, so the
+        cycle follows the same attribution as the cutting distance (a
+        multi-subpath path plunges once and is charged once).
+
+        Args:
+            stroke_class: The class of that first cutting segment.
+            label_id: The owning placement id, or ``None`` when unattributed.
+        """
+        if self.rates is None:
+            return
+        rates = self.rates
+        self.strokes += 1
+        # ``_add_time`` owns the operation accumulator - adding the terms here
+        # as well would charge every stroke's Z cycle twice.
+        for index, value in ((2, rates.plunge), (3, rates.z_up), (4, rates.dwell)):
+            self._add_time(index, value, stroke_class, label_id)
+
+    def _add_time(
+        self,
+        index: int,
+        value: float,
+        stroke_class: str,
+        label_id: Optional[str],
+    ) -> None:
+        """Add seconds to the operation, per-label and per-class accumulators.
+
+        Args:
+            index: The :data:`TIME_OPERATIONS` index of the operation.
+            value: Seconds.
+            stroke_class: The stroke class charged.
+            label_id: The owning placement id, or ``None`` when unattributed.
+        """
+        self.time_by_op[index] += value
+        class_row = self.by_class_time.setdefault(stroke_class, _zero_ops())
+        class_row[index] += value
+        if label_id is None:
+            self.unattributed_time[index] += value
+            return
+        self.by_label_time.setdefault(label_id, _zero_ops())[index] += value
+
+    def time_total(self, values: Optional[Sequence[float]] = None) -> float:
+        """Sum an operation accumulator.
+
+        Args:
+            values: The seconds to sum; defaults to the job totals.
+
+        Returns:
+            The total seconds.
+        """
+        return sum(self.time_by_op if values is None else values)
 
     def merge(self, other: _DistanceTotals) -> None:
         """Fold another accumulator (one file's measurements) into this one.
@@ -927,6 +1184,20 @@ class _DistanceTotals:
         self.unattributed_strokes += other.unattributed_strokes
         self.unattributed_cutting += other.unattributed_cutting
         self.unattributed_rapid += other.unattributed_rapid
+        self.strokes += other.strokes
+        self.files_with_rates += other.files_with_rates
+        for index, value in enumerate(other.time_by_op):
+            self.time_by_op[index] += value
+        for index, value in enumerate(other.unattributed_time):
+            self.unattributed_time[index] += value
+        for label_id, seconds in other.by_label_time.items():
+            bucket = self.by_label_time.setdefault(label_id, _zero_ops())
+            for index, value in enumerate(seconds):
+                bucket[index] += value
+        for class_name, seconds in other.by_class_time.items():
+            bucket = self.by_class_time.setdefault(class_name, _zero_ops())
+            for index, value in enumerate(seconds):
+                bucket[index] += value
         for label_id, (cut, rapid) in other.by_label.items():
             bucket = self.by_label.setdefault(label_id, [0.0, 0.0])
             bucket[0] += cut
@@ -973,6 +1244,10 @@ def _measure_document(
         # A stroke (path) is unattributed when no cutting segment of it found an
         # owner - the unit that matches the per-file "strokes" count.
         owned_cutting = 0
+        # One Z cycle (plunge / z-up / dwell) per stroke, charged at the first
+        # cutting segment so it follows the same attribution as that stroke's
+        # cutting distance - a path that spans labels plunges once.
+        cycle_charged = False
         # The gap the tool flew between the previous path's end and this path's
         # pen-up destination lands on the label it arrived at.
         if position is not None and path.pen_up_position is not None:
@@ -996,6 +1271,9 @@ def _measure_document(
             label_id = owner.label_id if owner is not None else None
             length = units_to_inches(seg.length)
             if seg.is_cutting:
+                if not cycle_charged:
+                    totals.add_stroke_cycle(_segment_class(kind, layer_class, owner), label_id)
+                    cycle_charged = True
                 totals.add_cutting(length, _segment_class(kind, layer_class, owner), label_id)
                 if label_id is not None:
                     owned_cutting += 1
@@ -1217,13 +1495,35 @@ def plate_or_none(number: int) -> Optional[int]:
     return None if number == UNRESOLVED_PLATE else number
 
 
+def _merge_ops(
+    bucket: Dict[Any, List[float]],
+    key: Any,
+    values: Sequence[float],
+) -> None:
+    """Fold one file's operation seconds into a keyed bucket.
+
+    The per-file values are folded **unrounded** so every time bucket sums
+    back to the job total exactly (the same invariant the distance buckets
+    keep); only the rendered rows are rounded.
+
+    Args:
+        bucket: The accumulator map (cutter / material / plate keyed).
+        key: The bucket row's key.
+        values: The file's ``[cutting, rapid, plunge, z_up, dwell]`` seconds.
+    """
+    row = bucket.setdefault(key, _zero_ops())
+    for index, value in enumerate(values):
+        row[index] += value
+
+
 def _distance_usage(
     plt_files: Sequence[Path],
     frames: Mapping[int, _PlateFrame],
     material_by_plate: Mapping[int, Optional[str]],
     label_meta: Mapping[str, Tuple[str, int, Optional[str]]],
-) -> Dict[str, Any]:
-    """Measure the tool travel of the emitted per-cutter PLT files.
+    rates_by_layer: Optional[Mapping[str, _LayerRates]],
+) -> Tuple[_DistanceTotals, Dict[str, int]]:
+    """Measure the tool travel (and run time) of the emitted per-cutter PLT files.
 
     Args:
         plt_files: The written per-cutter PLT paths, in write order. These are
@@ -1231,13 +1531,17 @@ def _distance_usage(
         frames: The per-plate attribution frames.
         material_by_plate: Stock material name per 1-based plate number.
         label_meta: Placement id to ``(spec id, plate number, material)``.
+        rates_by_layer: Run-time rates per ``tool_options`` layer, or ``None``
+            when no cutting velocity is configured (time is then not measured).
 
     Returns:
-        The ``usage.distance`` block.
+        ``(totals, file_count)``: the measurement accumulators, and how many
+        files were measured vs written (``{"measured": n, "written": m, "failed": k}``).
     """
     totals = _DistanceTotals()
     plate_numbers = sorted(frames)
     parser = PLTParser()
+    measured = 0
     for plt_path in plt_files:
         path = Path(plt_path)
         stem = _parse_plt_stem(path.stem)
@@ -1267,10 +1571,26 @@ def _distance_usage(
             # operator sees the row with its ``error`` and an empty distance.
             row["error"] = f"{type(exc).__name__}: {exc}"
             continue
+        measured += 1
         file_totals = _DistanceTotals()
+        layer = PLT_TYPE_BY_KIND.get(stem.kind or "")
+        rates = rates_by_layer.get(layer) if rates_by_layer is not None and layer else None
+        file_totals.rates = rates
         row["strokes"] = _measure_document(document, frame, stem.kind, file_totals)
         row["cutting"] = _round(file_totals.cutting)
         row["rapid"] = _round(file_totals.rapid)
+        if rates is not None:
+            row["z_strokes"] = file_totals.strokes
+            row["by_operation"] = _ops_dict(file_totals.time_by_op)
+            row["seconds"] = _round(file_totals.time_total())
+            _merge_ops(totals.by_cutter_time, (cutter, stem.kind), file_totals.time_by_op)
+            _merge_ops(totals.by_material_time, material, file_totals.time_by_op)
+            _merge_ops(
+                totals.by_plate_time,
+                plate_number if plate_number is not None else UNRESOLVED_PLATE,
+                file_totals.time_by_op,
+            )
+            totals.files_with_rates += 1
         totals.merge(file_totals)
         cutter_bucket = totals.by_cutter.setdefault((cutter, stem.kind), [0.0, 0.0, 0.0])
         cutter_bucket[0] += file_totals.cutting
@@ -1284,7 +1604,209 @@ def _distance_usage(
         material_bucket = totals.by_material.setdefault(material, [0.0, 0.0])
         material_bucket[0] += file_totals.cutting
         material_bucket[1] += file_totals.rapid
-    return _distance_rows(totals, frames, label_meta)
+    return totals, {"measured": measured, "written": len(plt_files)}
+
+
+def _time_rows(
+    totals: _DistanceTotals,
+    frames: Mapping[int, _PlateFrame],
+    label_meta: Mapping[str, Tuple[str, int, Optional[str]]],
+    rates_by_layer: Optional[Mapping[str, _LayerRates]],
+    file_count: Mapping[str, int],
+) -> Dict[str, Any]:
+    """Render the run-time estimate as the report's ``usage.time`` block.
+
+    Args:
+        totals: The accumulators filled by the measurement pass.
+        frames: The per-plate attribution frames (for plate materials).
+        label_meta: Placement id to ``(spec id, plate number, material)``.
+        rates_by_layer: The rates the measurement used, per layer, reported
+            verbatim in ``model`` so the estimate is auditable.
+        file_count: ``{"measured": n, "written": m}`` from the measurement pass.
+
+    Returns:
+        The time block in seconds. ``available`` is false - with an explanatory
+        ``note`` and no numbers - when the machine parameters could not be
+        resolved, because a run time the config cannot support must never be
+        reported as a zero.
+    """
+    measured = int(file_count.get("measured", 0))
+    available = bool(rates_by_layer) and totals.files_with_rates == measured and measured > 0
+    if not rates_by_layer or not available:
+        note = (
+            "No PLT files were measured, so the run time could not be estimated."
+            if measured == 0
+            else f"No {CUTTING_VELOCITY_KEY} is configured in the job-config "
+            "tool_options registry, so the run time of this job cannot be estimated."
+        )
+        return {
+            "available": False,
+            "note": note,
+            "units": "seconds",
+            "model": {},
+            "total": None,
+            "by_operation": None,
+            "by_cutter": [],
+            "by_material": [],
+            "by_plate": [],
+            "by_class": {},
+            "by_label": [],
+            "by_spec": [],
+            "unattributed": None,
+        }
+
+    ops = totals.time_by_op
+    total_s = sum(ops)
+
+    def share(seconds: float) -> float:
+        """Percentage of the job total, 0.0 when there is no total."""
+        return round(100.0 * seconds / total_s, 1) if total_s > 0.0 else 0.0
+
+    def row_ops(values: Sequence[float]) -> Dict[str, Any]:
+        """One bucket row: the operation split, the total and the share."""
+        return {
+            "by_operation": _ops_dict(values),
+            "total": _round(sum(values)),
+            "share": share(sum(values)),
+        }
+
+    def plate_material(key: int) -> Optional[str]:
+        frame = frames.get(key)
+        return frame.material if frame is not None else None
+
+    by_cutter_keys = sorted(
+        totals.by_cutter_time,
+        key=lambda key: (-sum(totals.by_cutter_time[key]), _sort_token(key[0]), str(key[1])),
+    )
+    by_material_keys = sorted(
+        totals.by_material_time,
+        key=lambda key: (-sum(totals.by_material_time[key]), _sort_token(key)),
+    )
+    by_plate_keys = sorted(
+        totals.by_plate_time,
+        key=lambda key: (-sum(totals.by_plate_time[key]), key),
+    )
+    by_label_keys = sorted(
+        totals.by_label_time,
+        key=lambda key: (-sum(totals.by_label_time[key]), key),
+    )
+
+    # Job roll-up: the placements of one label spec (its copies, its plates and
+    # every cutter that cut it) summed into a single number, which is what a
+    # shop schedules against. The per-placement rows above stay, because they
+    # are what ties a number back to one slot on one sheet.
+    spec_ops: Dict[str, List[float]] = {}
+    spec_placements: Dict[str, List[str]] = {}
+    spec_plates: Dict[str, List[Any]] = {}
+    spec_materials: Dict[str, List[Optional[str]]] = {}
+    for key, seconds in totals.by_label_time.items():
+        spec_id, plate, material = label_meta.get(key, (key, UNRESOLVED_PLATE, None))
+        bucket = spec_ops.setdefault(spec_id, _zero_ops())
+        for index, value in enumerate(seconds):
+            bucket[index] += value
+        spec_placements.setdefault(spec_id, []).append(key)
+        plates = spec_plates.setdefault(spec_id, [])
+        if plate not in plates:
+            plates.append(plate)
+        materials = spec_materials.setdefault(spec_id, [])
+        if material not in materials:
+            materials.append(material)
+    by_spec_keys = sorted(
+        spec_ops,
+        key=lambda key: (-sum(spec_ops[key]), _sort_token(key)),
+    )
+
+    return {
+        "available": True,
+        "note": "",
+        "units": "seconds",
+        "model": {layer: rates.params for layer, rates in sorted(rates_by_layer.items())},
+        "total": {
+            **_ops_dict(ops),
+            "total": _round(total_s),
+            "total_hms": _hms(total_s),
+            "strokes": totals.strokes,
+            "files": totals.files_with_rates,
+        },
+        "by_operation": _ops_dict(ops),
+        "by_cutter": [
+            {
+                "cutter": cutter,
+                "kind": kind,
+                "files": int(totals.by_cutter.get(key, [0.0, 0.0, 0.0])[2]),
+                **row_ops(totals.by_cutter_time[key]),
+            }
+            for key in by_cutter_keys
+            for cutter, kind in (key,)
+        ],
+        "by_material": [
+            {
+                "material": key,
+                "material_label": _material_label(key),
+                **row_ops(totals.by_material_time[key]),
+            }
+            for key in by_material_keys
+        ],
+        "by_plate": [
+            {
+                "plate": None if key == UNRESOLVED_PLATE else key,
+                "material": plate_material(key),
+                **row_ops(totals.by_plate_time[key]),
+            }
+            for key in by_plate_keys
+        ],
+        "by_class": {
+            # Unlike ``distance.by_class`` (cutting only - rapid travel has no
+            # stroke class), this bucket covers EVERY operation, so pen-up
+            # travel shows up under the ``unattributed`` class. Its sum is the
+            # full ``time.total.total``.
+            class_name: _round(sum(totals.by_class_time.get(class_name, [])))
+            for class_name in DISTANCE_CLASSES
+        },
+        "by_label": [
+            {
+                "label_id": key,
+                "spec_id": label_meta.get(key, (key, UNRESOLVED_PLATE, None))[0],
+                "plate": plate_or_none(label_meta.get(key, (key, UNRESOLVED_PLATE, None))[1]),
+                "material": label_meta.get(key, (key, UNRESOLVED_PLATE, None))[2],
+                **row_ops(totals.by_label_time[key]),
+            }
+            for key in by_label_keys
+        ],
+        "by_spec": [
+            {
+                "label_id": key,
+                "plates": sorted(
+                    (plate for plate in spec_plates[key]),
+                    key=lambda plate: (plate is None, plate),
+                ),
+                "materials": sorted(m for m in spec_materials[key] if m is not None) or [None],
+                "placements": sorted(spec_placements[key]),
+                "copies": len(spec_placements[key]),
+                **row_ops(spec_ops[key]),
+            }
+            for key in by_spec_keys
+        ],
+        "unattributed": {
+            "strokes": totals.unattributed_strokes,
+            **row_ops(totals.unattributed_time),
+        },
+    }
+
+
+def _hms(seconds: Optional[float]) -> Optional[str]:
+    """Render seconds as ``h:mm:ss`` for long jobs.
+
+    Args:
+        seconds: The measured seconds, or ``None``.
+
+    Returns:
+        ``"1:02:03"``, or ``None`` when ``seconds`` is ``None``.
+    """
+    if seconds is None:
+        return None
+    whole = int(round(float(seconds)))
+    return f"{whole // 3600}:{whole % 3600 // 60:02d}:{whole % 60:02d}"
 
 
 # --------------------------------------------------------------------------
@@ -1299,6 +1821,8 @@ def build_usage_stats(
     combined_by_plate: Mapping[int, str],
     plt_files: Sequence[Path],
     material_by_plate: Mapping[int, Optional[str]],
+    job_spec: Any = None,
+    job_config: Any = None,
 ) -> Dict[str, Any]:
     """Aggregate the job's production metrics into the report's ``usage`` block.
 
@@ -1312,10 +1836,15 @@ def build_usage_stats(
         plt_files: The written per-cutter PLT paths, in write order. The tool
             travel is measured from these files.
         material_by_plate: Stock material name per 1-based plate number.
+        job_spec: The resolved job spec, used with ``job_config`` to resolve
+            the ``tool_options`` rates of the run-time estimate. ``None`` (or
+            ``job_config=None``) omits the ``time`` numbers entirely.
+        job_config: The loaded job config (the ``tool_options`` registry plus
+            the ``rapid_velocity`` estimate field).
 
     Returns:
         The ``usage`` mapping: ``labels``, ``characters``, ``holes``,
-        ``material`` and ``distance`` blocks, JSON-ready.
+        ``material``, ``distance`` and ``time`` blocks, JSON-ready.
     """
     frames: Dict[int, _PlateFrame] = {}
     for number, plate in enumerate(packed_plates, start=1):
@@ -1328,17 +1857,26 @@ def build_usage_stats(
         if combined:
             frame.stroke_class = _structural_classes(combined)
         frames[number] = frame
+    rates_by_layer: Dict[str, _LayerRates] = {}
+    for plt_type in ("text", "borders_holes"):
+        rates = _build_layer_rates(job_spec, job_config, plt_type)
+        if rates is not None:
+            rates_by_layer[plt_type] = rates
+    label_meta = _label_meta(packed_plates, material_by_plate)
+    totals, file_count = _distance_usage(
+        plt_files=plt_files,
+        frames=frames,
+        material_by_plate=material_by_plate,
+        label_meta=label_meta,
+        rates_by_layer=rates_by_layer or None,
+    )
     return {
         "labels": _labels_usage(resolved_labels),
         "characters": _characters_usage(resolved_labels),
         "holes": _holes_usage(resolved_labels),
         "material": _material_usage(packed_plates, material_by_plate, resolved_labels),
-        "distance": _distance_usage(
-            plt_files=plt_files,
-            frames=frames,
-            material_by_plate=material_by_plate,
-            label_meta=_label_meta(packed_plates, material_by_plate),
-        ),
+        "distance": _distance_rows(totals, frames, label_meta),
+        "time": _time_rows(totals, frames, label_meta, rates_by_layer or None, file_count),
     }
 
 
@@ -1444,6 +1982,7 @@ def format_usage_lines(usage: Mapping[str, Any]) -> List[str]:
     lines.extend(_holes_lines(usage))
     lines.extend(_material_lines(usage))
     lines.extend(_distance_lines(usage))
+    lines.extend(_time_lines(usage))
     return lines
 
 
@@ -1699,4 +2238,121 @@ def _distance_lines(usage: Mapping[str, Any]) -> List[str]:
             f"    unattributed: {unattributed.get('strokes')} stroke(s)  "
             f"cut {_fmt3(unattributed.get('cutting'))}  rapid {_fmt3(unattributed.get('rapid'))}"
         )
+    return lines
+
+
+def _fmt_time(value: Any) -> str:
+    """Render a time with three decimals and the unit.
+
+    Args:
+        value: The seconds, or ``None``.
+
+    Returns:
+        The value as ``0.000 s``, or :data:`MISSING_TEXT` when absent.
+    """
+    return MISSING_TEXT if value is None else f"{_fmt3(value)} s"
+
+
+def _time_lines(usage: Mapping[str, Any]) -> List[str]:
+    """Render the ``usage.time`` block.
+
+    Args:
+        usage: The ``usage`` block.
+
+    Returns:
+        The section's lines.
+    """
+    time_block = usage.get("time", {})
+    lines = ["  run time (seconds, estimated from the emitted tool_options):"]
+    if not time_block.get("available"):
+        note = time_block.get("note")
+        lines.append(f"    Not estimated: {note}" if note else "    Not estimated.")
+        return lines
+    total = time_block.get("total", {})
+    operations = time_block.get("by_operation", {})
+    lines.append(
+        "    total: "
+        + " + ".join(f"{name} {_fmt3(operations.get(name))}" for name in TIME_OPERATIONS)
+        + f" = {_fmt_time(total.get('total'))} ({total.get('total_hms')})"
+    )
+    lines.append(f"    strokes: {total.get('strokes')} (one Z cycle each)")
+    by_class = time_block.get("by_class", {})
+    lines.append(
+        "    by class: "
+        + _join([f"{name} {_fmt3(by_class.get(name))}" for name in DISTANCE_CLASSES])
+    )
+    lines.append(
+        "    by cutter: "
+        + _join(
+            [
+                f"{_fmt_cutter(row.get('cutter'))} {row.get('kind')} "
+                f"[{row.get('files')} file(s)] {_fmt_time(row.get('total'))}"
+                f" ({row.get('share')}%)"
+                for row in _rows(usage, "time", "by_cutter")
+            ]
+        )
+    )
+    lines.append(
+        "    by material: "
+        + _join(
+            [
+                f"{row.get('material_label')} {_fmt_time(row.get('total'))} ({row.get('share')}%)"
+                for row in _rows(usage, "time", "by_material")
+            ]
+        )
+    )
+    lines.append(
+        "    by plate: "
+        + _join(
+            [
+                f"{row.get('plate')} {_fmt_time(row.get('total'))} ({row.get('share')}%)"
+                for row in _rows(usage, "time", "by_plate")
+            ]
+        )
+    )
+    per_label = _rows(usage, "time", "by_label")
+    lines.append("    per label (per placement on one plate):")
+    for row in per_label[:SUMMARY_USAGE_LABEL_LIMIT]:
+        row_ops = row.get("by_operation", {})
+        parts = [
+            f"      {row.get('label_id')}"
+            + ("" if row.get("spec_id") == row.get("label_id") else f" ({row.get('spec_id')})")
+            + f"  plate {row.get('plate')}  {_material_label(row.get('material'))}"
+            + f"  {_fmt_time(row.get('total'))}  ({row.get('share')}%)"
+        ]
+        parts.extend(
+            f"  {name} {_fmt3(row_ops.get(name))}"
+            for name in TIME_OPERATIONS
+            if float(row_ops.get(name, 0.0) or 0.0) > 0.0
+        )
+        lines.append("".join(parts))
+    remaining = len(per_label) - SUMMARY_USAGE_LABEL_LIMIT
+    if remaining > 0:
+        lines.append(f"      ... and {remaining} more (see report.json)")
+    per_spec = _rows(usage, "time", "by_spec")
+    if per_spec:
+        lines.append("    per job (one label summed over its plates, copies and cutters):")
+        for row in per_spec[:SUMMARY_USAGE_LABEL_LIMIT]:
+            plates = ", ".join(str(plate) for plate in row.get("plates", []))
+            materials = ", ".join(
+                _material_label(material) for material in row.get("materials", [])
+            )
+            lines.append(
+                f"      {row.get('label_id')}  plate(s) {plates}  {materials}  "
+                f"{row.get('copies')} placement(s)  {_fmt_time(row.get('total'))}"
+                f"  ({row.get('share')}%)"
+            )
+        spec_remaining = len(per_spec) - SUMMARY_USAGE_LABEL_LIMIT
+        if spec_remaining > 0:
+            lines.append(f"      ... and {spec_remaining} more (see report.json)")
+    unattributed = time_block.get("unattributed") or {}
+    if int(unattributed.get("strokes", 0)) > 0:
+        lines.append(
+            f"    unattributed: {unattributed.get('strokes')} stroke(s)  "
+            f"{_fmt_time(unattributed.get('total'))}"
+        )
+    lines.append(
+        "    Estimated from tool_options (cutting/rapid velocity, plunge, z-up, "
+        "dwell);\n      excludes tool changes, setup, and loading."
+    )
     return lines

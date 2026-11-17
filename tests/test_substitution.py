@@ -1057,12 +1057,12 @@ class TestPlateLevelReplacementExpansion:
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
-            "  material: wb\n"
+            "  material: wk\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
             "      height: 16.0\n"
-            "      material: wb(uv)\n"
+            "      material: wk(uv)\n"
             "      replacement_text_file: p1.txt\n"
             "    - id: p2\n"
             "      width: 24.0\n"
@@ -1076,15 +1076,15 @@ class TestPlateLevelReplacementExpansion:
         job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
         assert job.labels is not None
         by_id = {lbl.id: lbl for lbl in job.labels}
-        # p1 declares wb(uv); its generated labels inherit it (overriding
-        # the job-level wb). The static label keeps None (resolves to job wb).
-        assert by_id["p1_0000"].material == "wb(uv)"
-        assert by_id["p1_0001"].material == "wb(uv)"
+        # p1 declares wk(uv); its generated labels inherit it (overriding
+        # the job-level wk). The static label keeps None (resolves to job wk).
+        assert by_id["p1_0000"].material == "wk(uv)"
+        assert by_id["p1_0001"].material == "wk(uv)"
         assert by_id["static"].material is None
         resolved = resolve_job_spec(job)
         resolved_by_id = {lbl.id: lbl for lbl in resolved}
-        assert resolved_by_id["p1_0000"].material == "wb(uv)"
-        assert resolved_by_id["static"].material == "wb"
+        assert resolved_by_id["p1_0000"].material == "wk(uv)"
+        assert resolved_by_id["static"].material == "wk"
 
     def test_root_content_is_template_not_label(self, tmp_path: Path) -> None:
         """Root-level content templates plate labels instead of adding one."""

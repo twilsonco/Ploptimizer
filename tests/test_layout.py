@@ -1610,50 +1610,50 @@ class TestMaterialGrouping:
     def test_materials_never_share_a_plate(self) -> None:
         """Two materials on one declared plate pack onto separate sheets."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0, count=2),
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0, count=2),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0, count=2),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0, count=2),
         ]
-        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, material="wb")]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, material="wk")]
         with pytest.raises(LayoutFitError, match="no plate to pack onto"):
             generate_layout(labels, plates_spec, allow_rotation=False)
 
     def test_declared_material_plates_pack_their_group(self) -> None:
         """Each material packs onto the plates declaring that material."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0, count=2),
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0, count=2),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0, count=2),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0, count=2),
         ]
         plates_spec = [
-            PlateSpec(id="p_wb", width=24.0, height=16.0, material="wb"),
-            PlateSpec(id="p_uv", width=24.0, height=16.0, material="wb(uv)"),
+            PlateSpec(id="p_wk", width=24.0, height=16.0, material="wk"),
+            PlateSpec(id="p_uv", width=24.0, height=16.0, material="wk(uv)"),
         ]
         plates = generate_layout(labels, plates_spec, allow_rotation=False)
 
         by_id = {p.plate_id: p for p in plates}
-        assert set(by_id) == {"p_wb", "p_uv"}
-        assert by_id["p_wb"].material == "wb"
-        assert by_id["p_uv"].material == "wb(uv)"
-        assert all(lab.source_label.material == "wb" for lab in by_id["p_wb"].labels)
-        assert all(lab.source_label.material == "wb(uv)" for lab in by_id["p_uv"].labels)
+        assert set(by_id) == {"p_wk", "p_uv"}
+        assert by_id["p_wk"].material == "wk"
+        assert by_id["p_uv"].material == "wk(uv)"
+        assert all(lab.source_label.material == "wk" for lab in by_id["p_wk"].labels)
+        assert all(lab.source_label.material == "wk(uv)" for lab in by_id["p_uv"].labels)
 
     def test_material_matching_is_case_insensitive(self) -> None:
-        """`WB(UV)` labels pack onto a `wb(uv)` plate."""
-        labels = [_make_material_label("WB(UV)", label_id="uv", width=3.0, height=1.0)]
-        plates_spec = [PlateSpec(id="p_uv", width=24.0, height=16.0, material="wb(uv)")]
+        """`WK(UV)` labels pack onto a `wk(uv)` plate."""
+        labels = [_make_material_label("WK(UV)", label_id="uv", width=3.0, height=1.0)]
+        plates_spec = [PlateSpec(id="p_uv", width=24.0, height=16.0, material="wk(uv)")]
         plates = generate_layout(labels, plates_spec, allow_rotation=False)
         assert [p.plate_id for p in plates] == ["p_uv"]
         # The plate's own spelling is preserved for display.
-        assert plates[0].material == "wb(uv)"
+        assert plates[0].material == "wk(uv)"
 
     def test_material_less_plate_is_claimed_by_first_group(self) -> None:
         """A plate without material is claimed by the first group packed."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0, count=2),
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0, count=2),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0, count=2),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0, count=2),
         ]
         plates_spec = [
-            PlateSpec(id="p_a", width=24.0, height=16.0),  # claimed by "wb"
-            PlateSpec(id="p_b", width=24.0, height=16.0),  # claimed by "wb(uv)"
+            PlateSpec(id="p_a", width=24.0, height=16.0),  # claimed by "wk"
+            PlateSpec(id="p_b", width=24.0, height=16.0),  # claimed by "wk(uv)"
         ]
         plates = generate_layout(labels, plates_spec, allow_rotation=False)
 
@@ -1662,16 +1662,16 @@ class TestMaterialGrouping:
         # The first group in content order claims the first material-less
         # plate; the second group claims the next one. A claimed plate
         # accepts no other material.
-        assert by_id["p_a"].material == "wb"
-        assert by_id["p_b"].material == "wb(uv)"
-        assert all(lab.source_label.material == "wb" for lab in by_id["p_a"].labels)
-        assert all(lab.source_label.material == "wb(uv)" for lab in by_id["p_b"].labels)
+        assert by_id["p_a"].material == "wk"
+        assert by_id["p_b"].material == "wk(uv)"
+        assert all(lab.source_label.material == "wk" for lab in by_id["p_a"].labels)
+        assert all(lab.source_label.material == "wk(uv)" for lab in by_id["p_b"].labels)
 
     def test_material_less_plate_claim_is_exclusive(self) -> None:
         """One material-less plate cannot serve two material groups."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0),
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0),
         ]
         plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0)]
         with pytest.raises(LayoutFitError, match="no plate to pack onto"):
@@ -1680,44 +1680,44 @@ class TestMaterialGrouping:
     def test_material_group_overflow_raises(self) -> None:
         """A material that overflows its claimed plates aborts the job."""
         # A 6x4 plate holds eight 3x1 labels (no rotation); nine cannot fit.
-        labels = [_make_material_label("wb", label_id="wb", width=3.0, height=1.0, count=9)]
-        plates_spec = [PlateSpec(id="p1", width=6.0, height=4.0, material="wb")]
+        labels = [_make_material_label("wk", label_id="wk", width=3.0, height=1.0, count=9)]
+        plates_spec = [PlateSpec(id="p1", width=6.0, height=4.0, material="wk")]
         with pytest.raises(LayoutFitError, match="Materials never share a plate"):
             generate_layout(labels, plates_spec, allow_rotation=False)
 
     def test_material_group_overflow_leaves_no_partial_leftover(self) -> None:
         """Overflowing groups raise instead of reporting generic leftovers."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0, count=9),
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0, count=9),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0),
         ]
         plates_spec = [
-            PlateSpec(id="p1", width=6.0, height=4.0, material="wb"),
-            PlateSpec(id="p2", width=24.0, height=16.0, material="wb(uv)"),
+            PlateSpec(id="p1", width=6.0, height=4.0, material="wk"),
+            PlateSpec(id="p2", width=24.0, height=16.0, material="wk(uv)"),
         ]
-        with pytest.raises(LayoutFitError, match="with material 'wb'"):
+        with pytest.raises(LayoutFitError, match="with material 'wk'"):
             generate_layout(labels, plates_spec, allow_rotation=False)
 
     def test_unbounded_mode_gets_one_sheet_pool_per_material(self) -> None:
         """Unbounded mode auto-allocates a separate bin pool per material."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0, count=2),
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0, count=2),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0, count=2),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0, count=2),
         ]
         plates = generate_layout(labels, allow_rotation=False)
 
         assert len(plates) == 2
         materials = [p.material for p in plates]
-        assert materials == ["wb", "wb(uv)"]
+        assert materials == ["wk", "wk(uv)"]
         # Auto bin ids carry the material prefix, keeping them unique.
-        assert plates[0].plate_id.startswith("wb_default_plate_")
-        assert plates[1].plate_id.startswith("wbuv_default_plate_")
+        assert plates[0].plate_id.startswith("wk_default_plate_")
+        assert plates[1].plate_id.startswith("wkuv_default_plate_")
 
     def test_unbounded_overflow_leftovers_report_per_instance(self) -> None:
         """Oversized labels in every group still surface as leftovers."""
         labels = [
-            _make_material_label("wb", label_id="wb", width=30.0, height=20.0),
-            _make_material_label("wb(uv)", label_id="uv", width=30.0, height=20.0),
+            _make_material_label("wk", label_id="wk", width=30.0, height=20.0),
+            _make_material_label("wk(uv)", label_id="uv", width=30.0, height=20.0),
         ]
         with pytest.raises(LayoutFitError, match="exceed the maximum plate size"):
             generate_layout(labels)
@@ -1725,22 +1725,22 @@ class TestMaterialGrouping:
     def test_pinned_label_material_conflict_raises(self) -> None:
         """Pinning a label onto a plate of a different material aborts."""
         label = dataclasses.replace(
-            _make_material_label("wb(uv)", label_id="uv", width=3.0, height=1.0),
+            _make_material_label("wk(uv)", label_id="uv", width=3.0, height=1.0),
             plate_id="p1",
         )
-        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, material="wb")]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, material="wk")]
         with pytest.raises(LayoutFitError, match="conflicting material"):
             generate_layout([label], plates_spec, allow_rotation=False)
 
     def test_pinned_plate_material_is_stamped(self) -> None:
         """Pinned plates report their material on the packed plate."""
         label = dataclasses.replace(
-            _make_material_label("wb", label_id="wb", width=3.0, height=1.0),
+            _make_material_label("wk", label_id="wk", width=3.0, height=1.0),
             plate_id="p1",
         )
-        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, material="wb")]
+        plates_spec = [PlateSpec(id="p1", width=24.0, height=16.0, material="wk")]
         plates = generate_layout([label], plates_spec, allow_rotation=False)
-        assert plates[0].material == "wb"
+        assert plates[0].material == "wk"
 
     def test_no_materials_is_bit_identical_to_plain(self) -> None:
         """A job without materials packs exactly like the historical path."""
@@ -1769,9 +1769,9 @@ class TestMaterialGrouping:
 
     def test_unused_plate_material_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """A plate material no label uses leaves the plate unused (WARNING)."""
-        labels = [_make_material_label("wb", label_id="wb", width=3.0, height=1.0)]
+        labels = [_make_material_label("wk", label_id="wk", width=3.0, height=1.0)]
         plates_spec = [
-            PlateSpec(id="p1", width=24.0, height=16.0, material="wb"),
+            PlateSpec(id="p1", width=24.0, height=16.0, material="wk"),
             PlateSpec(id="p_ghost", width=24.0, height=16.0, material="acrylic"),
         ]
         with caplog.at_level(logging.WARNING):
@@ -1805,9 +1805,9 @@ class TestMaterialDemoExample:
             family = re.sub(r"_\d{4}$", "", label.id)
             by_family.setdefault(family, set()).add(label.material)
         assert by_family == {
-            "wb_tag": {"wb"},
-            "uv_placard": {"wb(uv)"},
-            "uv_placard_deep": {"wb(uv)"},
+            "wk_tag": {"wk"},
+            "uv_placard": {"wk(uv)"},
+            "uv_placard_deep": {"wk(uv)"},
         }
 
     def test_example_packs_one_material_per_plate(self) -> None:
@@ -1820,10 +1820,10 @@ class TestMaterialDemoExample:
             layout=job.layout,
         )
         by_id = {p.plate_id: p for p in plates}
-        assert set(by_id) == {"scrap_wb", "scrap_uv"}
-        assert by_id["scrap_wb"].material == "wb"
-        assert by_id["scrap_uv"].material == "wb(uv)"
-        assert len(by_id["scrap_wb"].labels) == 8
+        assert set(by_id) == {"scrap_wk", "scrap_uv"}
+        assert by_id["scrap_wk"].material == "wk"
+        assert by_id["scrap_uv"].material == "wk(uv)"
+        assert len(by_id["scrap_wk"].labels) == 8
         assert len(by_id["scrap_uv"].labels) == 4
         for plate in plates:
             assert plate.material is not None
@@ -1990,17 +1990,17 @@ class TestRoundLabelPacking:
 
     def test_material_round_groups_never_share_a_plate(self) -> None:
         plates_spec = [
-            PlateSpec(id="wb_sheet", width=24.0, height=16.0, material="wb"),
+            PlateSpec(id="wk_sheet", width=24.0, height=16.0, material="wk"),
             PlateSpec(id="uv_sheet", width=24.0, height=16.0, material="uv"),
         ]
         labels = [
-            dataclasses.replace(_make_round_label("wb", 3.0, 3.0, count=2), material="wb"),
+            dataclasses.replace(_make_round_label("wk", 3.0, 3.0, count=2), material="wk"),
             dataclasses.replace(_make_round_label("uv", 3.0, 3.0, count=2), material="uv"),
         ]
         plates = generate_layout(labels, plates_spec)
         by_id = {plate.plate_id: plate for plate in plates}
-        assert set(by_id) == {"wb_sheet", "uv_sheet"}
-        assert {p.source_label.material for p in by_id["wb_sheet"].labels} == {"wb"}
+        assert set(by_id) == {"wk_sheet", "uv_sheet"}
+        assert {p.source_label.material for p in by_id["wk_sheet"].labels} == {"wk"}
         assert {p.source_label.material for p in by_id["uv_sheet"].labels} == {"uv"}
 
     def test_rows_mode_prefers_height(self) -> None:

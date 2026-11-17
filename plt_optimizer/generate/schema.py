@@ -414,7 +414,7 @@ def material_key(value: Optional[str]) -> Optional[str]:
     """Return the case-insensitive grouping key for a `material` name.
 
     Two materials are considered the same when their keys match: the value
-    is trimmed and case-folded (`"WB(UV)"` and `"wb(uv)"` group
+    is trimmed and case-folded (`"WK(UV)"` and `"wk(uv)"` group
     together). `None` (unset) maps to `None`.
 
     Args:
@@ -1505,7 +1505,7 @@ class LabelAttributes(TextAttributes):
     material: Optional[str] = Field(
         default=None,
         description=(
-            "Stock material name (free-form, e.g. 'wb' or 'wb(uv)'); cascades "
+            "Stock material name (free-form, e.g. 'wk' or 'wk(uv)'); cascades "
             "job -> label. Labels sharing a material pack together and a plate "
             "never mixes materials. Comparison trims whitespace and ignores "
             "case; unset (`null`) labels pack with the job-level material."
@@ -2540,8 +2540,8 @@ class PlateSpec(BaseModel):
     material: Optional[str] = Field(
         default=None,
         description=(
-            "Stock material this plate is cut from (free-form, e.g. 'wb' or "
-            "'wb(uv)'); cascades job -> plate (an explicit plate value wins). "
+            "Stock material this plate is cut from (free-form, e.g. 'wk' or "
+            "'wk(uv)'); cascades job -> plate (an explicit plate value wins). "
             "A plate carries exactly one material: labels whose material "
             "matches pack onto it and no other material shares it. A plate "
             "that omits material (`null`) is claimed by one material group. "

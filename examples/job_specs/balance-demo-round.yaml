@@ -1,6 +1,6 @@
 job:
     job_name: balance demo
-    material: wb
+    material: wk
     type: round
     height: 2
     text_height: 0.2

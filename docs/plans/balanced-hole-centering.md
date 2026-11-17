@@ -280,7 +280,7 @@ The sweep is recorded on the demo, which is small, committed, and live.
 The `balance-demo-round.yaml` diff is the only non-identity, and it is bounded:
 
 ```text
-bw_15_txt_balance_demo.plt:  (one PU line)
+kw_15_txt_balance_demo.plt:  (one PU line)
   32120,31306 -> 32120,31307      (+1 unit)
   32120,29512 -> 32120,29513      (+1 unit)
 ```

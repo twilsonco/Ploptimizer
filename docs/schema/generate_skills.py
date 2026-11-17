@@ -1422,14 +1422,14 @@ RECIPES: Tuple[Recipe, ...] = (
             "stem, three plate sizes fed by per-label replacement files."
         ),
         notes=(
-            "`material: bw` — the material tag lands in every PLT/PDF file name "
+            "`material: kw` — the material tag lands in every PLT/PDF file name "
             "(`[<plate>_][<material>_]<cutter>_...`), so mixed runs sort at the machine.",
             "Commented-out `plates:` blocks show how the same job is pinned to "
             "declared plate sizes when stock is fixed.",
         ),
     ),
     Recipe(
-        source="2026-10-06 seer wb-uv.yaml",
+        source="2026-10-06 seer wk-uv.yaml",
         title="Engraver tool options",
         caption=(
             "A production job setting `tool_options` (cutting velocity, spindle "

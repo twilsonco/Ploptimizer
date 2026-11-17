@@ -133,7 +133,7 @@ SHOWCASE_JOBS: Tuple[ShowcaseJob, ...] = (
     ),
     ShowcaseJob(
         "2026-10-30 CES vons 1735.yaml",
-        "Multi-plate bin packing with material/color tags (the `bw_` material "
+        "Multi-plate bin packing with material/color tags (the `kw_` material "
         "prefix) and per-cutter output files.",
         data_files=(
             "2026-10-30 CES vons 1735 1x3.txt",

@@ -266,13 +266,13 @@ class TestGenerateSubcommand:
             "      height: 12.0\n"
             "      left_clearance: 0.25\n"
             "      top_clearance: 0.25\n"
-            "      material: wb(uv)\n"
+            "      material: wk(uv)\n"
             "  labels:\n"
             "    - id: l1\n"
             "      count: 1\n"
             "      width: 2.0\n"
             "      height: 1.0\n"
-            "      material: wb(uv)\n"
+            "      material: wk(uv)\n"
             "      content:\n"
             "        - text: Hello\n"
             "          text_height: 0.5\n",
@@ -303,8 +303,8 @@ class TestGenerateSubcommand:
                 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
             ), name
             assert len(name) <= MAX_PLOT_FILENAME_CHARS, name
-        # The material tag is sanitized too (wb(uv) -> wb_uv).
-        assert all("wb_uv" in name for name in plt_files)
+        # The material tag is sanitized too (wk(uv) -> wk_uv).
+        assert all("wk_uv" in name for name in plt_files)
 
 
 class TestWatchSubcommand:

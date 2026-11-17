@@ -32,27 +32,25 @@ part is a property suffix -- adhesive, UV, etc. -- and is ignored, per the
 3. **Character form**: the leading run of recognized color letters, where
    the first letter is the top layer (= background the text engraves
    through) and the second (when the run is exactly two letters) is the core
-   (= text color): ``bw`` -> black background / white text, ``wb`` -> white
+   (= text color): ``kw`` -> black background / white text, ``wk`` -> white
    background / black text. A run of three or more letters is multi-layer
-   stock (``wrb`` = white/red/black) where the core is not necessarily the
+   stock (``wrk`` = white/red/black) where the core is not necessarily the
    engraved text color, so only the background is certain.
 
 Preview color letters are the
 :data:`~plt_optimizer.generate.schema.TEXT_COLOR_ABBREVIATIONS` plus ``w``
-for white, with one deliberate material-side override: ``b`` means **black**
-(the shop's ``bw`` / ``wrb`` convention), not blue, and ``k`` is black too
-(CMYK spelling, matching :class:`~plt_optimizer.generate.schema.TextColor`).
-Blue is therefore only reachable in a material name via the full-name or
-delimiter forms. Recognized colors are the
-:class:`~plt_optimizer.generate.schema.TextColor` names plus ``white``, all
-of which are valid matplotlib color names.
+for white, and they mean the same thing on both sides (material name and pen
+stroke color): ``k`` is black (CMYK spelling) and ``b`` is blue, exactly as
+in :class:`~plt_optimizer.generate.schema.TextColor`. Recognized colors are
+the :class:`~plt_optimizer.generate.schema.TextColor` names plus ``white``,
+all of which are valid matplotlib color names.
 
 Known limitation: the character form is a prefix match, so an unrelated
 material word made of color letters reads as layers (``gold`` -> green over
 orange). The delimiter/full-name forms and an explicit ``text_color`` are
 the escape hatch.
 
-An unset (or fully unrecognized) material proofs as ``wb`` stock -- the
+An unset (or fully unrecognized) material proofs as ``wk`` stock -- the
 shop's default look, captured by :data:`DEFAULT_MATERIAL_COLORS` (white
 label background, black text, black outlines).
 
@@ -76,33 +74,25 @@ PREVIEW_COLOR_NAMES: Tuple[str, ...] = tuple(
 ) + ("white",)
 
 # Canonical name -> TextColor-style single-letter tag (the layer abbreviations
-# plus w). Used for the *pen* (stroke-color) side, which follows the schema's
-# CMYK-style convention (k = black, b = blue).
+# plus w). Used for both the pen (stroke-color) side and material names, which
+# follow the schema's CMYK-style convention (k = black, b = blue).
 PREVIEW_COLOR_ABBREVIATIONS: Dict[str, str] = {
     name: TEXT_COLOR_ABBREVIATIONS[name] for name in TEXT_COLOR_ABBREVIATIONS if name != "none"
 }
 PREVIEW_COLOR_ABBREVIATIONS["white"] = "w"
 
-# Letter -> canonical name, for the stroke-color side (the schema's CMYK-style
-# convention: k = black, b = blue).
-_COLOR_BY_STROKE_LETTER: Dict[str, str] = {
+# Letter -> canonical name (the schema's CMYK-style convention: k = black,
+# b = blue).
+_COLOR_BY_LETTER: Dict[str, str] = {
     letter: name for name, letter in PREVIEW_COLOR_ABBREVIATIONS.items()
 }
 
-# Lookup from any accepted *material* spelling (full name or letter) to the
-# canonical color name. The shop spells black "b" in material names (bw =
-# black over white, wrb = white/red/black), so b maps to black here and k
-# stays black as well; blue is intentionally absent from the letter map (see
-# the module docstring).
-_MATERIAL_COLOR_BY_TOKEN: Dict[str, str] = {name: name for name in PREVIEW_COLOR_NAMES}
-_MATERIAL_COLOR_BY_TOKEN.update(_COLOR_BY_STROKE_LETTER)
-_MATERIAL_COLOR_BY_TOKEN["b"] = "black"
-_MATERIAL_COLOR_BY_TOKEN["k"] = "black"
-
-# Lookup from any accepted *stroke-color* spelling (the schema's TextColor
-# names + abbreviations + white) to the canonical color name.
-_STROKE_COLOR_BY_TOKEN: Dict[str, str] = {name: name for name in PREVIEW_COLOR_NAMES}
-_STROKE_COLOR_BY_TOKEN.update(_COLOR_BY_STROKE_LETTER)
+# Lookup from any accepted spelling (full name, the schema's TextColor names +
+# abbreviations, plus white) to the canonical color name. Material names and
+# pen stroke colors share one map so a letter means the same color on both
+# sides: "k"/black on the material side is "k"/black on the pen side.
+_COLOR_BY_TOKEN: Dict[str, str] = {name: name for name in PREVIEW_COLOR_NAMES}
+_COLOR_BY_TOKEN.update(_COLOR_BY_LETTER)
 
 # Longest-first full color names for the material full-name form.
 _FULL_NAMES_BY_LENGTH: Tuple[str, ...] = tuple(
@@ -149,7 +139,7 @@ class MaterialColors:
     text: Optional[str] = None
 
 
-# The proof default for material-agnostic jobs: "wb" stock (white top layer
+# The proof default for material-agnostic jobs: "wk" stock (white top layer
 # over a black core) -- white label backgrounds, black text, black outlines.
 DEFAULT_MATERIAL_COLORS = MaterialColors(background="white", text="black")
 
@@ -162,12 +152,12 @@ def parse_material_colors(material: Optional[str]) -> MaterialColors:
     Comparison is case-insensitive; trailing property suffixes are ignored.
 
     Args:
-        material: The resolved material name (e.g. ``"bw"``, ``"wb(uv)"``,
-            ``"red-on-white"``, ``"wrb"``), or ``None`` (material-agnostic).
+        material: The resolved material name (e.g. ``"kw"``, ``"wk(uv)"``,
+            ``"red-on-white"``, ``"wrk"``), or ``None`` (material-agnostic).
 
     Returns:
         The parsed colors; ``(None, None)`` when nothing is recognized, so
-        callers fall back to :data:`DEFAULT_MATERIAL_COLORS` (the wb proof:
+        callers fall back to :data:`DEFAULT_MATERIAL_COLORS` (the wk proof:
         white background, black text/outlines).
     """
     if not material:
@@ -176,9 +166,9 @@ def parse_material_colors(material: Optional[str]) -> MaterialColors:
 
     delimiter_match = _DELIMITER_RE.match(value)
     if delimiter_match is not None:
-        background = _MATERIAL_COLOR_BY_TOKEN.get(delimiter_match.group(1))
+        background = _COLOR_BY_TOKEN.get(delimiter_match.group(1))
         if background is not None:
-            text = _MATERIAL_COLOR_BY_TOKEN.get(delimiter_match.group(2))
+            text = _COLOR_BY_TOKEN.get(delimiter_match.group(2))
             return MaterialColors(background=background, text=text)
 
     for name in _FULL_NAMES_BY_LENGTH:
@@ -189,15 +179,15 @@ def parse_material_colors(material: Optional[str]) -> MaterialColors:
     # (stop at the first unrecognized one, cap at the layer count).
     letters: List[str] = []
     for char in value:
-        if char not in _MATERIAL_COLOR_BY_TOKEN or len(letters) == _MAX_MATERIAL_LETTERS:
+        if char not in _COLOR_BY_TOKEN or len(letters) == _MAX_MATERIAL_LETTERS:
             break
         letters.append(char)
     if not letters:
         return MaterialColors()
-    background = _MATERIAL_COLOR_BY_TOKEN[letters[0]]
+    background = _COLOR_BY_TOKEN[letters[0]]
     # Exactly two letters = top layer + core (background + text); three =
     # multi-layer stock whose core is not necessarily the engraved text color.
-    text = _MATERIAL_COLOR_BY_TOKEN[letters[1]] if len(letters) == 2 else None
+    text = _COLOR_BY_TOKEN[letters[1]] if len(letters) == 2 else None
     return MaterialColors(background=background, text=text)
 
 
@@ -221,7 +211,7 @@ def resolve_text_color(pen_color: Optional[str], material_colors: MaterialColors
         A canonical preview color name (matplotlib-compatible).
     """
     if pen_color and pen_color != "none":
-        resolved = _STROKE_COLOR_BY_TOKEN.get(pen_color.strip().lower())
+        resolved = _COLOR_BY_TOKEN.get(pen_color.strip().lower())
         if resolved is not None:
             return resolved
     if material_colors.text is not None:

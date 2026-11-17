@@ -109,7 +109,7 @@ def sanitize_filename_component(text: str, fallback: str = "job") -> str:
     2. Every run of remaining unsafe characters collapses to a single
        underscore, and adjacent underscores are merged, so separators stay
        readable and never waste characters
-       (``"2026-10-06 wb-uv"`` -> ``"2026_10_06_wb_uv"``).
+       (``"2026-10-06 wk-uv"`` -> ``"2026_10_06_wk_uv"``).
     3. Leading/trailing underscores are stripped (no dangling separators).
     4. An empty result falls back to ``fallback``.
     5. A Windows reserved device name gains a trailing underscore

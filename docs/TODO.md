@@ -138,8 +138,24 @@
       - `min_label_price`: The minimum price for any label, regardless of material usage or character count.
       - `base_label_price`: The base price for any label, before adding material usage or character count costs.
       - `material_price_per_sq_in`: The price per square inch of material used for the label.
-- [ ] Add to the summary txt report job timing information
+- [ ] Add to the summary txt report job timing information: DONE
   - Total time spent on each job, broken down by cutter size, job, and label. This will need to be calculated (approximated) based on different `tool_options` such as cutting velocity, plunge velocity, dwell time, z clearance, and z up velocity.
+  - Implemented as the `time` block of `usage` in `generation_report/report.json` and the
+    "Estimated run time:" section of `summary.txt` (`plt_optimizer/generate/usage_stats.py`).
+    It divides the *measured* toolpath (the same strokes `distance` counts) by the machine
+    parameters the emitted PLT headers carry, resolved with the precedence of
+    `tool_options.layer_tool_options_for` (job-spec `tool_options` overwrite the config's
+    layer defaults). Per stroke: `cutting/cv + rapid/rv + plunge + z_up + dwell`, with the
+    first Z lift after `PA;` taken as the origin clearance; pen-up travel counts as distance
+    and a multi-subpath path plunges once, both matching EngraveLab's real device output.
+    Breakdowns: `by_operation` (cutting / rapid / plunge / z_up / dwell), `by_cutter` (every
+    entry names the exact rates used), `by_material`, `by_plate`, `by_class`, `by_label`
+    (per placement) and `by_spec` (per job: one label summed over its copies, plates and
+    cutters). `model` echoes the parameters so the estimate is auditable, and when a rate is
+    unresolvable the block reports `available: false` with a `note` and no numbers. Needs one
+    new `job-config.json` field, `rapid_velocity` (travels faster than cutting; falls back to
+    the layer's `cutting_velocity`). Excludes tool changes, setup and loading. Pinned by
+    `tests/test_usage_stats.py` (incl. a 20 672-unit EngraveLab reference measurement).
 - [ ] Add a higher-level yaml spec, `jobset`, so that a user could write a single file that points to multiple job files:
   - e.g.
     ```yaml

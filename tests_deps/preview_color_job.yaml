@@ -1,6 +1,6 @@
 # Fixture for the colored combined `all_*.pdf` proof previews.
 #
-# Job material `bw` (black top layer over white core): the combined preview
+# Job material `kw` (black top layer over white core): the combined preview
 # fills each label's border rectangle (SP2) with black and engraves plain
 # text in white (the material core), while an explicit `text_color: red`
 # label and an inline `<tc:green>` run keep their own pen colors (the tag /
@@ -20,13 +20,13 @@ job:
   height: 2.0
   margin: 0.2
   text_height: 0.4
-  material: bw
+  material: kw
 
   plates:
-    - id: scrap_bw
+    - id: scrap_kw
       width: 12.0
       height: 8.0
-      material: bw
+      material: kw
 
   labels:
     - id: plain

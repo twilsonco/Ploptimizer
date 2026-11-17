@@ -1077,8 +1077,8 @@ class TestPlateFilenameFormatting:
     def test_material_tag_sanitizes(self) -> None:
         """Free-form material names become filesystem-safe tags."""
         assert _format_material_tag(None) == ""
-        assert _format_material_tag("wb") == "wb"
-        assert _format_material_tag("wb(uv)") == "wb_uv"
+        assert _format_material_tag("wk") == "wk"
+        assert _format_material_tag("wk(uv)") == "wk_uv"
         assert _format_material_tag("3-layer black") == "3_layer_black"
         assert _format_material_tag("Café") == "Cafe"
         # Fully sanitized-empty values never produce a dangling separator.
@@ -1088,27 +1088,27 @@ class TestPlateFilenameFormatting:
     def test_single_plate_material_omits_plate_number(self) -> None:
         """One plate for a material -> no plate prefix (material tag suffices)."""
         assert _format_plate_prefix(1, 1) == ""
-        assert _format_plate_prefix(1, 1, "wb") == "wb_"
+        assert _format_plate_prefix(1, 1, "wk") == "wk_"
         # A material-less job is a single group, so a lone sheet is bare.
         assert _format_plate_prefix(2, 1) == ""
 
     def test_multi_plate_material_includes_plate_number(self) -> None:
         """A material spanning several plates keeps the padded plate number."""
         assert _format_plate_prefix(2, 3) == "02_"
-        assert _format_plate_prefix(2, 3, "wb(uv)") == "02_wb_uv_"
+        assert _format_plate_prefix(2, 3, "wk(uv)") == "02_wk_uv_"
 
     def test_material_plate_counts_groups_by_material(self) -> None:
         """Plate numbers are scoped to a material group, not the whole job.
 
-        Two `wb` plates and one `wb(uv)` plate: the uv sheet is uniquely
+        Two `wk` plates and one `wk(uv)` plate: the uv sheet is uniquely
         identified by its material tag, so it needs no plate number, while
-        the two wb sheets must be numbered to stay distinct.
+        the two wk sheets must be numbered to stay distinct.
         """
-        counts = _material_plate_counts({1: "wb", 2: "wb(uv)", 3: "WB"})
+        counts = _material_plate_counts({1: "wk", 2: "wk(uv)", 3: "WK"})
         assert counts == {1: 2, 2: 1, 3: 2}
-        assert _format_plate_prefix(1, counts[1], "wb") == "01_wb_"
-        assert _format_plate_prefix(2, counts[2], "wb(uv)") == "wb_uv_"
-        assert _format_plate_prefix(3, counts[3], "WB") == "03_WB_"
+        assert _format_plate_prefix(1, counts[1], "wk") == "01_wk_"
+        assert _format_plate_prefix(2, counts[2], "wk(uv)") == "wk_uv_"
+        assert _format_plate_prefix(3, counts[3], "WK") == "03_WK_"
 
     def test_material_plate_counts_treats_null_as_one_group(self) -> None:
         """Material-agnostic plates share one group, keeping plate numbers."""
@@ -1122,9 +1122,9 @@ class TestPlateFilenameFormatting:
             "40_txt_job": (None, None, "40", "txt", None),
             "40_m_txt_job": (None, None, "40", "txt", "m"),
             "15_bh_job": (None, None, "15", "bh", None),
-            "wbuv_40_txt_job": (None, "wbuv", "40", "txt", None),
-            "wbuv_15_bh_job": (None, "wbuv", "15", "bh", None),
-            "02_wbuv_40_k_txt_job": ("02", "wbuv", "40", "txt", "k"),
+            "wkuv_40_txt_job": (None, "wkuv", "40", "txt", None),
+            "wkuv_15_bh_job": (None, "wkuv", "15", "bh", None),
+            "02_wkuv_40_k_txt_job": ("02", "wkuv", "40", "txt", "k"),
             "02_40_txt_job": ("02", None, "40", "txt", None),
             "02_15_bh_job": ("02", None, "15", "bh", None),
         }
@@ -1141,9 +1141,9 @@ class TestPlateFilenameFormatting:
     def test_structural_detection_is_prefix_agnostic(self) -> None:
         """The bh kind is found regardless of plate/material prefixes."""
         assert _is_structural_stem("15_bh_job")
-        assert _is_structural_stem("wbuv_15_bh_job")
-        assert _is_structural_stem("02_wbuv_15_bh_job")
-        assert not _is_structural_stem("02_wbuv_40_txt_job")
+        assert _is_structural_stem("wkuv_15_bh_job")
+        assert _is_structural_stem("02_wkuv_15_bh_job")
+        assert not _is_structural_stem("02_wkuv_40_txt_job")
         # Stems outside the scheme are treated as non-structural.
         assert not _is_structural_stem("readme")
 
@@ -1153,8 +1153,8 @@ class TestPlateFilenameFormatting:
 
         base = _build_plot_title("Job", Path("plt/40_txt_job.plt"), text_height=0.5)
         assert base == "Job 0.5 text (0.040 cutter)"
-        tagged = _build_plot_title("Job", Path("plt/wbuv_15_bh_job.plt"))
-        assert tagged == "Job borders and holes (0.015 cutter) [wbuv]"
+        tagged = _build_plot_title("Job", Path("plt/wkuv_15_bh_job.plt"))
+        assert tagged == "Job borders and holes (0.015 cutter) [wkuv]"
         unknown = _build_plot_title("Job", Path("plt/mystery.plt"))
         assert unknown == "Job mystery"
 
@@ -1189,28 +1189,28 @@ class TestMaterialDemoExample:
         """Every file carries its sanitized material tag and no plate number."""
         result = self._export(tmp_path)
         assert sorted(p.name for p in result.plt_paths) == [
-            "wb_15_bh_demo.plt",
-            "wb_45_txt_demo.plt",
-            "wb_uv_15_bh_demo.plt",
-            "wb_uv_45_m_txt_demo.plt",
-            "wb_uv_45_txt_demo.plt",
+            "wk_15_bh_demo.plt",
+            "wk_45_txt_demo.plt",
+            "wk_uv_15_bh_demo.plt",
+            "wk_uv_45_m_txt_demo.plt",
+            "wk_uv_45_txt_demo.plt",
         ]
-        assert result.material_by_plate == {1: "wb", 2: "wb(uv)"}
+        assert result.material_by_plate == {1: "wk", 2: "wk(uv)"}
         for path in result.plt_paths:
             parts = _parse_plt_stem(path.stem)
             # One plate per material -> the material tag is unambiguous, so
             # the plate number is omitted entirely.
             assert parts.plate is None
-            assert parts.material in {"wb", "wb_uv"}
+            assert parts.material in {"wk", "wk_uv"}
 
     def test_fixture_materials_never_share_a_file(self, tmp_path: Path) -> None:
         """Each material's sheets get their own text layers, never merged."""
         result = self._export(tmp_path)
-        # The wb sheet has a single colorless text layer; the uv sheet has
+        # The wk sheet has a single colorless text layer; the uv sheet has
         # two (colorless placards + magenta deep-engraved placards).
-        wb_txt = [p for p in result.plt_paths if p.name == "wb_45_txt_demo.plt"]
-        uv_txt = [p for p in result.plt_paths if p.name.startswith("wb_uv_45")]
-        assert len(wb_txt) == 1
+        wk_txt = [p for p in result.plt_paths if p.name == "wk_45_txt_demo.plt"]
+        uv_txt = [p for p in result.plt_paths if p.name.startswith("wk_uv_45")]
+        assert len(wk_txt) == 1
         assert len(uv_txt) == 2  # plain + magenta deep layer
 
 
@@ -2207,19 +2207,19 @@ class TestPlateNumberScoping:
     def test_plate_number_scoped_to_material_group(self, tmp_path: Path) -> None:
         """Only a material spanning several sheets keeps its plate numbers.
 
-        Two `wb` sheets plus one `wb(uv)` sheet: the uv output is uniquely
-        named by its material tag, while the two wb sheets must be numbered
+        Two `wk` sheets plus one `wk(uv)` sheet: the uv output is uniquely
+        named by its material tag, while the two wk sheets must be numbered
         to stay distinct.
         """
         result = export_per_cutter_plts(
             [
-                _label(label_id="wb", count=12, material="wb"),
-                _label(label_id="uv", count=2, material="wb(uv)"),
+                _label(label_id="wk", count=12, material="wk"),
+                _label(label_id="uv", count=2, material="wk(uv)"),
             ],
             provided_plates=[
-                PlateSpec(id="wb1", width=6.0, height=4.0, material="wb"),
-                PlateSpec(id="wb2", width=6.0, height=4.0, material="wb"),
-                PlateSpec(id="uv1", width=24.0, height=16.0, material="wb(uv)"),
+                PlateSpec(id="wk1", width=6.0, height=4.0, material="wk"),
+                PlateSpec(id="wk2", width=6.0, height=4.0, material="wk"),
+                PlateSpec(id="uv1", width=24.0, height=16.0, material="wk(uv)"),
             ],
             output_dir=tmp_path,
             job_id="scoped",
@@ -2228,11 +2228,11 @@ class TestPlateNumberScoping:
             layout=LayoutMode.ROWS,
             allow_rotation=False,
         )
-        uv = [p for p in result.plt_paths if p.name.startswith("wb_uv_")]
-        wb = [p for p in result.plt_paths if p.name[:2].isdigit()]
-        assert wb, "wb labels must overflow onto both wb sheets"
-        assert {p.name.split("_")[0] for p in wb} >= {"01", "02"}
-        assert uv, "wb(uv) labels must export"
+        uv = [p for p in result.plt_paths if p.name.startswith("wk_uv_")]
+        wk = [p for p in result.plt_paths if p.name[:2].isdigit()]
+        assert wk, "wk labels must overflow onto both wk sheets"
+        assert {p.name.split("_")[0] for p in wk} >= {"01", "02"}
+        assert uv, "wk(uv) labels must export"
         # The single uv sheet is identified by its material tag alone.
         assert all(_parse_plt_stem(p.stem).plate is None for p in uv)
 
@@ -2241,13 +2241,13 @@ class TestPlateNumberScoping:
         that span several plates."""
         result = export_per_cutter_plts(
             [
-                _label(label_id="wb", count=12, material="wb"),
-                _label(label_id="uv", count=2, material="wb(uv)"),
+                _label(label_id="wk", count=12, material="wk"),
+                _label(label_id="uv", count=2, material="wk(uv)"),
             ],
             provided_plates=[
-                PlateSpec(id="wb1", width=6.0, height=4.0, material="wb"),
-                PlateSpec(id="wb2", width=6.0, height=4.0, material="wb"),
-                PlateSpec(id="uv1", width=24.0, height=16.0, material="wb(uv)"),
+                PlateSpec(id="wk1", width=6.0, height=4.0, material="wk"),
+                PlateSpec(id="wk2", width=6.0, height=4.0, material="wk"),
+                PlateSpec(id="uv1", width=24.0, height=16.0, material="wk(uv)"),
             ],
             output_dir=tmp_path,
             job_id="scoped",
@@ -2257,8 +2257,8 @@ class TestPlateNumberScoping:
             allow_rotation=False,
         )
         combined = sorted(p.name for p in result.pdf_paths if "all_" in p.name)
-        assert any(name.startswith("wb_uv_all_") for name in combined), combined
-        assert any(name[:2].isdigit() and "_wb_all_" in name for name in combined), combined
+        assert any(name.startswith("wk_uv_all_") for name in combined), combined
+        assert any(name[:2].isdigit() and "_wk_all_" in name for name in combined), combined
 
 
 class TestSmallCapsDemoExample:
@@ -7162,14 +7162,14 @@ class TestPreviewColors:
         captured["_result"] = result
         return captured
 
-    def test_bw_material_colors_combined_preview(self, tmp_path: Path) -> None:
-        """bw stock: black bg fill, white plain ink, white contrast outlines."""
+    def test_kw_material_colors_combined_preview(self, tmp_path: Path) -> None:
+        """kw stock: black bg fill, white plain ink, white contrast outlines."""
         captured = self._capture(tmp_path, "tests_deps/preview_color_job.yaml", "pc")
         result = captured["_result"]
-        assert result.material_by_plate == {1: "bw"}
+        assert result.material_by_plate == {1: "kw"}
 
-        all_plots = {n: v for n, v in captured.items() if n.startswith("bw_all_")}
-        assert list(all_plots) == ["bw_all_pc.pdf"]
+        all_plots = {n: v for n, v in captured.items() if n.startswith("kw_all_")}
+        assert list(all_plots) == ["kw_all_pc.pdf"]
         (plot,) = all_plots.values()
         # The proof page background is the default light grey.
         assert plot["background_color"] == "#D3D3D3"
@@ -7215,7 +7215,7 @@ class TestPreviewColors:
             "pcbg",
             job_config=load_job_config(config_path),
         )
-        (plot,) = [v for n, v in captured.items() if n.startswith("bw_all_")]
+        (plot,) = [v for n, v in captured.items() if n.startswith("kw_all_")]
         assert plot["background_color"] == "#000080"
         # The hole disc matches the configured page color; the hole outline
         # contrasts with it (navy is not white -> white outline).
@@ -7224,28 +7224,28 @@ class TestPreviewColors:
         assert outlines == {"white"}
 
     def test_white_material_gets_black_border(self, tmp_path: Path) -> None:
-        """wb stock: black border outline (contrast), grey-punched holes."""
-        captured = self._capture(tmp_path, "tests_deps/material_demo_job.yaml", "wb")
-        all_plots = {n: v for n, v in captured.items() if n.endswith("all_wb.pdf")}
-        assert sorted(all_plots) == ["wb_all_wb.pdf", "wb_uv_all_wb.pdf"]
+        """wk stock: black border outline (contrast), grey-punched holes."""
+        captured = self._capture(tmp_path, "tests_deps/material_demo_job.yaml", "wk")
+        all_plots = {n: v for n, v in captured.items() if n.endswith("all_wk.pdf")}
+        assert sorted(all_plots) == ["wk_all_wk.pdf", "wk_uv_all_wk.pdf"]
         for plot in all_plots.values():
-            # Every wb plate's top layer is white -> white background fill.
+            # Every wk plate's top layer is white -> white background fill.
             assert plot["fills"] == [("white", 1.0)]
             # White material background -> BLACK border outline.
             boundary = [f for w, _a, f in plot["layers"] if w == 0.015]
             assert boundary and set(boundary) == {"black"}
-        # Plain wb text = the core (black); the uv plate's magenta
+        # Plain wk text = the core (black); the uv plate's magenta
         # text_color pen wins over the core color.
-        plain = {f for _w, a, f in captured["wb_all_wb.pdf"]["layers"] if a == 1.0}
+        plain = {f for _w, a, f in captured["wk_all_wk.pdf"]["layers"] if a == 1.0}
         assert plain == {"black"}
-        uv = {f for _w, a, f in captured["wb_uv_all_wb.pdf"]["layers"] if a == 1.0}
+        uv = {f for _w, a, f in captured["wk_uv_all_wk.pdf"]["layers"] if a == 1.0}
         assert uv == {"black", "magenta"}
 
     def test_per_cutter_previews_stay_black(self, tmp_path: Path) -> None:
         """Only the combined plot is colored; _txt_/_bh_ files keep black ink."""
         captured = self._capture(tmp_path, "tests_deps/preview_color_job.yaml", "pc2")
         per_file = {
-            n: v for n, v in captured.items() if n != "_result" and not n.startswith("bw_all_")
+            n: v for n, v in captured.items() if n != "_result" and not n.startswith("kw_all_")
         }
         assert per_file
         for plot in per_file.values():
@@ -7254,15 +7254,15 @@ class TestPreviewColors:
             # Per-file plots keep the default white page.
             assert plot["background_color"] is None
 
-    def test_material_less_job_defaults_to_wb_proof(self, tmp_path: Path) -> None:
-        """Unset material proofs as wb stock: white bg, black ink, black outlines."""
+    def test_material_less_job_defaults_to_wk_proof(self, tmp_path: Path) -> None:
+        """Unset material proofs as wk stock: white bg, black ink, black outlines."""
         captured = self._capture(tmp_path, "tests_deps/test123_spec.yaml", "ml")
         all_plots = {n: v for n, v in captured.items() if n.startswith("all_")}
         assert all_plots
         for plot in all_plots.values():
-            # White label background (the wb top layer).
+            # White label background (the wk top layer).
             assert plot["fills"] == [("white", 1.0)]
-            # wb core text + black contrast outlines (borders and holes).
+            # wk core text + black contrast outlines (borders and holes).
             assert {f for _w, _a, f in plot["layers"]} == {"black"}
 
 
@@ -7609,7 +7609,7 @@ class TestPerStrokePreviewWidths:
             export_per_cutter_plts(
                 [_cutter_buffer_label()],
                 output_dir=tmp_path,
-                job_id="cbw",
+                job_id="ckw",
                 optimize=optimize,
                 fast_mode=True,
                 plots=True,

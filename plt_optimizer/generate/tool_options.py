@@ -21,37 +21,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def generate_tool_option_headers(
+def resolve_tool_option_values(
     job_spec: JobSpec,
     job_config: Optional[JobConfig],
     plt_type: str,
-) -> list[str]:
-    """Generate HPGL header command strings from tool options.
+) -> dict[str, Any]:
+    """Resolve the final value of every configured tool option for one layer.
 
-    Applies job-config defaults (selecting the appropriate dual default for
-    plt_type: "text" vs "borders_holes"), clamps int/float values to their
-    configured ranges, and generates formatted HPGL commands.
+    This is the single source of truth shared by the HPGL header emitter and
+    the usage time estimate, so the reported run time can never disagree with
+    the commands actually written into the plot file.
 
     Args:
         job_spec: The resolved job specification (may have tool_options dict).
-        job_config: The loaded job-config (with tool_options metadata and defaults).
+        job_config: The loaded job-config (with tool_options metadata and
+            defaults).
         plt_type: Either "text" or "borders_holes" to select the dual default.
 
     Returns:
-        List of HPGL header command strings (e.g., ["VS0.80;", "ZO124,50;"]).
-        If job_spec has no tool_options and job_config is None, returns empty list.
+        Mapping of option key to its final value, clamped to the configured
+        range. Options with no resolvable value are omitted, and iteration
+        order is the registry's sorted key order. An empty dict means the
+        config declares no options.
     """
     if job_config is None or job_config.defaults.tool_options is None:
         # No config available; use job_spec tool_options if provided
         if not job_spec.tool_options:
-            return []
+            return {}
         config_tool_options = {}
     else:
         config_tool_options = job_config.defaults.tool_options
 
     job_tool_options = job_spec.tool_options or {}
 
-    headers = []
+    values: dict[str, Any] = {}
 
     # Iterate tool_options metadata from config (maintains consistent order)
     for option_key in sorted(config_tool_options.keys()):
@@ -76,23 +79,59 @@ def generate_tool_option_headers(
         if value is None:
             continue
 
-        # Validate and clamp value based on type
+        param_type = option_metadata.get("type", "bool")
+
+        if param_type == "float":
+            values[option_key] = _clamp_float(value, option_key, option_metadata)
+        elif param_type == "int":
+            values[option_key] = _clamp_int(value, option_key, option_metadata)
+        elif param_type == "bool":
+            values[option_key] = value
+        else:
+            logger.warning(f"Unknown tool_option type '{param_type}' for '{option_key}'")
+
+    return values
+
+
+def generate_tool_option_headers(
+    job_spec: JobSpec,
+    job_config: Optional[JobConfig],
+    plt_type: str,
+) -> list[str]:
+    """Generate HPGL header command strings from tool options.
+
+    Resolves the values with :func:`resolve_tool_option_values` (job-config
+    dual defaults for ``plt_type``, clamped to the configured ranges) and
+    formats one header per option.
+
+    Args:
+        job_spec: The resolved job specification (may have tool_options dict).
+        job_config: The loaded job-config (with tool_options metadata and defaults).
+        plt_type: Either "text" or "borders_holes" to select the dual default.
+
+    Returns:
+        List of HPGL header command strings (e.g., ["VS0.80;", "ZO124,50;"]).
+        If job_spec has no tool_options and job_config is None, returns empty list.
+    """
+    if job_config is None or job_config.defaults.tool_options is None:
+        config_tool_options: dict[str, Any] = {}
+    else:
+        config_tool_options = job_config.defaults.tool_options
+
+    values = resolve_tool_option_values(job_spec, job_config, plt_type)
+
+    headers = []
+    for option_key, value in values.items():
+        option_metadata = config_tool_options[option_key]
         param_type = option_metadata.get("type", "bool")
         command = option_metadata.get("command", "")
 
         if param_type == "float":
-            value = _clamp_float(value, option_key, option_metadata)
-            header = _format_float_header(command, value)
+            headers.append(_format_float_header(command, value))
         elif param_type == "int":
-            value = _clamp_int(value, option_key, option_metadata)
-            header = _format_int_header(command, value)
+            headers.append(_format_int_header(command, value))
         elif param_type == "bool":
-            header = _format_bool_header(command, value)
-        else:
-            logger.warning(f"Unknown tool_option type '{param_type}' for '{option_key}'")
-            continue
-
-        headers.append(header)
+            headers.append(_format_bool_header(command, value))
 
     return headers
 

@@ -199,6 +199,7 @@ the docs byte-pin; everything above is derived purely from the model.
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `tool_options` | dict \| null | null (unset) | — | Optional engraver tool options (header commands) metadata. Keys are underscored header names (e.g., 'cutting_velocity', 'dwell_time'). Values are dicts with 'command' (HPGL prefix), 'type' (bool/int/float), 'units' (measurement unit string, e.g. 'in/sec'), 'default' (dual text/borders_holes dict), and for numeric types 'min'/'max' bounds. Validated at config load: every problem in the file is reported in one JobConfigError. Populated by the extract_headers.py script from PLT reference files. |
+| `rapid_velocity` | float \| null | null (unset) | >0 | XY travel velocity in inches/sec for pen-up rapid moves and Z retractions, used ONLY by the run-time estimate in the job summary (`usage` block) - it emits no HPGL header, which is why it is a job-config field and not a `tool_options` entry (every `tool_options` key must map to a command that is written into the PLT). Unset falls back to each layer's `cutting_velocity`. Not a cascading default (job specs cannot declare it). |
 
 ## Enums
 
@@ -440,6 +441,7 @@ excluded from the docs byte-pin.
 | `top_clearance` | float \| null | — | **set** | plates-layout-and-packing |
 | `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | — | **set** | line-stacking-and-reflow |
 | `tool_options` | dict \| null | — | **set** | tool-options |
+| `rapid_velocity` | float \| null | — | unset | tool-options |
 | `preview_background_color` | str \| null | — | **set** | cascade-and-config |
 
 ## Available Tool Options

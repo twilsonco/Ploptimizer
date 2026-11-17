@@ -1,6 +1,6 @@
 job:
     job_name: coolsys target 2957
-    material: bw
+    material: kw
     font: helv1
     labels:
         - id: "1x3"

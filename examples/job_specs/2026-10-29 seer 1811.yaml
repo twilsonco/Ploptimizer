@@ -1,6 +1,6 @@
 job:
   job_name: seer 1811
-  material: bw
+  material: kw
   font: helv1
 
   labels:
@@ -26,7 +26,7 @@ job:
         - text: "REFRIGERATION ALARM"
         - text: "CONTACT STORE MANAGER"
     - id: "aci labels"
-      material: bw(uv)
+      material: kw(uv)
       width: 7
       height: 5.33
       text_height: 1

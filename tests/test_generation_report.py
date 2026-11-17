@@ -208,6 +208,51 @@ class TestBuildReportShape:
         # output, so the key is present and null for a bare report.
         assert report["usage"] is None
 
+    def test_a_usage_time_block_survives_into_the_report(self, tmp_path: Path) -> None:
+        """``usage.time`` rides through ``build_report`` untouched (additive).
+
+        The run-time estimate lives INSIDE ``usage`` - the report keeps its nine
+        top-level sections and ``REPORT_SCHEMA_VERSION`` stays 1.
+        """
+        resolved, rendered = _label("l1", [_line("A")])
+        usage = {
+            "distance": {"available": True, "total": 1.0},
+            "time": {
+                "available": True,
+                "units": "seconds",
+                "model": {"text": {"cutting_velocity": 1.5}},
+                "total": {"cutting": 0.5, "total": 1.25},
+                "by_operation": {"cutting": 0.5, "rapid": 0.75},
+                "by_spec": [{"label_id": "l1", "copies": 1, "total": 1.25}],
+            },
+        }
+        report = build_report(
+            job_name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+            usage=usage,
+        )
+
+        assert list(report) == [
+            "schema_version",
+            "job",
+            "summary",
+            "timings",
+            "outputs",
+            "labels",
+            "warnings",
+            "errors",
+            "usage",
+        ]
+        assert report["schema_version"] == REPORT_SCHEMA_VERSION
+        assert report["usage"]["time"] == usage["time"]
+        # The dict is serializable as written (no dataclass/Path leakage).
+        assert json.loads(json.dumps(report))["usage"]["time"]["total"]["total"] == 1.25
+
     def test_report_dir_is_a_sibling_of_plt_and_pdf(self, tmp_path: Path) -> None:
         """The report directory sits next to the plt/ and pdf/ directories."""
         report_dir = report_dir_for(tmp_path)

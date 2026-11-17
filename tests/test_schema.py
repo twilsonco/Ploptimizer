@@ -2762,7 +2762,7 @@ class TestMaterialField:
 
     def test_free_form_strings_accepted(self) -> None:
         """Any non-empty string is a valid material (no vocabulary)."""
-        for value in ("wb", "wb(uv)", "3-layer black", "ALUMINUM 0.060"):
+        for value in ("wk", "wk(uv)", "3-layer black", "ALUMINUM 0.060"):
             label = LabelSpec(
                 id="l",
                 width=2.0,
@@ -2779,9 +2779,9 @@ class TestMaterialField:
             width=2.0,
             height=1.0,
             content=[TextLine(text="X")],
-            material="  wb  ",
+            material="  wk  ",
         )
-        assert label.material == "wb"
+        assert label.material == "wk"
 
     def test_blank_material_rejected(self) -> None:
         """Empty / whitespace-only material is a validation error."""
@@ -2799,22 +2799,22 @@ class TestMaterialField:
 
     def test_job_value_cascades_to_plates_omitting_it(self) -> None:
         """Plates without an explicit material inherit the job-level value."""
-        job = self._job([PlateSpec(id="p1", width=24.0, height=16.0)], material="wb")
+        job = self._job([PlateSpec(id="p1", width=24.0, height=16.0)], material="wk")
         assert job.plates is not None
-        assert job.plates[0].material == "wb"
+        assert job.plates[0].material == "wk"
 
     def test_explicit_plate_material_wins(self) -> None:
         """An explicit plate material always beats the job-level value."""
         job = self._job(
             [
-                PlateSpec(id="p1", width=24.0, height=16.0, material="wb(uv)"),
+                PlateSpec(id="p1", width=24.0, height=16.0, material="wk(uv)"),
                 PlateSpec(id="p2", width=24.0, height=16.0),
             ],
-            material="wb",
+            material="wk",
         )
         assert job.plates is not None
-        assert job.plates[0].material == "wb(uv)"
-        assert job.plates[1].material == "wb"
+        assert job.plates[0].material == "wk(uv)"
+        assert job.plates[1].material == "wk"
 
     def test_plate_null_material_inherits_job_value(self) -> None:
         """An explicit plate ``null`` material is unset semantics: inherit."""
@@ -2822,7 +2822,7 @@ class TestMaterialField:
             job_name="J",
             width=2.0,
             height=1.0,
-            material="wb",
+            material="wk",
             plates=cast(List[Any], [{"id": "p1", "width": 24.0, "height": 16.0, "material": None}]),
             labels=cast(
                 List[Any],
@@ -2837,7 +2837,7 @@ class TestMaterialField:
             ),
         )
         assert job.plates is not None
-        assert job.plates[0].material == "wb"
+        assert job.plates[0].material == "wk"
 
     def test_no_job_material_keeps_plate_unset(self) -> None:
         """Without a job-level material, plates stay material-agnostic."""
@@ -2848,7 +2848,7 @@ class TestMaterialField:
     def test_input_plates_are_not_mutated(self) -> None:
         """The job -> plate cascade copies plates instead of mutating input."""
         plate = PlateSpec(id="p1", width=24.0, height=16.0)
-        self._job([plate], material="wb")
+        self._job([plate], material="wk")
         assert plate.material is None
 
     def test_parse_yaml_materials(self, tmp_path: Path) -> None:
@@ -2860,7 +2860,7 @@ job:
   job_name: Materials
   width: 3.0
   height: 1.0
-  material: wb
+  material: wk
   plates:
     - id: p1
       width: 24.0
@@ -2868,25 +2868,25 @@ job:
     - id: p2
       width: 24.0
       height: 16.0
-      material: wb(uv)
+      material: wk(uv)
   labels:
     - id: plain
       content:
         - text: A
     - id: uv
-      material: wb(uv)
+      material: wk(uv)
       content:
         - text: B
 """,
             encoding="utf-8",
         )
         job = parse_yaml(spec)
-        assert job.material == "wb"
+        assert job.material == "wk"
         assert job.plates is not None
-        assert [p.material for p in job.plates] == ["wb", "wb(uv)"]
+        assert [p.material for p in job.plates] == ["wk", "wk(uv)"]
         assert job.labels is not None
         assert job.labels[0].material is None
-        assert job.labels[1].material == "wb(uv)"
+        assert job.labels[1].material == "wk(uv)"
 
 
 class TestMaterialHelpers:
@@ -2895,7 +2895,7 @@ class TestMaterialHelpers:
     def test_normalize_material(self) -> None:
         """normalize_material trims and passes None through."""
         assert normalize_material(None) is None
-        assert normalize_material(" wb(uv) ") == "wb(uv)"
+        assert normalize_material(" wk(uv) ") == "wk(uv)"
 
     def test_normalize_material_rejects_blank(self) -> None:
         """Blank values raise (they would create anonymous groups)."""
@@ -2904,9 +2904,9 @@ class TestMaterialHelpers:
 
     def test_material_key_is_case_insensitive(self) -> None:
         """Grouping keys trim and case-fold; None maps to None."""
-        assert material_key(" WB(UV) ") == material_key("wb(uv)")
+        assert material_key(" WK(UV) ") == material_key("wk(uv)")
         assert material_key(None) is None
-        assert material_key("wb") != material_key("wb(uv)")
+        assert material_key("wk") != material_key("wk(uv)")
 
 
 class TestOptimizeLineContent:

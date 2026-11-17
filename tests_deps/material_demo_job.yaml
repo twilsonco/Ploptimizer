@@ -1,7 +1,7 @@
 # Material-partitioned packing demo job for the PLT-Optimizer generate pipeline.
 #
-# One job, two stock materials: the job-level `material: wb` covers the tag
-# labels, and the placard labels override it with `wb(uv)`. Each plate declares
+# One job, two stock materials: the job-level `material: wk` covers the tag
+# labels, and the placard labels override it with `wk(uv)`. Each plate declares
 # the material it is cut from, so the packer runs one pass per material and the
 # two label groups never share a sheet (a plate carries exactly one material).
 # The deep-engraved placards additionally carry `text_color: magenta`, so the
@@ -21,28 +21,28 @@ job:
   height: 1.0
   margin: 0.15
   text_height: 0.35
-  material: wb
+  material: wk
   plates:
-    - id: scrap_wb
+    - id: scrap_wk
       width: 12.0
       height: 8.0
-      material: wb
+      material: wk
     - id: scrap_uv
       width: 12.0
       height: 8.0
-      material: wb(uv)
+      material: wk(uv)
   labels:
-    - id: wb_tag
+    - id: wk_tag
       count: 8
       content:
-        - text: "WB TAG"
+        - text: "WK TAG"
     - id: uv_placard
-      material: wb(uv)
+      material: wk(uv)
       count: 2
       content:
         - text: "UV PLACARD"
     - id: uv_placard_deep
-      material: wb(uv)
+      material: wk(uv)
       text_color: magenta
       count: 2
       content:

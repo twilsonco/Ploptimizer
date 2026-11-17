@@ -921,6 +921,31 @@ A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsiz
   keeps every total correct and silently moves each label's distance onto its neighbour. All
   counters reconcile with `distance.total`; `summary.txt` renders the same dict, so the two
   surfaces cannot diverge.
+  **`time` is the one measured-from-config block, and it is an estimate.**
+  `usage.time` divides the same measured travel by the machine parameters the
+  **headers of those very files** were emitted with, so `build_usage_stats` takes
+  `job_spec` + `job_config` and resolves the rates with the same precedence as
+  `tool_options.layer_tool_options_for` (the job spec's `tool_options` **overwrite**
+  the config's layer defaults - they are not merged). Seconds per stroke =
+  `cutting_m/cv + rapid_m/rv + N*plunge_s + strokes*z_up_s + dwell`, where the
+  first Z lift after `PA;` is the origin clearance, `plunge_s = z_clearance /
+  plunge_velocity` and `z_up_s = z_up_velocity / 1000` (ms). Two invariants keep
+  it honest: pen-up **travel counts as distance** (`PU x,y` is a latched
+  coordinate, so Z is lifted, not traversed), and every stroke counts **once**
+  (a multi-subpath `PD;...PD;` path plunges once). `rapid_velocity` is a
+  **`job-config.json` field, not a `tool_options` entry** - it emits no header,
+  and every registry key must map to a command that is written into the PLT -
+  falling back to the layer's `cutting_velocity` when unset. When a rate cannot
+  be resolved the block reports `available: false` with a `note` and **no
+  numbers**: a run time the config cannot support must never be reported as a
+  zero. `model` echoes the exact parameters used, per layer, so the estimate is
+  auditable; `by_spec` is the per-job roll-up (one label summed over its copies,
+  plates and cutters) while `by_label` stays per placement.
+  **Extend the time model the same way:** a new `tool_options` parameter that
+  costs machine time needs a term in `_LayerRates`/`resolve_layer_rates` **and**
+  an entry in `TIME_OPERATIONS`, whose accumulator is indexed by operation -
+  adding a term to a bucket without adding it to `time_by_op` silently breaks
+  the reconciliation every bucket must keep with `time.total`.
   Breaking changes to the block bump `generation_report.REPORT_SCHEMA_VERSION`.
 - `scripts/run_integration_test.py` prints the full report as the
   **Phase 3.6: LAYOUT REPORT** section; the `generate` CLI prints it **only under `-v`**
@@ -1075,7 +1100,7 @@ validator on `TextAttributes`).
   diameter in integer thousandths, unpadded (`0.040` -> `40`); every name is capped at 39
   characters including the extension (`core/filenames.ensure_plot_filename_length`, shared
   with optimize/watch) and reduced by `core/filenames.sanitize_filename_component` (NFKD drops
-  accents, ` Cafe` -> `Cafe`; a punctuation run becomes one underscore, `wb(uv)` -> `wb_uv`).
+  accents, ` Cafe` -> `Cafe`; a punctuation run becomes one underscore, `wk(uv)` -> `wk_uv`).
 - **Written PLT files are reflowed at the write boundary.** Every emitter
   (`plate_optimizer.emit_layer_document`, `vectorize.extract_pens_from_plt_text`/
   `assemble_plt_from_rendered_labels`, `text_geometry.Stroke.to_hpgl`,
@@ -1106,10 +1131,11 @@ on white.
   `(background, text)` from three case-insensitive forms, first match wins - delimiter
   (`red-on-white`, `red:white`, `red|white`, `red/white`; first token = background, second
   = text), full-name prefix (`white`, `black(uv)` → background only), and the leading
-  color-letter run (stopping at the first unknown letter, so `bwuv`/`wb(uv)` suffixes are
-  ignored: 1 letter = background, 2 = background + core/text (`wb` = white over black), 3 =
-  multi-layer stock where only the background is certain). Shop convention: **b = black** (NOT
-  TextColor's b = blue), `k` black, `w` white. Unset/unrecognized → `(None, None)` → `DEFAULT_MATERIAL_COLORS` (the wb proof).
+  color-letter run (stopping at the first unknown letter, so `kwuv`/`wk(uv)` suffixes are
+  ignored: 1 letter = background, 2 = background + core/text (`wk` = white over black), 3 =
+  multi-layer stock where only the background is certain). Material letters mean what
+  `schema.TextColor` says, identical to the pen side: **`k` = black, `b` = blue** (CMYK
+  spelling), `w` white. Unset/unrecognized → `(None, None)` → `DEFAULT_MATERIAL_COLORS` (the wk proof).
 - **Text color precedence** (`resolve_text_color`): the pen's stroke-color tag (the
   `text_color` field or an inline `<tc:color>` run - `export_per_cutter_plts` builds
   `pen_colors` from `layer_by_pen`) > the material core color > black, except an unresolved
@@ -1126,9 +1152,9 @@ on white.
   → §Physical vs. effective cutter diameter. Fallbacks unchanged: no `pen_widths` keeps the thin
   centerline preview; an unparseable stem token keeps the per-file thin render; no `file_widths` plots the nominal token width.
 - **Pins:** `tests/test_preview_colors.py` (conventions, precedence, hex/contrast helpers),
-  `tests_deps/preview_color_job.yaml` + `TestPreviewColors` (`tests/test_phase3_export.py`: bw combined
-  fill/ink/outline colors, configurable page background, wb black-border contrast, per-file black-only,
-  material-less wb-default proof), `TestClosedPathPolygons` (`tests/test_stroke_geometry.py`),
+  `tests_deps/preview_color_job.yaml` + `TestPreviewColors` (`tests/test_phase3_export.py`: kw combined
+  fill/ink/outline colors, configurable page background, wk black-border contrast, per-file black-only,
+  material-less wk-default proof), `TestClosedPathPolygons` (`tests/test_stroke_geometry.py`),
   `TestPlotPhysicalStrokesColors` + `TestPlotPhysicalStrokesBackground` (`tests/test_plotter.py`), `tests/test_job_config.py`.
 
 ### Job Defaults Config (`job-config.json`)

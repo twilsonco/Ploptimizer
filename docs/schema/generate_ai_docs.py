@@ -136,6 +136,9 @@ _CONFIG_EXTRA_GROUPS = {
     "plate_width": "plates-layout-and-packing",
     "plate_height": "plates-layout-and-packing",
     "preview_background_color": "cascade-and-config",
+    # Config-only (no theme owns it, no job spec can declare it), documented
+    # beside the registry its values are read from.
+    "rapid_velocity": "tool-options",
 }
 
 #: Fields rendered in the leading `Meta` section (not pipeline defaults).
@@ -259,7 +262,7 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "left_clearance",
         "top_clearance",
     ),
-    "tool-options": ("tool_options",),
+    "tool-options": ("tool_options", "rapid_velocity"),
 }
 
 # JSON-Schema primitive -> Python-flavoured name (AI-consumer friendly).

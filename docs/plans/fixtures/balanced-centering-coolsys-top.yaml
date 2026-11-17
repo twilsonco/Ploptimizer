@@ -9,7 +9,7 @@
 job:
     job_name: gap-balance fixture (coolsys content, lone top hole)
     font: helv1
-    material: bw
+    material: kw
     labels:
     -   id: 2x3
         height: 2

@@ -49,45 +49,50 @@ class TestPalette:
 
 
 class TestParseMaterialColorsCharacterForm:
-    """Leading color-letter runs (the shop's bw/wb/wrb convention)."""
+    """Leading color-letter runs (the shop's kw/wk/wrk convention)."""
 
-    def test_bw_is_black_over_white(self) -> None:
+    def test_kw_is_black_over_white(self) -> None:
         """Two letters: top layer = background, core = text color."""
-        assert parse_material_colors("bw") == MaterialColors(background="black", text="white")
+        assert parse_material_colors("kw") == MaterialColors(background="black", text="white")
 
-    def test_wb_is_white_over_black(self) -> None:
+    def test_wk_is_white_over_black(self) -> None:
         """The reverse spelling swaps background and text."""
-        assert parse_material_colors("wb") == MaterialColors(background="white", text="black")
+        assert parse_material_colors("wk") == MaterialColors(background="white", text="black")
 
     def test_case_insensitive(self) -> None:
         """Comparison ignores case."""
-        assert parse_material_colors("BW") == parse_material_colors("bw")
-        assert parse_material_colors("Wb(uv)") == parse_material_colors("wb(uv)")
+        assert parse_material_colors("KW") == parse_material_colors("kw")
+        assert parse_material_colors("Wk(uv)") == parse_material_colors("wk(uv)")
 
     def test_property_suffix_stops_the_letter_run(self) -> None:
         """Unrecognized letters after the colors are property tags, ignored."""
-        assert parse_material_colors("bwuv") == MaterialColors(background="black", text="white")
-        assert parse_material_colors("wb(uv)") == MaterialColors(background="white", text="black")
-        assert parse_material_colors("bw-adhesive") == MaterialColors(
+        assert parse_material_colors("kwuv") == MaterialColors(background="black", text="white")
+        assert parse_material_colors("wk(uv)") == MaterialColors(background="white", text="black")
+        assert parse_material_colors("kw-adhesive") == MaterialColors(
             background="black", text="white"
         )
 
     def test_three_letters_are_multilayer_background_only(self) -> None:
-        """wrb = white/red/black: only the top layer (background) is certain."""
-        assert parse_material_colors("wrb") == MaterialColors(background="white", text=None)
-        assert parse_material_colors("wrb(uv)") == MaterialColors(background="white", text=None)
+        """wrk = white/red/black: only the top layer (background) is certain."""
+        assert parse_material_colors("wrk") == MaterialColors(background="white", text=None)
+        assert parse_material_colors("wrk(uv)") == MaterialColors(background="white", text=None)
 
     def test_single_letter_is_background_only(self) -> None:
         """One letter names the top layer; the core is unknown."""
-        assert parse_material_colors("b") == MaterialColors(background="black", text=None)
+        assert parse_material_colors("b") == MaterialColors(background="blue", text=None)
+        assert parse_material_colors("k") == MaterialColors(background="black", text=None)
         assert parse_material_colors("w") == MaterialColors(background="white", text=None)
         assert parse_material_colors("m") == MaterialColors(background="magenta", text=None)
 
-    def test_material_b_means_black_not_blue(self) -> None:
-        """The material-side override: b = black (TextColor uses b = blue)."""
-        assert parse_material_colors("b").background == "black"
+    def test_material_letters_follow_the_schema(self) -> None:
+        """Material letters mean what TextColor says: k = black, b = blue."""
+        assert parse_material_colors("b").background == "blue"
         assert parse_material_colors("k").background == "black"
-        assert parse_material_colors("kb") == MaterialColors(background="black", text="black")
+        assert parse_material_colors("kb") == MaterialColors(background="black", text="blue")
+        assert parse_material_colors("bk") == MaterialColors(background="blue", text="black")
+        # Black stock spells itself with k, as a letter, a full name, and in
+        # the delimiter form.
+        assert parse_material_colors("kw") == parse_material_colors("black-on-white")
 
     def test_unknown_material_yields_nothing(self) -> None:
         """Names with no recognized color prefix keep the black-on-white proof."""
@@ -102,7 +107,7 @@ class TestParseMaterialColorsCharacterForm:
 
     def test_whitespace_trimmed(self) -> None:
         """Surrounding whitespace is ignored."""
-        assert parse_material_colors("  bw  ") == parse_material_colors("bw")
+        assert parse_material_colors("  kw  ") == parse_material_colors("kw")
 
     def test_known_limitation_color_letter_words(self) -> None:
         """A word built from color letters reads as layers (documented)."""
@@ -121,6 +126,7 @@ class TestParseMaterialColorsDelimiterForm:
     def test_letters(self) -> None:
         """Single-letter tokens work in the delimiter form too."""
         assert parse_material_colors("k-on-w") == MaterialColors(background="black", text="white")
+        assert parse_material_colors("b-on-w") == MaterialColors(background="blue", text="white")
         assert parse_material_colors("w:r") == MaterialColors(background="white", text="red")
 
     def test_trailing_property_suffix_ignored(self) -> None:
@@ -164,27 +170,27 @@ class TestResolveTextColor:
 
     def test_pen_color_wins_over_material_text(self) -> None:
         """An explicit text_color/<tc:> layer beats the material core."""
-        mc = parse_material_colors("bw")  # text = white
+        mc = parse_material_colors("kw")  # text = white
         assert resolve_text_color("red", mc) == "red"
         assert resolve_text_color("cyan", mc) == "cyan"
 
-    def test_pen_color_wins_over_material_text_wb(self) -> None:
+    def test_pen_color_wins_over_material_text_wk(self) -> None:
         """Same on white-over-black stock (plain text would be black)."""
-        mc = parse_material_colors("wb")
+        mc = parse_material_colors("wk")
         assert resolve_text_color("magenta", mc) == "magenta"
 
     def test_none_pen_color_uses_material_text(self) -> None:
         """The implicit 'none' layer color defers to the material core."""
-        assert resolve_text_color("none", parse_material_colors("bw")) == "white"
-        assert resolve_text_color("none", parse_material_colors("wb")) == "black"
+        assert resolve_text_color("none", parse_material_colors("kw")) == "white"
+        assert resolve_text_color("none", parse_material_colors("wk")) == "black"
 
     def test_none_pen_color_on_three_layer_uses_contrast(self) -> None:
-        """wrb: text unset, background white -> black ink."""
-        assert resolve_text_color("none", parse_material_colors("wrb")) == "black"
+        """wrk: text unset, background white -> black ink."""
+        assert resolve_text_color("none", parse_material_colors("wrk")) == "black"
 
     def test_dark_background_auto_contrast(self) -> None:
         """Unresolved text over a dark background renders white."""
-        for material in ("b", "black", "red", "blue", "g", "m", "v"):
+        for material in ("k", "black", "b", "red", "blue", "g", "m", "v"):
             mc = parse_material_colors(material)
             assert resolve_text_color(None, mc) == "white", material
 
@@ -201,7 +207,7 @@ class TestResolveTextColor:
 
     def test_unknown_pen_color_falls_back(self) -> None:
         """A pen tag outside the palette defers like 'none'."""
-        assert resolve_text_color("bogus", parse_material_colors("bw")) == "white"
+        assert resolve_text_color("bogus", parse_material_colors("kw")) == "white"
         assert resolve_text_color("bogus", MaterialColors()) == "black"
 
     def test_pen_color_case_and_whitespace_tolerant(self) -> None:
@@ -210,10 +216,10 @@ class TestResolveTextColor:
 
 
 class TestDefaultMaterialColors:
-    """The wb proof default for material-agnostic jobs."""
+    """The wk proof default for material-agnostic jobs."""
 
-    def test_default_is_wb_stock(self) -> None:
-        """Unset material proofs as wb: white background, black core."""
+    def test_default_is_wk_stock(self) -> None:
+        """Unset material proofs as wk: white background, black core."""
         assert DEFAULT_MATERIAL_COLORS == MaterialColors(background="white", text="black")
 
     def test_default_background_gets_black_outline(self) -> None:

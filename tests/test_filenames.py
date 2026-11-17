@@ -27,8 +27,8 @@ class TestSanitizeFilenameComponent:
     def test_punctuation_becomes_underscore(self) -> None:
         """Every punctuation run collapses to a single underscore."""
         assert sanitize_filename_component("a/b\\c:d*e") == "a_b_c_d_e"
-        assert sanitize_filename_component("wb(uv)") == "wb_uv"
-        assert sanitize_filename_component("2026-10-06 seer wb-uv") == "2026_10_06_seer_wb_uv"
+        assert sanitize_filename_component("wk(uv)") == "wk_uv"
+        assert sanitize_filename_component("2026-10-06 seer wk-uv") == "2026_10_06_seer_wk_uv"
         assert sanitize_filename_component("Sign!!#3") == "Sign_3"
 
     def test_underscores_preserved(self) -> None:

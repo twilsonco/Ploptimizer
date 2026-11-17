@@ -311,8 +311,8 @@ def _extract_packed_plates(
             material-agnostic.
         materials: Optional mapping of bin id to the plate's own declared
             material spelling. Constrained-mode passes use it so each
-            plate keeps its own spelling (a `wb(uv)` plate carrying
-            `WB(UV)` labels reports `wb(uv)`); bins missing from the
+            plate keeps its own spelling (a `wk(uv)` plate carrying
+            `WK(UV)` labels reports `wk(uv)`); bins missing from the
             mapping fall back to ``material``.
 
     When ``transpose`` is set, each plate's instance ids are re-assigned
@@ -1015,7 +1015,7 @@ def _material_bin_prefix(material: Optional[str]) -> str:
         material: The group's display material, or ``None`` (unset).
 
     Returns:
-        Prefix ending in an underscore (e.g. ``"wbuv_"``), or ``""``.
+        Prefix ending in an underscore (e.g. ``"wkuv_"``), or ``""``.
     """
     if material is None:
         return ""
