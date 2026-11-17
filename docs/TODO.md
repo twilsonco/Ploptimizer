@@ -167,3 +167,7 @@
   - This solves a problem related to maximal utilization of materials. Jobs often come in batches. It's desirable to keep each job in its own file for clarity and modularity, while still allowing the optimizer to consider all jobs together for material usage optimization.
   - Because the motivation here is to combine jobs on plates in order to avoid the gaps that would otherwise result from treating each job independently, jobs will be combined into shared toolpaths for text and borders/holes.
   - Significantly, we'll still need per-job summary txt/json reports.
+  - This could get confusing, where it's unclear on a plate which labels belong to which job. We need to somehow notate the "all" preview plots so that it's clear visually which labels belong to which jobs.
+    - One solution comes from the fact that, in general plates are packed either column-wise or row-wise. So we could draw along the border(s) between jobs to providing the simplest method of visual indication of labels being on different jobs, leaving which job is which up to the user to figure out.
+    - Another approach would be to use dashed (or dotted) colored borders atop the existing label borders, then include a legend or key indicating which color corresponds to which job. This is probably the better approach.
+    - If you have other ideas for visually distinguishing labels from different jobs on the same plate, they should be considered here as well.
