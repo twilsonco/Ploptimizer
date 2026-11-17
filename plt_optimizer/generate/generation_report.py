@@ -48,6 +48,10 @@ if TYPE_CHECKING:
 
 #: Version of the ``report.json`` document shape. Bump when a consumer
 #: contract changes; consumers should check this before relying on a field.
+#: Version 1 has grown by whole additive keys only (``usage``, the measured
+#: production-usage block, joined the top level), so a v1 reader must treat any
+#: block as optional: ``usage`` is ``null`` on a failed run and on reports
+#: written before it existed.
 REPORT_SCHEMA_VERSION: int = 1
 
 #: Name of the report directory created next to the ``plt/`` and ``pdf/``
@@ -597,6 +601,7 @@ def build_report(
     records: Sequence[logging.LogRecord] = (),
     stage_records: Sequence[logging.LogRecord] = (),
     timings: Optional[StageTimings] = None,
+    usage: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build the JSON-ready generation report.
 
@@ -626,6 +631,10 @@ def build_report(
         timings: The explicit per-stage timing collector. Preferred over
             the log records, because the stage timing *records* are INFO
             level and never exist when the logger runs at WARNING.
+        usage: The measured production-usage breakdown built by
+            :func:`plt_optimizer.generate.usage_stats.build_usage_stats`
+            (labels / characters / holes / material / tool distance). A
+            failure report omits it.
 
     Returns:
         The report document, ready to be serialized as JSON.
@@ -704,6 +713,7 @@ def build_report(
         "labels": labels,
         "warnings": warnings,
         "errors": errors,
+        "usage": usage,
     }
 
 
@@ -771,6 +781,8 @@ def format_summary(report: Dict[str, Any]) -> str:
     Returns:
         The summary text.
     """
+    from plt_optimizer.generate.usage_stats import format_usage_lines
+
     job = report.get("job", {})
     summary = report.get("summary", {})
     lines: List[str] = []
@@ -837,6 +849,11 @@ def format_summary(report: Dict[str, Any]) -> str:
                 f"  ... and {len(finding_lines) - SUMMARY_FINDING_LIMIT} more "
                 f"(see {REPORT_JSON_NAME})"
             )
+
+    usage = report.get("usage")
+    if usage:
+        lines.append("")
+        lines.extend(format_usage_lines(usage))
 
     warnings = report.get("warnings", [])
     if warnings:

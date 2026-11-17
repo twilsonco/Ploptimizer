@@ -889,6 +889,29 @@ A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsiz
   `edge_margin`, `alignment_switch`); floats round to 6 decimals; the report is written on
   success **and** failure (`job.status = "failed"`, `job.error = {type, message, stage}`) and
   a report-write error never changes the exit code.
+- `usage_stats.py` computes the **production-usage accounting** the report's `usage` block
+  and `summary.txt`'s "Job usage:" section carry (contract: its module docstring).
+  Counts (labels / characters / holes / material) come from the resolved specs and the
+  **pre-expansion** `packed_plates`, each × `label.count`, so relief passes and
+  multi-copy labels cannot double-count; tool distance is the exception - it is **measured
+  from the emitted per-cutter PLT files** with the production parser (`parse_plt_file`),
+  because that is what the machine will actually run, and attributed back through
+  `combined_by_plate`: cutter + layer kind from the file name, plate/material from the
+  writer's `_{job_id}` suffix + `material_by_plate`, stroke class from the pen-layer
+  (`SP2` boundary / `SP3` hole) signatures of the assembled plate content, label from the
+  placement slot containment. Character bands are keyed by the
+  **`(nominal_text_height, text_height)` pair** - the size the shop ordered and
+  the size the machine cuts (compression, the cutter downsize, `<scale:N>` and a
+  bold partner move the second only) - so `summary.txt` prints
+  `0.500 (0.425) x15` and drops the parenthetical when the two agree; any new
+  per-glyph height effect must scale **both** sides of the pair. **Extend it the
+  same way:** every new label type, engraving
+  mode, layer kind, material or output file naming pattern needs a bucket in `usage` **and**
+  a bucket test; a new distance **class** means a `DISTANCE_CLASSES` entry, and a per-cutter
+  file that must not be measured at all means a `KIND_*` skip - otherwise new strokes land in
+  `unattributed` (which is reported, never dropped). All counters reconcile with
+  `distance.total`; `summary.txt` renders the same dict, so the two surfaces cannot diverge.
+  Breaking changes to the block bump `generation_report.REPORT_SCHEMA_VERSION`.
 - `scripts/run_integration_test.py` prints the full report as the
   **Phase 3.6: LAYOUT REPORT** section; the `generate` CLI prints it **only under `-v`**
   (output contract: [`../cli/AGENTS.md`](../cli/AGENTS.md)).

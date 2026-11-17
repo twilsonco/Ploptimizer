@@ -300,6 +300,29 @@ test_output/integration_test/generation_report/
 | `outputs` | `plt_files`, `pdf_files`, `default_pdf_files` (paths) and `plates` — per-plate geometry with every placed label (`label_id`, `x`, `y`, `width`, `height`, `rotated`) |
 | `labels` | Per label: identity, role, material, plate placement, size, and its lines with the applied effects (`compression`, `line_spacing`, holes, relief, cutter downsize, …) |
 | `warnings` / `errors` | The captured log records: `level`, `logger`, `message`, plus the best-effort `label_id` / `line_index` attribution |
+| `usage` | Production-usage accounting (labels / characters / holes / material / tool distance) — see below; `null` on a failed run |
+
+`usage` is built by `plt_optimizer/generate/usage_stats.py` (contract: its
+module docstring) and is the only block whose numbers are **measured from the
+emitted PLT files** rather than read off the plan. Its sections, each a
+subtotal plus its own breakdown rows:
+
+| Sub-block | Contents |
+|---|---|
+| `labels` | `instances` (physical labels, `count`-aware) and `specs`, broken down by `by_shape`, `by_relief` (plain vs relief), `by_material`, `by_size` (width x height x shape x material), `by_cutter` (one count per distinct diameter a label engraves with) |
+| `characters` | Engraved glyph totals with **spaces excluded** and `<enumerate>`/`<itemize>` markers counted separately (`markers`), per `by_text_height` (one band per `(nominal_text_height, text_height)` pair, so compression, `<scale:N>` and bold partners each land in their own band; `summary.txt` prints the ordered size first and the machine's size in parentheses - `0.500 (0.425) x15` - dropping the parenthetical when the two agree) and `by_label` |
+| `holes` | `total` per drill hole, by `by_diameter` (requested plus the cutter-compensated `engraved_diameter`) and `by_label` |
+| `material` | `total` plate area (`plates`, `sq_in`, `sq_ft`, clearance frame included) plus `by_material`; and two label-area measures: `label_nominal_area` (spec size x count) and `label_bbox_area` (the plate-frame bounding box the packer reserved, rotation-aware) |
+| `distance` | Tool travel in inches, `available`/`note` first: `total` (`cutting` + `rapid` = `total`, each with `*_ft`), `by_movement`, `by_class` (`text` / `relief` / `borders` / `holes` / `unattributed`), `by_cutter` (diameter + layer kind), `by_material`, `by_plate`, `by_label` (placement id + spec + plate + material), `files` (every measured file) and `unattributed` |
+
+Every `distance` counter reconciles with `distance.total`: the breakdowns sum to
+the measured total, with strokes outside every label slot reported under
+`unattributed` so nothing is dropped. Because distance is measured from what the
+machine will actually run, the numbers include sweep/merge rewrites — they
+intentionally differ from any pre-write estimate. `summary.txt` renders the same
+block as its "Job usage:" section (2-decimal figures); see
+`plt_optimizer/generate/AGENTS.md` for the rule on extending it when new job or
+label types appear.
 
 `job.tools` is the cutter inventory the run used — `available_cutters`,
 `boundary_hole_cutter_size`, and the two shop kerf buffers

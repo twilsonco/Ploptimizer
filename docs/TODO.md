@@ -56,7 +56,14 @@
 - [ ] Add spiral rastering pattern for relief engraving. See `examples/plt_relief_engraving/A_relief_spiral_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_spiral_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_spiral_0.005-only.plt` for reference.
 - [ ] Add "island" rastering for relief engraving. See `examples/plt_relief_engraving/A_relief_island_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_island_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_island_0.005-only.plt` for reference.
 - [ ] Optimize unit tests so they complete faster. Let's aim for 120s or less for the entire test suite.
-- [ ] Extend the `summary.txt` report that is generated when running the generation pipeline to include job information:
+- [ ] Extend the `summary.txt` report that is generated when running the generation pipeline to include job information: DONE
+  - Implemented in `plt_optimizer/generate/usage_stats.py`: the `usage` block of
+    `generation_report/report.json` (machine-readable, per the last bullet below) and the
+    "Job usage:" section of `summary.txt`, both rendered from the same dict. Counts come
+    from the resolved specs + pre-expansion `packed_plates` (× `label.count`); tool distance
+    is measured from the emitted per-cutter PLT files with the production parser and
+    attributed by cutter / material / plate / label / stroke class (text, relief, borders,
+    holes, unattributed). Pinned by `tests/test_usage_stats.py`.
   - Number of labels, in total and broken down by type/size/material
   - Number of characters, without counting spaces, in total and per text height
   - Number of drill holes, in total and per diameter

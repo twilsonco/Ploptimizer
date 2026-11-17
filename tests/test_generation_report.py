@@ -199,10 +199,14 @@ class TestBuildReportShape:
             "labels",
             "warnings",
             "errors",
+            "usage",
         ]
         assert report["schema_version"] == REPORT_SCHEMA_VERSION
         assert report["job"]["status"] == "success"
         assert report["job"]["error"] is None
+        # Usage accounting is attached by the CLI only when the job produced
+        # output, so the key is present and null for a bare report.
+        assert report["usage"] is None
 
     def test_report_dir_is_a_sibling_of_plt_and_pdf(self, tmp_path: Path) -> None:
         """The report directory sits next to the plt/ and pdf/ directories."""

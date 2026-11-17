@@ -563,6 +563,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         CutterSizeError,
         memoize_extents_probe,
     )
+    from plt_optimizer.generate.usage_stats import build_usage_stats
     from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
     root_logger = logging.getLogger()
@@ -616,6 +617,24 @@ def _run_generate(args: argparse.Namespace) -> int:
     except (OSError, ValueError) as e:
         return _fail(e, "export")
 
+    # Production usage accounting (labels / characters / holes / material /
+    # tool distance). The distance block is measured from the PLT files the
+    # export stage just wrote, so it runs after the export and outside it:
+    # a measurement failure must never fail a job that engraved fine, it
+    # just leaves the ``usage`` block out of the report.
+    try:
+        with stage_timer("usage", _LOG, timings=stage_timings):
+            usage = build_usage_stats(
+                resolved_labels=resolved_labels,
+                packed_plates=export_result.packed_plates,
+                combined_by_plate=export_result.combined_by_plate,
+                plt_files=export_result.plt_paths,
+                material_by_plate=export_result.material_by_plate,
+            )
+    except Exception as exc:  # noqa: BLE001 - reporting must not fail a good job
+        _LOG.warning("Could not measure the job's production usage: %s", exc)
+        usage = None
+
     # The report carries the whole per-label detail; the stdout carries
     # only the one-line summary. The full layout report is the one verbose
     # affordance, printed to stdout under -v.
@@ -641,6 +660,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         records=capture.records,
         stage_records=capture.stage_records,
         timings=stage_timings,
+        usage=usage,
     )
     capture.close()
     try:

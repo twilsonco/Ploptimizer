@@ -25,6 +25,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 # Repo root (one level above scripts/) so the pipeline imports and every
 # repo-root-relative default (tests_deps/, tools.json, job-config.json,
@@ -74,6 +75,7 @@ from plt_optimizer.generate.schema import (
     parse_yaml,
 )
 from plt_optimizer.generate.substitution import expand_job_spec
+from plt_optimizer.generate.usage_stats import build_usage_stats
 from plt_optimizer.generate.vectorize import (
     PerCutterExport,
     export_per_cutter_plts,
@@ -736,7 +738,8 @@ def phase_5_generation_report(
 
     - ``report.json`` -- the machine-readable document (job metadata, the
       headline counts, per-stage timings, the written outputs with the
-      packed placements, and the per-label/per-line findings)
+      packed placements, the per-label/per-line findings, and the
+      ``usage`` production-accounting block)
     - ``summary.txt`` -- the human-readable digest of the same data,
       echoed to the console
 
@@ -769,6 +772,19 @@ def phase_5_generation_report(
 
     job_name, job_id, plate_count = _job_identity(job, job_yaml)
     report_dir = report_dir_for(export_result.output_dir)
+    # Same accounting the CLI attaches, measured from the PLT files Phase 3
+    # wrote; a measurement failure never fails a run that engraved fine.
+    try:
+        usage: dict[str, Any] | None = build_usage_stats(
+            resolved_labels=resolved_labels,
+            packed_plates=export_result.packed_plates,
+            combined_by_plate=export_result.combined_by_plate,
+            plt_files=export_result.plt_paths,
+            material_by_plate=export_result.material_by_plate,
+        )
+    except Exception as exc:  # noqa: BLE001 - reporting must not fail a good run
+        print(f"\u26a0 Usage accounting failed (report carries no usage block): {exc}")
+        usage = None
     report = build_report(
         job_name=job_name,
         job_id=job_id,
@@ -791,6 +807,7 @@ def phase_5_generation_report(
         records=capture.records,
         stage_records=capture.stage_records,
         timings=stage_timings,
+        usage=usage,
     )
     json_path, summary_path = write_report(report_dir, report)
 
