@@ -1,0 +1,14 @@
+job:
+  job_name: Coolsys Walmart 1369 3833
+  font: helv1
+  material: kw
+  width: 3
+  height: 2
+  text_height: 0.5
+  holes:
+    - location: sides
+  labels:
+    - id: "1369"
+      replacement_text_file: 2026-11-17 coolsys walmart 1369.txt
+    - id: "3833"
+      replacement_text_file: 2026-11-17 coolsys walmart 3833.txt

@@ -1,6 +1,52 @@
 job:
   job_name: "2026-11-17 ADK CPR 111261"
   font: helv1
-  material: kw
-  holes:
-    - location: sides
+  labels:
+    - id: "1x3 kw"
+      material: kw
+      height: 1
+      width: 3
+      text_height: 0.25
+      replacement_text_file: "2026-11-17 ADK CPR kw 1-line.txt"
+    - id: "2x3 kw"
+      material: kw
+      height: 2
+      width: 3
+      text_height: 0.25
+      replacement_text_file: "2026-11-17 ADK CPR kw 3-line.txt"
+      content:
+        - text: "top line"
+          text_height: 0.375
+          placeholder: true
+    - id: "1x3 rw"
+      material: rw
+      height: 1
+      width: 3
+      text_height: 0.25
+      replacement_text_file: "2026-11-17 ADK CPR rw 1-line.txt"
+    - id: "2x3 rw"
+      material: rw
+      height: 2
+      width: 3
+      text_height: 0.25
+      replacement_text_file: "2026-11-17 ADK CPR rw 3-line.txt"
+      content:
+        - text: "top line"
+          text_height: 0.375
+          placeholder: true
+    - id: "1x3 bw"
+      material: bw
+      height: 1
+      width: 3
+      text_height: 0.25
+      replacement_text_file: "2026-11-17 ADK CPR bw 1-line.txt"
+    - id: "2x3 bw"
+      material: bw
+      height: 2
+      width: 3
+      text_height: 0.25
+      replacement_text_file: "2026-11-17 ADK CPR bw 3-line.txt"
+      content:
+        - text: "top line"
+          text_height: 0.375
+          placeholder: true

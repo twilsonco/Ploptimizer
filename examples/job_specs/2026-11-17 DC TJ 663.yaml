@@ -1,0 +1,26 @@
+job:
+  job_name: "2026-11-17 DC TJ 663"
+  font: helv1
+  material: kw
+  height: 5
+  width: 7
+  text_height: 0.25
+  holes:
+    - location: sides
+  labels:
+    - id: a
+      content:
+        - text: 663 RACK-01-01
+          text_height: 0.5
+        - text: M/N AS
+        - text: S/N 145758-1
+        - text: 620 lbs. R-744
+        - text: First Charge 05/2026
+        - text: The AMS Group
+
+# 663 RACK-01-01
+# M/N AS
+# S/N 145758-1
+# 620 lbs. R-744
+# First Charge 05/2026
+# The AMS Group
