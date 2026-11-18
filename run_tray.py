@@ -41,9 +41,13 @@ def get_icon_path() -> Path:
     Returns:
         Path to the icon file in the bundled assets directory.
     """
-    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    # ``sys._MEIPASS`` exists only in a PyInstaller frozen build, so it is
+    # read through ``getattr`` (the private name is not a declared attribute
+    # of ``sys`` for the type checker).
+    meipass = getattr(sys, "_MEIPASS", None)
+    if getattr(sys, "frozen", False) and isinstance(meipass, str):
         # Running as compiled executable - look in temp extraction folder
-        icon_path = Path(sys._MEIPASS) / "assets" / "icon.ico"
+        icon_path = Path(meipass) / "assets" / "icon.ico"
     else:
         # Running as Python script or in dev environment
         icon_path = Path(__file__).parent / "assets" / "icon.ico"
