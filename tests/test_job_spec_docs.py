@@ -5,11 +5,15 @@ artifacts so an AI consumer can never be handed a stale reference. The
 artifacts live in the ``engraving-job-complete-reference`` skill's
 ``references/`` directory (``docs/skills/engraving-jobs/``):
 
-- ``job_spec.schema.json`` / ``job_config.schema.json`` / ``JOB_SPEC.md``
+- ``job_spec.schema.json`` / ``jobset.schema.json`` /
+  ``job_config.schema.json`` / ``JOB_SPEC.md`` / ``JOBSET.md``
   must match a fresh render of the current models.
 - Every schema field must carry a ``description`` (the generator renders
   field docs straight from ``Field(description=...)``).
-- Every example job spec under ``examples/job_specs/`` must still parse.
+- Every example job spec under ``examples/job_specs/`` must still parse
+  (single-job files; the jobset examples are parsed by
+  ``tests/test_jobset_schema.py`` and validated by
+  ``tests/test_validate_jobset_skill.py``).
 
 Regenerate with::
 
@@ -18,10 +22,11 @@ Regenerate with::
 
 from __future__ import annotations
 
+import importlib.abc
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -55,7 +60,9 @@ def _load_generator() -> Any:
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # ``spec_from_file_location`` types the loader as the abstract ``Loader``;
+    # only ``InspectLoader`` carries ``exec_module``.
+    cast(importlib.abc.InspectLoader, spec.loader).exec_module(module)
     return module
 
 
@@ -242,7 +249,7 @@ class TestFontDocumentation:
         )
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        cast(importlib.abc.InspectLoader, spec.loader).exec_module(module)
         return module
 
     def test_show_fonts_lists_every_registry_choice(self) -> None:
@@ -313,7 +320,7 @@ class TestExampleSpecsParse:
         Args:
             spec_path: The example YAML file (parametrized).
         """
-        import jsonschema
+        import jsonschema  # type: ignore[import-untyped]  # no stubs published
         import yaml
 
         schema = json.loads((ARTIFACTS_DIR / "job_spec.schema.json").read_text(encoding="utf-8"))

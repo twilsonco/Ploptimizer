@@ -9,11 +9,13 @@ A *jobset* is a thin composite YAML that lists existing per-job spec files::
 Every member is resolved through exactly the single-job path
 (:func:`plt_optimizer.generate.job_prep.prepare_job`), then all members'
 labels are packed as **one pool** onto the union of their plates (plus
-auto-allocated sheets) and exported with **shared toolpaths**: one ``txt``
-file carries every job's text for a plate/cutter/colour and one ``bh`` file
-carries every job's borders (SP2) and holes (SP3). Material utilisation is
-the point - packing jobs independently leaves a gap at the end of each job's
-last sheet.
+auto-allocated sheets). Packing is shared; emission is not merged: every
+written PLT is **one job's toolpath** (a shared plate yields a ``txt`` file
+per job/cutter/colour and one ``bh`` file per job carrying that job's borders
+(SP2) and holes (SP3)), because a stroke routed across jobs would belong to
+two jobs and stop being per-job reportable. Material utilisation is the point
+- packing jobs independently leaves a gap at the end of each job's last
+sheet.
 
 Id namespacing
 --------------
@@ -28,9 +30,12 @@ by composite id, never a schema field: ``LabelSpec``/``PlateSpec`` sit on the
 cascade/parity surface (``schema_parity.py``) and a jobset-only field there
 would leak into every generated cascade document.
 
-Composite ids never reach a filename. Machine-file stems carry a *plate
-scoped* token: the single job's id when a plate holds one job, the jobset id
-when it holds more than one (:meth:`JobProvenance.stem_token_for_owners`).
+Composite ids never reach a filename. Machine-file stems carry the id of the
+job whose strokes the file holds (every file is one job's toolpath), so a
+batch's names match what each job produces standalone; only the plate-level
+artifact - the combined ``*_all_*`` preview, which really does span the jobs -
+keeps the jobset token (see
+:func:`plt_optimizer.generate.vectorize._segment_job_id`).
 
 Gate
 ----
@@ -188,7 +193,9 @@ class JobProvenance:
     """Composite-id side table: who owns what. ``None`` means single job.
 
     Attributes:
-        jobset_id: The jobset's filename token (used on mixed plates).
+        jobset_id: Key of the artifacts the set itself writes (the batch
+            report, `jobset.json`, the combined plate proofs) and the plot
+            titles. PLT files stay named for their owning job.
         jobs: Member records in jobset-file order.
         label_jobs: Composite label id -> owning ``job_key``.
         plate_jobs: Composite plate id -> declaring ``job_key``.
@@ -271,24 +278,6 @@ class JobProvenance:
             ``True`` when more than one job owns a label on the plate.
         """
         return len(self.owners_of(label_ids)) > 1
-
-    def stem_token_for_owners(self, owners: Sequence[str]) -> str:
-        """Return the filename ``<job_id>`` token for a plate's job owners.
-
-        Args:
-            owners: The owning job keys of a packed plate, in file order
-                (:meth:`owners_of`).
-
-        Returns:
-            The single owner's ``job_id`` for a one-job plate (exactly the
-            name a standalone run of that job produces), else the
-            ``jobset_id``.
-        """
-        if len(owners) == 1:
-            record = self.record(owners[0])
-            if record is not None:
-                return record.job_id
-        return self.jobset_id
 
     def base_id(self, composite_id: str) -> str:
         """Return a composite id with its ``{job_key}::`` prefix removed.

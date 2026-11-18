@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Protocol, Tuple, cast
 
 import matplotlib
+import matplotlib.path as matplotlib_path
 
 # Use 'Agg' (non-interactive) backend by default to avoid Tcl/Tk initialization issues
 # in headless environments (e.g., PyInstaller frozen executables on Windows).
@@ -725,16 +726,18 @@ def plot_physical_strokes(
 
         # Background fills first (z-order under the ink): each ring becomes
         # a MOVETO/LINETO subpath; the compound path's even-odd fill renders
-        # interior rings as holes.
+        # interior rings as holes (``matplotlib_path`` is the explicit
+        # ``matplotlib.path`` import - the root package binds it as a side
+        # effect only, which pyright cannot see).
         for fill in rendered_fills:
             for polygon in fill.polygons:
                 rings = (polygon.exterior, *polygon.interiors)
-                path = matplotlib.path.Path.make_compound_path(
+                path = matplotlib_path.Path.make_compound_path(
                     *(
-                        matplotlib.path.Path(
+                        matplotlib_path.Path(
                             ring,
-                            [matplotlib.path.Path.MOVETO]
-                            + [matplotlib.path.Path.LINETO] * (len(ring) - 1),
+                            [matplotlib_path.Path.MOVETO]
+                            + [matplotlib_path.Path.LINETO] * (len(ring) - 1),
                         )
                         for ring in rings
                     )
@@ -753,12 +756,12 @@ def plot_physical_strokes(
         for layer, polygons in rendered:
             for polygon in polygons:
                 rings = (polygon.exterior, *polygon.interiors)
-                path = matplotlib.path.Path.make_compound_path(
+                path = matplotlib_path.Path.make_compound_path(
                     *(
-                        matplotlib.path.Path(
+                        matplotlib_path.Path(
                             ring,
-                            [matplotlib.path.Path.MOVETO]
-                            + [matplotlib.path.Path.LINETO] * (len(ring) - 1),
+                            [matplotlib_path.Path.MOVETO]
+                            + [matplotlib_path.Path.LINETO] * (len(ring) - 1),
                         )
                         for ring in rings
                     )

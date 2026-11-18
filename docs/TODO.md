@@ -141,21 +141,22 @@
     new `job-config.json` field, `rapid_velocity` (travels faster than cutting; falls back to
     the layer's `cutting_velocity`). Excludes tool changes, setup and loading. Pinned by
     `tests/test_usage_stats.py` (incl. a 20 672-unit EngraveLab reference measurement).
-- [ ] Add a higher-level yaml spec, `jobset`, so that a user could write a single file that points to multiple job files:
-  - e.g.
-    ```yaml
-    jobset:
-      - job: path/to/job1.yaml
-      - job: path/to/job2.yaml
-      - job: path/to/job3.yaml
-    ```
-  - This solves a problem related to maximal utilization of materials. Jobs often come in batches. It's desirable to keep each job in its own file for clarity and modularity, while still allowing the optimizer to consider all jobs together for material usage optimization.
-  - Because the motivation here is to combine jobs on plates in order to avoid the gaps that would otherwise result from treating each job independently, jobs will be combined into shared toolpaths for text and borders/holes.
-  - Significantly, we'll still need per-job summary txt/json reports.
-  - This could get confusing, where it's unclear on a plate which labels belong to which job. We need to somehow notate the "all" preview plots so that it's clear visually which labels belong to which jobs.
-    - One solution comes from the fact that, in general plates are packed either column-wise or row-wise. So we could draw along the border(s) between jobs to providing the simplest method of visual indication of labels being on different jobs, leaving which job is which up to the user to figure out.
-    - Another approach would be to use dashed (or dotted) colored borders atop the existing label borders, then include a legend or key indicating which color corresponds to which job. This is probably the better approach.
-    - If you have other ideas for visually distinguishing labels from different jobs on the same plate, they should be considered here as well.
+- jobset: SHIPPED (2026-11-18) - the batch spec above is implemented; see the
+  `- [x]` entry at the top of `docs/DONE.md`, the contract in
+  [`plans/jobset.md`](plans/jobset.md) and the user guide in README's
+  `generate --jobset` section. Follow-ons worth considering, discovered while
+  building it:
+  - Cross-job routing of a shared sheet: a plate's job segments are engraved one
+    pass per job, so the rapid travel between two segments of the same cutter is
+    not reclaimed. Merging it would need a report model that splits one stroke's
+    travel across jobs (the per-job `usage` numbers are the product).
+  - A jobset-wide `material`/plate pool: members declaring the same sheet
+    geometry are pooled (the gate names the owners), but a member cannot say
+    "use only sheets job A already declared".
+  - Per-job layer colors on the plotter (`SP`) for a shared sheet are the set's,
+    from each segment's own `tool_options` header; a shop that wants one pen per
+    (job, cutter) across the whole sheet needs a pen-allocation pass the export
+    does not have today.
 - [ ] Implement alternative, more expensive kerning algorithm.
   - The current algorithm (based on a windowed, width profile approach), falls short. I want to add a more computationally expensive algorithm that steps down every stroke of every character, checking adjacent characters pairwise, and adjusting spacing to ensure that every pair of subsequent characters is separated by the same kerning distance.
   - We'll add a new enum parameter, `kerning_quality` to specify which kerning algorithm to use, `fast` or `precise`. And add a new float parameter, `kerning_precise_distance_fraction` to specify the desired kerning distance for the precise algorithm as a fraction of the `capline - baseline` distance.

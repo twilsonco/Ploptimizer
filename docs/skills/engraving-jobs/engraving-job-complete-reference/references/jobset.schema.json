@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "JobSetEntry": {
+      "additionalProperties": false,
+      "description": "One member job of a :class:`JobSetSpec`.\n\nAttributes:\n    job: Path to a job specification YAML file. Relative paths resolve\n        against the directory of the jobset file that declares them.",
+      "properties": {
+        "job": {
+          "description": "Path to a job specification YAML file (a normal single-job spec with a `job:` root). Relative paths resolve against the jobset file's directory.",
+          "format": "path",
+          "title": "Job",
+          "type": "string"
+        }
+      },
+      "required": [
+        "job"
+      ],
+      "title": "JobSetEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Top-level specification for a batch of job specs packed together.\n\nA jobset is a thin composite: it names existing per-job YAML files and\nnothing else. Every member job is resolved exactly as a standalone\n`generate` run resolves it, then all members' labels are packed as ONE\npool onto the union of their plates (plus auto-allocated sheets), and each\nplate is engraved as one toolpath segment per job - a shared plate yields a\n`txt` file per (job, cutter, colour) and one `bh` file per (job,\nboundary/hole cutter), so a member's file names and geometry are what that\njob produces standalone. Each job keeps its own `generation_report/`; the\nrun also writes a jobset report and a `jobset.json` manifest naming the\njobs on every plate.\n\nThe layout, rotation and job-level packing defaults must agree across\nmembers (they are properties of the shared sheets); the gate that\nenforces it lives in :mod:`plt_optimizer.generate.jobset`.\n\nAttributes:\n    name: Batch name used for the jobset id, the key of the files the set\n        itself writes (the combined plate proofs, `jobset.json`, the batch\n        report) and the plot titles. Per-cutter PLT files are named for\n        their owning job, never for the set. Defaults to the jobset file's\n        stem.\n    jobs: Member job specs, packed as one pool, in file order.",
+  "properties": {
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Batch name -> jobset id: the key of the files the set writes (combined plate proofs, jobset.json, the batch report) and the plot titles. Per-cutter PLT files stay named for their owning job. Default: the jobset file's stem.",
+      "title": "Name"
+    },
+    "jobs": {
+      "description": "Member job specs, packed as one pool. File order is the deterministic order used for plate concatenation, shared-file segment order and the plot legend.",
+      "items": {
+        "$ref": "#/$defs/JobSetEntry"
+      },
+      "minItems": 1,
+      "title": "Jobs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "jobs"
+  ],
+  "title": "JobSetSpec",
+  "type": "object"
+}

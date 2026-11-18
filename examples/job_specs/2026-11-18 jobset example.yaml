@@ -2,10 +2,10 @@
 #
 # Each member is a complete job spec in its own file; this document only lists
 # them, in the order their strokes are laid out. One `generate` run packs every
-# label of the set onto the merged plate list, writes ONE shared per-cutter PLT
-# per plate (the members' toolpaths are concatenated per cutter, so the sheet is
-# engraved in one pass), and still produces a report per job plus a batch
-# report that splits the travel by job.
+# label of the set onto the merged plate list, writes each plate as one toolpath
+# segment per job (so a shared sheet yields `kw_45_txt_Job_A.plt` and
+# `kw_60_txt_Job_B.plt`, engraved pass by pass), and produces a report per job
+# plus a batch report that splits the travel by job.
 #
 # Run:
 #   plt-optimizer generate --jobset "2026-11-18 jobset example.yaml"
@@ -14,10 +14,10 @@
 #
 # The common shape is the short list form (`jobset:` directly listing `job:`
 # entries, as in README.md). This example uses the mapping form because it
-# names the batch: `name` becomes the file-name key of every shared toolpath
-# (`kw_60_txt_evening_batch.plt`). Without it the key falls back to this
-# file's stem, which is long enough to push names against the plotter's
-# 39-character cap.
+# names the batch: `name` becomes the jobset id - the key of the combined
+# plate proofs (`all_evening_batch.pdf`) and of the batch report. The per-cutter
+# PLT files keep naming their owning job, so a batch's file names match what
+# each job produces standalone.
 jobset:
   name: "Evening Batch"
   jobs:

@@ -117,6 +117,25 @@ Implementation: [`../generate/generation_report.py`](../generate/generation_repo
 (the report builder), `utils.logging.apply_log_levels` (the console/stream
 retuning), and the CLI's own `run()`.
 
+### `generate --jobset <batch.yaml>`
+The batch form of the same command: `--jobset` is a mutually exclusive
+alternative to the positional spec (one of the two is required), so
+`plt-optimizer generate --jobset batch.yaml [-o OUT] [--no-plots] …` takes every
+other `generate` flag. All members are prepared through the single-job path
+(`generate/job_prep.py`), packed as one pool, and exported as one run; the
+shared plates' PLT names keep naming the **owning job** (the table above is
+unchanged) and only the plate-level `all_<job_id>.pdf` proof is keyed by the
+run. Output: `plt/` + `pdf/` over `-o`, one full report pair per member under
+`OUT/<job_id>/generation_report/`, the batch's own `report.json`/`summary.txt`
+in `OUT/generation_report/`, and `OUT/generation_report/jobset.json` (the
+manifest: jobs, plates, files + sha256, gate findings). The run's summary line
+reads `Generated jobset '<name>': N PLT file(s), M PDF(s) … (reports: …)`.
+Failures: `JobSetError` (the gate — every member's conflict listed at once),
+`JobPreparationError` with the member in the stage tag
+(`resolve[seer_2963]`), plus the single-job `LabelRenderError` /
+`LayoutFitError` paths; all exit non-zero after writing the failure report.
+Contract + design rationale: [`../../docs/plans/jobset.md`](../../../docs/plans/jobset.md).
+
 ### `watch --watch-dir <dir>`
 Hot-folder daemon. Flags: `--watch-dir` (required), `--output-dir` (default
 `./optimized`), `--log-dir` (default `./logs`), `--processed-dir` (archive

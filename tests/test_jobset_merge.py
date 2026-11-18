@@ -120,17 +120,21 @@ class TestCompositeIds:
         assert provenance.is_mixed(["Jobset_Alpha::x", "Jobset_Beta::y"]) is True
         assert provenance.is_mixed(["Jobset_Alpha::x", "Jobset_Alpha::y"]) is False
 
-    def test_stem_token_is_the_job_on_a_one_job_plate(self) -> None:
-        """Single-job plates keep exactly the names a standalone run makes —
-        the operator's existing plate files must not change shape."""
+    def test_record_job_id_is_the_members_own_filename_token(self) -> None:
+        """A PLT segment is named for the job that owns its strokes, and the
+        record is the only channel that token: production reaches it through
+        :func:`plt_optimizer.generate.vectorize._segment_job_id`, so a
+        single-job plate in a batch reads exactly like that job's standalone
+        output. The run-level token (the jobset id) stays on the artifacts the
+        set itself writes - see ``tests/test_jobset_export.py``."""
         provenance = _plan("jobset_batch.yaml").provenance
 
-        assert provenance.stem_token_for_owners(["Jobset_Alpha"]) == "Jobset_Alpha"
+        alpha = provenance.record("Jobset_Alpha")
+        beta = provenance.record("Jobset_Beta")
 
-    def test_stem_token_is_the_jobset_on_a_mixed_plate(self) -> None:
-        provenance = _plan("jobset_batch.yaml").provenance
-
-        assert provenance.stem_token_for_owners(["Jobset_Alpha", "Jobset_Beta"]) == "Jobset_Batch"
+        assert alpha is not None and beta is not None
+        assert (alpha.job_id, beta.job_id) == ("Jobset_Alpha", "Jobset_Beta")
+        assert provenance.jobset_id == "Jobset_Batch"
 
 
 class TestPackingPool:

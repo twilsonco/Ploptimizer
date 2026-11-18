@@ -3554,21 +3554,24 @@ class JobSetSpec(BaseModel):
     A jobset is a thin composite: it names existing per-job YAML files and
     nothing else. Every member job is resolved exactly as a standalone
     `generate` run resolves it, then all members' labels are packed as ONE
-    pool onto the union of their plates (plus auto-allocated sheets), and
-    each plate is exported with shared toolpaths - one `txt` file carrying
-    every job's text for that plate/cutter/colour and one `bh` file carrying
-    every job's borders and holes. Each job keeps its own
-    `generation_report/`; the run also writes a jobset report and a
-    `jobset.json` manifest naming the jobs on every plate.
+    pool onto the union of their plates (plus auto-allocated sheets), and each
+    plate is engraved as one toolpath segment per job - a shared plate yields a
+    `txt` file per (job, cutter, colour) and one `bh` file per (job,
+    boundary/hole cutter), so a member's file names and geometry are what that
+    job produces standalone. Each job keeps its own `generation_report/`; the
+    run also writes a jobset report and a `jobset.json` manifest naming the
+    jobs on every plate.
 
     The layout, rotation and job-level packing defaults must agree across
     members (they are properties of the shared sheets); the gate that
     enforces it lives in :mod:`plt_optimizer.generate.jobset`.
 
     Attributes:
-        name: Batch name used for the jobset id, the filename token on
-            mixed-job plates and the plot titles. Defaults to the jobset
-            file's stem.
+        name: Batch name used for the jobset id, the key of the files the set
+            itself writes (the combined plate proofs, `jobset.json`, the batch
+            report) and the plot titles. Per-cutter PLT files are named for
+            their owning job, never for the set. Defaults to the jobset file's
+            stem.
         jobs: Member job specs, packed as one pool, in file order.
     """
 
@@ -3577,9 +3580,10 @@ class JobSetSpec(BaseModel):
     name: Optional[str] = Field(
         default=None,
         description=(
-            "Batch name -> jobset id, the filename token on plates that "
-            "carry more than one job, and the plot titles. Default: the "
-            "jobset file's stem."
+            "Batch name -> jobset id: the key of the files the set writes "
+            "(combined plate proofs, jobset.json, the batch report) and the "
+            "plot titles. Per-cutter PLT files stay named for their owning "
+            "job. Default: the jobset file's stem."
         ),
     )
     jobs: list[JobSetEntry] = Field(

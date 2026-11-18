@@ -1113,6 +1113,38 @@ validator on `TextAttributes`).
   by `tests/test_phase3_export.py::TestWrittenPltLineFormatting` (written files assert
   `splitlines()[:2] == ["IN;", "PA;"]`, never `startswith("IN;PA;")`).
 
+### Jobsets: several job specs on one pool of plates
+
+Full contract: [`docs/plans/jobset.md`](../../../docs/plans/jobset.md) (spec, gate,
+provenance, reports, limits); the user-facing view is README's `generate --jobset`
+section. The pipeline-level rules this package owns:
+
+- **Per-job preparation, shared packing.** `generate/jobset.py:build_jobset_plan`
+  prepares every member through `generate/job_prep.py:prepare_job` - the same path the
+  single-job CLI uses, so a member's cascade, cutters, holes and relief resolve exactly
+  as they would alone - then merges the labels and the union of the members' plates into
+  ONE pool and packs it in a single `generate_layout_with_bounds` call. The layout and
+  packing engines know nothing about jobsets.
+- **Composite ids are internal, and `JobProvenance` is the only way out.** Members'
+  labels are namespaced `<job_key>::<label_id>` and their plates `<job_key>::<plate_id>`
+  (auto-allocated sheets come back as `plate:<n>::<job_key>`) so two jobs may both declare
+  `main`/`plate1`. `::` is illegal in a spec id, so the split is unambiguous. Any id that
+  reaches a report, a filename, or a user-facing line goes through
+  `JobProvenance.base_id` first; provenance lookups take the composite form.
+- **Emission is segmented per job, never merged.** `export_per_cutter_plts(provenance=…)`
+  writes a shared plate as one segment per owning job (jobset-file order): a `txt` file per
+  (job, cutter, colour) and one `bh` file per (job, boundary/hole cutter), each named for
+  its owning job - the same names a standalone run writes. Optimisation is scoped to a
+  segment, so **no stroke is ever routed, swept, merged or optimised across two jobs**: a
+  merged stroke would belong to two jobs and stop being per-job reportable, and the per-job
+  report is the product here. `PerCutterExport.file_jobs` / `plate_jobs` carry the ownership
+  the reports and the plate-proof overlay consume.
+- **Reports are per job plus per batch.** `generate/jobset_report.py` writes each member's
+  own `OUT/<job_id>/generation_report/` pair measured from `file_jobs` (a member's usage is
+  its own files, not a pro-rata split), the batch `report.json` (normal shape + the `jobset`
+  block + `usage.distance.by_job` / `usage.time.by_job`), and `jobset.json` naming the jobs,
+  labels and files per plate. `REPORT_SCHEMA_VERSION` stays 1: the jobset keys are additive.
+
 ### Colored Combined PDF Previews (`preview_colors`)
 
 Module docstring: `preview_colors.py` (pure string handling, matplotlib-free, Python 3.8-safe - it sits

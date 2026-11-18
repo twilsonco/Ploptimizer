@@ -73,6 +73,15 @@ tool, so a proof matches the material the machine removes even though the
 per-cutter PLT file name in the same view quotes the nominal tool. See
 `generate/AGENTS.md` "Physical vs. effective cutter diameter".
 
+- **Per-job overlay (`overlay_boxes`) - the jobset plate proof.** A jobset plate
+  proof passes `overlay_boxes=job_overlay_boxes(...)` (computed upstream in
+  `generate/jobset.py`, pure and matplotlib-free): one dashed rectangle per job
+  drawn over the ink, one legend row per box, and the boxes widen the axis
+  limits so a job running to the sheet edge stays visible. The boxes satisfy the
+  local `JobOverlayBoxLike` protocol - this module never imports the generate
+  layer (the import guard). `()` (the default) draws no box, adds no legend and
+  changes no axis, which is what keeps a single-job proof identical to the
+  pre-jobset render.
 - `PhysicalStrokeLayer(segments, width_inches, alpha=1.0, label="", facecolor="black")` -
   one width-tagged layer (plotter-unit segments, cutter diameter in inches).
   Text ink: `alpha=1.0`; per-file border/hole underlays:

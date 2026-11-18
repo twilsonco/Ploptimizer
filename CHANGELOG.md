@@ -4,6 +4,36 @@
 
 ### Features
 
+* **jobset:** a `jobset:` YAML batches several job specs onto **one pool of
+  plates** (`plt-optimizer generate --jobset batch.yaml`). Each member is
+  prepared through the single-job path, every member's labels join one packing
+  pass over the union of their sheets, and each plate is emitted as **one
+  toolpath segment per job** in file order — a `txt` file per
+  (job, cutter, colour) and one `bh` file per (job, boundary/hole cutter) — so
+  no stroke is ever routed across jobs and a batch member bills exactly as it
+  would have run alone. The contract, the gate rules and the known limits are
+  in [`docs/plans/jobset.md`](docs/plans/jobset.md); the user-facing view is
+  the `generate --jobset` section of [`README.md`](README.md).
+  - New modules `plt_optimizer/generate/job_prep.py` (the per-job preparation
+        path the CLI and the jobset share), `jobset.py` (spec, gate,
+        namespacing, `JobProvenance`, the plate-proof overlay geometry) and
+        `jobset_report.py` (the batch report, `jobset.json`, the per-member
+        reports). `schema.py` gains `JobSetSpec` / `JobSetEntry`; `parse_yaml`
+        refuses a `jobset:` root and `parse_jobset_yaml` refuses a `job:` root.
+  - Reporting: the batch's `report.json` gains a `jobset` block (per-member
+        totals + report paths + the `cross_job` measure of what sharing saved)
+        and `usage.distance.by_job` / `usage.time.by_job`; every member keeps
+        its own `OUT/<job_id>/generation_report/` pair, measured from the files
+        that carry its strokes.
+  - Plate proofs: a sheet carrying more than one job draws a dashed coloured
+        overlay box per job (fixed palette, indexed by file order) with a
+        legend; a one-job sheet's proof is unchanged.
+  - Pre-flight: `scripts/validate_job_spec.py` accepts a jobset file (gate
+        findings as errors/warnings; `--json` adds `kind` and `member_count`).
+  - Pins: `tests/test_jobset_schema.py`, `tests/test_jobset_merge.py`,
+        `tests/test_jobset_export.py`, `tests/test_jobset_reports.py`,
+        `tests/test_jobset_plots.py`; example batch
+        `examples/job_specs/2026-11-18 jobset example.yaml`.
 * **scripts:** the end-to-end integration runner now writes the `generate`
   pipeline's report pair for every job it processes (new **Phase 5**) —
   `<out>/generation_report/report.json` + `summary.txt`, in the same directory

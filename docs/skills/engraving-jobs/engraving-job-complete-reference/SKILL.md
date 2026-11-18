@@ -18,24 +18,29 @@ metadata:
 - You need the resolved fallback constants, the required-when-unconfigured gate, or the live tool-options table.
 - You want a machine-readable JSON Schema to validate a spec structure against.
 
-The full schema lives in this skill's `references/` directory. All four files are AUTO-GENERATED from the tool's Pydantic models (`schema.py` / `job_config.py`) plus the fallback constants scraped from the pipeline source, so they are always current with the installed tool version:
+The full schema lives in this skill's `references/` directory. All six files are AUTO-GENERATED from the tool's Pydantic models (`schema.py` / `job_config.py`) plus the fallback constants scraped from the pipeline source, so they are always current with the installed tool version:
 
 - `references/JOB_SPEC.md` — the dense human/AI reference: per-model field tables (type, default, constraints, description), enum value tables, resolved fallback defaults, the required-when-unconfigured set, and the live tool-options table (from `job-config.json`).
 - `references/JOB_CONFIG.md` — the same treatment for the `job-config.json` shop defaults: a field audit (type, code fallback, whether the shop config sets it), per-topic field tables, the config enums, the required gate, and the live tool-options table.
+- `references/JOBSET.md` — the batch spec: a `jobset:` root listing complete job files, what the batch shares (the plate pool, the per-job segments of a shared sheet, the plate proofs) and what stays per job (its cascade, its ids, its `generation_report/`), plus the gate rules that run before the batch packs.
 - `references/job_spec.schema.json` — JSON Schema for a job YAML's `job:` mapping (usable with `jsonschema.validate`).
 - `references/job_config.schema.json` — JSON Schema for `job-config.json` shop defaults.
+- `references/jobset.schema.json` — JSON Schema for a jobset YAML's `jobset:` root (each member is then validated against `job_spec.schema.json` on its own).
 
 ## How to read the reference
 
 1. Load `references/JOB_SPEC.md` and search for the field name (backticked, e.g. `` `max_h_compress` ``). Every model that declares the field has its own table row; the descriptions state the cascade tiers and behavior.
 2. For a `job-config.json` key, load `references/JOB_CONFIG.md` and search the same way; its field audit table also shows each field's code fallback (what applies when the config leaves it unset).
 3. For a structural validation loop, load `references/job_spec.schema.json` and validate the parsed `job:` mapping with any JSON-Schema validator. The schema is self-describing: every field carries its full description.
-4. Topic semantics (mechanisms, thresholds, interactions the schema cannot express) live in the thematic sub-skills of this category — start from the main skill's TOC.
+4. For a batch (`jobset:` root), load `references/JOBSET.md` for the gate rules and what the batch shares, and validate the parsed `jobset:` mapping with `references/jobset.schema.json`; each `job:` member then validates against `job_spec.schema.json` on its own.
+5. Topic semantics (mechanisms, thresholds, interactions the schema cannot express) live in the thematic sub-skills of this category — start from the main skill's TOC.
 
 ## Read next
 
 - `references/JOB_SPEC.md` — exhaustive field/enum/default/tool-options reference.
 - `references/JOB_CONFIG.md` — exhaustive shop-config field reference.
+- `references/JOBSET.md` — the batch (multi-job) spec reference.
 - `references/job_spec.schema.json` — machine-readable job-spec schema.
 - `references/job_config.schema.json` — machine-readable shop-config schema.
+- `references/jobset.schema.json` — machine-readable jobset schema.
 - [`../generate-engraving-job/SKILL.md`](../generate-engraving-job/SKILL.md) — the main workflow skill and category TOC.

@@ -12,6 +12,8 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 |---|---|---|
 | `../docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md` | `schema.py` + `job_config.py` models + fallback constants scraped from `resolution.py`/`layout.py` + tool_options from `job-config.json` | `uv run python docs/schema/generate_ai_docs.py` |
 | `.../references/job_spec.schema.json` | `JobSpec` model | same command |
+| `.../references/JOBSET.md` | `JobSetSpec`/`JobSetEntry` models (`schema.py`) + the hand-set batch prose (share table, gate rules) | same command |
+| `.../references/jobset.schema.json` | `JobSetSpec` model | same command |
 | `.../references/job_config.schema.json` | `JobDefaults` model (the editor-only `$schema` property is stripped) | same command |
 | `.../references/JOB_CONFIG.md` | `JobDefaults` model + fallback constants + field-audit key presence and tool_options from `job-config.json` (live sections excluded from the byte-pin) | same command |
 | `../docs/skills/engraving-jobs/**` (generated files: sub-skill `SKILL.md`s, `references/snippets.yaml`, `references/fallback-defaults.md`, `recipes/`, `engraving-job-complete-reference/SKILL.md`, main-skill AUTO-TOC block) | the theme registry in `generate_skills.py` + the models above | `uv run python docs/schema/generate_skills.py` (`--check` = CI drift; `--seed-semantics` = stubs only) |
@@ -62,7 +64,7 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
   `parse_yaml`-validated, with each spec's replacement data files copied
   beside it), and `engraving-job-complete-reference/` - the
   exhaustive-reference skill whose `references/` directory holds
-  `JOB_SPEC.md`, `JOB_CONFIG.md` + the two JSON Schemas (written by
+  `JOB_SPEC.md`, `JOBSET.md`, `JOB_CONFIG.md` + the three JSON Schemas (written by
   `generate_ai_docs.py`);
   every other skill links the reference through
   `../engraving-job-complete-reference/references/...`. New schema field ->
@@ -153,7 +155,14 @@ and the Hermes skill tree live under `docs/skills/engraving-jobs/`:
 - `INTEGRATION_TESTING.md` - the generate-pipeline walkthrough
   (`scripts/run_integration_test.py`), including the Phase 5
   `generation_report/` pair (`report.json` + `summary.txt`) the runner writes
-  with the CLI's schema.
+  with the CLI's schema, and the jobset pre-flight validator walk.
+- `plans/` - one hand-written contract file per feature that needs prose the
+  code cannot carry. `plans/jobset.md` is the `jobset` batch spec's shipped
+  contract (what is shared vs per job, the emission rule, the gate, the three
+  reports, the known limits); `README.md`'s `generate --jobset` section is the
+  user-facing view of the same contract. Both are MANUAL - no generator emits
+  them - so a jobset behavior change edits them with the code (the generated
+  `JOBSET.md` reference carries the schema/gate summary and points here).
 - `pdf/` - the compiled **PDF handbook** (`plt-generation-pipeline.pdf`), a
   DERIVED artifact built by `scripts/build_pipeline_pdf.py` from the committed
   skill-tree markdown + live example runs (pandoc + xelatex + ghostscript,

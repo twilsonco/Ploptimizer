@@ -129,44 +129,70 @@ jobset:
 
 Each member keeps its own cascade, fonts, cutter compensation, holes and
 label geometry: the front half of the pipeline runs per job, and only packing
-and emission are shared. The set writes ONE toolpath per plate, per cutter and
-per layer - the members' strokes are concatenated, job by job, so a sheet is
-engraved in a single pass instead of one pass per job. A shipped batch example
-lives in
-[`examples/job_specs/2026-11-18 jobset example.yaml`](examples/job_specs/).
+and emission are shared. Every PLT file stays **one job's toolpath** - a shared
+plate yields a text file per (job, cutter, colour) plus one borders-and-holes
+file per job, each named for its owning job. Strokes are never routed across
+jobs (a merged stroke would belong to two jobs and stop being per-job
+reportable), so a sheet is engraved pass by pass, job by job, in file order.
+A shipped batch example lives in
+[`examples/job_specs/2026-11-18 jobset example.yaml`](examples/job_specs/):
+two jobs (one declaring a 24x16 sheet, the other a 12x4), packed by the same
+`columns` fill order - all of the set's work lands on the 24x16 sheet and the
+second member's unused sheet stays unpacked.
 
-For a set named `Evening Batch` the output tree is:
+For a set named `Evening Batch` whose members resolve to job keys `Job_A` and
+`Job_B`, the output tree is:
 
 ```
-out/plt/121602361_txt_Evening_Batch_.plt   # shared text layer, plate 1, 0.030 cutter
-out/plt/121602361_40_r_txt_Job_A.plt       # a cutter used by ONE job stays per-job
-out/plt/1216_kw_15_bh_Evening_Batch_.plt   # borders + drill holes of every job
-out/pdf/121602361_all_Evening_Batch_.pdf   # plate proofs, with a per-job overlay
-out/Evening_Batch/report.json              # the batch report
-out/job_a/report.json                      # one report per job, same shape as --spec
-out/job_b/report.json
-out/jobset.json                            # the manifest: provenance per label
+out/plt/kw_45_txt_Job_A.plt              # one job's text: [plate_][material_]cutter[_color]_txt_
+out/plt/kw_15_bh_Job_A.plt               # that job's borders + drill holes
+out/plt/kw_60_txt_Job_B.plt              # job B, its own cutter/colour
+out/pdf/all_Evening_Batch.pdf            # the plate proof - every job, with a per-job overlay
+out/generation_report/report.json        # the batch report
+out/generation_report/summary.txt
+out/generation_report/jobset.json        # the manifest: jobs, plates, files, gate findings
+out/Job_A/generation_report/report.json  # one report per job, same shape as --spec
+out/Job_B/generation_report/report.json
 ```
 
-Names follow the single-job contract (`[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<key>`);
-the `<key>` is the batch for a file that carries several jobs' strokes and the
-owning job for a file that carries one. Every report carries its own `usage`
-accounting, and the batch's adds a `by_job` breakdown - plates, distance,
-tool time and cost split per member - so a job inside a batch bills exactly as
-it would have run alone. The plate proofs are the shop's visual key: each label
-carries a dashed border in its job's palette colour, with a legend naming the
-colors, and the report's `jobset.layers` lists each job's layer pens so the
-plotter can drop one job's layer and re-run a sheet.
+The PLT names follow the single-job contract
+(`[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`) and keep naming
+the **owning job**: a batch writes the same files each job would have written
+alone, the difference is that they are laid out on shared sheets. Only the
+plate-level artifact - the combined `all_<key>.pdf` proof, which really does
+span jobs - is keyed by the batch.
 
-Before the run, a gate checks that the members can be packed together. It
-**fails** the job on a layout-engine mismatch (a job using the `*-simple` grid
-fill cannot share a pool with the rectangle packer), a label id two members both
-declare, a plate pinned to a sheet the pooled list cannot honour, a member that
-does not exist, and a jobset nested in a jobset. It **warns** (the run
-continues) about rotation-policy and clearance disagreements, and about sheet
-groups several members declare - which the pool packs as one. A jobset cannot
-contain a jobset. Pre-flight a batch with
-`python scripts/validate_job_spec.py batch.yaml`, which accepts both spec kinds.
+Every report carries its own `usage` accounting, so a job inside a batch bills
+exactly as it would have run alone. The batch report adds a `jobset` block (the
+set identity, each member's `distance_total` / `time_total` / report path, and
+the `cross_job` measure of what sharing saved) plus `by_job` breakdowns inside
+`usage.distance` and `usage.time` (per-job cutting / rapid / plunge / z-up /
+dwell seconds and the job's `share` of the run). The `jobset.json` manifest is
+the shop's audit trail: `plates[]` names the jobs and the label ids of each
+job on every sheet, and `files[]` maps each written file to its plate, layer
+(`text` / `borders_holes`), cutter, colour, owning jobs, byte size and sha256 -
+so dropping one job's layer on a re-run is a lookup, not a guess.
+
+The plate proof is the visual key: on a sheet that carries more than one job,
+each job's labels are boxed in a dashed rectangle from a fixed palette (colour
+first, then line style, indexed by the job's position in the file) with a
+legend naming the jobs. A sheet that carries one job gets no overlay and no
+legend at all - its proof is the same picture a normal `generate` run draws.
+
+Before the batch packs, a gate checks that the members can be packed together.
+It **fails** the run (listing every problem at once) when members declare
+different `layout` fill orders - one shared sheet has one fill order, so
+`columns` cannot mix with `rows`, and a `*-simple` grid fill cannot share a
+pool with the rectangle packer - when a member declares one plate id twice,
+when the set lists no job, and when a member file is missing, listed twice,
+is itself a jobset (jobsets do not nest), or fails to parse. It **warns** (the
+run continues) when pool-wide settings disagree - `allow_rotation` and the
+job-level plate clearance take the first member in file order - and names the
+sheet geometries several members declare (those sheets pool, and the warning
+lists the owners). A `plate_id` pin the pool cannot honour is named and
+dropped, so the label packs in the pool instead of silently reserving a sheet.
+Pre-flight a batch with `python scripts/validate_job_spec.py batch.yaml`, which
+accepts both spec kinds (exit 0 on warnings, 1 on a gate error).
 
 ### `watch` — hot-folder daemon
 

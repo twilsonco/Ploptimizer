@@ -344,6 +344,18 @@ for display. Not a `job-config.json` key — per-job decision only.
   material**: materials never share a plate.
 - Constrained mode: plates declaring `material` join exactly their group's pool
   (`_claim_plates_by_material`); a declared material no label uses leaves the
+  plate unpacked.
+- **A jobset shares the pool, not the pass** (see `../AGENTS.md` "Jobsets").
+  `generate/jobset.py:build_jobset_plan` hands `generate_layout_with_bounds` the
+  concatenation of every member's plate list, in jobset-file order, with the
+  members' labels merged behind it (ids namespaced `<job_key>::<label_id>`, plates
+  `<job_key>::<plate_id>`). Everything below is then the normal single-job path -
+  one pass per material, pinners claimed first - so a batch's win is that job B's
+  label can fill the gap job A left on a sheet, not a cross-material or
+  cross-job packing trick. Members declaring the same `(width, height, material)`
+  geometry get pooled sheets (the plan warns and names the owners); a member with
+  no plates at all contributes labels to a pool that may be entirely
+  auto-allocated (`merged_plates is None` = unbounded for the whole batch).
   plate unused (WARNING); material-less plates spread across the groups
   (fewest-claimed first, declaration order as tie-break) so no group starves.
   A group with no pool aborts with `LayoutFitError` ("no plate to pack onto"),
