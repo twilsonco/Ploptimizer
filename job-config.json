@@ -17,7 +17,7 @@
   "cutter_buffer_routing": 0.060,
   "space_width_fraction": 0.7,
   "min_glyph_width_fraction": 0.025,
-  "kerning_window_fraction": 0.3,
+  "kerning_window_fraction": 0.8,
   "kerning_penetration_scale": 1.0,
   "kerning_recession_scale": 1.0,
   "kerning_min_gap_fraction": 0.03,
