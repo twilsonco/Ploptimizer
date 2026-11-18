@@ -58,6 +58,36 @@ python scripts/run_integration_test.py tests_deps
 > default single-spec flow (`test123_spec.yaml`) and the regression specs
 > (`complex_test_job.yaml`, `rotation_demo_job.yaml`) must pass.
 
+### Jobset Mode (`--jobset`)
+
+A `jobset:` YAML (a batch of job files packed onto shared plates) runs the same
+harness in batch mode:
+
+```bash
+python scripts/run_integration_test.py --jobset "examples/job_specs/job_sets/jobset example.yaml"
+python scripts/run_integration_test.py --jobset examples/job_specs/job_sets  # every set in the directory
+python scripts/run_integration_test.py --jobset                              # defaults to that directory
+```
+
+Directory mode recognises a set by its `jobset:` root, so `--jobset <dir>`
+sweeps the sets in a folder and skips the plain job specs beside it. A set
+passed **without** the flag is refused with the exact command to run - the
+single-job path cannot resolve a `jobset:` root. Batch mode adds three phases
+around the ones documented below
+(see [Jobset Phase Sequence](#jobset-phase-sequence--2j--2j-b--5j)): the
+cross-job gate with per-member preparation, the pool packing that names which
+jobs share each sheet, and the batch report surface.
+
+### `--no-plots`
+
+`--no-plots` works in both modes and skips **every** PDF: the export's
+simple-outline previews and the color-coded Phase 4 diagnostics. Toolpaths,
+coordinate validation, the layout report and all reports are unaffected, and
+the report's `plots` / `no_plots` options follow the switch. Use it for a
+headless sweep, or on a machine where the matplotlib PDF backend aborts the
+process (see the `SIGABRT` entry in
+[Troubleshooting](#issue-the-process-dies-with-abort-trap-6-in-the-plot-phases)).
+
 ### Expected Output
 
 The run ends with:
@@ -360,6 +390,80 @@ whatever the export had already written. When parsing itself failed there is no
 job to read the name from, so the spec stem stands in for both `job_name` and
 `job_id`, and `summary.plates` is `0`.
 
+## Jobset Phase Sequence — 2J / 2J-B / 5J
+
+Batch mode (`--jobset`) keeps Phases 1, 3, 3.5, 3.6 and 4 exactly as documented
+above - it feeds them the pooled labels and plates of every member - and adds
+three phases of its own. Each one calls the same production helper the
+`generate --jobset` CLI calls, so the harness grows no packing, naming, or
+accounting logic of its own and the two paths cannot drift.
+
+### Phase 2J — Jobset Plan (cross-job gate + per-job preparation)
+
+`plt_optimizer.generate.jobset.build_jobset_plan` resolves the entries, runs the
+cross-job gate, and prepares every member through the single-job preparation
+path (`job_prep.prepare_job`): per-job cutter-driven compression, per-job
+geometry, per-job plate pinning - all preserved. The console prints the gate's
+verdict (every rule that fired), each member's plate/label geometry with its
+pinned sheets, and the merged plate pool.
+
+### Phase 2J-B — Pool Bin Packing (all jobs together)
+
+`generate_layout` over the pooled labels, which is the number the feature
+exists for: how many sheets carry more than one job. Every placement is printed
+with the job that owns it, so a shared sheet is visible before a single byte is
+written.
+
+### Phase 3 (batch) — one export over the pool
+
+`export_per_cutter_plts` receives two extra arguments it uses only in batch
+mode: `layer_specs` (the `job_key -> member JobSpec` map, so each per-cutter
+header carries the options of the job that owns those strokes) and `provenance`
+(the label/plate ownership index, which drives the `jobset.json` stamp and the
+job-coloured plate-proof overlays). A shared sheet is emitted as **one toolpath
+segment per owning job** - `kw_45_txt_Job_A.plt`, `kw_45_txt_Job_B.plt`, one
+`bh` file per job - never a merged run, so no stroke is routed across jobs and
+every member bills exactly as it would have run alone.
+
+### Phase 5J — Jobset Reports (per-job + batch)
+
+Three surfaces, from the CLI's own builders:
+
+| Artifact | Content |
+| --- | --- |
+| `<output>/<job_id>/generation_report/report.json` + `summary.txt` | one per member, measured from the files that carry its strokes (its own segments on a shared sheet, never the whole sheet) |
+| `<output>/generation_report/jobset.json` | the batch manifest: the plate map (sheet → id, material, jobs, files), the gate's warnings, per-job usage, and every file written |
+| `<output>/generation_report/report.json` + `summary.txt` | the batch run's own report, carrying the `jobset` block |
+
+The console adds the plate map and the per-job distance / time totals, plus the
+cross-job line (strokes merged, rapid travel saved by packing the jobs together
+- measured on shared sheets only, `0.000` when the packer never crossed a job
+boundary).
+
+### Generated Files (batch mode)
+
+```text
+test_output/integration_test/<set-stem>/
+├── plt/
+│   ├── kw_45_txt_Job_A.plt        one segment per (job, cutter, colour)
+│   ├── kw_45_txt_Job_B.plt
+│   ├── kw_60_txt_Job_B.plt
+│   ├── kw_15_bh_Job_A.plt         one segment per (job, boundary/hole cutter)
+│   └── kw_15_bh_Job_B.plt
+├── pdf/                           all_<set>.pdf per plate, job-coloured, with a
+│                                  name-per-job key box on mixed sheets
+├── Job_A/generation_report/       report.json + summary.txt for member A
+├── Job_B/generation_report/       report.json + summary.txt for member B
+└── generation_report/
+    ├── report.json                the batch run, with the jobset block
+    ├── summary.txt
+    └── jobset.json                the batch manifest
+```
+
+The cutter token is the diameter in unpadded integer thousandths of an inch
+(`45` = 0.045"), the plate number appears only when the material spans several
+sheets and the material tag (`kw`) only when the plate declares a material.
+
 ## Verification Checklist
 
 After a run:
@@ -425,6 +529,25 @@ After a run:
       spec) aborts with `JobConfigError`
 
 ## Troubleshooting
+
+### Issue: the process dies with `Abort trap: 6` in the plot phases
+
+Symptom: the run stops mid-way (exit code 134, no Python traceback) right after
+`Parsing PLT file: ...`, inside Phase 3.5/4 where the matplotlib PDF backend
+renders previews. It is a native abort in that backend, not a pipeline fault -
+it reproduces for the default single-job run and a jobset run at the identical
+line, and the process dies before the reports are written.
+
+Fix: run with `--no-plots`, which skips every PDF and leaves the toolpaths,
+coordinate validation, layout report and all report surfaces intact:
+
+```bash
+python scripts/run_integration_test.py --jobset --no-plots
+```
+
+A non-writable matplotlib config cache (`~/.matplotlib`) causes the same class
+of trouble in the font manager; point `MPLCONFIGDIR` at a writable directory to
+silence it.
 
 ### Issue: `LayoutFitError`
 **Cause:** Labels do not fit the spec's plates. In unbounded mode the message is
