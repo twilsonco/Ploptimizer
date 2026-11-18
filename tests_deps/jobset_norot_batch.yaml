@@ -1,0 +1,6 @@
+# Jobset fixture: two rotation-disabled members (see jobset_norot_a.yaml).
+jobset:
+  name: Norot Batch
+  jobs:
+    - job: jobset_norot_a.yaml
+    - job: jobset_norot_b.yaml

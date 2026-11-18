@@ -1,0 +1,6 @@
+# Jobset fixture: two members with different job-level tool_options.
+jobset:
+  name: Tool Batch
+  jobs:
+    - job: jobset_tool_a.yaml
+    - job: jobset_tool_b.yaml

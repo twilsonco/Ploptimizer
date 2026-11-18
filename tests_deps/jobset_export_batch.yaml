@@ -1,0 +1,8 @@
+# Jobset fixture for the export phase: two members with colliding label ids,
+# different text cutters/colours and unpinned labels, so the packer puts both
+# jobs on the first sheet and the plate files must split per job.
+jobset:
+  name: Export Batch
+  jobs:
+    - job: jobset_exp_a.yaml
+    - job: jobset_exp_b.yaml

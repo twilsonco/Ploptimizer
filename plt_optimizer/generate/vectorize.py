@@ -27,12 +27,13 @@ from __future__ import annotations
 import logging
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
     from plt_optimizer.generate.job_config import JobConfig
+    from plt_optimizer.generate.jobset import JobProvenance
     from plt_optimizer.generate.schema import JobSpec
 
 from plt_optimizer.core.filenames import (
@@ -454,6 +455,14 @@ class PerCutterExport:
             order. Reporting-only: each plate carries its usable size, its
             material and the placement (position, size, rotation) of every
             label on it, so a report can name where each label was cut.
+        plate_jobs: Jobset only: 1-based plate number -> the owning job keys
+            of the labels packed on it, in jobset-file order. Empty for a
+            single-job run. Drives the per-job overlay boxes on the combined
+            plate previews and the ``jobset.json`` plate manifest.
+        file_jobs: Jobset only: written PLT path -> the job key whose strokes
+            that file carries. Every file is one job's toolpath, so this is
+            the join a per-job report needs to measure itself out of the
+            shared plate files. Empty for a single-job run.
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -465,6 +474,8 @@ class PerCutterExport:
     rendered_labels: dict[str, RenderedLabel] = field(default_factory=dict)
     material_by_plate: dict[int, Optional[str]] = field(default_factory=dict)
     packed_plates: list[PackedPlate] = field(default_factory=list)
+    plate_jobs: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    file_jobs: dict[Path, str] = field(default_factory=dict)
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -770,6 +781,147 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     return f"{job_name} text ({cutter_label}){material_suffix}"
 
 
+def _plate_owners(plate: PackedPlate, provenance: Optional[JobProvenance]) -> tuple[str, ...]:
+    """Jobs that one plate's per-cutter files are segmented into.
+
+    Args:
+        plate: The packed plate.
+        provenance: Jobset side table, or ``None`` for a single-job run.
+
+    Returns:
+        ``("",)`` for a single-job run — the empty owner means "the whole
+        plate", which is exactly the pre-jobset code path, so single-job
+        output stays byte-identical. Otherwise the owning job keys of the
+        labels on this plate, in jobset-file order (empty for a plate that
+        carries no labels, which then writes no files).
+    """
+    if provenance is None:
+        return ("",)
+    return provenance.owners_of([packed.source_label.id for packed in plate.labels])
+
+
+def _segment_plate(
+    plate: PackedPlate, owner: str, provenance: Optional[JobProvenance]
+) -> PackedPlate:
+    """Return ``plate`` carrying only ``owner``'s labels.
+
+    Args:
+        plate: The packed plate.
+        owner: Owning job key, or ``""`` for the whole plate.
+        provenance: Jobset side table.
+
+    Returns:
+        The same plate object when ``owner`` is empty (no copy: assembly and
+        routing then run exactly as a standalone job's), else a plate whose
+        ``labels`` are the owner's, at the same placements.
+    """
+    if not owner or provenance is None:
+        return plate
+    return replace(
+        plate,
+        labels=[
+            packed
+            for packed in plate.labels
+            if provenance.job_of_label(packed.source_label.id) == owner
+        ],
+    )
+
+
+def _segment_tag(owner: str, plate_str: str, kind: str) -> str:
+    """Name one plate layer for log and report prefixes.
+
+    Args:
+        owner: Owning job key, or ``""`` for a single-job run.
+        plate_str: The plate's file-name prefix (``"01_wk_uv"``).
+        kind: Layer kind (``"bh"``, ``"text <tag>"``).
+
+    Returns:
+        ``"01_wk_uv bh"`` for a single-job run (unchanged history), else
+        ``"01_wk_uv bh[seer_2963]"`` naming the job whose toolpath it is.
+    """
+    return f"{plate_str} {kind}" if not owner else f"{plate_str} {kind}[{owner}]"
+
+
+def _segment_cutters(
+    segment: PackedPlate, owner: str, default: float, default_width: float
+) -> tuple[float, float]:
+    """Boundary/hole cutter (and kerf-buffered width) of one plate segment.
+
+    Jobset members may declare different border/hole tools. On a shared
+    plate the file must be named for — and engraved with — the tool that
+    job's own strokes use, so the job-level maximum is taken per segment,
+    never across the whole pool.
+
+    Args:
+        segment: The plate segment.
+        owner: Owning job key, or ``""`` for a single-job run.
+        default: Job-level boundary/hole cutter to keep when ``owner`` is
+            empty (byte-identical names for a standalone job).
+        default_width: Job-level buffered width.
+
+    Returns:
+        ``(cutter, engraved_width)`` for this segment.
+    """
+    if not owner:
+        return default, default_width
+    cutters = [packed.source_label.hole_cutter_diameter for packed in segment.labels]
+    widths = [packed.source_label.effective_hole_cutter_diameter for packed in segment.labels]
+    cutter = max(cutters, default=default)
+    return cutter, max(widths, default=cutter)
+
+
+def _segment_spec(
+    owner: str,
+    job_spec: Optional[JobSpec],
+    layer_specs: Optional[Mapping[str, JobSpec]],
+) -> Optional[JobSpec]:
+    """The spec whose ``tool_options`` prefix one segment's files carry.
+
+    A shared PLT file is assembled from per-job segments, and each segment's
+    engraver parameters (feed rate, spindle, Z clearance) belong to the job
+    that owns those strokes — so the header block is prepended per segment
+    from that member's own spec.
+
+    Args:
+        owner: Owning job key, or ``""`` for a single-job run.
+        job_spec: The run-level spec (used when ``owner`` is empty or the
+            side table has no entry for it).
+        layer_specs: ``job_key -> member spec``, from the jobset plan.
+
+    Returns:
+        The spec to prepend headers from.
+    """
+    if owner and layer_specs is not None:
+        member = layer_specs.get(owner)
+        if member is not None:
+            return member
+    return job_spec
+
+
+def _segment_job_id(owner: str, job_id: str, provenance: Optional[JobProvenance]) -> str:
+    """Filename ``<job_id>`` token of one plate segment.
+
+    Every written PLT carries the id of the job whose strokes it contains:
+    a shared plate's per-cutter files are per-job toolpaths, so a batch
+    token would name a file as if it belonged to every job on the sheet.
+    The plate-level artifact (the combined ``*_all_*`` preview, which really
+    does span the jobs) keeps the run token.
+
+    Args:
+        owner: Owning job key, or ``""`` for a single-job run.
+        job_id: The run-level filename token.
+        provenance: Jobset side table.
+
+    Returns:
+        The member's own filename token, else ``job_id``.
+    """
+    if owner and provenance is not None:
+        record = provenance.record(owner)
+        if record is not None:
+            return record.job_id
+    return job_id
+
+
 def export_per_cutter_plts(
     resolved_labels: list[ResolvedLabel],
     provided_plates: list[PlateSpec] | None = None,
@@ -789,6 +941,8 @@ def export_per_cutter_plts(
     job_config: Optional[JobConfig] = None,
     available_cutters: Optional[list[float]] = None,
     stage_timings: Optional[StageTimings] = None,
+    layer_specs: Optional[Mapping[str, JobSpec]] = None,
+    provenance: Optional[JobProvenance] = None,
 ) -> PerCutterExport:
     """Export plates as per-cutter PLT files (and optional simple PDFs).
 
@@ -896,6 +1050,21 @@ def export_per_cutter_plts(
             through an INFO log record, which the logging level gates; a
             consumer that needs the numbers regardless of the log level
             (the generation report) passes a collector here.
+        layer_specs: Jobset only: ``job_key -> member JobSpec``, used to
+            prepend **each segment's own** ``tool_options`` header block to
+            the shared plate files (see :func:`_segment_spec`). Ignored when
+            ``provenance`` is ``None``.
+        provenance: Jobset only: the composite-id side table from
+            :func:`plt_optimizer.generate.jobset.build_jobset_plan`. When
+            given, every plate is cut into **one segment per owning job**
+            (jobset-file order) and each segment is assembled, routed and
+            written as its own per-cutter file, so a shared plate yields
+            ``01_kw_40_txt_seer.plt`` + ``01_kw_40_txt_coolsys.plt`` (one
+            toolpath per job — cross-job routing is deliberately not done,
+            a merged stroke would belong to two jobs and stop being
+            per-job reportable). ``None`` (the default) is the single-job
+            path and produces byte-identical output to a run without this
+            parameter.
 
     Returns:
         A :class:`PerCutterExport` with written PLT paths, PDF paths, and
@@ -1159,86 +1328,120 @@ def export_per_cutter_plts(
         # show it). Empty map = every preview keeps the per-pen width.
         stroke_widths = build_stroke_width_map(plate.labels, rendered_labels_map)
         plate_stroke_widths[plate_no] = stroke_widths
-        # Structural group: borders (SP2) + holes (SP3) share one run.
+        # Jobset segmentation: one plate is written as one file per
+        # (owning job, layer). A single-job run yields the single empty
+        # owner, in which case every helper below hands back the whole
+        # plate and the run-level ids — the pre-jobset path, byte-identical.
+        owners = _plate_owners(plate, provenance)
+        if provenance is not None:
+            result.plate_jobs[plate_no] = owners
+        # Combined whole-plate assembly: in memory only, it drives the
+        # per-plate preview and the report's combined view.
         with stage_timer("assemble_split", _LOG, timings=stage_timings):
             combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
-            structure_content = extract_pens_from_plt_text(combined, [LAYER_BOUNDARY, LAYER_HOLES])
         result.combined_by_plate[plate_no] = combined
-        if plt_has_geometry(structure_content):
-            bh_content = structure_content
-            if optimize and strategy_factory is not None:
-                with stage_timer("optimize_layer", _LOG, timings=stage_timings):
-                    optimization = optimize_structural_layer(
-                        structure_content,
-                        strategy_factory,
-                        logger=logger,
-                        log_prefix=f"[plate {plate_str} bh]",
-                    )
-                if optimization is not None:
-                    bh_content = optimization.content
-                    _report(f"{plate_str} bh", optimization)
-
-            # Prepend tool option headers if job_spec and job_config are provided
-            if job_spec is not None and job_config is not None:
-                from plt_optimizer.generate.tool_options import prepend_tool_option_headers
-
-                bh_content = prepend_tool_option_headers(
-                    bh_content, job_spec, job_config, "borders_holes"
+        for owner in owners:
+            segment = _segment_plate(plate, owner, provenance)
+            seg_cutter, seg_cutter_width = _segment_cutters(
+                segment, owner, hole_cutter, hole_cutter_width
+            )
+            seg_spec = _segment_spec(owner, job_spec, layer_specs)
+            seg_job_id = _segment_job_id(owner, job_id, provenance)
+            # A single-job segment is the whole plate, so its structural
+            # layer extracts from the assembly above (no second render pass).
+            with stage_timer("assemble_split", _LOG, timings=stage_timings):
+                segment_combined = (
+                    combined
+                    if not owner
+                    else assemble_plt_from_rendered_labels(segment, rendered_labels_map)
                 )
-
-            structure_path = plt_dir / f"{prefix}{_format_cutter(hole_cutter)}_bh_{job_id}.plt"
-            # Plotter-controller cap: the machine rejects names longer than
-            # 39 characters, so the name is shortened from the right (the
-            # mirrored PDF previews inherit the shortened stem).
-            structure_path = ensure_plot_filename_length(structure_path, _LOG)
-            _write_plt(structure_path, bh_content)
-            result.plt_paths.append(structure_path)
-            file_widths[structure_path] = hole_cutter_width
-
-        # Text group: one file per distinct text cutter/color pen with
-        # content. With optimization enabled the layer is routed directly
-        # from the rendered chunk records in plate space (parser/profiler
-        # skipped); otherwise the pen layer is extracted from the
-        # assembly as-is.
-        for pen_id in sorted(layer_by_pen):
-            cutter, text_color = layer_by_pen[pen_id]
-            layer_tag = _format_text_layer(cutter, text_color)
-            written_content: Optional[str] = None
-            if optimize and strategy_factory is not None:
-                with stage_timer("optimize_layer", _LOG, timings=stage_timings):
-                    optimization = optimize_text_layer(
-                        plate.labels,
-                        rendered_labels_map,
-                        pen_id,
-                        strategy_factory,
-                        logger=logger,
-                        log_prefix=f"[plate {plate_str} text {layer_tag}]",
-                    )
-                if optimization is not None:
-                    written_content = optimization.content
-                    _report(f"{plate_str} text {layer_tag}", optimization)
-            if written_content is None:
-                with stage_timer("assemble_split", _LOG, timings=stage_timings):
-                    text_content = extract_pens_from_plt_text(combined, [pen_id])
-                if not plt_has_geometry(text_content):
-                    continue
-                written_content = text_content
-
-            # Prepend tool option headers if job_spec and job_config are provided
-            if job_spec is not None and job_config is not None:
-                from plt_optimizer.generate.tool_options import prepend_tool_option_headers
-
-                written_content = prepend_tool_option_headers(
-                    written_content, job_spec, job_config, "text"
+                structure_content = extract_pens_from_plt_text(
+                    segment_combined, [LAYER_BOUNDARY, LAYER_HOLES]
                 )
+            # Structural group: borders (SP2) + holes (SP3) share one run.
+            bh_tag = _segment_tag(owner, plate_str, "bh")
+            if plt_has_geometry(structure_content):
+                bh_content = structure_content
+                if optimize and strategy_factory is not None:
+                    with stage_timer("optimize_layer", _LOG, timings=stage_timings):
+                        optimization = optimize_structural_layer(
+                            structure_content,
+                            strategy_factory,
+                            logger=logger,
+                            log_prefix=f"[plate {bh_tag}]",
+                        )
+                    if optimization is not None:
+                        bh_content = optimization.content
+                        _report(bh_tag, optimization)
 
-            text_path = plt_dir / f"{prefix}{layer_tag}_txt_{job_id}.plt"
-            # Plotter-controller cap (see the structural write above).
-            text_path = ensure_plot_filename_length(text_path, _LOG)
-            _write_plt(text_path, written_content)
-            result.plt_paths.append(text_path)
-            file_widths[text_path] = pen_widths[pen_id]
-            file_stroke_widths[text_path] = stroke_widths
+                # Prepend tool option headers if job_spec and job_config are provided
+                if seg_spec is not None and job_config is not None:
+                    from plt_optimizer.generate.tool_options import prepend_tool_option_headers
+
+                    bh_content = prepend_tool_option_headers(
+                        bh_content, seg_spec, job_config, "borders_holes"
+                    )
+
+                structure_path = (
+                    plt_dir / f"{prefix}{_format_cutter(seg_cutter)}_bh_{seg_job_id}.plt"
+                )
+                # Plotter-controller cap: the machine rejects names longer than
+                # 39 characters, so the name is shortened from the right (the
+                # mirrored PDF previews inherit the shortened stem).
+                structure_path = ensure_plot_filename_length(structure_path, _LOG)
+                _write_plt(structure_path, bh_content)
+                result.plt_paths.append(structure_path)
+                file_widths[structure_path] = seg_cutter_width
+                if owner:
+                    result.file_jobs[structure_path] = owner
+
+            # Text group: one file per distinct text cutter/color pen with
+            # content. With optimization enabled the layer is routed directly
+            # from the rendered chunk records in plate space (parser/profiler
+            # skipped); otherwise the pen layer is extracted from the
+            # assembly as-is.
+            for pen_id in sorted(layer_by_pen):
+                cutter, text_color = layer_by_pen[pen_id]
+                layer_tag = _format_text_layer(cutter, text_color)
+                text_tag = _segment_tag(owner, plate_str, f"text {layer_tag}")
+                written_content: Optional[str] = None
+                if optimize and strategy_factory is not None:
+                    with stage_timer("optimize_layer", _LOG, timings=stage_timings):
+                        optimization = optimize_text_layer(
+                            segment.labels,
+                            rendered_labels_map,
+                            pen_id,
+                            strategy_factory,
+                            logger=logger,
+                            log_prefix=f"[plate {text_tag}]",
+                        )
+                    if optimization is not None:
+                        written_content = optimization.content
+                        _report(text_tag, optimization)
+                if written_content is None:
+                    with stage_timer("assemble_split", _LOG, timings=stage_timings):
+                        text_content = extract_pens_from_plt_text(segment_combined, [pen_id])
+                    if not plt_has_geometry(text_content):
+                        continue
+                    written_content = text_content
+
+                # Prepend tool option headers if job_spec and job_config are provided
+                if seg_spec is not None and job_config is not None:
+                    from plt_optimizer.generate.tool_options import prepend_tool_option_headers
+
+                    written_content = prepend_tool_option_headers(
+                        written_content, seg_spec, job_config, "text"
+                    )
+
+                text_path = plt_dir / f"{prefix}{layer_tag}_txt_{seg_job_id}.plt"
+                # Plotter-controller cap (see the structural write above).
+                text_path = ensure_plot_filename_length(text_path, _LOG)
+                _write_plt(text_path, written_content)
+                result.plt_paths.append(text_path)
+                file_widths[text_path] = pen_widths[pen_id]
+                file_stroke_widths[text_path] = stroke_widths
+                if owner:
+                    result.file_jobs[text_path] = owner
 
     # Extract text height from resolved labels for plot titles
     text_height: float | None = None

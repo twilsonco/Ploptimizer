@@ -395,7 +395,11 @@ def normalize_pinning(
         return None
 
     known = {plate.id for plate in merged_plates}
-    orphaned = [index for index, label in enumerate(merged_labels) if label.plate_id not in known]
+    orphaned = [
+        index
+        for index, label in enumerate(merged_labels)
+        if label.plate_id is not None and label.plate_id not in known
+    ]
     if orphaned:
         LOG.warning(
             "Ignoring plate_id on %d label(s) (%s): no plate of that id is in the pool, "

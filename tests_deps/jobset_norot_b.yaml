@@ -1,0 +1,26 @@
+# Jobset export fixture, rotation OFF variant of jobset_exp_a.yaml: with
+# allow_rotation false the shared pool cannot re-orient the labels, so each
+# job's plate segment must be the exact toolpath that job engraves on its own
+# - the strongest form of the segment-equality contract.
+job:
+  job_name: Norot Beta
+  layout: columns
+  allow_rotation: false
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+  labels:
+    - id: main
+      width: 5.0
+      height: 2.0
+      cutter_size: 0.035
+      text_color: blue
+      content:
+        - text: BETA MAIN
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+      holes:
+        - location: top-left
+        - location: top-right

@@ -1,0 +1,36 @@
+# Jobset export fixture A: one 24x16 plate, a two-line label with drill holes
+# (0.04 cutter, red) and a second label. Pairs with jobset_exp_b.yaml:
+# nothing here is pinned to `plate1`, so the merged pool lets the packer place
+# BOTH members' labels on the first sheet - that shared sheet is what the
+# per-job segmentation of the plate files is tested against. The label id
+# `main` collides with jobset_exp_b.yaml on purpose. Label geometry is copied
+# from jobset_a.yaml, which is known to clear the corner holes.
+job:
+  job_name: Export Alpha
+  layout: columns
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+  labels:
+    - id: main
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      text_color: red
+      content:
+        - text: ALPHA MAIN
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+      holes:
+        - location: top-left
+        - location: top-right
+    - id: second
+      width: 4.0
+      height: 1.5
+      cutter_size: 0.04
+      text_color: red
+      content:
+        - text: ALPHA PINNED
+          text_height: 0.5

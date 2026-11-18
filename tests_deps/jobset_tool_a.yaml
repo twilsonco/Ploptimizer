@@ -1,0 +1,19 @@
+# Jobset tool-option fixture A: declares its own job-level tool_options so a
+# shared-plate export can prove that each segment carries the header block of
+# the job that owns those strokes (cutting_velocity 0.5 in/s).
+job:
+  job_name: Tool Alpha
+  layout: columns
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+  labels:
+    - id: main
+      width: 6.0
+      height: 2.0
+      content:
+        - text: ALPHA MAIN
+          text_height: 0.6
+  tool_options:
+    cutting_velocity: 0.5
