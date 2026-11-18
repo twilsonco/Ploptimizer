@@ -4,14 +4,14 @@ job:
   material: kw
   height: 5
   width: 7
-  text_height: 0.25
+  text_height: 0.375
   holes:
     - location: sides
   labels:
     - id: a
       content:
         - text: 663 RACK-01-01
-          text_height: 0.5
+          text_height: 0.625
         - text: M/N AS
         - text: S/N 145758-1
         - text: 620 lbs. R-744
