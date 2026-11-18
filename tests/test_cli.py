@@ -23,6 +23,19 @@ import pytest
 
 from plt_optimizer.generate import vectorize
 
+#: Fixture roots for the jobset end-to-end tests (paths are cwd-relative,
+#: which is the pytest rootdir; the repo's real config is used on purpose so
+#: the run exercises the production cascade).
+FIXTURES = Path("tests_deps")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_CONFIG = Path("job-config.json")
+
+
+def _read_json(path: Path) -> Dict[str, Any]:
+    """Read a written JSON document as a mapping."""
+    document: Dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return document
+
 
 class TestMainEntryPoint:
     """Tests for the main.py entry point routing."""
@@ -133,14 +146,116 @@ class TestGenerateSubcommand:
     """Tests for the generate subcommand argument parsing."""
 
     def test_generate_requires_spec_file(self, capsys: pytest.CaptureFixture) -> None:
-        """Test that generate requires a specification file."""
+        """Test that generate requires a specification file.
+
+        The positional is optional (``--jobset`` can replace it), so the
+        contract is enforced by the dispatcher: a bare ``generate`` prints the
+        usage line and returns non-zero instead of exiting at parse time.
+        """
         from main import main
 
         with patch.object(sys, "argv", ["plt-optimizer", "generate"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
+            assert main() != 0
 
-        assert exc_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "Missing the job specification path" in err
+        assert "--jobset" in err
+
+    def test_generate_accepts_jobset_flag(self) -> None:
+        """``--jobset`` parses as a path and leaves the positional unset."""
+        from plt_optimizer.cli.generate import setup_parser
+
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+
+        args = parser.parse_args(["--jobset", "batch.yaml"])
+        assert args.jobset == Path("batch.yaml")
+        assert args.spec is None
+
+    def test_generate_jobset_runs_the_jobset_pipeline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """End to end: ``generate --jobset`` packs the set, writes shared per-cutter
+        PLTs, one report per member, ``jobset.json`` and the batch report.
+
+        Runs with the repo's real ``job-config.json``/``tools.json`` and the
+        two-member export fixture, plots disabled (matplotlib is not a CLI
+        requirement on the Win7 target). The cwd is redirected into ``tmp_path``
+        so the run's ``./logs_generate`` directory does not pollute the repo.
+        """
+        from main import main
+
+        work = tmp_path / "cwd"
+        work.mkdir()
+        monkeypatch.chdir(work)
+        out_dir = tmp_path / "out"
+
+        argv = [
+            "plt-optimizer",
+            "generate",
+            "--jobset",
+            str(REPO_ROOT / FIXTURES / "jobset_export_batch.yaml"),
+            "--job-config",
+            str(REPO_ROOT / REPO_CONFIG),
+            "--tools",
+            str(REPO_ROOT / "tools.json"),
+            "-o",
+            str(out_dir),
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+        assert main() == 0
+        assert "Generated jobset" in capsys.readouterr().out
+
+        report_dir = out_dir / "generation_report"
+        manifest = _read_json(report_dir / "jobset.json")
+        batch_report = _read_json(report_dir / "report.json")
+        assert batch_report["job"]["status"] == "success"
+        assert batch_report["job"]["job_id"] == "Export_Batch"
+        assert batch_report["job"]["spec_path"].endswith("jobset_export_batch.yaml")
+        # The batch report keeps the composite ids (the set's namespace).
+        assert [label["id"] for label in batch_report["labels"]] == [
+            "Export_Alpha::main",
+            "Export_Alpha::second",
+            "Export_Beta::main",
+        ]
+        assert batch_report["usage"]["distance"]["by_job"]
+        jobset_rows = batch_report["jobset"]["jobs"]
+        assert [row["job_key"] for row in jobset_rows] == ["Export_Alpha", "Export_Beta"]
+
+        plt_dir = out_dir / "plt"
+        shared = sorted(p.name for p in plt_dir.glob("*.plt"))
+        assert len(shared) >= 2
+        # One segment file per (job, cutter, layer): every member keeps its own
+        # toolpath, so the batch's files are named after the members.
+        assert any("Export_Alpha" in name for name in shared)
+        assert any("Export_Beta" in name for name in shared)
+
+        for entry in manifest["jobs"]:
+            job_report = _read_json(out_dir / entry["report"])
+            assert job_report["job"]["job_name"] == entry["job_name"]
+            assert job_report["job"]["status"] == "success"
+            # A member's ids are its own (the composite namespace is stripped),
+            # and its report carries no by_job breakdown: it is one job.
+            assert [label["id"] for label in job_report["labels"]] == [
+                label["id"].split("::")[-1] for label in job_report["labels"]
+            ]
+            assert job_report["usage"]["distance"].get("by_job") is None
+
+    def test_generate_jobset_rejects_a_job_spec_too(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """``--jobset`` and the positional spec are mutually exclusive."""
+        from main import main
+
+        jobset = tmp_path / "batch.yaml"
+        jobset.write_text("jobset:\n  - job: a.yaml\n", encoding="utf-8")
+        spec = tmp_path / "a.yaml"
+        spec.write_text("job_name: A\n", encoding="utf-8")
+        monkeypatch.setattr(
+            sys, "argv", ["plt-optimizer", "generate", str(spec), "--jobset", str(jobset)]
+        )
+        assert main() != 0
+        assert "mutually exclusive" in capsys.readouterr().err
 
     def test_generate_accepts_spec_file(self) -> None:
         """Test that generate accepts a spec file path."""

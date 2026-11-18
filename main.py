@@ -87,6 +87,9 @@ Examples:
 
   # Specify output path
   plt-optimizer generate spec.yaml -o output.plt
+
+  # Pack several jobs onto shared plates (per-job reports + jobset.json)
+  plt-optimizer generate --jobset jobset.yaml -o out/
         """,
     )
     generate.setup_parser(generate_parser)
