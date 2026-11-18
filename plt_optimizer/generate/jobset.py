@@ -340,6 +340,74 @@ class JobSetPlan:
         return len(self.contexts)
 
 
+def normalize_pinning(
+    merged_plates: Optional[list[PlateSpec]],
+    merged_labels: list[ResolvedLabel],
+) -> Optional[list[PlateSpec]]:
+    """Keep plate pins that still describe the shared packing pool.
+
+    A label pins itself to a plate by PLATE ID
+    (``ResolvedLabel.plate_id``, read at
+    :func:`plt_optimizer.generate.packing.layout`'s pin grouping), and that
+    group enforces per-plate geometry (``left_clearance`` / ``top_clearance``
+    / ``hole_margin`` / ``h_margin`` / ``v_margin``, applied per plate by
+    ``_plate_clearances``). Jobset namespacing rewrites plate ids to
+    ``{job_key}::{plate_id}`` and the matching ``plate_id`` on that job's
+    labels, so pins keep pointing at their own sheet and a member's plate
+    geometry stays attached to it - that part is honoured, and it composes
+    with the shared pool: a plate that one label pins to is off-limits to the
+    rest, so pinning is how a batch keeps a job's work on its declared sheet.
+
+    What cannot survive is a pin to a plate that no longer exists. The layout
+    engine treats an unresolvable ``plate_id`` as "not pinned"
+    (``pinned.get(plate_id, [])`` - no error), so a member's pin to a plate
+    that the pool does not carry would drop that label into the shared pool:
+    the sheet it deliberately reserved for its own work then packs other
+    jobs' labels, and its label lands wherever the pool puts it. A
+    replacement-text label has no ``plate_id`` at all (expansion has no
+    plate-level cascade), so a member that pins a label it generates from a
+    ``replacement_text_file`` reserves its sheet for work the pool never
+    names - which the layout engine then reports as "every declared plate is
+    pinned, N unpinned labels remain", with no hint of the real cause. Name
+    the pin, drop the ones the pool cannot honour, and say so.
+
+    Args:
+        merged_plates: The pool's plate list (``None`` = unbounded shared
+            allocation; no plate exists to be named, so every pin is dropped).
+        merged_labels: The pool's labels, updated in place: an unresolvable
+            pin is cleared (``ResolvedLabel`` is frozen, so the entry is
+            replaced), and the label falls back to normal packing.
+
+    Returns:
+        ``merged_plates``, unchanged when every pin resolves.
+    """
+    if merged_plates is None:
+        pinned = [index for index, label in enumerate(merged_labels) if label.plate_id is not None]
+        if pinned:
+            LOG.warning(
+                "Ignoring plate_id on %d label(s) (%s): the batch allocates shared plates, "
+                "so no plate exists to pin to and the labels will pack anywhere in the pool.",
+                len(pinned),
+                ", ".join(merged_labels[index].id for index in pinned[:5]),
+            )
+            for index in pinned:  # ResolvedLabel is frozen; replace in the pool list.
+                merged_labels[index] = replace(merged_labels[index], plate_id=None)
+        return None
+
+    known = {plate.id for plate in merged_plates}
+    orphaned = [index for index, label in enumerate(merged_labels) if label.plate_id not in known]
+    if orphaned:
+        LOG.warning(
+            "Ignoring plate_id on %d label(s) (%s): no plate of that id is in the pool, "
+            "so they will pack anywhere rather than silently land on a stranger's sheet.",
+            len(orphaned),
+            ", ".join(merged_labels[index].id for index in orphaned[:5]),
+        )
+        for index in orphaned:  # ResolvedLabel is frozen; replace in the pool list.
+            merged_labels[index] = replace(merged_labels[index], plate_id=None)
+    return merged_plates
+
+
 def split_composite_id(composite_id: str) -> tuple[Optional[str], str]:
     """Split a composite id into ``(job_key, base_id)``.
 
@@ -843,6 +911,7 @@ def build_jobset_plan(
     ]
     if not any(ctx.plates for ctx in contexts):
         merged_plates = None
+    merged_plates = normalize_pinning(merged_plates, merged_labels)
 
     plan = JobSetPlan(
         jobset_id=jobset_id,
