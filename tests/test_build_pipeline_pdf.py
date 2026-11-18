@@ -176,8 +176,14 @@ class TestDiscovery:
         assert "generate-engraving-job" not in order
 
     def test_topic_files_excludes_part_references(self, script: Any) -> None:
-        files = {f.path.name for f in script.topic_files("engraving-job-complete-reference")}
-        assert files == set(), files  # its only references are Parts I/II
+        found = script.topic_files("engraving-job-complete-reference")
+        files = {topic_file.path.name for topic_file in found}
+        # The two generated bibles are rendered as Parts I/II, so they never
+        # appear here. The jobset spec is their sibling - a batch file that
+        # points at job files - and rides in Part III with a human section
+        # title, not the all-caps stem.
+        assert files == {"JOBSET.md"}, files
+        assert [topic_file.title for topic_file in found] == ["Jobset (batch) spec"]
 
     def test_semantics_first_in_topic_order(self, script: Any) -> None:
         names = [f.path.name for f in script.topic_files("inline-markup")]

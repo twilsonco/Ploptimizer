@@ -58,6 +58,12 @@ DATA_FILE_LINES = 20
 DEFAULT_DPI = 200
 #: Generated references rendered as Parts I/II, so excluded from Part III.
 PART_REFERENCES = frozenset({"JOB_SPEC.md", "JOB_CONFIG.md"})
+#: Human section titles for generated references that ride in Part III. The
+#: jobset spec is a sibling of the two Parts, not one of them: a batch file
+#: points at job files, so the handbook introduces it with the topic skills
+#: (``JOB_SPEC`` / ``JOB_CONFIG`` stay Parts I/II). Without a title mapping its
+#: section heading would be the all-caps stem.
+TOPIC_TITLES = {"JOBSET.md": "Jobset (batch) spec"}
 
 logger = logging.getLogger("build_pipeline_pdf")
 
@@ -634,7 +640,7 @@ def topic_files(skill: str) -> List[TopicFile]:
             path.name not in ("semantics.md", "fallback-defaults.md")
             and path.name not in PART_REFERENCES
         ):
-            found.append(TopicFile(path, path.stem, "markdown"))
+            found.append(TopicFile(path, TOPIC_TITLES.get(path.name, path.stem), "markdown"))
     return found
 
 
