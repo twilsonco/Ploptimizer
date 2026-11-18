@@ -1,0 +1,7 @@
+# Jobset fixture: an unknown key in the mapping form (extra="forbid").
+jobset:
+  name: Bad Root
+  plates:
+    - id: p1
+  jobs:
+    - job: jobset_a.yaml

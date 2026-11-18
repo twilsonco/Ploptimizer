@@ -1,0 +1,6 @@
+# Jobset fixture: two unbounded members -> one shared auto-allocation pool.
+jobset:
+  name: Jobset Unbounded
+  jobs:
+    - job: jobset_unbounded_a.yaml
+    - job: jobset_unbounded_b.yaml

@@ -1,0 +1,7 @@
+# Jobset fixture: pairs the rotation-true jobset_a.yaml with the
+# rotation-false jobset_delta.yaml (warning: first member wins).
+jobset:
+  name: Jobset Rotation Split
+  jobs:
+    - job: jobset_a.yaml
+    - job: jobset_delta.yaml

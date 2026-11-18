@@ -1,0 +1,4 @@
+# Jobset fixture: one member that declares the same plate id twice
+# (jobset_dup_plate.yaml) - the gate must reject the batch.
+jobset:
+  - job: jobset_dup_plate.yaml

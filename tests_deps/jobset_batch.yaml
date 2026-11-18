@@ -1,0 +1,6 @@
+# Jobset fixtures: the composite files themselves.
+jobset:
+  name: Jobset Batch
+  jobs:
+    - job: jobset_a.yaml
+    - job: jobset_b.yaml

@@ -77,9 +77,18 @@ class JobPreparationError(Exception):
         console_message: The stderr line the standalone CLI prints for
             this shape of failure. Empty for failures that route through
             the generic "Generation FAILED" report path (``resolve``).
+        job_name: The job's display name when the failure happened after
+            its spec was parsed (``""`` when the file itself could not be
+            read), so a jobset run can tag the failure with its member.
     """
 
-    def __init__(self, stage: str, cause: BaseException, console_message: str = "") -> None:
+    def __init__(
+        self,
+        stage: str,
+        cause: BaseException,
+        console_message: str = "",
+        job_name: str = "",
+    ) -> None:
         """Record the stage, the underlying error and its console phrasing.
 
         Args:
@@ -87,11 +96,13 @@ class JobPreparationError(Exception):
             cause: The underlying exception.
             console_message: The standalone CLI's stderr line (empty when
                 the generic failure line applies).
+            job_name: The job's display name when it is already known.
         """
         super().__init__(str(cause))
         self.stage = stage
         self.cause = cause
         self.console_message = console_message
+        self.job_name = job_name
 
 
 @dataclass
@@ -160,11 +171,13 @@ def prepare_job(
         JobPreparationError: The spec failed to parse, expand, validate or
             resolve; the error carries the stage name.
     """
+    parsed_job_name = ""
     try:
         from plt_optimizer.utils.stage_timing import stage_timer
 
         with stage_timer("parse", _LOG, timings=stage_timings):
             job = parse_yaml(spec_path, job_config_path=job_config_path)
+            parsed_job_name = job.job_name
             # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
             # into static LabelSpecs before resolution, per the schema contract.
             job = expand_job_spec(job, spec_path)
@@ -172,11 +185,17 @@ def prepare_job(
         raise
     except SubstitutionError as exc:
         raise JobPreparationError(
-            "expand", exc, console_message=f"Error expanding replacement text file: {exc}"
+            "expand",
+            exc,
+            console_message=f"Error expanding replacement text file: {exc}",
+            job_name=parsed_job_name,
         ) from exc
     except Exception as exc:  # noqa: BLE001 - every parse failure is one report shape
         raise JobPreparationError(
-            "parse", exc, console_message=f"Error parsing specification: {exc}"
+            "parse",
+            exc,
+            console_message=f"Error parsing specification: {exc}",
+            job_name=parsed_job_name,
         ) from exc
 
     plate_count = len(job.plates) if job.plates is not None else 0
@@ -221,7 +240,7 @@ def prepare_job(
                 extents_probe=memoize_extents_probe(measure_line_vertical_extents),
             )
     except CutterSizeError as exc:
-        raise JobPreparationError("resolve", exc) from exc
+        raise JobPreparationError("resolve", exc, job_name=job_name) from exc
 
     return PreparedJob(
         spec_path=spec_path,

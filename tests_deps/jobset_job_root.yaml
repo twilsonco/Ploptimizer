@@ -1,0 +1,10 @@
+# Jobset fixture: a single-job spec fed to the jobset parser (rejected).
+job:
+  job_name: Not A Jobset
+  labels:
+    - id: solo
+      width: 3.0
+      height: 1.0
+      content:
+        - text: SOLO
+          text_height: 0.4

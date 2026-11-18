@@ -1,0 +1,3 @@
+# Jobset fixture: a member file that does not exist.
+jobset:
+  - job: jobset_does_not_exist.yaml

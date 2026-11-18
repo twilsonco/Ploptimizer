@@ -1,0 +1,12 @@
+# Jobset member fixture: the second unbounded member (same layout, so the
+# gate passes and both jobs share the auto-allocated sheets).
+job:
+  job_name: Jobset Unbounded B
+  layout: columns
+  labels:
+    - id: unbounded-b
+      width: 6.0
+      height: 2.0
+      content:
+        - text: UNBOUNDED B
+          text_height: 0.6

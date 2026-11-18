@@ -1,0 +1,12 @@
+# Jobset member fixture: a columns job with NO `plates:` - the shared pool
+# then allocates `default_plate_N` sheets for every member's labels.
+job:
+  job_name: Jobset Unbounded A
+  layout: columns
+  labels:
+    - id: unbounded-a
+      width: 6.0
+      height: 2.0
+      content:
+        - text: UNBOUNDED A
+          text_height: 0.6

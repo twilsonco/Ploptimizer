@@ -1,0 +1,29 @@
+# Jobset member fixture B: same plate id (`plate1`), same plate geometry
+# and a label id that already exists in jobset_a.yaml (`alpha-main`).
+job:
+  job_name: Jobset Beta
+  layout: columns
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+      material: kw
+  labels:
+    - id: alpha-main
+      width: 5.0
+      height: 2.0
+      content:
+        - text: BETA MAIN
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+      holes:
+        - location: top-left
+        - location: top-right
+    - id: beta-pinned
+      plate_id: plate1
+      width: 4.0
+      height: 1.5
+      content:
+        - text: BETA PINNED
+          text_height: 0.5

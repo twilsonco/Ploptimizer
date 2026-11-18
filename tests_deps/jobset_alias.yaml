@@ -1,0 +1,18 @@
+# Jobset gate fixture: a DIFFERENT job whose job_name sanitizes to the same
+# filename key as jobset_a.yaml ("Jobset Alpha"), for the job-key collision
+# suffix rule.
+job:
+  job_name: Jobset Alpha
+  layout: columns
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+      material: kw
+  labels:
+    - id: alias-only
+      width: 3.0
+      height: 1.0
+      content:
+        - text: ALIAS JOB
+          text_height: 0.4

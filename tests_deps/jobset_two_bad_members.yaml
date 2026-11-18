@@ -1,0 +1,7 @@
+# Jobset fixture: two unresolvable members, to pin that the gate reports
+# every problem in one pass.
+jobset:
+  name: Jobset Two Bad Members
+  jobs:
+    - job: jobset_does_not_exist.yaml
+    - job: jobset_also_missing.yaml

@@ -1,0 +1,5 @@
+# Jobset fixture: the compact list form from docs/TODO.md (no `name:` - the
+# jobset id then comes from this file's stem).
+jobset:
+  - job: jobset_a.yaml
+  - job: jobset_b.yaml

@@ -1,0 +1,19 @@
+# Jobset member fixture: a columns job that forbids rotation. Pairs with
+# jobset_a.yaml (rotation allowed) under jobset_rotation_split.yaml, where
+# the gate must warn that the first member wins pool-wide.
+job:
+  job_name: Jobset Delta
+  layout: columns
+  allow_rotation: false
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+      material: kw
+  labels:
+    - id: delta-main
+      width: 5.0
+      height: 2.0
+      content:
+        - text: DELTA MAIN
+          text_height: 0.6

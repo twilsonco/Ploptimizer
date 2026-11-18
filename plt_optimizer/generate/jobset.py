@@ -1,0 +1,867 @@
+"""Jobset specs: pack many job files onto shared plates in one run.
+
+A *jobset* is a thin composite YAML that lists existing per-job spec files::
+
+    jobset:
+      - job: seer-2963.yaml
+      - job: coolsys-1369.yaml
+
+Every member is resolved through exactly the single-job path
+(:func:`plt_optimizer.generate.job_prep.prepare_job`), then all members'
+labels are packed as **one pool** onto the union of their plates (plus
+auto-allocated sheets) and exported with **shared toolpaths**: one ``txt``
+file carries every job's text for a plate/cutter/colour and one ``bh`` file
+carries every job's borders (SP2) and holes (SP3). Material utilisation is
+the point - packing jobs independently leaves a gap at the end of each job's
+last sheet.
+
+Id namespacing
+--------------
+Label and plate ids are unique **per job**, so merging them is not: two jobs
+can each own a ``plate1``, and every consumer keyed by id
+(:func:`plt_optimizer.build_usage_stats`' ``by_label``, the layout report, the
+relief side tables) silently collides. The merge therefore rewrites ids into
+the composite form ``"{job_key}::{id}"``, where ``job_key`` is the sanitized
+job name (ASCII ``[A-Za-z0-9_]`` by construction, so the first ``::`` splits
+unambiguously). Provenance is a **side table** (:class:`JobProvenance`) keyed
+by composite id, never a schema field: ``LabelSpec``/``PlateSpec`` sit on the
+cascade/parity surface (``schema_parity.py``) and a jobset-only field there
+would leak into every generated cascade document.
+
+Composite ids never reach a filename. Machine-file stems carry a *plate
+scoped* token: the single job's id when a plate holds one job, the jobset id
+when it holds more than one (:meth:`JobProvenance.stem_token_for_owners`).
+
+Gate
+----
+Members are independent files, so conflicts surface only at packing time.
+The gate (:func:`evaluate_jobset_gate`) splits them honestly: geometry that
+the merge cannot honour is a hard :class:`JobSetError`; a conflict with a
+deterministic, visible winner is a warning recorded in the jobset manifest.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Iterable, List, Mapping, Optional, Sequence
+
+import yaml
+
+from plt_optimizer.core.filenames import sanitize_filename_component
+from plt_optimizer.generate.job_prep import (
+    JobPreparationError,
+    PreparedJob,
+    default_plate_clearance,
+    prepare_job,
+    sanitize_job_id,
+)
+from plt_optimizer.generate.resolution import ResolvedLabel
+from plt_optimizer.generate.schema import (
+    JobSetSpec,
+    JobSpec,
+    LayoutMode,
+    PlateSpec,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from plt_optimizer.generate.job_config import JobConfig
+    from plt_optimizer.utils.stage_timing import StageTimings
+
+LOG = logging.getLogger(__name__)
+
+# Separator of the composite id form ``"{job_key}::{id}"``.
+ID_SEPARATOR = "::"
+
+# Legend colours for the per-job overlay on a jobset plate proof, indexed by
+# the job's position in the jobset file (cycled). Ordered so that neighbours
+# stay distinguishable in greyscale proofs as well as in colour.
+JOB_LEGEND_PALETTE: tuple[str, ...] = (
+    "tab:blue",
+    "tab:red",
+    "tab:green",
+    "tab:purple",
+    "tab:brown",
+    "tab:olive",
+    "tab:cyan",
+    "tab:pink",
+    "tab:gray",
+    "tab:orange",
+)
+
+# Dash patterns cycled after the palette is exhausted, so a 12-job batch is
+# still readable: colour index ``i % 10`` pairs with style index ``i // 10``.
+JOB_LEGEND_STYLES: tuple[str, ...] = ("--", "-.", ":", (0, (5, 1, 1, 1)))  # type: ignore[assignment]
+
+
+class JobSetError(ValueError):
+    """A jobset file is invalid, or its members break the jobset gate.
+
+    Attributes:
+        errors: The gate errors, in detection order (job-file order).
+    """
+
+    def __init__(self, errors: Sequence[str]) -> None:
+        """Store the gate errors and render them as the message.
+
+        Args:
+            errors: Non-empty sequence of human-readable error lines.
+        """
+        self.errors = tuple(errors)
+        super().__init__("Jobset gate failed:\n  - " + "\n  - ".join(self.errors))
+
+
+@dataclass(frozen=True)
+class JobRecord:
+    """Identity of one jobset member, in jobset-file order.
+
+    Attributes:
+        key: Composite-id prefix (the sanitized ``job_name``, made unique).
+        job_id: Filename token for this job (``key`` unless a collision
+            appended a numeric suffix).
+        job_name: The member's declared ``job_name``.
+        spec_path: Absolute path of the member spec file.
+        label_ids: The member's label ids as the member file declares them
+            (un-prefixed; the suffixes a ``count``/replacement expansion
+            added are included).
+        plate_ids: The member's plate ids as declared (empty in unbounded
+            mode).
+    """
+
+    key: str
+    job_id: str
+    job_name: str
+    spec_path: Path
+    label_ids: tuple[str, ...] = ()
+    plate_ids: tuple[str, ...] = ()
+
+    @property
+    def display_name(self) -> str:
+        """Legend/title text: the declared name, falling back to the id."""
+        return self.job_name or self.job_id
+
+
+@dataclass(frozen=True)
+class ResolvedJobContext:
+    """One member job, prepared and with its ids namespaced.
+
+    Attributes:
+        record: Identity of the member.
+        spec: The member's expanded :class:`JobSpec` (unchanged - ids are
+            namespaced on the *resolved* labels and plates only, so the
+            member's own report prints its own ids).
+        prepared: The full :class:`PreparedJob` (the same object a
+            single-job run hands to the export stage).
+        resolved_labels: The member's resolved labels with composite ids.
+        plates: The member's plates with composite ids (``None`` in
+            unbounded mode; the packer then allocates shared sheets).
+        plate_count: Number of declared plates (0 = unbounded).
+        layout: The member's job-level layout mode.
+        allow_rotation: The member's rotation permission.
+        default_plate_clearance: The member's job-level ``(left, top)``
+            plate clearance, or ``None``.
+    """
+
+    record: JobRecord
+    spec: JobSpec
+    prepared: PreparedJob
+    resolved_labels: tuple[ResolvedLabel, ...]
+    plates: Optional[tuple[PlateSpec, ...]]
+    plate_count: int
+    layout: LayoutMode
+    allow_rotation: bool
+    default_plate_clearance: Optional[tuple[float, float]]
+
+    @property
+    def job_key(self) -> str:
+        """This member's composite-id prefix."""
+        return self.record.key
+
+
+@dataclass(frozen=True)
+class JobProvenance:
+    """Composite-id side table: who owns what. ``None`` means single job.
+
+    Attributes:
+        jobset_id: The jobset's filename token (used on mixed plates).
+        jobs: Member records in jobset-file order.
+        label_jobs: Composite label id -> owning ``job_key``.
+        plate_jobs: Composite plate id -> declaring ``job_key``.
+    """
+
+    jobset_id: str
+    jobs: tuple[JobRecord, ...]
+    label_jobs: Mapping[str, str] = field(default_factory=dict)
+    plate_jobs: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def job_keys(self) -> tuple[str, ...]:
+        """Owning job keys in jobset-file order."""
+        return tuple(job.key for job in self.jobs)
+
+    def record(self, job_key: str) -> Optional[JobRecord]:
+        """Return the record for ``job_key`` (``None`` when unknown).
+
+        Args:
+            job_key: A composite-id prefix.
+
+        Returns:
+            The matching :class:`JobRecord`, or ``None``.
+        """
+        for job in self.jobs:
+            if job.key == job_key:
+                return job
+        return None
+
+    def job_of_label(self, label_id: str) -> Optional[str]:
+        """Return the job key owning a composite label id.
+
+        Args:
+            label_id: Composite (or plain, for a single-job plate) label id.
+
+        Returns:
+            The owning ``job_key``, or ``None`` when the id is unknown.
+        """
+        owner = self.label_jobs.get(label_id)
+        if owner is not None:
+            return owner
+        prefix, _ = split_composite_id(label_id)
+        return prefix
+
+    def job_of_plate(self, plate_id: str) -> Optional[str]:
+        """Return the job key declaring a composite plate id.
+
+        Args:
+            plate_id: Composite (or auto-allocated) plate id.
+
+        Returns:
+            The declaring ``job_key``, or ``None`` for a shared
+            ``default_plate_N`` sheet (no single owner).
+        """
+        owner = self.plate_jobs.get(plate_id)
+        if owner is not None:
+            return owner
+        prefix, _ = split_composite_id(plate_id)
+        return prefix
+
+    def owners_of(self, label_ids: Iterable[str]) -> tuple[str, ...]:
+        """Return the jobs present on a packed plate, in jobset-file order.
+
+        Args:
+            label_ids: The composite label ids packed onto the plate.
+
+        Returns:
+            The owning job keys, deduplicated and in jobset-file order.
+        """
+        present = {self.job_of_label(label_id) for label_id in label_ids}
+        return tuple(key for key in self.job_keys if key in present)
+
+    def is_mixed(self, label_ids: Iterable[str]) -> bool:
+        """Return ``True`` when a plate carries labels from 2+ jobs.
+
+        Args:
+            label_ids: The composite label ids packed onto the plate.
+
+        Returns:
+            ``True`` when more than one job owns a label on the plate.
+        """
+        return len(self.owners_of(label_ids)) > 1
+
+    def stem_token_for_owners(self, owners: Sequence[str]) -> str:
+        """Return the filename ``<job_id>`` token for a plate's job owners.
+
+        Args:
+            owners: The owning job keys of a packed plate, in file order
+                (:meth:`owners_of`).
+
+        Returns:
+            The single owner's ``job_id`` for a one-job plate (exactly the
+            name a standalone run of that job produces), else the
+            ``jobset_id``.
+        """
+        if len(owners) == 1:
+            record = self.record(owners[0])
+            if record is not None:
+                return record.job_id
+        return self.jobset_id
+
+    def base_id(self, composite_id: str) -> str:
+        """Return a composite id with its ``{job_key}::`` prefix removed.
+
+        Args:
+            composite_id: A namespaced label or plate id.
+
+        Returns:
+            The id as the owning member file declares it (a plain id is
+            returned unchanged).
+        """
+        _, base = split_composite_id(composite_id)
+        return base
+
+
+@dataclass(frozen=True)
+class JobSetPlan:
+    """A validated, merged jobset: everything the export stage needs.
+
+    Attributes:
+        jobset_id: Filename token / report ``job_id`` for the batch.
+        jobset_name: Human-readable batch name (report / plot titles).
+        jobset_path: The jobset file the plan was built from.
+        contexts: Member contexts in jobset-file order.
+        provenance: The composite-id side table.
+        merged_labels: Every member's namespaced labels, concatenated in
+            jobset-file order (the packing pool).
+        merged_plates: The union of the members' namespaced plates in
+            jobset-file order, or ``None`` when no member declares plates
+            (unbounded shared allocation).
+        layout: The shared layout mode (gate-enforced identical).
+        allow_rotation: The pool-wide rotation permission.
+        default_plate_clearance: ``(left, top)`` clearance for auto-allocated
+            sheets (the first member's value when they diverge).
+        warnings: Gate warnings, in detection order.
+    """
+
+    jobset_id: str
+    jobset_name: str
+    jobset_path: Path
+    contexts: tuple[ResolvedJobContext, ...]
+    provenance: JobProvenance
+    merged_labels: list[ResolvedLabel]
+    merged_plates: Optional[list[PlateSpec]]
+    layout: LayoutMode
+    allow_rotation: bool
+    default_plate_clearance: Optional[tuple[float, float]]
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def job_count(self) -> int:
+        """Number of member jobs."""
+        return len(self.contexts)
+
+
+def split_composite_id(composite_id: str) -> tuple[Optional[str], str]:
+    """Split a composite id into ``(job_key, base_id)``.
+
+    Args:
+        composite_id: An id in ``"{job_key}::{base}"`` form, or a plain id.
+
+    Returns:
+        ``(job_key, base)`` for a composite id, ``(None, composite_id)`` for
+        a plain one. The FIRST separator wins, so a base id that itself
+        contains ``::`` survives a round trip.
+    """
+    prefix, sep, base = composite_id.partition(ID_SEPARATOR)
+    if not sep:
+        return None, composite_id
+    return prefix, base
+
+
+def make_composite_id(job_key: str, base_id: str) -> str:
+    """Build the composite id of ``base_id`` under ``job_key``.
+
+    Args:
+        job_key: The owning member's composite-id prefix.
+        base_id: The id as the member file declares it.
+
+    Returns:
+        ``"{job_key}::{base_id}"``.
+    """
+    return f"{job_key}{ID_SEPARATOR}{base_id}"
+
+
+def jobset_id_of(spec: JobSetSpec, jobset_path: Path) -> str:
+    """Return the jobset's filename/report token.
+
+    Args:
+        spec: The parsed jobset spec.
+        jobset_path: The jobset file (its stem is the fallback name).
+
+    Returns:
+        A Windows-safe token from ``spec.name`` when set, else the file stem
+        (falling back to ``"jobset"`` for a stem that sanitizes to nothing).
+    """
+    return sanitize_filename_component(spec.name or jobset_path.stem, fallback="jobset")
+
+
+def legend_style_for(index: int) -> tuple[str, str]:
+    """Return the deterministic ``(color, linestyle)`` of a legend entry.
+
+    Args:
+        index: The job's zero-based position in the jobset file.
+
+    Returns:
+        The palette colour and dash pattern for that position.
+    """
+    color = JOB_LEGEND_PALETTE[index % len(JOB_LEGEND_PALETTE)]
+    style = JOB_LEGEND_STYLES[(index // len(JOB_LEGEND_PALETTE)) % len(JOB_LEGEND_STYLES)]
+    return color, str(style)
+
+
+def parse_jobset_yaml(file_path: str | Path) -> JobSetSpec:
+    """Parse and validate a jobset YAML file.
+
+    Accepts both the compact list form::
+
+        jobset:
+          - job: path/to/job1.yaml
+
+    and the extended mapping form (needed only to name the batch)::
+
+        jobset:
+          name: 2026-11-17 CES batch
+          jobs:
+            - job: path/to/job1.yaml
+
+    Relative member paths resolve against the jobset file's directory, so a
+    member job keeps working when the whole directory moves.
+
+    Args:
+        file_path: Path to the jobset YAML file.
+
+    Returns:
+        A validated :class:`JobSetSpec` with absolute member paths.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+        ValueError: If the root key is missing (a ``job:`` root reports that
+            this is a single-job spec), the root shape is invalid, a jobset
+            model field is unknown, or ``jobs`` is empty.
+        yaml.YAMLError: For malformed YAML syntax.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Jobset file not found: {path}")
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw_data = yaml.safe_load(f)
+    except OSError as exc:
+        raise ValueError(f"Could not read jobset file {path}: {exc}") from exc
+
+    if raw_data is None:
+        raise ValueError("Empty YAML document")
+    if not isinstance(raw_data, dict):
+        raise ValueError("Jobset file must contain a mapping with a 'jobset' root element")
+    if "job" in raw_data and "jobset" not in raw_data:
+        raise ValueError(
+            f"{path}: this is a single-job spec (root key 'job'); run "
+            f"`plt-optimizer generate {path}`"
+        )
+
+    root = raw_data.get("jobset")
+    if root is None:
+        raise ValueError("Missing 'jobset' root element")
+
+    payload: dict[str, Any]
+    if isinstance(root, list):
+        payload = {"jobs": root}
+    elif isinstance(root, dict):
+        payload = dict(root)
+    else:
+        raise ValueError("'jobset' must be a list of job entries or a mapping with a 'jobs' list")
+
+    spec = JobSetSpec(**payload)
+    base = path.parent
+    jobs = [entry.model_copy(update={"job": _resolve(base, entry.job)}) for entry in spec.jobs]
+    return spec.model_copy(update={"jobs": jobs})
+
+
+def _resolve(base: Path, job_path: Path) -> Path:
+    """Resolve a member job path against the jobset file's directory.
+
+    Args:
+        base: The jobset file's parent directory.
+        job_path: The declared path (absolute paths pass through).
+
+    Returns:
+        The normalized absolute path.
+    """
+    if job_path.is_absolute():
+        return job_path
+    return (base / job_path).resolve()
+
+
+def is_jobset_file(file_path: str | Path) -> bool:
+    """Return ``True`` when a YAML file carries a ``jobset`` root element.
+
+    Reads the raw mapping only (no validation), so it is safe to call on a
+    file that may be a job spec, a jobset, or unparsable.
+
+    Args:
+        file_path: Path to the YAML file to probe.
+
+    Returns:
+        ``True`` when the document's root mapping has a ``jobset`` key.
+    """
+    path = Path(file_path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw_data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError):
+        return False
+    return isinstance(raw_data, dict) and "jobset" in raw_data
+
+
+def evaluate_jobset_gate(
+    contexts: Sequence[ResolvedJobContext],
+) -> tuple[list[str], list[str]]:
+    """Apply the jobset gate to prepared (un-namespaced) member specs.
+
+    Checks the properties the merge cannot honour per member, in
+    jobset-file order:
+
+    * **layout** - the fill order of a shared sheet is one setting for the
+      whole pool; members must agree (hard error).
+    * **duplicate plate ids inside one member** - ambiguous once ids are
+      namespaced per member (hard error).
+    * **allow_rotation**, **job-level plate clearance** - pool-wide
+      settings; the first member in file order wins (warning).
+    * **pooled plate geometries** - members declaring the same
+      ``(width, height, material)`` share sheets (informational warning).
+
+    Args:
+        contexts: The prepared member contexts, in jobset-file order.
+
+    Returns:
+        ``(errors, warnings)`` as human-readable lines.
+    """
+    if not contexts:
+        return ["A jobset must contain at least one job"], []
+
+    errors = _gate_hard_errors(contexts)
+    warnings = _gate_pool_setting_warnings(contexts)
+    warnings.extend(_gate_shared_sheet_warnings(contexts))
+    return errors, warnings
+
+
+def _gate_hard_errors(contexts: Sequence[ResolvedJobContext]) -> list[str]:
+    """Return the gate's hard errors (layout agreement, plate-id shape).
+
+    Args:
+        contexts: The prepared member contexts, in jobset-file order.
+
+    Returns:
+        Human-readable error lines (empty when the batch may merge).
+    """
+    errors: list[str] = []
+    first = contexts[0]
+
+    # One fill order for one pool: a shared sheet is filled top-to-bottom
+    # once, so a per-member layout cannot be honoured.
+    for ctx in contexts[1:]:
+        if ctx.layout is not first.layout:
+            errors.append(
+                f"layout conflict: '{ctx.record.display_name}' declares "
+                f"'{getattr(ctx.layout, 'value', ctx.layout)}' but "
+                f"'{first.record.display_name}' declares "
+                f"'{getattr(first.layout, 'value', first.layout)}'; every job "
+                "in a jobset must use the same layout"
+            )
+
+    for ctx in contexts:
+        seen: set[str] = set()
+        for plate in ctx.plates or ():
+            if plate.id in seen:
+                errors.append(
+                    f"'{ctx.record.display_name}' declares plate id "
+                    f"'{plate.id}' more than once; plate ids must be unique "
+                    "within a job"
+                )
+            seen.add(plate.id)
+
+    return errors
+
+
+def _gate_pool_setting_warnings(contexts: Sequence[ResolvedJobContext]) -> list[str]:
+    """Return warnings for pool-wide settings the members disagree on.
+
+    The first member in jobset-file order wins for the whole pool (the
+    merge has no per-member answer for these), and the run must say so.
+
+    Args:
+        contexts: The prepared member contexts, in jobset-file order.
+
+    Returns:
+        Human-readable warning lines.
+    """
+    first = contexts[0]
+    warnings: list[str] = []
+
+    if any(ctx.allow_rotation is not first.allow_rotation for ctx in contexts[1:]):
+        values = ", ".join(f"{ctx.record.display_name}={ctx.allow_rotation}" for ctx in contexts)
+        warnings.append(
+            f"allow_rotation differs across members ({values}); "
+            f"'{first.record.display_name}' wins for the whole pool"
+        )
+    if any(ctx.default_plate_clearance != first.default_plate_clearance for ctx in contexts[1:]):
+        warnings.append(
+            "job-level plate clearance differs across members; "
+            f"'{first.record.display_name}' ({first.default_plate_clearance}) "
+            "wins for auto-allocated sheets"
+        )
+
+    return warnings
+
+
+def _gate_shared_sheet_warnings(contexts: Sequence[ResolvedJobContext]) -> list[str]:
+    """Return the informational lines naming the sheet geometries that pool.
+
+    Args:
+        contexts: The prepared member contexts, in jobset-file order.
+
+    Returns:
+        One line per ``(width, height, material)`` geometry declared by more
+        than one member, in stable geometry order.
+    """
+    # Owner labels are the display names, qualified with the composite key
+    # when two members share a name (a job-key collision, which the caller
+    # has already warned about) so the line never reads "by X, X".
+    name_counts: dict[str, int] = {}
+    for ctx in contexts:
+        name_counts[ctx.record.display_name] = name_counts.get(ctx.record.display_name, 0) + 1
+
+    def owner_label(ctx: ResolvedJobContext) -> str:
+        name = ctx.record.display_name
+        return f"{name}[{ctx.record.key}]" if name_counts[name] > 1 else name
+
+    geometry_owners: dict[tuple[float, float, Optional[str]], list[str]] = {}
+    for ctx in contexts:
+        for plate in ctx.plates or ():
+            geometry = (plate.width, plate.height, plate.material)
+            geometry_owners.setdefault(geometry, []).append(owner_label(ctx))
+
+    warnings: list[str] = []
+    for (width, height, material), owners in sorted(
+        geometry_owners.items(), key=lambda item: (item[0][0], item[0][1], item[0][2] or "")
+    ):
+        if len(owners) > 1:
+            warnings.append(
+                f"{width:g}x{height:g}in"
+                + (f" {material}" if material else "")
+                + " plates are declared by "
+                + ", ".join(owners)
+                + " - these sheets are packed as one pool"
+            )
+    return warnings
+
+
+def namespace_job(
+    job_key: str,
+    prepared: PreparedJob,
+) -> ResolvedJobContext:
+    """Namespace one prepared member's label and plate ids.
+
+    Args:
+        job_key: The composite-id prefix for this member.
+        prepared: The member's prepared job (ids as its own file declares
+            them).
+
+    Returns:
+        A :class:`ResolvedJobContext` whose labels carry
+        ``"{job_key}::{label_id}"`` ids (and whose ``plate_id`` pins point at
+        namespaced plates), whose plates carry ``"{job_key}::{plate_id}"``
+        ids, and whose :attr:`ResolvedJobContext.spec` is untouched (so the
+        member's own report prints its own ids).
+    """
+    spec = prepared.job
+    labels: list[ResolvedLabel] = []
+    for label in prepared.resolved_labels:
+        labels.append(
+            replace(
+                label,
+                id=make_composite_id(job_key, label.id),
+                plate_id=(
+                    make_composite_id(job_key, label.plate_id)
+                    if label.plate_id is not None
+                    else None
+                ),
+            )
+        )
+    plates: Optional[tuple[PlateSpec, ...]] = None
+    if spec.plates is not None:
+        # PlateSpec is a Pydantic model (not a dataclass), so the composite
+        # id is written with ``model_copy`` - a validated-cast-free update
+        # that keeps every other plate field (and its nested models) intact.
+        plates = tuple(
+            plate.model_copy(update={"id": make_composite_id(job_key, plate.id)})
+            for plate in spec.plates
+        )
+    return ResolvedJobContext(
+        record=JobRecord(
+            key=job_key,
+            job_id=job_key,
+            job_name=spec.job_name,
+            spec_path=prepared.spec_path,
+            label_ids=tuple(label.id for label in prepared.resolved_labels),
+            plate_ids=tuple(plate.id for plate in (spec.plates or [])),
+        ),
+        spec=spec,
+        prepared=prepared,
+        resolved_labels=tuple(labels),
+        plates=plates,
+        plate_count=prepared.plate_count,
+        layout=spec.layout,
+        allow_rotation=spec.allow_rotation,
+        default_plate_clearance=default_plate_clearance(spec),
+    )
+
+
+def _unique_job_key(job_name: str, taken: set[str]) -> tuple[str, Optional[str]]:
+    """Return a unique composite-id key for a member job.
+
+    Args:
+        job_name: The member's declared ``job_name``.
+        taken: Keys already used by earlier members (mutated by the caller).
+
+    Returns:
+        ``(key, collision_note)`` - ``collision_note`` is ``None`` when the
+        sanitized name was already unique.
+    """
+    base = sanitize_job_id(job_name)
+    if base not in taken:
+        return base, None
+    suffix = 2
+    while f"{base}_{suffix}" in taken:
+        suffix += 1
+    key = f"{base}_{suffix}"
+    return key, f"job key collision: '{base}' is taken; '{job_name}' uses '{key}'"
+
+
+def build_jobset_plan(
+    jobset_path: str | Path,
+    *,
+    job_config: Optional[JobConfig],
+    job_config_path: Optional[Path] = None,
+    inventory: Optional[List[float]] = None,
+    boundary_hole_cutter: Optional[float] = None,
+    stage_timings: Optional[StageTimings] = None,
+) -> JobSetPlan:
+    """Parse a jobset file, prepare every member and merge them into a plan.
+
+    Members are prepared in jobset-file order (the determinism contract: the
+    merged plate list, the packing pool and every shared file's segment order
+    follow that order).
+
+    Args:
+        jobset_path: The jobset YAML file.
+        job_config: Shop-level config shared by every member (the one
+            ``job-config.json`` the run was given, or ``None``).
+        job_config_path: Where that config was loaded from, forwarded to
+            each member's parse step.
+        inventory: Cutter sizes from ``tools.json`` (``None`` = ideal
+            cutters).
+        boundary_hole_cutter: Explicit boundary/hole cutter size in inches.
+        stage_timings: Mutable ``{stage: seconds}`` collector; each member
+            contributes its own ``parse`` / ``resolve`` entries under its
+            stage tag.
+
+    Returns:
+        The merged :class:`JobSetPlan`.
+
+    Raises:
+        FileNotFoundError: If the jobset file is missing.
+        ValueError: If the jobset file is unparsable.
+        JobSetError: If the gate fails (the message lists every gate error).
+        JobPreparationError: If a member fails to parse, expand, validate or
+            resolve; its ``stage`` carries the member tag
+            (``"resolve[seer_2963]"``).
+    """
+    path = Path(jobset_path)
+    spec = parse_jobset_yaml(path)
+    jobset_id = jobset_id_of(spec, path)
+
+    contexts: list[ResolvedJobContext] = []
+    taken_keys: set[str] = set()
+    seen_paths: set[Path] = set()
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    for entry in spec.jobs:
+        job_path = entry.job
+        label = job_path.name
+        if job_path in seen_paths:
+            errors.append(f"duplicate job: {label} is listed more than once")
+            continue
+        seen_paths.add(job_path)
+        if not job_path.exists():
+            errors.append(f"job file not found: {job_path}")
+            continue
+        if is_jobset_file(job_path):
+            errors.append(
+                f"{label} is itself a jobset (root key 'jobset'); jobsets "
+                "cannot be nested - list its jobs here"
+            )
+            continue
+        try:
+            prepared = prepare_job(
+                job_path,
+                job_config=job_config,
+                job_config_path=job_config_path,
+                inventory=inventory,
+                boundary_hole_cutter=boundary_hole_cutter,
+                stage_timings=stage_timings,
+            )
+        except JobPreparationError as exc:
+            tag = sanitize_job_id(exc.job_name) if exc.job_name else job_path.stem
+            raise JobPreparationError(
+                f"{exc.stage}[{tag}]",
+                exc.cause,
+                console_message=exc.console_message,
+                job_name=exc.job_name,
+            ) from exc
+        key, collision = _unique_job_key(prepared.job_name, taken_keys)
+        taken_keys.add(key)
+        if collision is not None:
+            warnings.append(collision)
+        contexts.append(namespace_job(key, prepared))
+        LOG.debug("Jobset member prepared: %s (%s)", key, prepared.job_name)
+
+    # The gate compares member contexts; with no context prepared there is
+    # nothing to compare, and the per-file errors above already explain the
+    # failure (appending "a jobset must contain at least one job" on top of
+    # "job file not found" twice only buries the real message).
+    gate_errors: list[str] = []
+    gate_warnings: list[str] = []
+    if contexts:
+        gate_errors, gate_warnings = evaluate_jobset_gate(contexts)
+    errors.extend(gate_errors)
+    warnings.extend(gate_warnings)
+    if errors:
+        raise JobSetError(errors)
+
+    first = contexts[0]
+    provenance = JobProvenance(
+        jobset_id=jobset_id,
+        jobs=tuple(ctx.record for ctx in contexts),
+        label_jobs={label.id: ctx.job_key for ctx in contexts for label in ctx.resolved_labels},
+        plate_jobs={plate.id: ctx.job_key for ctx in contexts for plate in (ctx.plates or ())},
+    )
+    merged_labels = [label for ctx in contexts for label in ctx.resolved_labels]
+    merged_plates: Optional[list[PlateSpec]] = [
+        plate for ctx in contexts for plate in (ctx.plates or ())
+    ]
+    if not any(ctx.plates for ctx in contexts):
+        merged_plates = None
+
+    plan = JobSetPlan(
+        jobset_id=jobset_id,
+        jobset_name=spec.name or jobset_id,
+        jobset_path=path,
+        contexts=tuple(contexts),
+        provenance=provenance,
+        merged_labels=merged_labels,
+        merged_plates=merged_plates,
+        layout=first.layout,
+        allow_rotation=first.allow_rotation,
+        default_plate_clearance=first.default_plate_clearance,
+        warnings=tuple(warnings),
+    )
+    LOG.info(
+        "Jobset '%s': %d job(s), %d label(s), %s",
+        jobset_id,
+        plan.job_count,
+        len(merged_labels),
+        f"{len(merged_plates)} declared plate(s)" if merged_plates else "shared auto allocation",
+    )
+    return plan

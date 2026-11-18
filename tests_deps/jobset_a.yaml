@@ -1,0 +1,31 @@
+# Jobset member fixture A: one 24x16 plate, a two-line label with drill
+# holes and a label pinned to that plate. Pairs with jobset_b.yaml, whose
+# plate id, label id and plate geometry deliberately collide with this
+# file's - that is what the jobset merge must namespace.
+job:
+  job_name: Jobset Alpha
+  layout: columns
+  plates:
+    - id: plate1
+      width: 24.0
+      height: 16.0
+      material: kw
+  labels:
+    - id: alpha-main
+      width: 6.0
+      height: 2.0
+      content:
+        - text: ALPHA MAIN
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+      holes:
+        - location: top-left
+        - location: top-right
+    - id: alpha-pinned
+      plate_id: plate1
+      width: 4.0
+      height: 1.5
+      content:
+        - text: ALPHA PINNED
+          text_height: 0.5

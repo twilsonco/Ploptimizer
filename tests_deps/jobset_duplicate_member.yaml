@@ -1,0 +1,5 @@
+# Jobset fixture: the same member listed twice (a typo, not a doubling of
+# copies - the gate rejects it).
+jobset:
+  - job: jobset_a.yaml
+  - job: jobset_a.yaml

@@ -1,0 +1,7 @@
+# Jobset fixture: a columns member and a rows member. One shared pool has
+# one fill order, so the gate rejects this.
+jobset:
+  name: Jobset Layout Conflict
+  jobs:
+    - job: jobset_a.yaml
+    - job: jobset_rows.yaml

@@ -1,0 +1,7 @@
+# Jobset fixture: a member that fails its own validation (a label pinned to
+# a plate the job never declares), so the batch must report the member tag.
+jobset:
+  name: Jobset Broken Member
+  jobs:
+    - job: jobset_a.yaml
+    - job: jobset_bad_label.yaml

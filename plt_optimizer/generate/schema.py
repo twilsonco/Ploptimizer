@@ -3529,6 +3529,69 @@ class JobSpec(LabelAttributes):
         return self
 
 
+class JobSetEntry(BaseModel):
+    """One member job of a :class:`JobSetSpec`.
+
+    Attributes:
+        job: Path to a job specification YAML file. Relative paths resolve
+            against the directory of the jobset file that declares them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    job: Path = Field(
+        description=(
+            "Path to a job specification YAML file (a normal single-job "
+            "spec with a `job:` root). Relative paths resolve against the "
+            "jobset file's directory."
+        )
+    )
+
+
+class JobSetSpec(BaseModel):
+    """Top-level specification for a batch of job specs packed together.
+
+    A jobset is a thin composite: it names existing per-job YAML files and
+    nothing else. Every member job is resolved exactly as a standalone
+    `generate` run resolves it, then all members' labels are packed as ONE
+    pool onto the union of their plates (plus auto-allocated sheets), and
+    each plate is exported with shared toolpaths - one `txt` file carrying
+    every job's text for that plate/cutter/colour and one `bh` file carrying
+    every job's borders and holes. Each job keeps its own
+    `generation_report/`; the run also writes a jobset report and a
+    `jobset.json` manifest naming the jobs on every plate.
+
+    The layout, rotation and job-level packing defaults must agree across
+    members (they are properties of the shared sheets); the gate that
+    enforces it lives in :mod:`plt_optimizer.generate.jobset`.
+
+    Attributes:
+        name: Batch name used for the jobset id, the filename token on
+            mixed-job plates and the plot titles. Defaults to the jobset
+            file's stem.
+        jobs: Member job specs, packed as one pool, in file order.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Batch name -> jobset id, the filename token on plates that "
+            "carry more than one job, and the plot titles. Default: the "
+            "jobset file's stem."
+        ),
+    )
+    jobs: list[JobSetEntry] = Field(
+        min_length=1,
+        description=(
+            "Member job specs, packed as one pool. File order is the "
+            "deterministic order used for plate concatenation, shared-file "
+            "segment order and the plot legend."
+        ),
+    )
+
+
 def parse_yaml(
     file_path: str | Path,
     job_config_path: str | Path | None = None,
@@ -3581,6 +3644,11 @@ def parse_yaml(
 
     job_data = raw_data.get("job")
     if job_data is None:
+        if isinstance(raw_data, dict) and "jobset" in raw_data:
+            raise ValueError(
+                f"{path}: this is a jobset file (root key 'jobset'); run "
+                f"`plt-optimizer generate --jobset {path}`"
+            )
         raise ValueError("Missing 'job' root element")
 
     config = load_job_config(Path(job_config_path) if job_config_path is not None else None)
