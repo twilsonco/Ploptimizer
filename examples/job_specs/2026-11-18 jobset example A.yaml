@@ -1,0 +1,25 @@
+# Production members of the batch example in `2026-11-18 jobset example.yaml`.
+# The first sign of the evening run. Plate ids are named after the member
+# (plate1 here, plate2 in the B file) so the two jobs share nothing and the
+# batch gate stays silent; identical sheet geometry in both members would be
+# reported as a pool the set packs as one.
+job:
+  job_name: "Job A"
+  font: helv1
+  material: kw
+  height: 3
+  width: 6.5
+  text_height: 0.6
+  layout: columns
+  holes:
+    - location: sides
+  plates:
+    - id: plate1
+      width: 24
+      height: 16
+  labels:
+    - id: main
+      count: 4
+      content:
+        - text: "AUTHORIZED"
+        - text: "PERSONNEL ONLY"

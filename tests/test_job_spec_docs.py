@@ -263,9 +263,25 @@ class TestFontDocumentation:
 class TestExampleSpecsParse:
     """Every checked-in example job spec must parse against the schema."""
 
+    @staticmethod
+    def _example_job_specs() -> list[Path]:
+        """The example specs that are single-job files, sorted by name.
+
+        Returns:
+            Every ``examples/job_specs/*.yaml`` whose root is ``job:``.
+            Jobset documents (root ``jobset:``) are excluded — they are
+            parsed by ``parse_jobset_yaml`` and covered by
+            ``tests/test_jobset_*.py``; ``parse_yaml`` refuses them by
+            design with a pointer to ``generate --jobset``.
+        """
+        from plt_optimizer.generate.jobset import is_jobset_file
+
+        specs = (REPO_ROOT / "examples" / "job_specs").glob("*.yaml")
+        return sorted(p for p in specs if not is_jobset_file(p))
+
     @pytest.mark.parametrize(
         "spec_path",
-        sorted((REPO_ROOT / "examples" / "job_specs").glob("*.yaml")),
+        _example_job_specs(),
         ids=lambda path: path.name,
     )
     def test_example_parses(self, spec_path: Path) -> None:
@@ -284,7 +300,7 @@ class TestExampleSpecsParse:
 
     @pytest.mark.parametrize(
         "spec_path",
-        sorted((REPO_ROOT / "examples" / "job_specs").glob("*.yaml")),
+        _example_job_specs(),
         ids=lambda path: path.name,
     )
     def test_example_validates_against_committed_json_schema(self, spec_path: Path) -> None:

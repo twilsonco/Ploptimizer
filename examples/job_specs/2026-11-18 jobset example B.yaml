@@ -1,0 +1,34 @@
+# Production members of the batch example in `2026-11-18 jobset example.yaml`.
+# The second sign of the evening run: a 12x4in plate plus a 2x4in tag sheet.
+# Its sheet is plate2, so no geometry is declared twice - the batch's pool is
+# the union of the members' plate lists.
+job:
+  job_name: "Job B"
+  font: helv1
+  material: kw
+  height: 4
+  width: 12
+  text_height: 0.8
+  layout: columns
+  plates:
+    - id: plate2
+      width: 12
+      height: 4
+      left_clearance: 1
+  labels:
+    - id: main
+      height: 4
+      width: 6
+      count: 8
+      holes:
+        - location: corners
+      content:
+        - text: "NO SMOKING"
+    - id: tag
+      height: 1
+      width: 3
+      text_height: 0.4
+      count: 8
+      holes: []
+      content:
+        - text: "LOT 4471"

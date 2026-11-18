@@ -108,6 +108,66 @@ diameters.
 
 Cutter sizes come from `tools.json` (`--tools` to point elsewhere) and job-spec defaults from `job-config.json` (`--job-config` to point elsewhere). Keep one `tools.json` + `job-config.json` pair per engraver/toolset and swap them with the two flags. The config supplies the top-most (job/plate) layer defaults — e.g. `max_h_compress`, `hole_margin`, `min_hole_margin`, `hole_text_collision_distance`, `cutter_buffer_text`, `cutter_buffer_routing`, `plate_width`/`plate_height`, `left_clearance`/`top_clearance` — and any of these configured nowhere becomes a required job-spec field. The `plates:` section is optional: a spec that omits it packs onto default sheets sized by the config's `plate_width`/`plate_height`, overflowing onto as many sheets as needed. Text–hole collisions are treated as unacceptable output: the job aborts with a non-zero exit code so the spec can be revised. Every config field is documented in [`JOB_CONFIG.md`](docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_CONFIG.md) (auto-generated from the model; the file's `$schema` key also enables per-key hover docs in a JSON-aware editor), and every job-spec field in [`JOB_SPEC.md`](docs/skills/engraving-jobs/engraving-job-complete-reference/references/JOB_SPEC.md). See [`docs/INTEGRATION_TESTING.md`](docs/INTEGRATION_TESTING.md) for the full pipeline walkthrough and [`plt_optimizer/generate/AGENTS.md`](plt_optimizer/generate/AGENTS.md) for the YAML job-spec schema. Example specs live in [`examples/`](examples/).
 
+### `generate --jobset` — batch several job specs onto shared plates
+
+```bash
+plt-optimizer generate --jobset batch.yaml              # no positional spec
+plt-optimizer generate --jobset batch.yaml -o out/ --no-plots
+```
+
+Jobs arrive in batches, and packing each job on its own wastes the gaps between
+them. A `jobset:` file lists complete job specs; one `generate` run resolves
+every member and then packs the whole set onto **one pool of plates**, so a
+label of job B can fill the corner job A left free:
+
+```yaml
+# batch.yaml - paths are relative to this file; order is the layout order
+jobset:
+  - job: "2026-11-18 jobset example A.yaml"
+  - job: "2026-11-18 jobset example B.yaml"
+```
+
+Each member keeps its own cascade, fonts, cutter compensation, holes and
+label geometry: the front half of the pipeline runs per job, and only packing
+and emission are shared. The set writes ONE toolpath per plate, per cutter and
+per layer - the members' strokes are concatenated, job by job, so a sheet is
+engraved in a single pass instead of one pass per job. A shipped batch example
+lives in
+[`examples/job_specs/2026-11-18 jobset example.yaml`](examples/job_specs/).
+
+For a set named `Evening Batch` the output tree is:
+
+```
+out/plt/121602361_txt_Evening_Batch_.plt   # shared text layer, plate 1, 0.030 cutter
+out/plt/121602361_40_r_txt_Job_A.plt       # a cutter used by ONE job stays per-job
+out/plt/1216_kw_15_bh_Evening_Batch_.plt   # borders + drill holes of every job
+out/pdf/121602361_all_Evening_Batch_.pdf   # plate proofs, with a per-job overlay
+out/Evening_Batch/report.json              # the batch report
+out/job_a/report.json                      # one report per job, same shape as --spec
+out/job_b/report.json
+out/jobset.json                            # the manifest: provenance per label
+```
+
+Names follow the single-job contract (`[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<key>`);
+the `<key>` is the batch for a file that carries several jobs' strokes and the
+owning job for a file that carries one. Every report carries its own `usage`
+accounting, and the batch's adds a `by_job` breakdown - plates, distance,
+tool time and cost split per member - so a job inside a batch bills exactly as
+it would have run alone. The plate proofs are the shop's visual key: each label
+carries a dashed border in its job's palette colour, with a legend naming the
+colors, and the report's `jobset.layers` lists each job's layer pens so the
+plotter can drop one job's layer and re-run a sheet.
+
+Before the run, a gate checks that the members can be packed together. It
+**fails** the job on a layout-engine mismatch (a job using the `*-simple` grid
+fill cannot share a pool with the rectangle packer), a label id two members both
+declare, a plate pinned to a sheet the pooled list cannot honour, a member that
+does not exist, and a jobset nested in a jobset. It **warns** (the run
+continues) about rotation-policy and clearance disagreements, and about sheet
+groups several members declare - which the pool packs as one. A jobset cannot
+contain a jobset. Pre-flight a batch with
+`python scripts/validate_job_spec.py batch.yaml`, which accepts both spec kinds.
+
 ### `watch` — hot-folder daemon
 
 ```bash
