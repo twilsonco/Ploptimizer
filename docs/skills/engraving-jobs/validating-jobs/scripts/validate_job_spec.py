@@ -283,14 +283,20 @@ class SpecReport:
 
     Attributes:
         findings: Every error/warning discovered.
-        job: The parsed spec, or ``None`` when parsing failed.
+        job: The parsed spec, or ``None`` when parsing failed. For a jobset
+            this is the FIRST member, which is what the companion-file checks
+            (tools, replacement files) are resolved against.
         file_error: True when the spec/config file could not be read at all
             (missing spec, unreadable, malformed YAML), which maps to exit 2.
+        member_count: Number of jobs in a jobset, ``0`` for a single spec - the
+            summary line must not present one member's label/plate counts as
+            the batch's.
     """
 
     findings: list[Finding]
     job: Optional[JobSpec]
     file_error: bool = False
+    member_count: int = 0
 
 
 def validate_spec(spec_path: Path, job_config_path: Optional[Path]) -> SpecReport:
@@ -435,7 +441,7 @@ def check_jobset_replacement_files(members: Sequence[tuple[Path, JobSpec]]) -> l
     return findings
 
 
-def check_jobset_config_sharing(members: Sequence[tuple[Path, Any]]) -> list[Finding]:
+def check_jobset_config_sharing(configs: Sequence[tuple[Path, Optional[Path]]]) -> list[Finding]:
     """Warn when the members of a batch load DIFFERENT shop configs.
 
     A jobset packs one pool, and the pipeline resolves every member with the
@@ -446,12 +452,12 @@ def check_jobset_config_sharing(members: Sequence[tuple[Path, Any]]) -> list[Fin
     per-member configs, naming the files that disagree.
 
     Args:
-        members: ``(member path, validated spec)`` pairs in set order.
+        configs: ``(member path, config path)`` pairs in set order.
 
     Returns:
         One warning naming the config files in play (empty for one config).
     """
-    keys = {str(path) for path, _ in members}
+    keys = {str(cfg) for _, cfg in configs}
     if len(keys) <= 1:
         return []
     listed = ", ".join(sorted(keys))
@@ -485,7 +491,8 @@ def validate_jobset(
 
     Returns:
         The report. ``job`` is the validated spec of the first member, the
-        identity the text and JSON views headline.
+        identity the text and JSON views headline, and ``member_count`` is the
+        size of the set.
     """
     try:
         spec = parse_jobset_yaml(set_path)
@@ -530,7 +537,7 @@ def validate_jobset(
         findings.extend(check_jobset_config_sharing(configs))
 
     first = members[0][1] if members else None
-    return SpecReport(findings, first)
+    return SpecReport(findings, first, member_count=len(spec.jobs))
 
 
 def _gate_views(spec: Any, members: Sequence[tuple[Path, JobSpec]]) -> list[ResolvedJobContext]:
@@ -589,13 +596,16 @@ def count_errors(findings: Sequence[Finding]) -> int:
     return sum(1 for finding in findings if finding.severity == SEVERITY_ERROR)
 
 
-def format_text(path: Path, findings: Sequence[Finding], job: Optional[JobSpec]) -> str:
+def format_text(
+    path: Path, findings: Sequence[Finding], job: Optional[JobSpec], member_count: int = 0
+) -> str:
     """Render findings as human-readable lines.
 
     Args:
         path: The spec path being reported on.
         findings: The findings to render.
-        job: The parsed spec when parsing succeeded.
+        job: The parsed spec when parsing succeeded (a jobset's first member).
+        member_count: Jobs in a jobset, ``0`` for a single spec.
 
     Returns:
         The report text (no trailing newline).
@@ -604,6 +614,12 @@ def format_text(path: Path, findings: Sequence[Finding], job: Optional[JobSpec])
     for finding in findings:
         lines.append(f"{finding.severity.upper():7s} {path}: {finding.message}")
     if not lines:
+        if member_count:
+            # One member's label/plate counts are not the batch's; say only
+            # what the set document itself guarantees.
+            plural = "" if member_count == 1 else "s"
+            lines.append(f"OK {path}: jobset is valid ({member_count} member{plural})")
+            return "\n".join(lines)
         summary = ""
         if job is not None:
             summary = f" ({len(job.labels or [])} label(s), {len(job.plates or [])} plate(s))"
@@ -611,13 +627,16 @@ def format_text(path: Path, findings: Sequence[Finding], job: Optional[JobSpec])
     return "\n".join(lines)
 
 
-def format_json(path: Path, findings: Sequence[Finding], job: Optional[JobSpec]) -> str:
+def format_json(
+    path: Path, findings: Sequence[Finding], job: Optional[JobSpec], member_count: int = 0
+) -> str:
     """Render findings as a JSON document.
 
     Args:
         path: The spec path being reported on.
         findings: The findings to render.
-        job: The parsed spec when parsing succeeded.
+        job: The parsed spec when parsing succeeded (a jobset's first member).
+        member_count: Jobs in a jobset, ``0`` for a single spec.
 
     Returns:
         A JSON string.
@@ -629,6 +648,9 @@ def format_json(path: Path, findings: Sequence[Finding], job: Optional[JobSpec])
         "warnings": sum(1 for f in findings if f.severity == SEVERITY_WARNING),
         "findings": [finding.as_dict() for finding in findings],
     }
+    if member_count:
+        payload["kind"] = "jobset"
+        payload["member_count"] = member_count
     if job is not None:
         payload["job_name"] = job.job_name
         payload["label_count"] = len(job.labels or [])
@@ -734,9 +756,9 @@ def run(argv: Optional[Sequence[str]] = None) -> int:
     findings.sort(key=lambda f: f.severity != SEVERITY_ERROR)
 
     if args.json:
-        print(format_json(spec_path, findings, report.job))
+        print(format_json(spec_path, findings, report.job, report.member_count))
     else:
-        print(format_text(spec_path, findings, report.job))
+        print(format_text(spec_path, findings, report.job, report.member_count))
         n_errors = count_errors(findings)
         n_warnings = sum(1 for f in findings if f.severity == SEVERITY_WARNING)
         if n_errors or n_warnings:
