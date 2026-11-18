@@ -145,7 +145,7 @@ python scripts/validate_job_spec.py batch.yaml           # pre-flight; accepts b
 ```
 
 The example shipped with the repo is
-`examples/job_specs/2026-11-18 jobset example.yaml` (plus its two members).
+`examples/job_specs/job_sets/jobset example.yaml` (plus its two members).
 Pre-flight output is one line: `OK batch.yaml: jobset is valid (2 members)`;
 `--json` adds `kind: "jobset"` and `member_count`.
 

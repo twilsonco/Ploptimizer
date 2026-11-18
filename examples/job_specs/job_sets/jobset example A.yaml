@@ -1,4 +1,4 @@
-# Production members of the batch example in `2026-11-18 jobset example.yaml`.
+# Production members of the batch example in `jobset example.yaml`.
 # The first sign of the evening run. Plate ids are named after the member
 # (plate1 here, plate2 in the B file) so the two jobs share nothing and the
 # batch gate stays silent; identical sheet geometry in both members would be

@@ -8,7 +8,7 @@
 # plus a batch report that splits the travel by job.
 #
 # Run:
-#   plt-optimizer generate --jobset "2026-11-18 jobset example.yaml"
+#   plt-optimizer generate --jobset "jobset example.yaml"
 #
 # Paths are relative to this file. A jobset cannot contain a jobset.
 #
@@ -21,5 +21,5 @@
 jobset:
   name: "Evening Batch"
   jobs:
-    - job: "2026-11-18 jobset example A.yaml"
-    - job: "2026-11-18 jobset example B.yaml"
+    - job: "jobset example A.yaml"
+    - job: "jobset example B.yaml"

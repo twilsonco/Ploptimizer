@@ -123,8 +123,8 @@ label of job B can fill the corner job A left free:
 ```yaml
 # batch.yaml - paths are relative to this file; order is the layout order
 jobset:
-  - job: "2026-11-18 jobset example A.yaml"
-  - job: "2026-11-18 jobset example B.yaml"
+  - job: "jobset example A.yaml"
+  - job: "jobset example B.yaml"
 ```
 
 Each member keeps its own cascade, fonts, cutter compensation, holes and
@@ -135,7 +135,7 @@ file per job, each named for its owning job. Strokes are never routed across
 jobs (a merged stroke would belong to two jobs and stop being per-job
 reportable), so a sheet is engraved pass by pass, job by job, in file order.
 A shipped batch example lives in
-[`examples/job_specs/2026-11-18 jobset example.yaml`](examples/job_specs/):
+[`examples/job_specs/job_sets/jobset example.yaml`](examples/job_specs/job_sets/):
 two jobs (one declaring a 24x16 sheet, the other a 12x4), packed by the same
 `columns` fill order - all of the set's work lands on the 24x16 sheet and the
 second member's unused sheet stays unpacked.

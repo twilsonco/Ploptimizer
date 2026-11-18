@@ -1,4 +1,4 @@
-# Production members of the batch example in `2026-11-18 jobset example.yaml`.
+# Production members of the batch example in `jobset example.yaml`.
 # The second sign of the evening run: a 12x4in plate plus a 2x4in tag sheet.
 # Its sheet is plate2, so no geometry is declared twice - the batch's pool is
 # the union of the members' plate lists.
