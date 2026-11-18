@@ -165,3 +165,4 @@
   - one 16x24 plate weighs approx. 1 lb. (0.00260417 lb/in²)
   - we'll add a new parameter `material_weight_per_square_inch` to specify the weight of the material per square inch. Cascades job -> plate (not label), and defaults in job-config.json to 0.00260417.
 - [ ] change file naming during generation so that material comes first, before plate number
+- [ ] In the job spec schema, rename `job_name` to `name`
