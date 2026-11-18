@@ -36,7 +36,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from plt_optimizer.generate.layout_report import LineFinding, collect_line_findings
 from plt_optimizer.utils.stage_timing import STAGE_LINE_PATTERN, StageTimings
@@ -424,6 +424,8 @@ def _finding_entries(finding: LineFinding) -> List[Dict[str, Any]]:
 def _label_entries(
     resolved: ResolvedLabel,
     rendered: Optional[RenderedLabel],
+    *,
+    id_prefix: str = "",
 ) -> Dict[str, Any]:
     """Build the JSON entry for one label.
 
@@ -432,6 +434,11 @@ def _label_entries(
         rendered: The rendered label (the render cache entry), or ``None``
             when the label was never rendered (a job that failed before
             the layout stage).
+        id_prefix: Composite-id prefix (``"{job_key}::"``) to strip from the
+            emitted ``id``/``plate_id``. A jobset runs label ids namespaced so
+            one merged pool can hold several jobs; its per-job reports print
+            the ids exactly as the member file declares them. Empty (the
+            default) leaves ids untouched.
 
     Returns:
         A JSON-ready mapping describing the label and its lines.
@@ -503,7 +510,7 @@ def _label_entries(
             )
 
     return {
-        "id": source.id,
+        "id": _strip_id_prefix(source.id, id_prefix),
         "count": source.count,
         "width": _round(source.width),
         "height": _round(source.height),
@@ -516,13 +523,32 @@ def _label_entries(
         "hole_cutter_buffer": _round(source.hole_cutter_buffer),
         "effective_hole_cutter_diameter": _round(source.effective_hole_cutter_diameter),
         "material": source.material,
-        "plate_id": source.plate_id,
+        "plate_id": _strip_id_prefix(source.plate_id, id_prefix) if source.plate_id else None,
         "has_collisions": bool(rendered.has_collisions) if rendered is not None else None,
         "collision_detected": (bool(rendered.collision_detected) if rendered is not None else None),
         "holes": holes,
         "findings": label_findings,
         "lines": lines,
     }
+
+
+def _strip_id_prefix(value: str, prefix: str) -> str:
+    """Remove a composite-id ``"{job_key}::"`` prefix from an id.
+
+    ``str.removeprefix`` is Python 3.9+, and ids on this path come from runs
+    that must stay 3.8-safe, so the strip is spelled out.
+
+    Args:
+        value: The id as carried through the pipeline.
+        prefix: The prefix to remove; empty (the default single-job case)
+            returns ``value`` unchanged.
+
+    Returns:
+        The id as its declaring file spells it.
+    """
+    if prefix and value.startswith(prefix):
+        return value[len(prefix) :]
+    return value
 
 
 def _engraved_hole_radius(diameter: float, cutter: float, adjust: bool) -> float:
@@ -602,6 +628,8 @@ def build_report(
     stage_records: Sequence[logging.LogRecord] = (),
     timings: Optional[StageTimings] = None,
     usage: Optional[Dict[str, Any]] = None,
+    id_prefix: str = "",
+    jobset: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build the JSON-ready generation report.
 
@@ -635,13 +663,24 @@ def build_report(
             :func:`plt_optimizer.generate.usage_stats.build_usage_stats`
             (labels / characters / holes / material / tool distance). A
             failure report omits it.
+        id_prefix: Composite-id prefix to strip from the label ids the report
+            prints (see :func:`_label_entries`). A jobset passes the owning
+            member's ``"{job_key}::"`` to its per-job reports and ``""`` to
+            the batch report, whose ids stay namespaced because they name
+            members.
+        jobset: The batch block of a jobset run (``build_jobset_block`` in
+            :mod:`plt_optimizer.generate.jobset_report`): the members, their
+            report paths and their measured totals. ``None`` (every
+            single-job run) omits the key entirely, leaving the report shape
+            unchanged.
 
     Returns:
         The report document, ready to be serialized as JSON.
     """
     rendered_map = rendered_by_id or {}
     labels = [
-        _label_entries(resolved, rendered_map.get(resolved.id)) for resolved in resolved_labels
+        _label_entries(resolved, rendered_map.get(resolved.id), id_prefix=id_prefix)
+        for resolved in resolved_labels
     ]
 
     total_lines = sum(len(label["lines"]) for label in labels)
@@ -691,6 +730,7 @@ def build_report(
             "tools": tools or {},
             "options": options or {},
         },
+        **({"jobset": dict(jobset)} if jobset else {}),
         "summary": {
             "plates": plate_count,
             "labels": len(labels),
@@ -772,6 +812,18 @@ def _format_finding_line(label_id: str, line: Dict[str, Any]) -> str:
     return f"  Label {label_id} line {line['index']} {line['plain_text']!r}: " + "; ".join(parts)
 
 
+def _summary_number(value: Any) -> str:
+    """Render a summary number with three decimals, or ``-`` when unmeasured.
+
+    Args:
+        value: The number, or ``None``.
+
+    Returns:
+        The formatted text.
+    """
+    return "-" if not isinstance(value, (int, float)) else f"{float(value):.3f}"
+
+
 def format_summary(report: Dict[str, Any]) -> str:
     """Render the human-readable summary of a report.
 
@@ -825,6 +877,27 @@ def format_summary(report: Dict[str, Any]) -> str:
     )
     for path in plt_files:
         lines.append(f"  {path}")
+
+    jobset = report.get("jobset") or {}
+    job_lines = jobset.get("jobs") or []
+    if job_lines:
+        lines.append("")
+        lines.append(f"Jobs ({len(job_lines)}):")
+        for entry in job_lines:
+            lines.append(
+                f"  - {entry.get('job_name') or entry.get('job_id', '')} "
+                f"({entry.get('job_id', '')}): "
+                f"distance {_summary_number(entry.get('distance_total'))} in, "
+                f"time {_summary_number(entry.get('time_total'))} s, "
+                f"report {entry.get('report', '')}"
+            )
+        shared = jobset.get("cross_job") or {}
+        if shared.get("distance_saved"):
+            lines.append(
+                f"  shared toolpaths saved "
+                f"{_summary_number(shared.get('distance_saved'))} in "
+                f"across {shared.get('strokes_merged', 0)} merged-layer stroke(s)"
+            )
 
     timings = report.get("timings", {})
     if timings:

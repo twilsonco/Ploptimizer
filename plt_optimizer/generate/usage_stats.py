@@ -109,6 +109,25 @@ BORDER_CLASS: str = "borders"
 HOLE_CLASS: str = "holes"
 UNATTRIBUTED_CLASS: str = "unattributed"
 
+#: ``usage.by_job`` row key for a file no jobset member owns. A jobset names
+#: every file's owner, so this only appears when ownership is incomplete - and
+#: it keeps ``sum(by_job) == distance.total`` an identity instead of a leak.
+UNATTRIBUTED_JOB: str = "unattributed"
+
+#: Attribution id of the toolpath that engraves the **sheet** - a plate border
+#: or a registration mark drawn outside every placement slot. Like a real
+#: placement it is a key of the ``job_of_label`` side table, whose plate-frame
+#: entry names the member that physically produced it (the owner of plate 1).
+#: Charging it there instead of to :data:`UNATTRIBUTED_JOB` is what makes a
+#: member measured from its own files equal the batch's row for that member:
+#: the plate-level travel is present in whichever member's file the emitter
+#: wrote it, and the per-job split must not depend on that accident.
+PLATE_FRAME_LABEL: str = "__plate_frame__"
+
+#: Padding of a plate-frame contour's box, in inches. The attribution point is
+#: the cutting segment's midpoint, which lies on the contour; the padding only
+#: has to absorb the cutter radius and the plate's own inset.
+
 #: Every stroke class, in report order. ``by_class`` always carries all of
 #: them: a legitimate zero is information, a missing bucket is a bug.
 DISTANCE_CLASSES: Tuple[str, ...] = (
@@ -118,6 +137,8 @@ DISTANCE_CLASSES: Tuple[str, ...] = (
     HOLE_CLASS,
     UNATTRIBUTED_CLASS,
 )
+
+PLATE_FRAME_PAD_IN: float = 0.05
 
 #: Per-cutter file layer kinds (the ``_<kind>_`` token of the file name).
 KIND_TEXT: str = "txt"
@@ -241,6 +262,10 @@ class _Rect:
             and self.y_max >= other.y_max
         )
 
+    def pieces_excluding(self, holes: Sequence[_Rect]) -> List[_Rect]:
+        """Return this rectangle minus ``holes`` (see :func:`_exclude`)."""
+        return _exclude(self, holes)
+
 
 @dataclass(frozen=True)
 class _Slot:
@@ -272,12 +297,18 @@ class _PlateFrame:
         stroke_class: Stroke signature to :data:`BORDER_CLASS` /
             :data:`HOLE_CLASS`, used to split a ``bh`` file's travel (the
             per-cutter files carry no ``SP`` pen selects).
+        plate_frame: Boxes of the structural contours that belong to the sheet
+            itself - the plate's border and registration marks, drawn outside
+            every placement slot. Travel on them is plate-level: it is charged
+            to :data:`PLATE_FRAME_LABEL`, which keeps it out of the per-label
+            and per-job attribution without leaving the totals.
     """
 
     plate_number: int
     material: Optional[str] = None
     slots: List[_Slot] = field(default_factory=list)
     stroke_class: Dict[Tuple[Any, ...], str] = field(default_factory=dict)
+    plate_frame: List[_Rect] = field(default_factory=list)
 
 
 def _path_signature(path: StrokePath) -> Tuple[Any, ...]:
@@ -349,6 +380,106 @@ def _structural_classes(combined: str) -> Dict[Tuple[Any, ...], str]:
     ).stroke_paths:
         classes[_path_signature(path)] = BORDER_CLASS
     return classes
+
+
+def _exclude(box: _Rect, holes: Sequence[_Rect]) -> List[_Rect]:
+    """Split ``box`` into the rectangles that no entry of ``holes`` covers.
+
+    A partition by the holes' edge coordinates: every cell of the grid is
+    either fully inside one hole (dropped) or fully outside all of them
+    (kept), so the union of the result is exactly ``box`` minus the holes and
+    no cell straddles a hole boundary.
+
+    Args:
+        box: The rectangle to cut.
+        holes: The rectangles to remove from it.
+
+    Returns:
+        The axis-aligned pieces of ``box`` that no hole covers.
+    """
+    xs = {box.x_min, box.x_max}
+    ys = {box.y_min, box.y_max}
+    for hole in holes:
+        for value in (hole.x_min, hole.x_max):
+            if box.x_min < value < box.x_max:
+                xs.add(value)
+        for value in (hole.y_min, hole.y_max):
+            if box.y_min < value < box.y_max:
+                ys.add(value)
+    xs_sorted = sorted(xs)
+    ys_sorted = sorted(ys)
+    pieces: List[_Rect] = []
+    for x_index in range(len(xs_sorted) - 1):
+        for y_index in range(len(ys_sorted) - 1):
+            cell = _Rect(
+                xs_sorted[x_index],
+                ys_sorted[y_index],
+                xs_sorted[x_index + 1],
+                ys_sorted[y_index + 1],
+            )
+            if cell.area <= 0.0:
+                continue
+            if any(hole.covers(cell) for hole in holes):
+                continue
+            pieces.append(cell)
+    return pieces
+
+
+def _plate_frame_rects(
+    combined: str,
+    stroke_class: Mapping[Tuple[Any, ...], str],
+    slots: Sequence[_Slot],
+) -> List[_Rect]:
+    """Box the structural contours that belong to the sheet, not to a label.
+
+    A plate can carry its own border and registration marks: contours drawn in
+    the boundary/hole layers outside every placement slot. They are the plate's
+    furniture, so the travel that engraves them belongs to no label - and, in a
+    jobset, to no member. Identifying them keeps a member measured from its own
+    files on the same footing as the batch's per-member rows.
+
+    Args:
+        combined: The plate's combined (all pens) PLT content.
+        stroke_class: The plate's structural signature map (see
+            :func:`_structural_classes`).
+        slots: The plate's placement slots.
+
+    Returns:
+        The padded box of every structural contour that no slot contains.
+    """
+    if not stroke_class:
+        return []
+    parser = PLTParser()
+    rects: List[_Rect] = []
+    for path in parser.parse_string(combined).stroke_paths:
+        if not any(seg.is_cutting for seg in path.segments):
+            continue
+        if path.pen_up_position is None and not path.segments:
+            continue
+        xs: List[float] = []
+        ys: List[float] = []
+        for seg in path.segments:
+            if not seg.is_cutting:
+                continue
+            xs.extend((seg.start.x, seg.end.x))
+            ys.extend((seg.start.y, seg.end.y))
+        if not xs:
+            continue
+        box = _Rect(min(xs), min(ys), max(xs), max(ys))
+        if _path_signature(path) not in stroke_class:
+            continue
+        point = _Rect(*box.center, *box.center)
+        pad = inches_to_units(SLOT_TOL_IN)
+        slot_boxes = [slot.rect.padded(pad) for slot in slots]
+        if any(slot_box.covers(point) for slot_box in slot_boxes):
+            continue
+        # The frame is the furniture strip, never a label's interior: a plate
+        # border is one contour whose box spans the whole sheet, so boxing it
+        # raw would swallow every text stroke on the plate. Cut the padded
+        # slots out of it - only travel outside the placements counts as
+        # plate-level.
+        rects.extend(box.padded(inches_to_units(PLATE_FRAME_PAD_IN)).pieces_excluding(slot_boxes))
+    return rects
 
 
 def _slot_rect(
@@ -1039,6 +1170,8 @@ class _DistanceTotals:
         by_class: Cutting distance per stroke class.
         by_cutter: ``[cutting, rapid, files]`` per (cutter diameter, layer kind).
         by_material: ``[cutting, rapid]`` per stock material.
+        by_job: ``[cutting, rapid]`` per jobset member (``usage.by_job``) -
+            empty for a single-job run.
         by_plate: ``[cutting, rapid]`` per plate id.
         by_label: ``[cutting, rapid]`` per label placement id.
         class_by_label: Stroke-class cutting distance per placement id.
@@ -1055,6 +1188,7 @@ class _DistanceTotals:
         unattributed_time: Operation seconds of the strokes no slot explained.
         by_cutter_time: Operation seconds per (cutter diameter, layer kind).
         by_material_time: Operation seconds per stock material.
+        by_job_time: Operation seconds per jobset member.
         by_plate_time: Operation seconds per plate id.
         files_with_rates: Files measured with rates active - time is only
             reportable when this equals the number of measured files.
@@ -1065,6 +1199,7 @@ class _DistanceTotals:
     by_class: Dict[str, float] = field(default_factory=_zero_classes)
     by_cutter: Dict[Tuple[Any, Any], List[float]] = field(default_factory=dict)
     by_material: Dict[Any, List[float]] = field(default_factory=dict)
+    by_job: Dict[str, List[float]] = field(default_factory=dict)
     by_plate: Dict[int, List[float]] = field(default_factory=dict)
     by_label: Dict[str, List[float]] = field(default_factory=dict)
     class_by_label: Dict[str, Dict[str, float]] = field(default_factory=dict)
@@ -1074,11 +1209,15 @@ class _DistanceTotals:
     unattributed_rapid: float = 0.0
     rates: Optional[_LayerRates] = None
     strokes: int = 0
+    # Placement id -> owning jobset member, set once by the measurement pass.
+    # Empty for a single-job run, which keeps ``by_job`` out of the report.
+    job_of_label: Mapping[str, str] = field(default_factory=dict)
     time_by_op: List[float] = field(default_factory=_zero_ops)
     by_label_time: Dict[str, List[float]] = field(default_factory=dict)
     by_class_time: Dict[str, List[float]] = field(default_factory=dict)
     by_cutter_time: Dict[Tuple[Any, Any], List[float]] = field(default_factory=dict)
     by_material_time: Dict[Any, List[float]] = field(default_factory=dict)
+    by_job_time: Dict[str, List[float]] = field(default_factory=dict)
     by_plate_time: Dict[int, List[float]] = field(default_factory=dict)
     unattributed_time: List[float] = field(default_factory=_zero_ops)
     files_with_rates: int = 0
@@ -1097,8 +1236,10 @@ class _DistanceTotals:
             self._add_time(0, value * self.rates.cutting, stroke_class, label_id)
         if label_id is None:
             self.unattributed_cutting += value
+            self._add_job(None, cutting=value)
             return
         self.by_label.setdefault(label_id, [0.0, 0.0])[0] += value
+        self._add_job(label_id, cutting=value)
         row = self.class_by_label.setdefault(label_id, _zero_classes())
         row[stroke_class] = row.get(stroke_class, 0.0) + value
 
@@ -1114,8 +1255,10 @@ class _DistanceTotals:
             self._add_time(1, value * self.rates.rapid, UNATTRIBUTED_CLASS, label_id)
         if label_id is None:
             self.unattributed_rapid += value
+            self._add_job(None, rapid=value)
             return
         self.by_label.setdefault(label_id, [0.0, 0.0])[1] += value
+        self._add_job(label_id, rapid=value)
 
     def add_stroke_cycle(self, stroke_class: str, label_id: Optional[str]) -> None:
         """Record one stroke's pen-down -> pen-up Z cycle (plunge, z-up, dwell).
@@ -1137,6 +1280,26 @@ class _DistanceTotals:
         for index, value in ((2, rates.plunge), (3, rates.z_up), (4, rates.dwell)):
             self._add_time(index, value, stroke_class, label_id)
 
+    def _add_job(
+        self, label_id: Optional[str], *, cutting: float = 0.0, rapid: float = 0.0
+    ) -> None:
+        """Charge a distance to the jobset member that owns the placement.
+
+        A single-job run (empty :attr:`job_of_label`) keeps the map empty, so
+        the report's ``by_job`` block stays absent exactly as before.
+
+        Args:
+            label_id: The owning placement id, or ``None`` when unattributed.
+            cutting: Pen-down inches to add.
+            rapid: Pen-up inches to add.
+        """
+        if not self.job_of_label:
+            return
+        owner = self.job_of_label.get(label_id, UNATTRIBUTED_JOB) if label_id else UNATTRIBUTED_JOB
+        bucket = self.by_job.setdefault(owner, [0.0, 0.0])
+        bucket[0] += cutting
+        bucket[1] += rapid
+
     def _add_time(
         self,
         index: int,
@@ -1155,6 +1318,11 @@ class _DistanceTotals:
         self.time_by_op[index] += value
         class_row = self.by_class_time.setdefault(stroke_class, _zero_ops())
         class_row[index] += value
+        if self.job_of_label:
+            owner = (
+                self.job_of_label.get(label_id, UNATTRIBUTED_JOB) if label_id else UNATTRIBUTED_JOB
+            )
+            self.by_job_time.setdefault(owner, _zero_ops())[index] += value
         if label_id is None:
             self.unattributed_time[index] += value
             return
@@ -1202,10 +1370,36 @@ class _DistanceTotals:
             bucket = self.by_label.setdefault(label_id, [0.0, 0.0])
             bucket[0] += cut
             bucket[1] += rapid
+        for owner, (cut, rapid) in other.by_job.items():
+            bucket = self.by_job.setdefault(owner, [0.0, 0.0])
+            bucket[0] += cut
+            bucket[1] += rapid
+        for owner, seconds in other.by_job_time.items():
+            bucket = self.by_job_time.setdefault(owner, _zero_ops())
+            for op_index, value in enumerate(seconds):
+                bucket[op_index] += value
         for label_id, classes in other.class_by_label.items():
             class_bucket = self.class_by_label.setdefault(label_id, _zero_classes())
             for class_name, value in classes.items():
                 class_bucket[class_name] = class_bucket.get(class_name, 0.0) + value
+
+
+def _in_plate_frame(frame: Optional[_PlateFrame], x: float, y: float) -> bool:
+    """Test a point against the plate's own (label-free) structural contours.
+
+    Args:
+        frame: The owning plate's frame, or ``None`` when unresolved.
+        x: Device-unit X of the point.
+        y: Device-unit Y of the point.
+
+    Returns:
+        ``True`` when the point lies on the sheet's border / registration
+        geometry, i.e. inside one of the frame's plate-level boxes.
+    """
+    if frame is None or not frame.plate_frame:
+        return False
+    point = _Rect(x, y, x, y)
+    return any(box.covers(point) for box in frame.plate_frame)
 
 
 def _measure_document(
@@ -1256,18 +1450,41 @@ def _measure_document(
                 + (path.pen_up_position.y - position[1]) ** 2
             ) ** 0.5
             arrival = _point_owner(frame, path.pen_up_position.x, path.pen_up_position.y)
-            totals.add_rapid(
-                units_to_inches(gap), arrival.label_id if arrival is not None else None
-            )
+            arrival_label = arrival.label_id if arrival is not None else None
+            if arrival_label is None and _in_plate_frame(
+                frame, path.pen_up_position.x, path.pen_up_position.y
+            ):
+                arrival_label = PLATE_FRAME_LABEL
+            totals.add_rapid(units_to_inches(gap), arrival_label)
         for seg in path.segments:
             # Cutting travel follows the segment's midpoint; a rapid lead
             # follows its destination, which is where the next cut starts.
             if seg.is_cutting:
-                owner = _point_owner(
-                    frame, (seg.start.x + seg.end.x) / 2.0, (seg.start.y + seg.end.y) / 2.0
-                )
+                mid_x = (seg.start.x + seg.end.x) / 2.0
+                mid_y = (seg.start.y + seg.end.y) / 2.0
+                owner = _point_owner(frame, mid_x, mid_y)
+                x, y = mid_x, mid_y
             else:
                 owner = _point_owner(frame, seg.end.x, seg.end.y)
+                x, y = seg.end.x, seg.end.y
+            if _in_plate_frame(frame, x, y) and layer_class is not None:
+                # The sheet's own border / registration mark: plate-level
+                # travel, charged through the plate-frame entry of the job map
+                # rather than dumped on the nearest label or left unattributed.
+                # Structural files only - a text layer never draws the sheet.
+                totals.add_cutting(
+                    units_to_inches(seg.length),
+                    _segment_class(kind, layer_class, owner),
+                    PLATE_FRAME_LABEL,
+                )
+                if not cycle_charged:
+                    totals.add_stroke_cycle(
+                        _segment_class(kind, layer_class, owner), PLATE_FRAME_LABEL
+                    )
+                    cycle_charged = True
+                if cutting:
+                    owned_cutting += 1
+                continue
             label_id = owner.label_id if owner is not None else None
             length = units_to_inches(seg.length)
             if seg.is_cutting:
@@ -1402,6 +1619,10 @@ def _distance_rows(
         totals.by_material,
         key=lambda key: (-totals.by_material[key][0], _sort_token(key)),
     )
+    by_job_keys = sorted(
+        totals.by_job,
+        key=lambda key: (-totals.by_job[key][0], _sort_token(key)),
+    )
     by_plate_keys = sorted(totals.by_plate, key=lambda key: (-totals.by_plate[key][0], key))
     by_label_keys = sorted(
         totals.by_label,
@@ -1450,6 +1671,24 @@ def _distance_rows(
             }
             for key in by_material_keys
         ],
+        # Jobset runs only (absent for a single job): the same toolpath, summed
+        # per member. Every stroke has exactly one owner, so this list adds up
+        # to ``total`` - the per-job numbers reconcile with the batch total.
+        **(
+            {
+                "by_job": [
+                    {
+                        "job": key,
+                        "cutting": _round(totals.by_job[key][0]),
+                        "rapid": _round(totals.by_job[key][1]),
+                        "total": _round(sum(totals.by_job[key])),
+                    }
+                    for key in by_job_keys
+                ]
+            }
+            if by_job_keys
+            else {}
+        ),
         "by_plate": [
             {
                 "plate": None if key == UNRESOLVED_PLATE else key,
@@ -1522,6 +1761,7 @@ def _distance_usage(
     material_by_plate: Mapping[int, Optional[str]],
     label_meta: Mapping[str, Tuple[str, int, Optional[str]]],
     rates_by_layer: Optional[Mapping[str, _LayerRates]],
+    job_of_label: Optional[Mapping[str, str]] = None,
 ) -> Tuple[_DistanceTotals, Dict[str, int]]:
     """Measure the tool travel (and run time) of the emitted per-cutter PLT files.
 
@@ -1533,12 +1773,16 @@ def _distance_usage(
         label_meta: Placement id to ``(spec id, plate number, material)``.
         rates_by_layer: Run-time rates per ``tool_options`` layer, or ``None``
             when no cutting velocity is configured (time is then not measured).
+        job_of_label: Placement id to owning jobset member. Set only by a
+            jobset run, which is what adds ``by_job`` to the report; a
+            placement missing here is charged to :data:`UNATTRIBUTED_JOB`.
 
     Returns:
         ``(totals, file_count)``: the measurement accumulators, and how many
         files were measured vs written (``{"measured": n, "written": m, "failed": k}``).
     """
     totals = _DistanceTotals()
+    totals.job_of_label = dict(job_of_label or {})
     plate_numbers = sorted(frames)
     parser = PLTParser()
     measured = 0
@@ -1576,6 +1820,10 @@ def _distance_usage(
         layer = PLT_TYPE_BY_KIND.get(stem.kind or "")
         rates = rates_by_layer.get(layer) if rates_by_layer is not None and layer else None
         file_totals.rates = rates
+        # The per-file pass is where placements get charged, so the jobset's
+        # owner map has to be visible there too - `merge` then folds the
+        # per-member buckets into the job totals.
+        file_totals.job_of_label = totals.job_of_label
         row["strokes"] = _measure_document(document, frame, stem.kind, file_totals)
         row["cutting"] = _round(file_totals.cutting)
         row["rapid"] = _round(file_totals.rapid)
@@ -1648,6 +1896,7 @@ def _time_rows(
             "by_operation": None,
             "by_cutter": [],
             "by_material": [],
+            **({"by_job": []} if totals.job_of_label else {}),
             "by_plate": [],
             "by_class": {},
             "by_label": [],
@@ -1681,6 +1930,10 @@ def _time_rows(
     by_material_keys = sorted(
         totals.by_material_time,
         key=lambda key: (-sum(totals.by_material_time[key]), _sort_token(key)),
+    )
+    by_job_keys = sorted(
+        totals.by_job_time,
+        key=lambda key: (-sum(totals.by_job_time[key]), _sort_token(key)),
     )
     by_plate_keys = sorted(
         totals.by_plate_time,
@@ -1747,6 +2000,11 @@ def _time_rows(
             }
             for key in by_material_keys
         ],
+        **(
+            {"by_job": [{"job": key, **row_ops(totals.by_job_time[key])} for key in by_job_keys]}
+            if by_job_keys
+            else {}
+        ),
         "by_plate": [
             {
                 "plate": None if key == UNRESOLVED_PLATE else key,
@@ -1823,6 +2081,7 @@ def build_usage_stats(
     material_by_plate: Mapping[int, Optional[str]],
     job_spec: Any = None,
     job_config: Any = None,
+    job_of_label: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
     """Aggregate the job's production metrics into the report's ``usage`` block.
 
@@ -1841,6 +2100,10 @@ def build_usage_stats(
             ``job_config=None``) omits the ``time`` numbers entirely.
         job_config: The loaded job config (the ``tool_options`` registry plus
             the ``rapid_velocity`` estimate field).
+        job_of_label: Placement id to owning jobset member (the composite-id
+            side table of :func:`plt_optimizer.generate.jobset.build_jobset_plan`
+            applied to the packing). Set by a jobset run only: it adds the
+            ``by_job`` breakdown to both the ``distance`` and ``time`` blocks.
 
     Returns:
         The ``usage`` mapping: ``labels``, ``characters``, ``holes``,
@@ -1856,6 +2119,7 @@ def build_usage_stats(
         )
         if combined:
             frame.stroke_class = _structural_classes(combined)
+            frame.plate_frame = _plate_frame_rects(combined, frame.stroke_class, frame.slots)
         frames[number] = frame
     rates_by_layer: Dict[str, _LayerRates] = {}
     for plt_type in ("text", "borders_holes"):
@@ -1869,6 +2133,7 @@ def build_usage_stats(
         material_by_plate=material_by_plate,
         label_meta=label_meta,
         rates_by_layer=rates_by_layer or None,
+        job_of_label=job_of_label,
     )
     return {
         "labels": _labels_usage(resolved_labels),
