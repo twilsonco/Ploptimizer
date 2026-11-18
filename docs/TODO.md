@@ -56,21 +56,6 @@
 - [ ] Add spiral rastering pattern for relief engraving. See `examples/plt_relief_engraving/A_relief_spiral_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_spiral_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_spiral_0.005-only.plt` for reference.
 - [ ] Add "island" rastering for relief engraving. See `examples/plt_relief_engraving/A_relief_island_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_island_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_island_0.005-only.plt` for reference.
 - [ ] Optimize unit tests so they complete faster. Let's aim for 120s or less for the entire test suite.
-- [ ] Extend the `summary.txt` report that is generated when running the generation pipeline to include job information: DONE
-  - Implemented in `plt_optimizer/generate/usage_stats.py`: the `usage` block of
-    `generation_report/report.json` (machine-readable, per the last bullet below) and the
-    "Job usage:" section of `summary.txt`, both rendered from the same dict. Counts come
-    from the resolved specs + pre-expansion `packed_plates` (× `label.count`); tool distance
-    is measured from the emitted per-cutter PLT files with the production parser and
-    attributed by cutter / material / plate / label / stroke class (text, relief, borders,
-    holes, unattributed). Pinned by `tests/test_usage_stats.py`.
-  - Number of labels, in total and broken down by type/size/material
-  - Number of characters, without counting spaces, in total and per text height
-  - Number of drill holes, in total and per diameter
-  - Amount of material used, in square inches and feet, in total and per material. Include a simple sum of label areas, as well as the total material required using a bounding box around labels (important for not fully packed plates, round labels, etc.).
-  - Total distance traveled by the tool in total and broken down by cutter size, type of movement (cutting vs rapid travel), job/label, material, and text vs borders/holes (routing)
-  - In addition to the `summary.txt` report, create a JSON file that contains the material/character/holes breakdown so that it's more easily consumable by other tools or scripts.
-  - *Also update the generation AGENTS.md to add instructions that, as new job/label types etc. are added, they should be included in the summary report accordingly.*
 - [ ] Extend the `summary.txt` report to include price calculation based on the material use and size/number of characters. 
   - Include the price calculation in the JSON file as well, so that it can be programmatically accessed and used by other tools or scripts.
   - Will use pricing parameters from the "OSP label pricing and optimization" Google Sheet to calculate the price based on material usage and character count.
@@ -177,3 +162,4 @@
   - Both parameters will cascade job -> plate -> label -> text line, and have defaults in job-config.json of `precise` and 0.1.
 - [ ] Add to summary txt/json report approximated weight of engraved labels
   - one 16x24 plate weighs approx. 1 lb. (0.00260417 lb/in²)
+  - we'll add a new parameter `material_weight_per_square_inch` to specify the weight of the material per square inch. Cascades job -> plate (not label), and defaults in job-config.json to 0.00260417.

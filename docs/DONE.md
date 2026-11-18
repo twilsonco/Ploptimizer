@@ -505,3 +505,18 @@
      - A value of 1.0 gives the current behavior, where the two distances are made to be equal.
      - A value of e.g. 1.1 will result in the hole-text distance being 10% larger than the text-border distance.
      - A value of e.g. 0.9 will result in the hole-text distance being 10% smaller than the text-border distance.
+- [x] Extend the `summary.txt` report that is generated when running the generation pipeline to include job information: DONE
+  - Implemented in `plt_optimizer/generate/usage_stats.py`: the `usage` block of
+    `generation_report/report.json` (machine-readable, per the last bullet below) and the
+    "Job usage:" section of `summary.txt`, both rendered from the same dict. Counts come
+    from the resolved specs + pre-expansion `packed_plates` (× `label.count`); tool distance
+    is measured from the emitted per-cutter PLT files with the production parser and
+    attributed by cutter / material / plate / label / stroke class (text, relief, borders,
+    holes, unattributed). Pinned by `tests/test_usage_stats.py`.
+  - Number of labels, in total and broken down by type/size/material
+  - Number of characters, without counting spaces, in total and per text height
+  - Number of drill holes, in total and per diameter
+  - Amount of material used, in square inches and feet, in total and per material. Include a simple sum of label areas, as well as the total material required using a bounding box around labels (important for not fully packed plates, round labels, etc.).
+  - Total distance traveled by the tool in total and broken down by cutter size, type of movement (cutting vs rapid travel), job/label, material, and text vs borders/holes (routing)
+  - In addition to the `summary.txt` report, create a JSON file that contains the material/character/holes breakdown so that it's more easily consumable by other tools or scripts.
+  - *Also update the generation AGENTS.md to add instructions that, as new job/label types etc. are added, they should be included in the summary report accordingly.*
