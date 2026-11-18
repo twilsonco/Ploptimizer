@@ -1468,6 +1468,7 @@ def export_per_cutter_plts(
                 file_widths=file_widths,
                 file_stroke_widths=file_stroke_widths,
                 plate_stroke_widths=plate_stroke_widths,
+                provenance=provenance,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
@@ -1490,6 +1491,7 @@ def _write_simple_plots(
     file_widths: Optional[Mapping[Path, float]] = None,
     file_stroke_widths: Optional[Mapping[Path, Mapping[WidthKey, float]]] = None,
     plate_stroke_widths: Optional[Mapping[int, Mapping[WidthKey, float]]] = None,
+    provenance: Optional[JobProvenance] = None,
 ) -> list[Path]:
     """Write true-stroke-width PDF previews for a per-cutter export.
 
@@ -1575,6 +1577,13 @@ def _write_simple_plots(
         plate_stroke_widths: The same per-stroke width maps keyed by plate
             number for the combined previews. ``None`` keeps each pen at its
             single ``pen_widths`` entry.
+        provenance: Jobset only: the composite-id side table. When set, every
+            plate that carries more than one job gets the per-job overlay
+            boxes (dashed coloured rectangles plus a legend, see
+            :func:`~plt_optimizer.generate.jobset.job_overlay_boxes`) drawn
+            on its combined ``*_all_*`` proof, so a shared sheet says which
+            labels belong to which job. ``None`` (a single-job run) draws no
+            overlay and leaves the proofs byte-identical to before.
 
     Returns:
         List of written PDF paths.
@@ -1588,6 +1597,7 @@ def _write_simple_plots(
         plot_plt_document,
     )
     from plt_optimizer.diagnostics.stroke_geometry import closed_path_polygons
+    from plt_optimizer.generate.jobset import job_overlay_boxes
     from plt_optimizer.generate.preview_colors import (
         DEFAULT_MATERIAL_COLORS,
         outline_color_for,
@@ -1601,6 +1611,13 @@ def _write_simple_plots(
     parser = PLTParser()
     pdf_paths: list[Path] = []
     combined_counts = _material_plate_counts(result.material_by_plate)
+    # Jobset proofs: one overlay box per job on every mixed plate. Pure
+    # geometry computed once here; the plotter only draws what it gets.
+    overlays = (
+        job_overlay_boxes(provenance, result.packed_plates, result.plate_jobs)
+        if provenance is not None
+        else {}
+    )
 
     def _segments_of(document: PLTDocument) -> List[Segment]:
         """Flatten every stroke path's segments of a parsed document."""
@@ -1866,6 +1883,7 @@ def _write_simple_plots(
                 gridlines=False,
                 fills=fills,
                 background_color=preview_background,
+                overlay_boxes=overlays.get(plate_no, ()),
             )
         else:
             # No pen widths (synthetic export) or no per-pen geometry:

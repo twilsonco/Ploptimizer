@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a job spec YAML (pre-flight for ``plt-optimizer generate``).
+"""Validate a job spec (or a jobset) YAML - pre-flight for ``plt-optimizer generate``.
 
 The authoritative gate is
 :func:`plt_optimizer.generate.schema.parse_yaml`, which applies the full
@@ -18,6 +18,14 @@ Run with::
     uv run python scripts/validate_job_spec.py examples/job_specs/my_job.yaml
     uv run python scripts/validate_job_spec.py my_job.yaml --job-config cfg.json
     uv run python scripts/validate_job_spec.py my_job.yaml --json
+
+A ``jobset:`` file (a batch of job specs packed as one run) is detected by its
+root key and validated the way the pipeline loads it: every member spec, then
+the batch gate (shared shop config, plate geometry, layout, rotation policy)
+and the references that only a set can have - members that do not exist,
+members that are themselves jobsets, duplicate jobs (see
+:func:`plt_optimizer.generate.jobset.evaluate_jobset_gate`). A gate ERROR exits
+``1``, a gate WARNING exits ``0``, exactly like the single-job contract.
 
 This file lives in the repo ``scripts/`` directory and is mirrored byte-for-byte
 into the ``validating-jobs`` Hermes skill (``validating-jobs/scripts/``), so it
@@ -114,6 +122,13 @@ bootstrap_sys_path()
 import yaml  # noqa: E402
 
 from plt_optimizer.generate.job_config import JobConfigError  # noqa: E402
+from plt_optimizer.generate.jobset import (  # noqa: E402
+    JobRecord,
+    JobSetError,
+    ResolvedJobContext,
+    evaluate_jobset_gate,
+    parse_jobset_yaml,
+)
 from plt_optimizer.generate.schema import JobSpec, parse_yaml  # noqa: E402
 from plt_optimizer.generate.substitution import _resolve_file_path  # noqa: E402
 
@@ -281,6 +296,10 @@ class SpecReport:
 def validate_spec(spec_path: Path, job_config_path: Optional[Path]) -> SpecReport:
     """Parse and validate one job spec, then run the pre-flight checks.
 
+    A ``jobset:`` file is validated as a batch instead (see
+    :func:`validate_jobset`); the two roots are mutually exclusive, so the
+    sniff is a cheap read of the top-level mapping key.
+
     Args:
         spec_path: Path to the job spec YAML.
         job_config_path: Shop defaults JSON, or ``None`` to opt out of the
@@ -291,6 +310,9 @@ def validate_spec(spec_path: Path, job_config_path: Optional[Path]) -> SpecRepor
     """
     if not spec_path.is_file():
         return SpecReport([_error(f"specification file not found: {spec_path}")], None, True)
+
+    if is_jobset_file(spec_path):
+        return validate_jobset(spec_path, job_config_path)
 
     try:
         job = parse_yaml(spec_path, job_config_path=job_config_path)
@@ -308,6 +330,251 @@ def validate_spec(spec_path: Path, job_config_path: Optional[Path]) -> SpecRepor
         return SpecReport([_error(str(exc))], None)
 
     return SpecReport(check_replacement_files(job, spec_path), job)
+
+
+def _read_root(path: Path) -> Any:
+    """Read a YAML file and return its top-level document.
+
+    Args:
+        path: The file to read.
+
+    Returns:
+        The parsed document.
+
+    Raises:
+        FileNotFoundError: The file does not exist.
+        yaml.YAMLError: The file is not well-formed YAML.
+    """
+    return yaml.safe_load(path.read_text(encoding="utf-8-sig"))
+
+
+def is_jobset_file(path: Path) -> bool:
+    """Return whether a YAML file carries the ``jobset:`` root.
+
+    The pipeline's own sniff (:func:`plt_optimizer.generate.jobset.is_jobset_file`)
+    applied to a file that cannot be read; a read failure is not a jobset, and
+    the validator reports the real error when it tries to parse it.
+
+    Args:
+        path: The file to sniff.
+
+    Returns:
+        True when the top-level mapping has a ``jobset`` key.
+    """
+    try:
+        document = _read_root(path)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return False
+    return isinstance(document, dict) and "jobset" in document
+
+
+def jobset_member_paths(path: Path) -> list[Path]:
+    """Return the member spec paths a jobset points at, in declaration order.
+
+    Paths resolve relative to the jobset file's own directory, exactly as the
+    pipeline resolves them. Entries that are not readable strings (missing
+    files, malformed YAML, nested jobsets) are skipped - the validator reports
+    those, this function only enumerates what it can.
+
+    Args:
+        path: The jobset YAML.
+
+    Returns:
+        The member spec paths.
+    """
+    try:
+        spec = parse_jobset_yaml(path)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError, JobSetError, ValueError, TypeError):
+        return []
+    return [Path(entry.job) for entry in spec.jobs]
+
+
+def collect_jobset_replacement_files(
+    members: Sequence[tuple[Path, JobSpec]],
+) -> list[tuple[Path, str, str]]:
+    """Collect every ``replacement_text_file`` reference in a batch of members.
+
+    Mirrors :func:`collect_replacement_files` for the set view: each reference
+    pairs with the member file that declares it (so it resolves from the right
+    directory) and a tier label prefixed with that member's name.
+
+    Args:
+        members: ``(member path, validated spec)`` pairs in set order.
+
+    Returns:
+        List of ``(member path, tier label, raw path string)`` triples.
+    """
+    refs: list[tuple[Path, str, str]] = []
+    for member_path, job in members:
+        name = member_path.name
+        for tier, raw in collect_replacement_files(job):
+            refs.append((member_path, f"{name} {tier}", raw))
+    return refs
+
+
+def check_jobset_replacement_files(members: Sequence[tuple[Path, JobSpec]]) -> list[Finding]:
+    """Check every member's ``replacement_text_file`` references resolve.
+
+    A member's references resolve relative to ITS OWN directory, not the
+    jobset's - the contract the pipeline applies when it loads each member with
+    :func:`plt_optimizer.generate.schema.parse_yaml`.
+
+    Args:
+        members: ``(member path, validated spec)`` pairs in set order.
+
+    Returns:
+        One error per missing data file, naming the resolved path.
+    """
+    findings: list[Finding] = []
+    for member_path, tier, raw in collect_jobset_replacement_files(members):
+        resolved = _resolve_file_path(raw, member_path.resolve().parent)
+        if not resolved.is_file():
+            findings.append(
+                _error(f"{tier}.replacement_text_file: not found: {resolved} (declared as {raw!r})")
+            )
+    return findings
+
+
+def check_jobset_config_sharing(members: Sequence[tuple[Path, Any]]) -> list[Finding]:
+    """Warn when the members of a batch load DIFFERENT shop configs.
+
+    A jobset packs one pool, and the pipeline resolves every member with the
+    single ``--job-config`` file the CLI was given - a member file cannot opt
+    out. This check surfaces the shape of that decision before the run: with
+    the same config path for all members it is silent (a set always has one
+    config, which is the contract), and it warns when the caller passed
+    per-member configs, naming the files that disagree.
+
+    Args:
+        members: ``(member path, validated spec)`` pairs in set order.
+
+    Returns:
+        One warning naming the config files in play (empty for one config).
+    """
+    keys = {str(path) for path, _ in members}
+    if len(keys) <= 1:
+        return []
+    listed = ", ".join(sorted(keys))
+    return [
+        _warning(
+            f"members resolved against {len(keys)} different shop configs "
+            f"({listed}); a jobset packs one pool and the generate CLI passes "
+            "one --job-config to every member"
+        )
+    ]
+
+
+def validate_jobset(
+    set_path: Path, job_config_path: Path | Sequence[Optional[Path]] | None
+) -> SpecReport:
+    """Validate a jobset file: every member spec, then the batch gate.
+
+    Members are parsed one by one and every spec-level failure is collected
+    with the member's file name, so a batch with two bad members reports both
+    (the pipeline itself fails on the first bad member - this is a pre-flight,
+    so it shows the whole picture). The batch gate - layout agreement,
+    duplicate plate ids, rotation/clearance disagreements, pooled sheet
+    geometries - then runs over the members that validated: a set whose members
+    are individually broken says nothing about its batch shape.
+
+    Args:
+        set_path: Path to the jobset YAML.
+        job_config_path: Shop defaults JSON shared by every member, a
+            per-member sequence in set order (what the CLI's single flag
+            produces), or ``None`` to opt out of the config layer.
+
+    Returns:
+        The report. ``job`` is the validated spec of the first member, the
+        identity the text and JSON views headline.
+    """
+    try:
+        spec = parse_jobset_yaml(set_path)
+    except FileNotFoundError as exc:
+        return SpecReport([_error(str(exc))], None, True)
+    except yaml.YAMLError as exc:
+        return SpecReport([_error(f"malformed YAML in {set_path}: {exc}")], None, True)
+    except (JobSetError, ValueError, TypeError) as exc:
+        # The set document itself: missing/duplicate members, nested jobsets,
+        # unknown keys, an empty or malformed root. Nothing below can be
+        # checked until the list of members is trustworthy.
+        return SpecReport([_error(str(exc))], None)
+
+    paths = job_config_path if isinstance(job_config_path, Sequence) else [job_config_path]
+    findings: list[Finding] = []
+    members: list[tuple[Path, JobSpec]] = []
+    configs: list[tuple[Path, Any]] = []
+    for index, entry in enumerate(spec.jobs):
+        member_path = Path(entry.job)
+        name = member_path.name
+        config_path = paths[index] if index < len(paths) else (paths[0] if paths else None)
+        configs.append((member_path, config_path))
+        try:
+            job = parse_yaml(member_path, job_config_path=config_path)
+        except (
+            FileNotFoundError,
+            JobConfigError,
+            yaml.YAMLError,
+            ValueError,
+            TypeError,
+        ) as exc:
+            findings.append(_error(f"{name}: {exc}"))
+            continue
+        members.append((member_path, job))
+        findings.extend(check_replacement_files(job, member_path))
+
+    if members:
+        errors, warnings = evaluate_jobset_gate(_gate_views(spec, members))
+        findings.extend(_error(line) for line in errors)
+        findings.extend(_warning(line) for line in warnings)
+        findings.extend(check_jobset_replacement_files(members))
+        findings.extend(check_jobset_config_sharing(configs))
+
+    first = members[0][1] if members else None
+    return SpecReport(findings, first)
+
+
+def _gate_views(spec: Any, members: Sequence[tuple[Path, JobSpec]]) -> list[ResolvedJobContext]:
+    """Build the gate's member views from parsed specs.
+
+    The gate reads only ``record.display_name``, ``layout``, ``allow_rotation``,
+    ``default_plate_clearance``, ``plates`` and ``plate_count`` - all of which a
+    parsed :class:`~plt_optimizer.generate.schema.JobSpec` provides. The
+    remaining context fields (``prepared``, ``resolved_labels``) belong to the
+    render pipeline and are empty here: a validator that resolves typography
+    would no longer be a pre-flight.
+
+    Args:
+        spec: The parsed :class:`~plt_optimizer.generate.jobset.JobSetSpec`
+            (used for the batch name in the identity fields).
+        members: ``(member path, validated spec)`` pairs in set order.
+
+    Returns:
+        One context per member, in jobset-file order.
+    """
+    views: list[ResolvedJobContext] = []
+    for member_path, job in members:
+        key = job.job_name or member_path.stem
+        views.append(
+            ResolvedJobContext(
+                record=JobRecord(
+                    key=key,
+                    job_id=key,
+                    job_name=job.job_name,
+                    spec_path=member_path,
+                    label_ids=tuple(label.id for label in job.labels or ()),
+                    plate_ids=tuple(plate.id for plate in job.plates or ()),
+                ),
+                spec=job,
+                prepared=None,  # type: ignore[arg-type]
+                resolved_labels=(),
+                plates=tuple(job.plates) if job.plates else None,
+                plate_count=len(job.plates or ()),
+                layout=job.layout,
+                allow_rotation=job.allow_rotation,
+                default_plate_clearance=None,
+            )
+        )
+    return views
 
 
 def count_errors(findings: Sequence[Finding]) -> int:

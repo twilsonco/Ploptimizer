@@ -1743,6 +1743,161 @@ class TestGenerateRun:
         repo_after = repo_log.stat().st_mtime_ns if repo_log.exists() else None
         assert repo_after == repo_before
 
+    def test_jobset_default_output_dir_is_jobset_parent(self, tmp_path: Path) -> None:
+        """``--jobset`` with no -o writes next to the jobset file, not the cwd.
+
+        The batch shares the single-job rule (output defaults to the input
+        file's directory), and the summary line must be run's only stdout.
+        """
+        from plt_optimizer.cli.generate import run
+
+        root = tmp_path / "batch"
+        root.mkdir()
+        member = root / "member.yaml"
+        member.write_text(
+            "job:\n"
+            "  job_name: Batch Default Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      left_clearance: 0.25\n"
+            "      top_clearance: 0.25\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hello\n"
+            "          text_height: 0.5\n",
+            encoding="utf-8",
+        )
+        batch = root / "batch.yaml"
+        batch.write_text(
+            "jobset:\n  name: Batch Default\n  jobs:\n    - job: member.yaml\n", encoding="utf-8"
+        )
+        args = argparse.Namespace(
+            spec=None,
+            jobset=batch,
+            output=None,
+            verbose=False,
+            no_plots=True,
+            default_plots=False,
+            tools=tmp_path / "tools.json",
+            job_config=None,
+            fast_mode=False,
+        )
+
+        assert run(args) == 0
+        assert list((root / "plt").glob("*.plt")), "PLTs must land beside the jobset file"
+
+    def test_jobset_member_failure_writes_the_root_report(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A member that cannot load fails the batch with an inspectable report.
+
+        The failure report is the batch's own ``report.json`` at stage
+        ``resolve`` (member loading happens inside plan building), carries the
+        member path in the message, and no manifest is written - an operator
+        must be able to find out why a batch produced nothing.
+        """
+        import json
+
+        from plt_optimizer.cli.generate import run
+
+        batch = tmp_path / "batch.yaml"
+        batch.write_text(
+            "jobset:\n  name: Broken Batch\n  jobs:\n    - job: missing.yaml\n", encoding="utf-8"
+        )
+        args = argparse.Namespace(
+            spec=None,
+            jobset=batch,
+            output=tmp_path / "out",
+            verbose=False,
+            no_plots=True,
+            default_plots=False,
+            tools=tmp_path / "tools.json",
+            job_config=None,
+            fast_mode=False,
+        )
+
+        assert run(args) == 1
+        report_path = tmp_path / "out" / "generation_report" / "report.json"
+        assert report_path.is_file()
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report["job"]["status"] == "failed"
+        assert report["job"]["job_name"] == "Broken Batch"
+        assert report["job"]["spec_path"].endswith("batch.yaml")
+        assert report["job"]["error"]["stage"] == "resolve"
+        assert "missing.yaml" in report["job"]["error"]["message"]
+        assert report["job"]["error"]["type"] == "JobSetError"
+        assert not (tmp_path / "out" / "generation_report" / "jobset.json").exists()
+        assert "FAILED" in capsys.readouterr().err
+
+    def test_jobset_usage_breakdown_never_fails_a_good_batch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A raising usage builder degrades to a warning, not a failed batch.
+
+        Reporting is additive: the batch's PLTs, manifest and report must
+        survive a reporting bug, exactly as in single-job mode.
+        """
+        import json
+
+        import plt_optimizer.generate.usage_stats as usage_module
+        from plt_optimizer.cli.generate import run
+
+        batch = tmp_path / "batch.yaml"
+        batch.write_text(
+            "jobset:\n  name: Guarded Batch\n  jobs:\n    - job: member.yaml\n", encoding="utf-8"
+        )
+        (tmp_path / "member.yaml").write_text(
+            "job:\n"
+            "  job_name: Guarded Job\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 12.0\n"
+            "      left_clearance: 0.25\n"
+            "      top_clearance: 0.25\n"
+            "  labels:\n"
+            "    - id: l1\n"
+            "      count: 1\n"
+            "      width: 2.0\n"
+            "      height: 1.0\n"
+            "      content:\n"
+            "        - text: Hello\n"
+            "          text_height: 0.5\n",
+            encoding="utf-8",
+        )
+
+        def explode(**kwargs: object) -> Dict[str, Any]:
+            raise RuntimeError("usage exploded")
+
+        monkeypatch.setattr(usage_module, "build_usage_stats", explode)
+        args = argparse.Namespace(
+            spec=None,
+            jobset=batch,
+            output=tmp_path / "out",
+            verbose=False,
+            no_plots=True,
+            default_plots=False,
+            tools=tmp_path / "tools.json",
+            job_config=None,
+            fast_mode=False,
+        )
+
+        assert run(args) == 0
+        report = json.loads(
+            (tmp_path / "out" / "generation_report" / "report.json").read_text(encoding="utf-8")
+        )
+        assert report["job"]["status"] == "success"
+        assert report["usage"] is None  # the key stays, its value degrades to null
+        assert list((tmp_path / "out" / "plt").glob("*.plt"))
+        assert (tmp_path / "out" / "generation_report" / "jobset.json").is_file()
+        capsys.readouterr()
+
     def test_pdf_and_default_plot_paths_are_reported(
         self,
         tmp_path: Path,

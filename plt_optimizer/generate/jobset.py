@@ -92,7 +92,11 @@ JOB_LEGEND_PALETTE: tuple[str, ...] = (
 
 # Dash patterns cycled after the palette is exhausted, so a 12-job batch is
 # still readable: colour index ``i % 10`` pairs with style index ``i // 10``.
-JOB_LEGEND_STYLES: tuple[str, ...] = ("--", "-.", ":", (0, (5, 1, 1, 1)))  # type: ignore[assignment]
+# Ten colours x these three patterns = 30 distinguishable (colour, style)
+# pairs. Only matplotlib *named* patterns are listed: a tuple dash pattern
+# (``(0, (5, 1, 1, 1))``) has no string form the API accepts, and a batch
+# big enough to need a 31st pair is not a plate a person reads.
+JOB_LEGEND_STYLES: tuple[str, ...] = ("--", "-.", ":")
 
 
 class JobSetError(ValueError):
@@ -467,7 +471,123 @@ def legend_style_for(index: int) -> tuple[str, str]:
     """
     color = JOB_LEGEND_PALETTE[index % len(JOB_LEGEND_PALETTE)]
     style = JOB_LEGEND_STYLES[(index // len(JOB_LEGEND_PALETTE)) % len(JOB_LEGEND_STYLES)]
-    return color, str(style)
+    return color, style
+
+
+@dataclass(frozen=True)
+class JobOverlayBox:
+    """One job's provenance rectangle on a jobset plate proof (inches).
+
+    The box encloses every placement a job owns on that plate, outset by the
+    overlay margin, and is drawn as a dashed coloured rectangle over the
+    combined plate preview with a legend naming the job - the visual answer
+    to "which labels on this sheet belong to which job".
+
+    Attributes:
+        x: Left edge in inches (plate space, the same space the packer
+            places labels in).
+        y: Bottom edge in inches.
+        width: Box width in inches.
+        height: Box height in inches.
+        label: Legend text (the member's display name).
+        color: Matplotlib colour token.
+        style: Matplotlib dash pattern (``"--"``, ``"-.", ":"``, ...).
+        line_width: Rectangle edge width in points.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+    label: str
+    color: str
+    style: str
+    line_width: float = 1.2
+
+
+# How far a job's overlay box is pushed outside its placements, in inches.
+JOB_OVERLAY_OUTSET_IN = 0.05
+
+
+def job_overlay_boxes(
+    provenance: JobProvenance,
+    packed_plates: Sequence[Any],
+    plate_jobs: Mapping[int, Sequence[str]],
+    *,
+    outset: float = JOB_OVERLAY_OUTSET_IN,
+) -> dict[int, list[JobOverlayBox]]:
+    """Compute the per-job overlay boxes of every packed plate.
+
+    Pure geometry (no matplotlib): the diagnostics layer draws what this
+    returns, so the box maths is testable headless and on the Win7 target.
+
+    A plate occupied by a single job gets no box - the proof of a plate that
+    carries one job needs no legend, and the plot stays byte-identical to the
+    single-job run's. Every placement of a job on a plate is unioned into one
+    box, so a job split across a sheet is one rectangle, not several.
+
+    Args:
+        provenance: The jobset's composite-id side table (legend identity and
+            colour index, both by jobset-file order).
+        packed_plates: :class:`~plt_optimizer.generate.packing.layout.PackedPlate`
+            objects in packing order (1-based plate numbers index them).
+        plate_jobs: 1-based plate number -> the owning job keys of the labels
+            on it, as recorded by the export in
+            :attr:`~plt_optimizer.generate.vectorize.PerCutterExport.plate_jobs`.
+        outset: Margin in inches added around each union (a label that runs
+            to the sheet edge gets a box that is still visible).
+
+    Returns:
+        1-based plate number -> its overlay boxes, in jobset-file order.
+        Plates of one job map to an empty list.
+    """
+    boxes: dict[int, list[JobOverlayBox]] = {}
+    job_index = {key: index for index, key in enumerate(provenance.job_keys)}
+    for plate_no, keys in plate_jobs.items():
+        plate = packed_plates[plate_no - 1]
+        if len(keys) < 2:
+            boxes[plate_no] = []
+            continue
+        per_job: dict[str, list[tuple[float, float, float, float]]] = {}
+        for placement in getattr(plate, "labels", ()) or ():
+            source_id = str(getattr(getattr(placement, "source_label", None), "id", "") or "")
+            owner = provenance.job_of_label(source_id)
+            if owner is None or owner not in keys:
+                continue
+            # The slot a rotated placement fills is the swapped pair, exactly
+            # as plt_optimizer.generate.usage_stats._slot_rect computes it in
+            # device units - the proof's box must cover the ink, not the
+            # pre-rotation footprint.
+            x_span, y_span = (
+                (placement.height, placement.width)
+                if placement.rotated
+                else (placement.width, placement.height)
+            )
+            per_job.setdefault(owner, []).append(
+                (placement.x, placement.y, placement.x + x_span, placement.y + y_span)
+            )
+        entries: list[JobOverlayBox] = []
+        for key in sorted(per_job, key=lambda item: job_index.get(item, len(job_index))):
+            rects = per_job[key]
+            x_min = min(rect[0] for rect in rects) - outset
+            y_min = min(rect[1] for rect in rects) - outset
+            x_max = max(rect[2] for rect in rects) + outset
+            y_max = max(rect[3] for rect in rects) + outset
+            record = provenance.record(key)
+            color, style = legend_style_for(job_index.get(key, 0))
+            entries.append(
+                JobOverlayBox(
+                    x=x_min,
+                    y=y_min,
+                    width=x_max - x_min,
+                    height=y_max - y_min,
+                    label=record.display_name if record is not None else key,
+                    color=color,
+                    style=style,
+                )
+            )
+        boxes[plate_no] = entries
+    return boxes
 
 
 def parse_jobset_yaml(file_path: str | Path) -> JobSetSpec:

@@ -11,7 +11,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Protocol, Tuple, cast
 
 import matplotlib
 
@@ -24,7 +24,8 @@ if getattr(sys, "frozen", False) or sys.platform == "win32":
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
-from matplotlib.patches import PathPatch
+from matplotlib.lines import Line2D
+from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.ticker import FormatStrFormatter, MultipleLocator
 
 from plt_optimizer.core.models import (
@@ -588,6 +589,53 @@ def plot_stroke_path(
     )
 
 
+class JobOverlayBoxLike(Protocol):
+    """The per-job provenance rectangle a caller wants drawn on a proof.
+
+    Structural (duck-typed) on purpose: the boxes are built by
+    :func:`plt_optimizer.generate.jobset.job_overlay_boxes`, whose dataclass
+    :class:`~plt_optimizer.generate.jobset.JobOverlayBox` satisfies this
+    protocol. ``generate`` may not import ``diagnostics`` (matplotlib is
+    import-guarded and absent on the Windows 7 target), and ``diagnostics``
+    has no reason to know the jobset model - the geometry contract is all
+    the two sides need to share.
+
+    Attributes:
+        x: Left edge in inches (plot/assembly space).
+        y: Bottom edge in inches.
+        width: Box width in inches.
+        height: Box height in inches.
+        label: Legend text for this box.
+        color: Matplotlib colour token (e.g. ``"tab:blue"``).
+        style: Matplotlib dash pattern (e.g. ``"--"``, ``"-."``, ``":"``).
+        line_width: Edge width in points.
+    """
+
+    @property
+    def x(self) -> float: ...
+
+    @property
+    def y(self) -> float: ...
+
+    @property
+    def width(self) -> float: ...
+
+    @property
+    def height(self) -> float: ...
+
+    @property
+    def label(self) -> str: ...
+
+    @property
+    def color(self) -> str: ...
+
+    @property
+    def style(self) -> str: ...
+
+    @property
+    def line_width(self) -> float: ...
+
+
 def plot_physical_strokes(
     layers: Sequence[PhysicalStrokeLayer],
     output_path: Optional[Path] = None,
@@ -599,6 +647,7 @@ def plot_physical_strokes(
     show_title: bool = True,
     fills: Sequence[PhysicalFillLayer] = (),
     background_color: Optional[str] = None,
+    overlay_boxes: Sequence[JobOverlayBoxLike] = (),
 ) -> Figure:
     """Plot toolpath strokes at their true engraved (cutter) widths.
 
@@ -635,6 +684,12 @@ def plot_physical_strokes(
         background_color: Optional page/axes background color (e.g. the
             proof previews' configured grey). ``None`` (the default) keeps
             matplotlib's white figure.
+        overlay_boxes: Per-job provenance rectangles drawn over the ink, each
+            with a dashed coloured edge and a legend row (see
+            :class:`JobOverlayBoxLike`; a jobset plate proof passes one box
+            per job so a shared sheet is readable). ``()`` (the default)
+            draws nothing and adds no legend - single-job proofs are
+            unchanged.
 
     Returns:
         The matplotlib Figure object.
@@ -693,8 +748,7 @@ def plot_physical_strokes(
                     )
                 )
 
-        # Fill each layer's expanded polygons as true-width ink silhouettes.
-        # Each ring becomes a MOVETO/LINETO subpath; the compound path's
+        # Fill each layer's expanded polygons as true-width ink silhouettes.        # Each ring becomes a MOVETO/LINETO subpath; the compound path's
         # even-odd fill renders interior rings as holes.
         for layer, polygons in rendered:
             for polygon in polygons:
@@ -731,6 +785,9 @@ def plot_physical_strokes(
             min_x, min_y, max_x, max_y = _polygon_exterior_bounds(list(fill.polygons))
             all_x.extend([min_x, max_x])
             all_y.extend([min_y, max_y])
+        for box in overlay_boxes:
+            all_x.extend([box.x, box.x + box.width])
+            all_y.extend([box.y, box.y + box.height])
         x_min, x_max = min(all_x), max(all_x)
         y_min, y_max = min(all_y), max(all_y)
         padding_x = _safe_range(x_min, x_max) * 0.1
@@ -754,6 +811,38 @@ def plot_physical_strokes(
             ax.grid(which="minor", alpha=0.15)
 
         ax.set_aspect("equal", adjustable="box")
+
+        # Per-job provenance overlay: a dashed coloured rectangle per job,
+        # above the ink, with one legend row each. Drawn before the layout
+        # pass so the legend claims its own space.
+        if overlay_boxes:
+            proxies = []
+            for box in overlay_boxes:
+                ax.add_patch(
+                    Rectangle(
+                        (box.x, box.y),
+                        box.width,
+                        box.height,
+                        fill=False,
+                        linestyle=box.style,
+                        edgecolor=box.color,
+                        linewidth=box.line_width,
+                        zorder=6,
+                    )
+                )
+                proxies.append(
+                    Line2D(
+                        [],
+                        [],
+                        color=box.color,
+                        # A named dash pattern (see JOB_LEGEND_STYLES); the
+                        # cast is for the stub's Literal union, not a runtime
+                        # claim - matplotlib accepts the string verbatim.
+                        linestyle=cast(Any, box.style),
+                        label=box.label,
+                    )
+                )
+            ax.legend(handles=proxies, loc="upper right", fontsize="small", framealpha=0.9)
 
         plt.tight_layout()
 
