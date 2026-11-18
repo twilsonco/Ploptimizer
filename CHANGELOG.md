@@ -56,6 +56,29 @@
   - Docs: `docs/INTEGRATION_TESTING.md` gains the Phase 5 section, the report
     schema table, and the checklist entries.
 
+* **scripts:** `run_integration_test.py --jobset <batch.yaml|dir>` runs a
+  **jobset** through the same end-to-end pipeline the `generate --jobset` CLI
+  runs, with the harness's intermediate-state prints: the cross-job gate and
+  every rule that fired, each member's resolved geometry and pinned sheets,
+  the merged plate pool, the pool packing with the jobs sharing each sheet
+  named, the export's owner-named segments, coordinate validation over every
+  file written, the layout report, and all three report surfaces (per job,
+  `generation_report/jobset.json`, the batch `report.json` carrying the
+  `jobset` block). A set is detected by its `jobset:` root (the validator's
+  `is_jobset_file` sniff), so directory mode sweeps the sets in a folder and
+  skips the plain job specs in it; a set passed without the flag is refused
+  with the command to run. `--jobset` with no path defaults to
+  `examples/job_specs/job_sets`, the way the no-arg run defaults to
+  `tests_deps/test123_spec.yaml`. A new **`--no-plots`** applies to both modes
+  and skips EVERY PDF (the export's simple-outline previews and the
+  color-coded Phase 4 diagnostics), leaving toolpaths, coordinate validation
+  and reports intact.
+  - Pins: `tests/test_run_integration_report.py` (every argument shape: the
+    flag dispatch, the default directory, the directory sweep filtering to
+    sets, the refusal of a set without the flag, `--no-plots` in both modes).
+  - Docs: `docs/INTEGRATION_TESTING.md` gains the jobset phase sequence, the
+    batch artifact tree and the flag reference.
+
 * **core/generate:** written PLT files now use the **EngraveLab/VisionPro line
   layout** -- one HPGL command per line, a bare `PD;`/`PU;` glued to the arc it
   governs (`PD;AA254,1016,90;`), CRLF terminators, single trailing newline --

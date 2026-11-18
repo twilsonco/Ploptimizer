@@ -10,11 +10,20 @@ with intermediate state dumps for verification. Validates:
 - Vectorization and PLT export
 - The ``generate`` pipeline's report surface (``generation_report/report.json``
   + ``summary.txt``), written on success **and** on failure like the CLI
+- **Jobsets** (``--jobset``): a batch of job files packed onto shared plates,
+  with the per-job reports, the ``generation_report/jobset.json`` manifest and
+  the batch ``report.json`` the ``generate --jobset`` CLI writes
 
 Run with: python scripts/run_integration_test.py
 Or target a specific spec / every spec in a directory:
     python scripts/run_integration_test.py tests_deps/complex_test_job.yaml
     python scripts/run_integration_test.py tests_deps
+
+A jobset YAML (or a directory of them) runs the same pipeline in batch mode:
+
+    python scripts/run_integration_test.py --jobset "examples/job_specs/job_sets/jobset example.yaml"
+    python scripts/run_integration_test.py --jobset examples/job_specs/job_sets
+    python scripts/run_integration_test.py --jobset   # every set in that directory
 """
 
 from __future__ import annotations
@@ -25,7 +34,10 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # import-time cost stays zero; annotations only
+    from plt_optimizer.generate.jobset import JobSetPlan
 
 # Repo root (one level above scripts/) so the pipeline imports and every
 # repo-root-relative default (tests_deps/, tools.json, job-config.json,
@@ -33,6 +45,10 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:  # allow running as a plain script
     sys.path.insert(0, str(REPO_ROOT))
+
+# Where ``--jobset`` with no path looks for batch files, mirroring how the
+# no-arg job-spec run falls back to ``tests_deps/test123_spec.yaml``.
+DEFAULT_JOBSET_DIR = REPO_ROOT / "examples" / "job_specs" / "job_sets"
 
 # Setup logging for visibility
 logging.basicConfig(
@@ -47,6 +63,14 @@ logger = logging.getLogger(__name__)
 # color plots are slow to render. Flip to True (or export_per_cutter_plts'
 # default_plots= kwarg / the CLI's --default-plots flag) to produce them.
 GENERATE_DEFAULT_PLOTS = True
+
+# Master switch for EVERY PDF the run writes, turned off by ``--no-plots``:
+# the export's simple-outline previews (its ``plots=`` kwarg) and Phase 4's
+# color-coded ``*_default.pdf`` diagnostics. They are standard artifacts, so it
+# stays on; skipping them lets a headless sweep - or a machine where the
+# matplotlib PDF backend aborts the process - still run the toolpaths, the
+# coordinate validation and every report.
+WRITE_PLOTS = True
 
 # Import pipeline components
 from plt_optimizer.core.units import units_to_inches
@@ -191,12 +215,17 @@ def _report_options() -> dict[str, object]:
 
     Returns:
         A JSON-ready mapping, carrying a ``source`` marker so a reader can
-        tell an integration run from a ``generate`` CLI run.
+        tell an integration run from a ``generate`` CLI run. ``plots`` and
+        ``no_plots`` are the mirror pair the CLI reports (``no_plots`` is
+        always present, like the CLI's document), and they follow
+        :data:`WRITE_PLOTS` - the ``--no-plots`` switch - so a PDF-less run
+        never reports the plots it skipped.
     """
     return {
         "source": "scripts/run_integration_test.py",
         "optimize": True,
-        "plots": True,
+        "plots": WRITE_PLOTS,
+        "no_plots": not WRITE_PLOTS,
         "default_plots": GENERATE_DEFAULT_PLOTS,
         "fast_mode": False,
     }
@@ -417,6 +446,337 @@ def phase_2_resolution_and_layout(
 
 
 # ============================================================================
+# PHASE 2J: JOBSET PLAN (batch mode)
+# ============================================================================
+
+
+def plan_base(plan: JobSetPlan, label_id: str) -> str:
+    """Return the member's own (un-namespaced) label id for a pooled label id.
+
+    ``ResolvedLabel`` carries no base-id field: in a jobset the composite
+    ``<job_key>/<label_id>`` IS the label's id, and
+    :meth:`plt_optimizer.generate.jobset.JobProvenance.base_id` maps it back.
+    A plain job spec id passes through unchanged.
+    """
+    return plan.provenance.base_id(label_id)
+
+
+def phase_2j_jobset_plan(
+    jobset_yaml: Path,
+    inventory: list[float],
+    boundary_hole_cutter_size: float | None = None,
+    job_config_path: Path | None = None,
+    stage_timings: StageTimings | None = None,
+) -> JobSetPlan:
+    """Phase 2 (batch mode): parse the set, run the cross-job gate, prepare members.
+
+    Mirrors the ``generate --jobset`` CLI's plan stage with the harness's
+    prints: one :func:`plt_optimizer.generate.jobset.build_jobset_plan` call,
+    which resolves the entries, runs the cross-job gate, and prepares every
+    member through the single-job preparation path
+    (:func:`plt_optimizer.generate.job_prep.prepare_job`) - per-job
+    cutter-driven compression, per-job geometry and per-job plate pinning are
+    all preserved. The plan is the same object the CLI hands the export, so
+    this run exercises the production batch path, not a copy of it.
+
+    Args:
+        jobset_yaml: Path to the jobset YAML.
+        inventory: Cutter diameters from ``tools.json``.
+        boundary_hole_cutter_size: Requested boundary/hole cutter size.
+        job_config_path: ``job-config.json`` supplying the top-layer defaults.
+        stage_timings: Per-stage timing collector; the plan stage is recorded
+            into it so Phase 5J's report carries it.
+
+    Returns:
+        The :class:`plt_optimizer.generate.jobset.JobSetPlan`.
+
+    Raises:
+        plt_optimizer.generate.jobset.JobSetError: gate failure, a duplicate
+            ``job_key``, plate overflow, a missing member file, ...
+    """
+    from plt_optimizer.generate.jobset import (
+        build_jobset_plan,
+        jobset_id_of,
+        parse_jobset_yaml,
+    )
+
+    print_separator("PHASE 2J: JOBSET PLAN (CROSS-JOB GATE + PER-JOB PREPARATION)")
+
+    set_spec = parse_jobset_yaml(jobset_yaml)
+    print(f"Jobset id:     {jobset_id_of(set_spec, jobset_yaml)}")
+    print(f"Members ({len(set_spec.jobs)}):")
+    for index, entry in enumerate(set_spec.jobs, start=1):
+        print(f"  {index}. {entry.job}")
+
+    job_config = load_job_config(job_config_path)
+    with stage_timer("resolve", logger, timings=stage_timings):
+        plan = build_jobset_plan(
+            jobset_yaml,
+            job_config=job_config,
+            job_config_path=job_config_path,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter_size,
+            stage_timings=stage_timings,
+        )
+
+    print("\n--- CROSS-JOB GATE ---\n")
+    if plan.warnings:
+        for warning in plan.warnings:
+            print(f"  ! {warning}")
+        print("  (Warnings only - the members are allowed to share plates.)")
+    else:
+        print("  Clean: no plate-level overrides and no material collisions.")
+
+    print("\n--- PER-JOB PREPARATION ---\n")
+    for index, context in enumerate(plan.contexts, start=1):
+        print(f"Job {index}: key={context.job_key}  job_id={context.record.job_id}")
+        print(f"  Plates declared: {context.plate_count}   Labels: {len(context.resolved_labels)}")
+        pinned = sorted({label.plate_id for label in context.resolved_labels if label.plate_id})
+        for plate in context.plates or []:
+            pad = "  (pinned)" if plate.id in pinned else ""
+            material = plate.material if plate.material is not None else "(unset)"
+            print(f'    Plate {plate.id}: {plate.width}" x {plate.height}"{pad}  {material}')
+        for resolved in context.resolved_labels:
+            base = plan_base(plan, resolved.id)
+            print(
+                f"    Label {base} (id {resolved.id}): "
+                f'{resolved.width:.2f}" x {resolved.height:.2f}"  copies={resolved.count}'
+            )
+        print()
+
+    print("--- MERGED PLATE POOL ---\n")
+    print(f"Fill order: {plan.layout.value}   Allow rotation: {plan.allow_rotation}")
+    print(f"Pooled (declared) plates: {len(plan.merged_plates or [])}")
+    for plate in plan.merged_plates or []:
+        material = plate.material if plate.material is not None else "(unset)"
+        print(f'  {plate.id}: {plate.width}" x {plate.height}"  {material}')
+    if not plan.merged_plates:
+        print("  (No declared plates - the packer auto-allocates default sheets.)")
+
+    return plan
+
+
+def phase_2j_layout(
+    plan: JobSetPlan,
+    default_plate_size: tuple[float, float] | None = None,
+    stage_timings: StageTimings | None = None,
+) -> list[PackedPlate]:
+    """Phase 2J step 2: pack the merged pool (nominal dimensions, for reporting).
+
+    The same pre-export look Phase 2 gives a single job, over the pooled
+    labels of every member - plus the one number the whole feature exists
+    for: which jobs end up sharing which sheet.
+
+    Args:
+        plan: The plan from :func:`phase_2j_jobset_plan`.
+        default_plate_size: Auto-allocated sheet size from ``job-config.json``.
+        stage_timings: Per-stage timing collector.
+
+    Returns:
+        The packed plates of the nominal (reporting) layout.
+    """
+    print_separator("PHASE 2J-B: POOL BIN PACKING (ALL JOBS TOGETHER)")
+    print(
+        "(Nominal label dimensions, like Phase 2 - the export re-packs on "
+        "rendered extents,\n so the sheet count that ships is the one Phase 3 reports.)"
+    )
+
+    with stage_timer("layout", logger, timings=stage_timings):
+        packed_plates = generate_layout(
+            plan.merged_labels,
+            plan.merged_plates,
+            allow_rotation=plan.allow_rotation,
+            layout=plan.layout,
+            default_plate_size=default_plate_size,
+            default_plate_clearance=plan.default_plate_clearance,
+        )
+
+    print(f"Total plates generated: {len(packed_plates)}\n")
+    mixed = 0
+    for plate in packed_plates:
+        # owners_of() is keyed by the COMPOSITE ids the pool carries, so the
+        # label ids pass through unchanged (base_id() would miss every one).
+        owners = plan.provenance.owners_of([label.label_id for label in plate.labels])
+        mixed += len(owners) > 1
+        print(
+            f'Plate {plate.plate_id}: {plate.width}" x {plate.height}"  jobs: {", ".join(owners)}'
+        )
+        for packed_label in plate.labels:
+            job_key = plan.provenance.job_of_label(plan.provenance.base_id(packed_label.label_id))
+            rotated = " rotated" if packed_label.rotated else ""
+            print(
+                f"    - {packed_label.label_id} [{job_key}] "
+                f"({packed_label.x:.2f}, {packed_label.y:.2f}) "
+                f'{packed_label.width:.2f}" x {packed_label.height:.2f}"{rotated}'
+            )
+    print(f"\nSheets shared by more than one job: {mixed} of {len(packed_plates)}")
+    return packed_plates
+
+
+def phase_5j_jobset_report(
+    *,
+    plan: JobSetPlan,
+    batch_spec: JobSpec,
+    jobset_yaml: Path,
+    export_result: PerCutterExport,
+    inventory: list[float],
+    boundary_hole_cutter: float | None,
+    job_config: JobConfig | None,
+    capture: ReportCapture,
+    stage_timings: StageTimings,
+    started_at: str,
+    duration_seconds: float,
+    default_pdf_paths: list[Path] | None = None,
+) -> Path:
+    """Phase 5 (batch mode): the per-job reports, the manifest, the batch report.
+
+    Writes exactly what ``generate --jobset`` writes, from the same builders:
+
+    - ``<output>/<job_id>/generation_report/`` per member - that job's
+      ``report.json`` + ``summary.txt``, measured from the files that carry
+      its strokes (its own segments on a shared sheet, never the whole sheet)
+    - ``<output>/generation_report/jobset.json`` - the batch manifest
+    - ``<output>/generation_report/report.json`` + ``summary.txt`` - the
+      batch run's own report, carrying the ``jobset`` block
+
+    Args:
+        plan: The plan from :func:`phase_2j_jobset_plan`.
+        batch_spec: The set-level ``JobSpec`` the export reported against
+            (the first member's spec carrying the set's identity).
+        jobset_yaml: The jobset file recorded in the report.
+        export_result: The batch export.
+        inventory: Cutter inventory from ``tools.json``.
+        boundary_hole_cutter: Requested boundary/hole cutter size.
+        job_config: Loaded shop defaults.
+        capture: The log capture holding the run's WARNING/ERROR records.
+        stage_timings: The per-stage timing collector.
+        started_at: The run's start timestamp (ISO 8601).
+        duration_seconds: The run's wall-clock duration.
+        default_pdf_paths: The color-coded plots Phase 4 wrote.
+
+    Returns:
+        The batch ``summary.txt`` path.
+    """
+    from plt_optimizer.generate.jobset_report import (
+        build_jobset_block,
+        job_of_placement,
+        write_job_reports,
+        write_manifest,
+    )
+
+    print_separator("PHASE 5J: JOBSET REPORTS (PER-JOB + BATCH)")
+
+    report_dir = report_dir_for(export_result.output_dir)
+    # Production usage accounting of the whole batch, attributed per job.
+    try:
+        usage: dict[str, Any] | None = build_usage_stats(
+            resolved_labels=plan.merged_labels,
+            packed_plates=export_result.packed_plates,
+            combined_by_plate=export_result.combined_by_plate,
+            plt_files=export_result.plt_paths,
+            material_by_plate=export_result.material_by_plate,
+            job_spec=batch_spec,
+            job_config=job_config,
+            job_of_label=job_of_placement(export_result, plan),
+        )
+    except Exception as exc:  # noqa: BLE001 - reporting must not fail a good run
+        print(f"Usage accounting failed (report carries no usage block): {exc}")
+        usage = None
+
+    finished_at = utc_now_iso()
+    tools = _report_tools(inventory, boundary_hole_cutter, job_config)
+    options = _report_options()
+
+    reports = write_job_reports(
+        plan,
+        export_result,
+        output_dir=export_result.output_dir,
+        job_config=job_config,
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_seconds=duration_seconds,
+        tools=tools,
+        options=options,
+        timings=stage_timings,
+    )
+    jobset_block = build_jobset_block(
+        plan, export_result, reports, output_dir=export_result.output_dir, root_usage=usage
+    )
+    manifest = write_manifest(
+        plan, export_result, reports, output_dir=export_result.output_dir, root_usage=usage
+    )
+
+    report = build_report(
+        job_name=plan.jobset_name,
+        job_id=plan.jobset_id,
+        spec_path=jobset_yaml,
+        output_dir=export_result.output_dir,
+        report_dir=report_dir,
+        status="success",
+        started_at=started_at,
+        finished_at=finished_at,
+        duration_seconds=duration_seconds,
+        tools=tools,
+        options=options,
+        plate_count=len(export_result.packed_plates),
+        resolved_labels=plan.merged_labels,
+        rendered_by_id=export_result.rendered_labels,
+        packed_plates=export_result.packed_plates,
+        plt_files=export_result.plt_paths,
+        pdf_files=export_result.pdf_paths,
+        default_pdf_files=list(default_pdf_paths or []),
+        records=capture.records,
+        stage_records=capture.stage_records,
+        timings=stage_timings,
+        usage=usage,
+        jobset=jobset_block,
+    )
+    json_path, summary_path = write_report(report_dir, report)
+
+    print("\n--- JOBSET REPORT SURFACE ---\n")
+    for job_key, report_path in sorted(reports.job_reports.items()):
+        print(f"Job report [{job_key}]: {_display_path(report_path)}")
+    print(f"Batch manifest: {_display_path(reports.manifest_path)}")
+    print(f"Batch report:   {_display_path(json_path)}")
+    print(f"Batch summary:  {_display_path(summary_path)}")
+
+    # The plate map (jobset.json) is where the batch's whole point shows: a
+    # sheet carrying more than one job. The block's per-job rows carry the
+    # accounting each member's report was measured from.
+    plates = list(manifest.get("plates", []))
+    shared = [plate for plate in plates if len(plate.get("jobs", [])) > 1]
+    print(f"\n--- PLATE MAP ({len(plates)} sheet(s), {len(shared)} shared) ---\n")
+    for plate in plates:
+        jobs = ", ".join(plate.get("jobs", []))
+        material = plate.get("material") or "(unset)"
+        print(
+            f"  Sheet {plate.get('plate')}: {plate.get('id')}  {material}  "
+            f"jobs: {jobs}  files: {len(plate.get('files', []))}"
+        )
+
+    cross_job = jobset_block.get("cross_job", {})
+    print("\n--- PER-JOB TOTALS (from the shared files) ---\n")
+    for row in jobset_block.get("jobs", []):
+        print(
+            f"  {row.get('job_key')}: distance {row.get('distance_total', 0.0):.3f} in, "
+            f"time {row.get('time_total', 0.0):.1f} s, "
+            f"unattributed {row.get('unattributed', 0.0):.3f} in"
+        )
+    print(
+        f"\nCross-job: {cross_job.get('strokes_merged', 0)} stroke(s) merged on shared sheets, "
+        f"{cross_job.get('distance_saved', 0.0):.3f} in of rapid travel saved"
+    )
+    print(f"  {cross_job.get('note', '')}")
+    gate = manifest.get("gate", {})
+    if gate.get("warnings"):
+        print(f"\nGate warnings recorded in the manifest: {len(gate['warnings'])}")
+    print()
+    print(format_summary(report))
+
+    return summary_path
+
+
+# ============================================================================
 # PHASE 3: OPTIMIZATION AND VISUALIZATION
 # ============================================================================
 def phase_3_vectorization_and_export(
@@ -434,6 +794,9 @@ def phase_3_vectorization_and_export(
     available_cutters: list[float] | None = None,
     capture: ReportCapture | None = None,
     stage_timings: StageTimings | None = None,
+    layer_specs: dict[str, JobSpec] | None = None,
+    provenance: Any | None = None,
+    plots: bool = True,
 ) -> PerCutterExport:
     """Phase 3: Export per-cutter PLT files using the clean Phase 3 pipeline.
 
@@ -489,6 +852,17 @@ def phase_3_vectorization_and_export(
             ``export_per_cutter_plts``; Phase 5's report publishes the
             numbers (the stage records are INFO level, so the collector is
             what makes them survive a quieter logger).
+        layer_specs: Batch mode only - ``job_key -> member JobSpec``,
+            forwarded to the export so every per-cutter header carries the
+            options of the job that OWNS the strokes in that file (a jobset
+            merges members with different ``tool_options``). ``None`` keeps
+            the single-job behavior (one spec for every file).
+        provenance: Batch mode only - the plan's
+            :class:`plt_optimizer.generate.jobset.JobProvenance`, forwarded
+            to the export so it can stamp ``jobset.json`` and the
+            job-coloured plate-proof overlays. ``None`` = a single job.
+        plots: Write the simple-outline PDF previews alongside the PLTs
+            (``--no-plots`` turns them off; toolpaths are unaffected).
 
     Returns:
         The :class:`PerCutterExport` with written PLT/PDF paths and the
@@ -534,7 +908,7 @@ def phase_3_vectorization_and_export(
         job_id=job_id,
         job_name=job_name,
         optimize=True,
-        plots=True,
+        plots=plots,
         allow_rotation=allow_rotation,
         layout=layout,
         default_plate_size=default_plate_size,
@@ -544,6 +918,8 @@ def phase_3_vectorization_and_export(
         logger=export_logger,
         available_cutters=available_cutters,
         stage_timings=stage_timings,
+        layer_specs=layer_specs,
+        provenance=provenance,
     )
 
     print("\n--- EXPORT RESULTS ---\n")
@@ -689,6 +1065,10 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
         them alongside the export's own artifacts.
     """
     print_separator("PHASE 4: VISUALIZATION (OPTIONAL)")
+
+    if not WRITE_PLOTS:
+        print("\u2139 Plots disabled by --no-plots; this run writes no PDFs.")
+        return []
 
     if not GENERATE_DEFAULT_PLOTS:
         print(
@@ -906,6 +1286,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             available_cutters=inventory,
             capture=capture,
             stage_timings=stage_timings,
+            plots=WRITE_PLOTS,
         )
 
         # Phase 3.5: Coordinate Validation (on the written per-cutter PLTs)
@@ -1101,6 +1482,276 @@ def _collect_spec_paths(spec_dir: Path) -> list[Path]:
     return spec_paths
 
 
+def _run_single_jobset(jobset_yaml: Path) -> int:
+    """Execute the full end-to-end integration pipeline for one jobset.
+
+    Batch mode mirrors the ``generate --jobset`` CLI phase for phase, calling
+    the same production helpers (``build_jobset_plan``,
+    ``export_per_cutter_plts`` with ``layer_specs``/``provenance``,
+    ``write_job_reports`` / ``write_manifest`` / ``build_jobset_block``) with
+    this harness's intermediate-state prints around them. On top of the
+    single-job phases it exercises, that verifies the batch contract: the
+    cross-job gate, one shared pool packed across every job, the
+    owner-named per-job PLT segments, the job-coloured plate-proof overlays,
+    and the three report surfaces (per job, ``jobset.json``, the batch
+    ``report.json``).
+
+    Args:
+        jobset_yaml: Path to the jobset YAML.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from plt_optimizer.cli.generate import _default_plate_size
+    from plt_optimizer.generate.jobset import JobSetError
+
+    started_at = utc_now_iso()
+    start = time.perf_counter()
+    stage = "prep"
+    capture = ReportCapture()
+    stage_timings = StageTimings()
+    if not jobset_yaml.is_absolute():
+        jobset_yaml = REPO_ROOT / jobset_yaml
+    output_dir = _resolve_output_dir(jobset_yaml, jobset_yaml)
+    job_config: JobConfig | None = None
+    batch_spec: JobSpec | None = None
+    plan: JobSetPlan | None = None
+    inventory: list[float] = []
+    boundary_hole_cutter: float | None = None
+    export_result: PerCutterExport | None = None
+
+    try:
+        # Phase 1: files + cutter inventory (the same prep a single job runs).
+        jobset_yaml, _tools_json, inventory, boundary_hole_cutter, job_config_json = (
+            phase_1_data_prep(jobset_yaml)
+        )
+        output_dir = _resolve_output_dir(jobset_yaml, jobset_yaml)
+
+        # Phase 2J: parse the set, run the gate, prepare every member.
+        stage = "resolve"
+        plan = phase_2j_jobset_plan(
+            jobset_yaml,
+            inventory,
+            boundary_hole_cutter,
+            job_config_json,
+            stage_timings=stage_timings,
+        )
+        job_config = load_job_config(job_config_json)
+        default_plate_size = _default_plate_size(job_config)
+
+        # Phase 2J-B: pack the merged pool (reporting view, per-plate jobs).
+        stage = "layout"
+        phase_2j_layout(plan, default_plate_size=default_plate_size, stage_timings=stage_timings)
+
+        # The batch-level JobSpec the export reads its pool-wide settings
+        # from - the first member's spec carrying the SET's identity, plate
+        # pool and label pool (exactly what the CLI builds). Members' own
+        # specs reach the per-file headers through ``layer_specs``.
+        batch_spec = plan.contexts[0].spec.model_copy(
+            update={
+                "job_name": plan.jobset_name,
+                "plates": plan.merged_plates,
+                "labels": plan.merged_labels,
+            }
+        )
+
+        # Phase 3: the one batch export over the pooled labels/plates.
+        stage = "export"
+        export_result = phase_3_vectorization_and_export(
+            plan.merged_labels,
+            plan.merged_plates,
+            output_dir,
+            plan.jobset_id,
+            plan.jobset_name,
+            plan.allow_rotation,
+            plan.layout,
+            default_plate_size,
+            plan.default_plate_clearance,
+            batch_spec,
+            job_config,
+            available_cutters=inventory,
+            capture=capture,
+            stage_timings=stage_timings,
+            layer_specs={context.job_key: context.spec for context in plan.contexts},
+            provenance=plan.provenance,
+            plots=WRITE_PLOTS,
+        )
+
+        # Phase 3.5/3.6: coordinate validation and the applied layout report
+        # run over every file the batch wrote, shared sheets included.
+        stage = "validate"
+        phase_3_5_validate_coordinates(export_result.plt_paths)
+        phase_3_6_layout_report(plan.merged_labels, export_result)
+
+        # Phase 4: Visualization (optional)
+        stage = "plots"
+        default_pdf_paths = phase_4_visualization(export_result, job_name=plan.jobset_name)
+
+        # Phase 5J: per-job reports + the batch manifest + the batch report.
+        stage = "report"
+        phase_5j_jobset_report(
+            plan=plan,
+            batch_spec=batch_spec,
+            jobset_yaml=jobset_yaml,
+            export_result=export_result,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter,
+            job_config=job_config,
+            capture=capture,
+            stage_timings=stage_timings,
+            started_at=started_at,
+            duration_seconds=time.perf_counter() - start,
+            default_pdf_paths=default_pdf_paths,
+        )
+
+        print_separator("INTEGRATION TEST COMPLETE (JOBSET)")
+        print("Batch pipeline executed successfully")
+        print()
+        print("Comparison:")
+        print("1. Inspect the generated artifacts under the output directory:")
+        print("   - plt/: per-cutter toolpath files, one SEGMENT per job that owns strokes")
+        print(
+            "       [<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt: "
+            "that job's text on that cutter"
+        )
+        print("       [<plate>_][<material>_]<cutter>_bh_<job_id>.plt: that job's borders + holes")
+        print("   - pdf/: simple-outline previews; [<...>_]all_<jobset_id>.pdf shows every job")
+        print("       on the sheet, one colour per job, with a name-per-job key box")
+        print("   - <job_id>/generation_report/: the per-job report + summary")
+        print("   - generation_report/: report.json (with the jobset block) + jobset.json")
+        print()
+        print("2. Check that every shared sheet is a single file per cutter per job, that the")
+        print("   per-job reports charge only that job's strokes, and that the batch report's")
+        print("   plate total is no larger than the largest single-job run would have needed.")
+        print()
+
+        return 0
+
+    except JobSetError as e:
+        # The gate refusing the batch is the most informative outcome a
+        # jobset run can have; print it in full (every rule that fired) and
+        # still leave the failure report on disk.
+        logger.error(f"Jobset gate/parsing refused the batch: {e}", exc_info=True)
+        print_separator("INTEGRATION TEST FAILED (JOBSET GATE)")
+        print(f"Error: {e}")
+        _write_failure_report_for_run(
+            stage=stage,
+            error=e,
+            job_yaml=jobset_yaml,
+            output_dir=output_dir,
+            job=batch_spec,
+            job_config=job_config,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter,
+            resolved_labels=plan.merged_labels if plan is not None else [],
+            export_result=export_result,
+            capture=capture,
+            stage_timings=stage_timings,
+            started_at=started_at,
+            duration_seconds=time.perf_counter() - start,
+        )
+        return 1
+    except Exception as e:
+        logger.error(f"Batch pipeline failed: {e}", exc_info=True)
+        print_separator("INTEGRATION TEST FAILED (JOBSET)")
+        print(f"Error: {e}")
+        _write_failure_report_for_run(
+            stage=stage,
+            error=e,
+            job_yaml=jobset_yaml,
+            output_dir=output_dir,
+            job=batch_spec,
+            job_config=job_config,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter,
+            resolved_labels=plan.merged_labels if plan is not None else [],
+            export_result=export_result,
+            capture=capture,
+            stage_timings=stage_timings,
+            started_at=started_at,
+            duration_seconds=time.perf_counter() - start,
+        )
+        return 1
+    finally:
+        # Detach the capture so a directory run's next set never inherits
+        # this run's warnings (the plt_optimizer logger is reused in-process).
+        capture.close()
+
+
+def _collect_jobset_paths(spec_dir: Path) -> list[Path]:
+    """Expand a directory into the jobset YAML files to run.
+
+    Args:
+        spec_dir: Directory containing jobset YAML files (scanned
+            non-recursively).
+
+    Returns:
+        Sorted list of the ``*.yaml`` / ``*.yml`` files in the directory whose
+        root element is ``jobset``. Job specs in the same directory are
+        ignored - run those without ``--jobset``.
+
+    Raises:
+        FileNotFoundError: If the directory contains no jobset files.
+    """
+    from plt_optimizer.generate.jobset import is_jobset_file
+
+    spec_paths = sorted(
+        path
+        for path in spec_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in (".yaml", ".yml") and is_jobset_file(path)
+    )
+    if not spec_paths:
+        raise FileNotFoundError(f"No jobset YAML files found in directory: {spec_dir}")
+    return spec_paths
+
+
+def _run_directory(spec_paths: list[Path], runner: Any, title: str) -> int:
+    """Run every file of a directory-mode sweep and print the PASS/FAIL summary.
+
+    Args:
+        spec_paths: The files to run, in order.
+        runner: Callable taking one path and returning its exit code.
+        title: The separator line naming the mode and the file count.
+
+    Returns:
+        Exit code (0 when every run passed, 1 if any failed).
+    """
+    print_separator(title)
+
+    results: list[tuple[Path, int]] = []
+    for index, spec_path in enumerate(spec_paths, start=1):
+        print_separator(f"RUN {index}/{len(spec_paths)}: {spec_path.name}")
+        results.append((spec_path, runner(spec_path)))
+
+    print_separator("DIRECTORY RUN SUMMARY")
+    exit_code = 0
+    for spec_path, code in results:
+        status = "PASS" if code == 0 else "FAIL"
+        print(f"  [{status}] {spec_path.name}")
+        exit_code = max(exit_code, code)
+    return exit_code
+
+
+def _usage() -> str:
+    """Return the command-line usage text."""
+    return (
+        "Usage: run_integration_test.py [--no-plots] [PATH]\n"
+        "       run_integration_test.py --jobset [--no-plots] [PATH]\n"
+        "\n"
+        "  PATH         A job spec YAML (or a directory of them) - or, with\n"
+        "               --jobset, a jobset YAML (or a directory of them).\n"
+        "               Defaults: tests_deps/test123_spec.yaml without\n"
+        f"               --jobset, {DEFAULT_JOBSET_DIR.relative_to(REPO_ROOT)} with it.\n"
+        "  --jobset     Run the batch pipeline: every member of the set is\n"
+        "               prepared, merged into one plate pool, exported as one\n"
+        "               run, and reported per job + as a batch.\n"
+        "  --no-plots   Skip EVERY PDF: the export's simple-outline previews\n"
+        "               and Phase 4's color-coded plots. Toolpaths, coordinate\n"
+        "               validation and every report are unaffected.\n"
+        "  -h, --help   Show this message.\n"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Execute the full end-to-end integration test pipeline.
 
@@ -1113,18 +1764,77 @@ def main(argv: list[str] | None = None) -> int:
             prints a PASS/FAIL summary at the end. Defaults to
             ``tests_deps/test123_spec.yaml``.
 
+            With ``--jobset`` the same shapes select jobset files instead: a
+            jobset YAML, a directory of them (``*.yaml`` files whose root is
+            ``jobset``), or the default directory
+            ``examples/job_specs/job_sets`` when no path is given.
+
     Returns:
-        Exit code (0 for success, 1 if any spec failed).
+        Exit code (0 for success, 1 if any run failed).
     """
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv:
+
+    if any(item in ("-h", "--help") for item in argv):
+        print(_usage())
+        return 0
+
+    jobset_mode = "--jobset" in argv
+    positional = [item for item in argv if item not in ("--jobset", "--no-plots")]
+    global WRITE_PLOTS
+    WRITE_PLOTS = "--no-plots" not in argv
+    unknown = [item for item in positional if item.startswith("-")]
+    if unknown:
+        print(f"Unrecognized option(s): {', '.join(unknown)}\n", file=sys.stderr)
+        print(_usage(), file=sys.stderr)
+        return 2
+    if positional and jobset_mode and len(positional) > 1:
+        print("Error: --jobset takes at most one path.\n", file=sys.stderr)
+        print(_usage(), file=sys.stderr)
+        return 2
+
+    if jobset_mode:
+        target = Path(positional[0]) if positional else DEFAULT_JOBSET_DIR
+        if not target.is_absolute():
+            target = REPO_ROOT / target
+        if target.is_dir():
+            try:
+                spec_paths = _collect_jobset_paths(target)
+            except FileNotFoundError as e:
+                logger.error(f"Jobset directory mode failed: {e}")
+                print_separator("INTEGRATION TEST FAILED (JOBSET)")
+                print(f"Error: {e}")
+                return 1
+            return _run_directory(
+                spec_paths,
+                _run_single_jobset,
+                f"JOBSET DIRECTORY MODE: {len(spec_paths)} jobset file(s) in {target}",
+            )
+        if not target.exists():
+            message = f"Jobset file not found: {target}"
+            logger.error(message)
+            print_separator("INTEGRATION TEST FAILED (JOBSET)")
+            print(f"Error: {message}")
+            return 1
+        return _run_single_jobset(target)
+
+    if not positional:
         return _run_single_spec(None)
 
-    spec_override = Path(argv[0])
+    spec_override = Path(positional[0])
     if not spec_override.is_absolute():
         spec_override = REPO_ROOT / spec_override
 
     if not spec_override.is_dir():
+        from plt_optimizer.generate.jobset import is_jobset_file
+
+        if spec_override.suffix.lower() in (".yaml", ".yml") and is_jobset_file(spec_override):
+            print(
+                f"Error: {spec_override} is a jobset, not a job spec.\n"
+                "       Run it with the batch pipeline: "
+                f"python {Path(__file__).name} --jobset {spec_override}",
+                file=sys.stderr,
+            )
+            return 1
         return _run_single_spec(spec_override)
 
     try:
@@ -1132,23 +1842,14 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError as e:
         logger.error(f"Directory mode failed: {e}")
         print_separator("INTEGRATION TEST FAILED")
-        print(f"✗ Error: {e}")
+        print(f"Error: {e}")
         return 1
 
-    print_separator(f"DIRECTORY MODE: {len(spec_paths)} YAML job specs in {spec_override}")
-
-    results: list[tuple[Path, int]] = []
-    for index, spec_path in enumerate(spec_paths, start=1):
-        print_separator(f"RUN {index}/{len(spec_paths)}: {spec_path.name}")
-        results.append((spec_path, _run_single_spec(spec_path)))
-
-    print_separator("DIRECTORY RUN SUMMARY")
-    exit_code = 0
-    for spec_path, code in results:
-        status = "PASS" if code == 0 else "FAIL"
-        print(f"  [{status}] {spec_path.name}")
-        exit_code = max(exit_code, code)
-    return exit_code
+    return _run_directory(
+        spec_paths,
+        _run_single_spec,
+        f"DIRECTORY MODE: {len(spec_paths)} YAML job specs in {spec_override}",
+    )
 
 
 if __name__ == "__main__":

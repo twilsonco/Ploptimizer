@@ -450,3 +450,120 @@ class TestReportHelpers:
         options = script._report_options()
         assert options["source"] == "scripts/run_integration_test.py"
         assert options["default_plots"] is script.GENERATE_DEFAULT_PLOTS
+
+
+class TestJobsetModeArgs:
+    """The batch mode's command line: dispatch, defaults, filtering, ``--no-plots``.
+
+    None of these tests engrave anything: the runs are stubbed at the phase
+    boundary, so what is pinned is the argument surface (which runner a shape
+    selects, which files a directory sweep takes, when the runner refuses) and
+    the plot switch that the whole suite needs on a machine where the PDF
+    backend aborts the process.
+    """
+
+    SET_DIR = REPO_ROOT / "examples" / "job_specs" / "job_sets"
+
+    @pytest.fixture()
+    def set_files(self, tmp_path: Path) -> Path:
+        """Copy the shipped example set (and its members) into a temp directory."""
+        for name in ("jobset example.yaml", "jobset example A.yaml", "jobset example B.yaml"):
+            (tmp_path / name).write_text((self.SET_DIR / name).read_text(encoding="utf-8"))
+        return tmp_path
+
+    @pytest.fixture(autouse=True)
+    def _plots_on(self, script: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Keep the module's plot switch True unless a test drives it."""
+        monkeypatch.setattr(script, "WRITE_PLOTS", True, raising=False)
+
+    def test_jobset_file_runs_the_batch_runner(
+        self, script: Any, set_files: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[Path] = []
+
+        def _record(path: Any) -> int:
+            seen.append(path)
+            return 0
+
+        monkeypatch.setattr(script, "_run_single_jobset", _record, raising=False)
+        assert script.main(["--jobset", str(set_files / "jobset example.yaml")]) == 0
+        assert seen == [set_files / "jobset example.yaml"]
+
+    def test_jobset_without_a_path_defaults_to_the_example_directory(
+        self, script: Any, set_files: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        roots: list[Path] = []
+
+        def _collect(spec_dir: Path) -> list[Path]:
+            roots.append(spec_dir)
+            return []
+
+        monkeypatch.setattr(script, "_collect_jobset_paths", _collect, raising=False)
+        monkeypatch.setattr(script, "DEFAULT_JOBSET_DIR", set_files, raising=False)
+        script.main(["--jobset"])
+        assert roots == [set_files]
+
+    def test_jobset_directory_mode_takes_only_the_sets(self, script: Any, set_files: Path) -> None:
+        (set_files / "plain_job.yaml").write_text(
+            "job:\n  job_name: Plain\n  labels: []\n", encoding="utf-8"
+        )
+        collected = script._collect_jobset_paths(set_files)
+        assert [path.name for path in collected] == ["jobset example.yaml"]
+
+    def test_a_set_without_the_flag_is_refused(
+        self, script: Any, set_files: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code = script.main([str(set_files / "jobset example.yaml")])
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "is a jobset, not a job spec" in err
+        assert "--jobset" in err
+
+    def test_no_plots_skips_every_pdf_in_batch_mode(
+        self, script: Any, set_files: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def _record(path: Any) -> int:
+            return 0
+
+        monkeypatch.setattr(script, "_run_single_jobset", _record, raising=False)
+        assert script.main(["--jobset", "--no-plots", str(set_files / "jobset example.yaml")]) == 0
+        assert script.WRITE_PLOTS is False
+        assert script._report_options()["no_plots"] is True
+
+    def test_no_plots_skips_every_pdf_for_job_specs(
+        self, script: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[Any] = []
+
+        def _record(path: Any) -> int:
+            seen.append(path)
+            return 0
+
+        monkeypatch.setattr(script, "_run_single_spec", _record, raising=False)
+        assert script.main(["--no-plots", "tests_deps/test123_spec.yaml"]) == 0
+        assert seen == [REPO_ROOT / "tests_deps" / "test123_spec.yaml"]
+        assert script.WRITE_PLOTS is False
+
+    def test_no_plots_returns_no_phase_4_paths(
+        self, script: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(script, "WRITE_PLOTS", False, raising=False)
+        export = _export(tmp_path, _job())
+        assert script.phase_4_visualization(export, job_name="x") == []
+
+    def test_two_paths_are_refused(
+        self, script: Any, set_files: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert script.main(["--jobset", "a.yaml", "b.yaml"]) == 2
+        assert "at most one path" in capsys.readouterr().err
+
+    def test_unknown_option_is_refused(
+        self, script: Any, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        assert script.main(["--nonsense"]) == 2
+        assert "Unrecognized option(s): --nonsense" in capsys.readouterr().err
+
+    def test_help_prints_usage(self, script: Any, capsys: pytest.CaptureFixture[str]) -> None:
+        assert script.main(["--help"]) == 0
+        out = capsys.readouterr().out
+        assert "--jobset" in out and "--no-plots" in out
