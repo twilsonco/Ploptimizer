@@ -171,3 +171,9 @@
     - One solution comes from the fact that, in general plates are packed either column-wise or row-wise. So we could draw along the border(s) between jobs to providing the simplest method of visual indication of labels being on different jobs, leaving which job is which up to the user to figure out.
     - Another approach would be to use dashed (or dotted) colored borders atop the existing label borders, then include a legend or key indicating which color corresponds to which job. This is probably the better approach.
     - If you have other ideas for visually distinguishing labels from different jobs on the same plate, they should be considered here as well.
+- [ ] Implement alternative, more expensive kerning algorithm.
+  - The current algorithm (based on a windowed, width profile approach), falls short. I want to add a more computationally expensive algorithm that steps down every stroke of every character, checking adjacent characters pairwise, and adjusting spacing to ensure that every pair of subsequent characters is separated by the same kerning distance.
+  - We'll add a new enum parameter, `kerning_quality` to specify which kerning algorithm to use, `fast` or `precise`. And add a new float parameter, `kerning_precise_distance_fraction` to specify the desired kerning distance for the precise algorithm as a fraction of the `capline - baseline` distance.
+  - Both parameters will cascade job -> plate -> label -> text line, and have defaults in job-config.json of `precise` and 0.1.
+- [ ] Add to summary txt/json report approximated weight of engraved labels
+  - one 16x24 plate weighs approx. 1 lb. (0.00260417 lb/in²)
