@@ -49,8 +49,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from plt_optimizer.core.filenames import sanitize_filename_component
-
 # Light generation imports (pure Python) are safe at module scope. The heavy
 # ones (layout / label_renderer / vectorize transitively pull in
 # numpy + matplotlib + vpype) are imported lazily inside run(): the main CLI
@@ -65,11 +63,15 @@ from plt_optimizer.generate.generation_report import (
     utc_now_iso,
     write_report,
 )
-from plt_optimizer.generate.job_config import JobConfig, load_job_config
+from plt_optimizer.generate.job_config import load_job_config
+from plt_optimizer.generate.job_prep import (
+    JobPreparationError,
+    default_plate_clearance,
+    default_plate_size,
+    prepare_job,
+    sanitize_job_id,
+)
 from plt_optimizer.generate.layout_report import format_layout_report
-from plt_optimizer.generate.resolution import resolve_job_spec
-from plt_optimizer.generate.schema import JobSpec, parse_yaml
-from plt_optimizer.generate.substitution import SubstitutionError, expand_job_spec
 from plt_optimizer.utils.logging import apply_log_levels, publish_log_policy, setup_logging
 from plt_optimizer.utils.stage_timing import StageTimings, stage_timer
 
@@ -166,7 +168,16 @@ def _sanitize_job_id(job_name: str) -> str:
     Returns:
         A safe identifier for use in output file names.
     """
-    return sanitize_filename_component(job_name, fallback="job")
+    return sanitize_job_id(job_name)
+
+
+# The per-job front half of the pipeline (config load, parse + expand,
+# resolution) moved to :mod:`plt_optimizer.generate.job_prep` so a jobset
+# resolves every member job through exactly this code path. The private
+# aliases below stay for the callers outside this module (the profiler
+# scripts, the test suite) that address them here.
+_default_plate_size = default_plate_size
+_default_plate_clearance = default_plate_clearance
 
 
 def _load_cutter_inventory(
@@ -202,45 +213,6 @@ def _load_cutter_inventory(
     if boundary_hole_cutter is not None:
         _LOG.info("Loaded boundary/hole cutter size: %s", boundary_hole_cutter)
     return inventory, boundary_hole_cutter
-
-
-def _default_plate_size(job_config: Optional[JobConfig]) -> Optional[Tuple[float, float]]:
-    """Extract the ``(width, height)`` default plate size from a job config.
-
-    Args:
-        job_config: The loaded job config, or ``None``.
-
-    Returns:
-        The configured ``(plate_width, plate_height)`` when both are set,
-        otherwise ``None`` (callers keep their historical defaults).
-    """
-    if job_config is None:
-        return None
-    defaults = job_config.defaults
-    if defaults.plate_width is None or defaults.plate_height is None:
-        return None
-    return (defaults.plate_width, defaults.plate_height)
-
-
-def _default_plate_clearance(job: JobSpec) -> Optional[Tuple[float, float]]:
-    """Extract the ``(left, top)`` default plate clearance from a job spec.
-
-    Reads the job-level ``left_clearance`` / ``top_clearance`` (which
-    already include ``job-config.json`` injection via ``parse_yaml``).
-
-    Args:
-        job: The parsed job specification.
-
-    Returns:
-        The job-level ``(left_clearance, top_clearance)`` when at least
-        one is non-zero, otherwise ``None`` (no shift on auto-allocated
-        plates; the fields default to ``0.0``).
-    """
-    left = job.left_clearance or 0.0
-    top = job.top_clearance or 0.0
-    if not left and not top:
-        return None
-    return (left, top)
 
 
 def _write_failure_report(
@@ -471,65 +443,8 @@ def _run_generate(args: argparse.Namespace) -> int:
 
     try:
         job_config = load_job_config(args.job_config)
-        with stage_timer("parse", _LOG, timings=stage_timings):
-            job = parse_yaml(spec_path, job_config_path=args.job_config)
-            # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
-            # into static LabelSpecs before resolution, per the schema contract.
-            job = expand_job_spec(job, spec_path)
-        unique_labels = len(job.labels) if job.labels is not None else 0
-        plate_count = len(job.plates) if job.plates is not None else 0
-        job_name = job.job_name
-        job_id = _sanitize_job_id(job.job_name)
-        _LOG.info(
-            "Loaded %s: %d plates, %d unique labels. Output will be written to: %s",
-            job.job_name,
-            plate_count,
-            unique_labels,
-            output_dir,
-        )
-    except SubstitutionError as e:
-        capture.close()
-        print(f"Error expanding replacement text file: {e}", file=sys.stderr)
-        _write_failure_report(
-            report_dir,
-            job_name=job_name,
-            job_id=job_id,
-            spec_path=spec_path,
-            output_dir=output_dir,
-            error=e,
-            stage="expand",
-            started_at=started_at,
-            finished_at=utc_now_iso(),
-            duration_seconds=time.perf_counter() - start,
-            tools=tools,
-            options=options,
-            plate_count=plate_count,
-            records=capture.records,
-            stage_records=capture.stage_records,
-            timings=stage_timings,
-        )
-        return 1
     except Exception as e:
-        capture.close()
         print(f"Error parsing specification: {e}", file=sys.stderr)
-        _write_failure_report(
-            report_dir,
-            job_name=job_name,
-            job_id=job_id,
-            spec_path=spec_path,
-            output_dir=output_dir,
-            error=e,
-            stage="parse",
-            started_at=started_at,
-            finished_at=utc_now_iso(),
-            duration_seconds=time.perf_counter() - start,
-            tools=tools,
-            options=options,
-            plate_count=plate_count,
-            records=capture.records,
-            stage_records=capture.stage_records,
-            timings=stage_timings,
-        )
         return 1
 
     inventory, boundary_hole_cutter = _load_cutter_inventory(args.tools)
@@ -548,45 +463,70 @@ def _run_generate(args: argparse.Namespace) -> int:
         ),
     }
 
-    # Lazy heavy imports (see module docstring note in the top-level imports).
-    # The root logger's handlers are snapshotted first: some third-party
-    # libraries (vpype) install a root handler of their own on import, and
-    # the pipeline logger propagates to the root -- so the extra handler
-    # would print every record a second time, in a foreign format. The
-    # handlers that exist before the import (the test suite's capture
-    # handler, a caller's own) are kept.
-    root_handlers = list(logging.getLogger().handlers)
+    def _handle_prep_failure(e: JobPreparationError) -> int:
+        """Reproduce the CLI's per-stage failure contract for a prep error.
+
+        Args:
+            e: The preparation error (carries the stage, the underlying
+                exception and the console line for that shape).
+
+        Returns:
+            The process exit code (1).
+        """
+        if not e.console_message:
+            # CutterSizeError and friends from the resolve stage: the
+            # generic "Generation FAILED" path, as before.
+            return _fail(e.cause, e.stage)
+        capture.close()
+        print(e.console_message, file=sys.stderr)
+        _write_failure_report(
+            report_dir,
+            job_name=job_name,
+            job_id=job_id,
+            spec_path=spec_path,
+            output_dir=output_dir,
+            error=e.cause,
+            stage=e.stage,
+            started_at=started_at,
+            finished_at=utc_now_iso(),
+            duration_seconds=time.perf_counter() - start,
+            tools=tools,
+            options=options,
+            plate_count=plate_count,
+            records=capture.records,
+            stage_records=capture.stage_records,
+            timings=stage_timings,
+        )
+        return 1
+
+    try:
+        prepared = prepare_job(
+            spec_path,
+            job_config=job_config,
+            job_config_path=args.job_config,
+            inventory=inventory,
+            boundary_hole_cutter=boundary_hole_cutter,
+            stage_timings=stage_timings,
+        )
+    except JobPreparationError as e:
+        return _handle_prep_failure(e)
+
+    job = prepared.job
+    job_name = prepared.job_name
+    job_id = prepared.job_id
+    plate_count = prepared.plate_count
+
     from plt_optimizer.generate.collision.detection import LabelRenderError
-    from plt_optimizer.generate.label_renderer import measure_line_vertical_extents
     from plt_optimizer.generate.packing.layout import LayoutFitError
-    from plt_optimizer.generate.resolution import (
-        CutterSizeError,
-        memoize_extents_probe,
-    )
+    from plt_optimizer.generate.resolution import CutterSizeError
     from plt_optimizer.generate.usage_stats import build_usage_stats
     from plt_optimizer.generate.vectorize import export_per_cutter_plts
 
-    root_logger = logging.getLogger()
-    for handler in list(root_logger.handlers):
-        if handler not in root_handlers:
-            root_logger.removeHandler(handler)
-
+    default_plate_size = _default_plate_size(job_config)
     try:
-        with stage_timer("resolve", _LOG, timings=stage_timings):
-            resolved_labels = resolve_job_spec(
-                job,
-                available_cutters=inventory,
-                boundary_hole_cutter_size=boundary_hole_cutter,
-                # Baseline spacing measures each line's real descender extent so
-                # auto spacing and margin fitting account for it (the probe is
-                # memoized and is never called for single-line labels, labels
-                # stacking by ink box, or jobs without a multi-line label).
-                extents_probe=memoize_extents_probe(measure_line_vertical_extents),
-            )
-        default_plate_size = _default_plate_size(job_config)
         with stage_timer("export", _LOG, timings=stage_timings):
             export_result = export_per_cutter_plts(
-                resolved_labels,
+                prepared.resolved_labels,
                 job.plates,
                 output_dir=output_dir,
                 job_id=job_id,
@@ -616,6 +556,8 @@ def _run_generate(args: argparse.Namespace) -> int:
         return _fail(e, "resolve")
     except (OSError, ValueError) as e:
         return _fail(e, "export")
+
+    resolved_labels = prepared.resolved_labels
 
     # Production usage accounting (labels / characters / holes / material /
     # tool distance / run time). The distance and time blocks are measured
