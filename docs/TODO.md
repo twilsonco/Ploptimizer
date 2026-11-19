@@ -144,12 +144,8 @@
 - jobset: SHIPPED (2026-11-18) - the batch spec above is implemented; see the
   `- [x]` entry at the top of `docs/DONE.md`, the contract in
   [`plans/jobset.md`](plans/jobset.md) and the user guide in README's
-  `generate --jobset` section. Follow-ons worth considering, discovered while
-  building it:
-  - Cross-job routing of a shared sheet: a plate's job segments are engraved one
-    pass per job, so the rapid travel between two segments of the same cutter is
-    not reclaimed. Merging it would need a report model that splits one stroke's
-    travel across jobs (the per-job `usage` numbers are the product).
+  `generate --jobset` section. Follow-ons worth considering (the first one that
+  was on this list - cross-job routing of a shared sheet - has since shipped):
   - A jobset-wide `material`/plate pool: members declaring the same sheet
     geometry are pooled (the gate names the owners), but a member cannot say
     "use only sheets job A already declared".

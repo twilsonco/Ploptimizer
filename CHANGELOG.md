@@ -8,11 +8,15 @@
   plates** (`plt-optimizer generate --jobset batch.yaml`). Each member is
   prepared through the single-job path, every member's labels join one packing
   pass over the union of their sheets, and each plate is emitted as **one
-  toolpath segment per job** in file order — a `txt` file per
-  (job, cutter, colour) and one `bh` file per (job, boundary/hole cutter) — so
-  no stroke is ever routed across jobs and a batch member bills exactly as it
-  would have run alone. The contract, the gate rules and the known limits are
-  in [`docs/plans/jobset.md`](docs/plans/jobset.md); the user-facing view is
+  toolpath segment per tool** — one `bh` file per (boundary/hole cutter, kerf
+  width, `tool_options` signature) and one `txt` file per (pen, signature) — so
+  jobs that run the same tool with the same engraver parameters are engraved in
+  one pass instead of one pass per job, while a batch member still bills exactly
+  as it would have run alone. A layer's filename token is the lone owner's job id
+  (so a job's solo layers keep their standalone names) and the batch id when the
+  jobs share the layer, whose membership the reports record. The contract, the
+  gate rules and the known limits are in
+  [`docs/plans/jobset.md`](docs/plans/jobset.md); the user-facing view is
   the `generate --jobset` section of [`README.md`](README.md).
   - New modules `plt_optimizer/generate/job_prep.py` (the per-job preparation
         path the CLI and the jobset share), `jobset.py` (spec, gate,
@@ -24,16 +28,24 @@
         totals + report paths + the `cross_job` measure of what sharing saved)
         and `usage.distance.by_job` / `usage.time.by_job`; every member keeps
         its own `OUT/<job_id>/generation_report/` pair, measured from the files
-        that carry its strokes.
+        that carry its strokes. `by_job` charges each stroke to exactly one owner,
+        so the members' totals sum to `by_job`, which equals the batch's
+        `distance.total` — the saving shows up as the `by_label` → `by_job` gap
+        (`cross_job.distance_saved`) and the sheet count, never as a billing gap.
+        Jobs that give the same cutter *different* `tool_options` cannot share a
+        run: the layer splits per signature and the batch warns that the cutter
+        engraves the sheet once per signature.
   - Plate proofs: a sheet carrying more than one job draws a dashed coloured
         overlay box per job (fixed palette, indexed by file order) with a
-        legend; a one-job sheet's proof is unchanged.
+        legend, plus a per-job proof titled as a shared sheet; a one-job sheet
+        keeps its unchanged whole-sheet proof and gets no second proof file.
   - Pre-flight: `scripts/validate_job_spec.py` accepts a jobset file (gate
         findings as errors/warnings; `--json` adds `kind` and `member_count`).
   - Pins: `tests/test_jobset_schema.py`, `tests/test_jobset_merge.py`,
-        `tests/test_jobset_export.py`, `tests/test_jobset_reports.py`,
-        `tests/test_jobset_plots.py`; example batch
-        `examples/job_specs/2026-11-18 jobset example.yaml`.
+        `tests/test_jobset_export.py` (incl. the `tool_options` split and its
+        warning), `tests/test_jobset_reports.py`, `tests/test_jobset_plots.py`
+        (incl. the solo-sheet proof skip);
+        example batch `examples/job_specs/job_sets/jobset example.yaml`.
 * **scripts:** the end-to-end integration runner now writes the `generate`
   pipeline's report pair for every job it processes (new **Phase 5**) —
   `<out>/generation_report/report.json` + `summary.txt`, in the same directory
