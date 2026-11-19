@@ -686,7 +686,9 @@ def plot_physical_strokes(
             proof previews' configured grey). ``None`` (the default) keeps
             matplotlib's white figure.
         overlay_boxes: Provenance rectangles drawn over the ink, one per
-            LABEL, each with a dashed coloured edge (see
+            LABEL and drawn inboard of each label's own border (see
+            :func:`~plt_optimizer.generate.jobset.job_overlay_boxes`), each
+            with a dashed coloured edge (see
             :class:`JobOverlayBoxLike`; a jobset plate proof passes a box for
             every label on the sheet, so each label reads as belonging to a
             job, and the legend collapses to one row per job). ``()`` (the

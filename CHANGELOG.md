@@ -37,7 +37,8 @@
         engraves the sheet once per signature.
   - Plate proofs: **every label on a jobset sheet is outlined in its job's
         colour** - a dashed box per label (fixed palette, indexed by file order)
-        with a legend collapsing to one row per job, on solo sheets as well as
+        drawn 0.05in inside the label's own border, with a legend collapsing to
+        one row per job, on solo sheets as well as
         shared ones - plus a per-job proof titled as a shared sheet; a one-job
         sheet gets no second proof file, and a single-job run draws no overlay.
   - Pre-flight: `scripts/validate_job_spec.py` accepts a jobset file (gate

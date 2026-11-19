@@ -178,12 +178,15 @@ job on every sheet, and `files[]` maps each written file to its plate, layer
 so dropping one job's layer on a re-run is a lookup, not a guess.
 
 The plate proof is the visual key: **every label carries a dashed outline in its
-job's colour** from a fixed palette (colour first, then line style, indexed by
-the job's position in the file), one box per label so a label's owner is read
-off directly, with a legend collapsing to one row per job. The treatment is the
-same on a sheet one job occupies alone - an outlined label is identified at a
-glance, where "no box here" would force you to infer ownership from the absence
-of a key. A normal single-job `generate` run draws no overlay at all (it has one
+job's colour, drawn inside its own border** (a fixed palette, colour first then
+line style, indexed by the job's position in the file), one box per label so a
+label's owner is read off directly, with a legend collapsing to one row per job.
+The box sits 0.05in inboard of the label's slot on every side, so the key reads
+as part of the label instead of adding a second outline in the scrap margin
+between two labels that abut. The treatment is the same on a sheet one job
+occupies alone - an outlined label is identified at a glance, where "no box
+here" would force you to infer ownership from the absence of a key. A normal
+single-job `generate` run draws no overlay at all (it has one
 job, so there is nothing to key), and a one-job sheet inside a batch gets no
 second proof file, because that whole-sheet proof already is that job's proof.
 

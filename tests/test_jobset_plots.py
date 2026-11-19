@@ -311,7 +311,7 @@ class TestPerJobProofs:
 
 
 class TestJobOverlayGeometry:
-    """One box per label: its own slot, outset, in slot space, on every plate."""
+    """One box per label: inside its own slot, on every plate."""
 
     def test_a_mixed_plate_gets_one_box_per_label(self) -> None:
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
@@ -331,9 +331,11 @@ class TestJobOverlayGeometry:
 
         assert list(boxes) == [1]
         assert [box.label for box in boxes[1]] == ["Job Alpha", "Job Beta"]
-        assert boxes[1][0].x == pytest.approx(0.95)
-        assert boxes[1][0].width == pytest.approx(4.1)
-        assert boxes[1][1].x == pytest.approx(5.95)
+        # Inset by the 0.05in margin: the box is inside the label's own slot
+        # [1, 5] x [1, 3], not around it.
+        assert boxes[1][0].x == pytest.approx(1.05)
+        assert boxes[1][0].width == pytest.approx(3.9)
+        assert boxes[1][1].x == pytest.approx(6.05)
 
     def test_a_single_job_plate_outlines_its_labels_too(self) -> None:
         """Every label on a jobset proof carries its job's outline, including
@@ -355,8 +357,8 @@ class TestJobOverlayGeometry:
         boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA,)})
 
         assert [box.label for box in boxes[1]] == ["Job Alpha"]
-        assert (boxes[1][0].x, boxes[1][0].y) == pytest.approx((0.95, 0.95))
-        assert (boxes[1][0].width, boxes[1][0].height) == pytest.approx((4.1, 2.1))
+        assert (boxes[1][0].x, boxes[1][0].y) == pytest.approx((1.05, 1.05))
+        assert (boxes[1][0].width, boxes[1][0].height) == pytest.approx((3.9, 1.9))
 
     def test_a_job_split_across_a_plate_is_one_box_per_label(self) -> None:
         """The boxes are per label, never unioned per job: a 9.1 x 9.1in
@@ -389,13 +391,14 @@ class TestJobOverlayGeometry:
             "Job Alpha",
             "Job Beta",
         ]
-        # Each box is its own label's slot + the 0.05in margin, in placement order.
+        # Each box is its own label's slot pulled in by the 0.05in margin, in
+        # placement order.
         assert [(b.x, b.y, b.width, b.height) for b in boxes[1]] == pytest.approx(
             [
-                (0.95, 0.95, 4.1, 2.1),
-                (7.95, 4.95, 2.1, 2.1),
-                (1.95, 8.95, 1.1, 1.1),
-                (13.95, 0.95, 3.1, 3.1),
+                (1.05, 1.05, 3.9, 1.9),
+                (8.05, 5.05, 1.9, 1.9),
+                (2.05, 9.05, 0.9, 0.9),
+                (14.05, 1.05, 2.9, 2.9),
             ]
         )
         # Explicitly not the union the old geometry produced.
@@ -423,9 +426,9 @@ class TestJobOverlayGeometry:
 
         alpha = next(box for box in boxes[1] if box.label == "Job Alpha")
         # Spelled out: a 6.0 x 1.5in label placed sideways fills the swapped
-        # slot [3, 4.5] x [2, 8], outset by the 0.05in margin.
-        assert (alpha.x, alpha.y) == pytest.approx((2.95, 1.95))
-        assert (alpha.width, alpha.height) == pytest.approx((1.6, 6.1))
+        # slot [3, 4.5] x [2, 8]; the box is inset 0.05in from that.
+        assert (alpha.x, alpha.y) == pytest.approx((3.05, 2.05))
+        assert (alpha.width, alpha.height) == pytest.approx((1.4, 5.9))
 
     def test_the_box_matches_the_usage_attribution_slot(self) -> None:
         """The proof and the usage report must agree on where a label is: the
@@ -453,19 +456,20 @@ class TestJobOverlayGeometry:
         alpha = next(box for box in boxes[1] if box.label == "Job Alpha")
         slot = _slot_rect(3.0, 2.0, 6.0, 1.5, True)
         assert (alpha.x, alpha.y) == pytest.approx(
-            (units_to_inches(slot.x_min) - 0.05, units_to_inches(slot.y_min) - 0.05)
+            (units_to_inches(slot.x_min) + 0.05, units_to_inches(slot.y_min) + 0.05)
         )
+
         assert (alpha.width, alpha.height) == pytest.approx(
             (
-                units_to_inches(slot.x_max - slot.x_min) + 0.1,
-                units_to_inches(slot.y_max - slot.y_min) + 0.1,
+                units_to_inches(slot.x_max - slot.x_min) - 0.1,
+                units_to_inches(slot.y_max - slot.y_min) - 0.1,
             )
         )
         # Spelled out: the 6in width is the vertical span of the slot.
-        assert alpha.width == pytest.approx(1.6)
-        assert alpha.height == pytest.approx(6.1)
+        assert alpha.width == pytest.approx(1.4)
+        assert alpha.height == pytest.approx(5.9)
 
-    def test_the_outset_is_configurable(self) -> None:
+    def test_the_inset_is_configurable(self) -> None:
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
         plates = [
             PackedPlate(
@@ -479,10 +483,66 @@ class TestJobOverlayGeometry:
             )
         ]
 
-        boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)}, outset=0.25)
+        boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)}, inset=0.25)
 
-        assert boxes[1][0].x == pytest.approx(0.75)
-        assert boxes[1][0].width == pytest.approx(4.5)
+        # Slot [1, 5] x [1, 3] pulled 0.25in in on every side.
+        assert boxes[1][0].x == pytest.approx(1.25)
+        assert boxes[1][0].width == pytest.approx(3.5)
+        assert boxes[1][0].height == pytest.approx(1.5)
+
+    def test_a_label_thinner_than_the_margin_degenerates_safely(self) -> None:
+        """A 0.06in-tall slot cannot hold a 0.05in inset on both sides. The
+        margin clamps to half the span, so the box collapses to the label's
+        centre line - it must never invert to a negative size, which the
+        plotter would draw as a rectangle off in the negative quadrant.
+        """
+        provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
+        plates = [
+            PackedPlate(
+                plate_id="shared",
+                width=24.0,
+                height=16.0,
+                labels=[
+                    _placement(f"{ALPHA}::main", 1.0, 1.0, 4.0, 0.06, False),
+                    _placement(f"{BETA}::main", 8.0, 1.0, 2.0, 2.0, False),
+                ],
+            )
+        ]
+
+        boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)})
+
+        thin = boxes[1][0]
+        assert thin.width == pytest.approx(3.9)  # the long axis is untouched
+        assert thin.height == pytest.approx(0.0)
+        assert thin.y == pytest.approx(1.03)
+        assert all(box.width >= 0.0 and box.height >= 0.0 for box in boxes[1])
+
+    def test_the_box_lies_inside_the_label_slot_not_around_it(self) -> None:
+        """The key is drawn inboard of the label's border stroke: every edge of
+        the box is strictly inside the slot the label fills, on both axes.
+        """
+        provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
+        plates = [
+            PackedPlate(
+                plate_id="shared",
+                width=24.0,
+                height=16.0,
+                labels=[
+                    _placement(f"{ALPHA}::main", 1.0, 1.0, 4.0, 2.0, False),
+                    _placement(f"{BETA}::main", 6.0, 4.0, 3.0, 3.0, True),
+                ],
+            )
+        ]
+
+        boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)})
+
+        # ALPHA fills [1, 5] x [1, 3]; BETA rotated fills [6, 9] x [4, 7].
+        slots = [(1.0, 1.0, 5.0, 3.0), (6.0, 4.0, 9.0, 7.0)]
+        for box, (x_min, y_min, x_max, y_max) in zip(boxes[1], slots):
+            assert box.x > x_min
+            assert box.y > y_min
+            assert box.x + box.width < x_max
+            assert box.y + box.height < y_max
 
 
 class TestJobOverlayIdentity:
@@ -597,9 +657,12 @@ class TestPlotterOverlayDrawing:
         finally:
             _close(fig)
 
-    def test_an_outset_box_is_never_clipped(self) -> None:
-        """The box extends past the ink by its outset; the axis limits include
-        it so the rectangle is fully on the page."""
+    def test_a_box_beyond_the_ink_widens_the_limits(self) -> None:
+        """The plotter's overlay axis-limit terms still have to include a box
+        that falls outside the ink. Jobset geometry produces inset boxes,
+        which never do; the generic API accepts caller-supplied boxes, so a
+        rectangle off the ink must not be clipped off the page.
+        """
         boxes = [
             JobOverlayBox(
                 x=-0.05,

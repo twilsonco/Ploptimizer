@@ -1951,7 +1951,8 @@ def _write_simple_plots(
             single ``pen_widths`` entry.
         provenance: Jobset only: the composite-id side table. When set, every
             label on every plate gets the per-label overlay box (a dashed
-            coloured rectangle in its job's colour, see
+            coloured rectangle in its job's colour, drawn inside the label's
+            own border, see
             :func:`~plt_optimizer.generate.jobset.job_overlay_boxes`) drawn on
             its combined ``*_all_*`` proof, so a shared sheet - and a sheet one
             job occupies alone - says at a glance which job each label belongs

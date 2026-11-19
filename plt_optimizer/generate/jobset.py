@@ -468,12 +468,13 @@ class JobOverlayBox:
     """One label's provenance rectangle on a jobset plate proof (inches).
 
     One box is emitted per PLACEMENT: the rectangle of the slot that label
-    fills, outset by the overlay margin, drawn as a dashed coloured edge over
-    the combined plate preview. EVERY label on a jobset proof carries one - a
-    sheet one job occupies alone is outlined too - because a union box around a
-    job's labels says nothing about which labels inside it are whose, and that
-    is the question the proof has to answer. The legend lists one row per job
-    (the plotter collapses repeated rows), naming each colour and dash pattern.
+    fills drawn INBOARD of its border stroke (inset by the overlay margin), so
+    the dashed key reads as part of the label rather than as a box around it in
+    the scrap. EVERY label on a jobset proof carries one - a sheet one job
+    occupies alone is outlined too - because a union box around a job's labels
+    says nothing about which labels inside it are whose, and that is the
+    question the proof has to answer. The legend lists one row per job (the
+    plotter collapses repeated rows), naming each colour and dash pattern.
 
     Attributes:
         x: Left edge in inches (plate space, the same space the packer
@@ -497,8 +498,10 @@ class JobOverlayBox:
     line_width: float = 1.2
 
 
-# How far a job's overlay box is pushed outside its placements, in inches.
-JOB_OVERLAY_OUTSET_IN = 0.05
+# How far a label's overlay box is pulled inside its own slot, in inches, so
+# the dashed key sits inboard of the label's border stroke instead of out in
+# the scrap margin.
+JOB_OVERLAY_INSET_IN = 0.05
 
 
 def job_overlay_boxes(
@@ -506,7 +509,7 @@ def job_overlay_boxes(
     packed_plates: Sequence[Any],
     plate_jobs: Mapping[int, Sequence[str]],
     *,
-    outset: float = JOB_OVERLAY_OUTSET_IN,
+    inset: float = JOB_OVERLAY_INSET_IN,
 ) -> dict[int, list[JobOverlayBox]]:
     """Compute the per-label overlay boxes of every packed plate.
 
@@ -527,7 +530,10 @@ def job_overlay_boxes(
         plate_jobs: 1-based plate number -> the owning job keys of the labels
             on it, as recorded by the export in
             :attr:`~plt_optimizer.generate.vectorize.PerCutterExport.plate_jobs`.
-        outset: Margin in inches added around each label's slot.
+        inset: How far each box is pulled inside its label's slot, in inches.
+            Each axis clamps the margin to half the slot, so a label thinner
+            than twice the margin degenerates to its centre line on that axis
+            instead of inverting to a negative-size rectangle.
 
     Returns:
         1-based plate number -> its overlay boxes, grouped by job in
@@ -565,12 +571,20 @@ def job_overlay_boxes(
             color, style = legend_style_for(job_index.get(key, 0))
             name = record.display_name if record is not None else key
             for x_min, y_min, x_max, y_max in per_job[key]:
+                span_x = x_max - x_min
+                span_y = y_max - y_min
+                # Inboard of the border stroke. Each axis clamps on its own, so
+                # a label thinner than the margin collapses to a centre line
+                # (a point on that axis) without distorting the other: the
+                # inset can never invert to a negative-size rectangle.
+                margin_x = min(inset, span_x / 2.0)
+                margin_y = min(inset, span_y / 2.0)
                 entries.append(
                     JobOverlayBox(
-                        x=x_min - outset,
-                        y=y_min - outset,
-                        width=x_max - x_min + 2.0 * outset,
-                        height=y_max - y_min + 2.0 * outset,
+                        x=x_min + margin_x,
+                        y=y_min + margin_y,
+                        width=span_x - 2.0 * margin_x,
+                        height=span_y - 2.0 * margin_y,
                         label=name,
                         color=color,
                         style=style,
