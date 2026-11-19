@@ -23,7 +23,8 @@ job:
       holes:
         - location: corners
       content:
-        - text: "NO SMOKING"
+        - text: "NO"
+        - text: "SMOKING"
     - id: tag
       height: 1
       width: 3

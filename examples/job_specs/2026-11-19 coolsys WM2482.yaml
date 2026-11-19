@@ -1,0 +1,19 @@
+job:
+  job_name: "2026-11-19 WM2482"
+  material: kw
+  height: 2
+  width: 3
+  text_height: 0.5
+  font: helv1
+  kerning_window_fraction: 0.2
+  holes:
+    - location: sides
+  labels:
+    - id: a
+      content:
+        - text: "RTU"
+        - text: "31"
+    - id: b
+      content:
+        - text: "RTU"
+        - text: "32"
