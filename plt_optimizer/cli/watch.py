@@ -443,6 +443,10 @@ class PLTFileHandler(FileSystemEventHandler):
                 f"[{job_id}] Could not pre-create temp directory {self._temp_dir}: {e}"
             )
 
+        # Bound before the try so the failure handler below can report the
+        # method that was in play, whatever stage raised (the handler's
+        # `"method_name" in dir()` guard stays as belt-and-braces).
+        method_name = "unknown"
         try:
             # Parse the file
             doc = self._parser.parse_file(input_path)
