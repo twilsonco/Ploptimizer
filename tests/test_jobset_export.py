@@ -156,7 +156,7 @@ def _segments(paths: List[Path]) -> Counter[Tuple[int, int]]:
 
 
 class TestSharedPlateSegmentation:
-    """A plate carrying two jobs yields two toolpaths, not one merged file."""
+    """One shared sheet yields ONE toolpath per cutter, carrying every job."""
 
     @pytest.fixture()
     def batch(self, tmp_path: Path) -> Tuple[JobSetPlan, PerCutterExport]:
@@ -173,28 +173,36 @@ class TestSharedPlateSegmentation:
         assert [context.job_key for context in plan.contexts] == [ALPHA, BETA]
         assert result.plate_jobs == {1: (ALPHA, BETA)}
 
-    def test_every_file_is_named_for_its_owning_job(
+    def test_a_layer_two_jobs_share_is_named_for_the_batch(
         self, batch: Tuple[JobSetPlan, PerCutterExport]
     ) -> None:
-        """No shared-plate file carries the batch token: each is one job's
-        toolpath, so each is named for the job that owns its strokes."""
+        """The cutter both jobs use ships as ONE file, named for the batch.
+
+        One run per tool is the point of the jobset, so a shared toolpath
+        cannot name a single owner: it names the batch, and ownership is
+        recorded per file. A layer only one job uses keeps that job's token,
+        which is where its ink stays visible in the file list.
+        """
         plan, result = batch
 
-        names = [path.name for path in result.plt_paths]
-        assert names, "the batch exported nothing"
-        assert not [name for name in names if plan.jobset_id in name]
-        assert any(ALPHA in name for name in names)
-        assert any(BETA in name for name in names)
+        assert sorted(path.name for path in result.plt_paths) == [
+            "15_bh_Export_Batch.plt",
+            "35_b_txt_Export_Beta.plt",
+            "40_r_txt_Export_Alpha.plt",
+        ]
 
-    def test_file_jobs_names_the_owner_of_every_file(
+    def test_file_jobs_lists_every_owner_of_every_file(
         self, batch: Tuple[JobSetPlan, PerCutterExport]
     ) -> None:
+        """The map is the record of who is in each file: one job for a solo
+        layer, both for the merged one (which names the batch, not a job)."""
         plan, result = batch
 
         owners = {result.file_jobs[path] for path in result.plt_paths}
-        assert owners == {ALPHA, BETA}
+        assert owners == {(ALPHA,), (ALPHA, BETA), (BETA,)}
         for path in result.plt_paths:
-            assert path.name.count(ALPHA) + path.name.count(BETA) == 1, path.name
+            tokens = path.name.count(ALPHA) + path.name.count(BETA)
+            assert tokens == (0 if len(result.file_jobs[path]) > 1 else 1), path.name
 
     def test_text_layers_stay_split_by_cutter_and_color(
         self, batch: Tuple[JobSetPlan, PerCutterExport]
@@ -208,15 +216,16 @@ class TestSharedPlateSegmentation:
         assert text == ["35_b_txt_Export_Beta.plt", "40_r_txt_Export_Alpha.plt"], text
         assert all(plan.jobset_id not in name for name in text)
 
-    def test_borders_and_holes_are_one_file_per_job(
+    def test_borders_and_holes_merge_into_one_file_per_cutter(
         self, batch: Tuple[JobSetPlan, PerCutterExport]
     ) -> None:
+        """Both jobs' borders and holes run together in a single BH file."""
         plan, result = batch
 
         structural = sorted(p.name for p in result.plt_paths if "_bh_" in p.name)
-        assert len(structural) == 2, structural
-        assert [name for name in structural if ALPHA in name]
-        assert [name for name in structural if BETA in name]
+        assert structural == ["15_bh_Export_Batch.plt"], structural
+        merged = next(p for p in result.plt_paths if "_bh_" in p.name)
+        assert result.file_jobs[merged] == (ALPHA, BETA)
 
     def test_unused_declared_plate_writes_nothing(
         self, batch: Tuple[JobSetPlan, PerCutterExport]
@@ -242,7 +251,7 @@ class TestSharedPlateSegmentation:
 
 
 class TestSegmentEquivalence:
-    """Each segment is exactly the toolpath that job engraves on its own."""
+    """Sharing a sheet moves ink between files; it never adds or drops any."""
 
     def test_job_geometry_is_unchanged_by_sharing_a_plate(self, tmp_path: Path) -> None:
         plan = _plan("jobset_export_batch.yaml")
@@ -250,9 +259,12 @@ class TestSegmentEquivalence:
 
         for context in plan.contexts:
             alone = _export_alone(context, tmp_path / f"alone-{context.job_key}")
-            mine = [path for path, owner in batch.file_jobs.items() if owner == context.job_key]
+            mine = [path for path, owners in batch.file_jobs.items() if context.job_key in owners]
             assert mine, f"no file was written for {context.job_key}"
-            assert _segments(mine) == _segments(alone.plt_paths), context.job_key
+            # A shared toolpath carries both jobs, so the invariant is
+            # containment: everything a job engraves on its own is still
+            # engraved when it shares the sheet.
+            assert _segments(mine) >= _segments(alone.plt_paths), context.job_key
 
     def test_shared_plate_holds_more_ink_than_either_segment(self, tmp_path: Path) -> None:
         """Sanity check on the previous test: the combined plate really is the
@@ -261,11 +273,15 @@ class TestSegmentEquivalence:
         batch = _export_batch(plan, tmp_path / "batch")
 
         shared = _segments(list(batch.file_jobs))
-        alpha = _segments([p for p, owner in batch.file_jobs.items() if owner == ALPHA])
-        assert sum(alpha.values()) < sum(shared.values())
-        assert (shared - alpha) == _segments(
-            [p for p, owner in batch.file_jobs.items() if owner == BETA]
-        )
+        alpha_only = _segments([p for p, owners in batch.file_jobs.items() if owners == (ALPHA,)])
+        beta_only = _segments([p for p, owners in batch.file_jobs.items() if owners == (BETA,)])
+        merged = _segments([p for p, owners in batch.file_jobs.items() if len(owners) > 1])
+        assert merged, "the cutter both jobs use must ship as one shared file"
+        # Every file falls in exactly one ownership class, and the three
+        # classes are the whole sheet: the shared run is a union, not a copy.
+        assert alpha_only + beta_only + merged == shared
+        assert alpha_only != beta_only
+        assert sum(alpha_only.values()) < sum(shared.values())
 
 
 class TestPerSegmentHeaders:
@@ -291,10 +307,11 @@ class TestPerSegmentHeaders:
         )
 
         by_owner: Dict[str, List[str]] = {}
-        for path, owner in result.file_jobs.items():
+        for path, owners in result.file_jobs.items():
             line = self._velocity_line(path)
             assert line is not None, f"{path.name} carries no VS header"
-            by_owner.setdefault(owner, []).append(line)
+            for owner in owners:
+                by_owner.setdefault(owner, []).append(line)
 
         assert set(by_owner) == {"Tool_Alpha", "Tool_Beta"}
         alpha_lines = set(by_owner["Tool_Alpha"])

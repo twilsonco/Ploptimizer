@@ -972,7 +972,10 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
     # placement contains it (see usage_stats.build_usage_stats' job_of_label).
     try:
         with stage_timer("usage", _LOG, timings=stage_timings):
-            from plt_optimizer.generate.jobset_report import job_of_placement
+            from plt_optimizer.generate.jobset_report import (
+                job_of_placement,
+                sheet_first_owners,
+            )
 
             usage = build_usage_stats(
                 resolved_labels=plan.merged_labels,
@@ -983,6 +986,8 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
                 job_spec=batch_spec,
                 job_config=job_config,
                 job_of_label=job_of_placement(export_result, plan),
+                plate_owner_of=sheet_first_owners(export_result),
+                file_jobs=dict(export_result.file_jobs),
             )
     except Exception as exc:  # noqa: BLE001 - reporting must not fail a good job
         _LOG.warning("Could not measure the jobset's production usage: %s", exc)

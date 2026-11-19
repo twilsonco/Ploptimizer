@@ -39,6 +39,7 @@ from plt_optimizer.generate.jobset import (
 )
 from plt_optimizer.generate.usage_stats import (
     KIND_TEXT,
+    PLATE_FRAME_LABEL,
     PLT_TYPE_BY_KIND,
     build_usage_stats,
 )
@@ -92,7 +93,11 @@ def job_of_placement(export: PerCutterExport, plan: JobSetPlan) -> Dict[str, str
     Returns:
         Placement id -> ``job_key``, the ``job_of_label`` map
         :func:`~plt_optimizer.generate.usage_stats.build_usage_stats` needs to
-        emit ``usage.by_job``. Empty for a single-job plan.
+        emit ``usage.by_job``. Empty for a single-job plan. A sheet's own
+        furniture (:data:`~plt_optimizer.generate.usage_stats.PLATE_FRAME_LABEL`
+        - its border and registration marks) is charged to the first member of
+        the first sheet carrying it, so that travel is counted exactly once and
+        the members' rows add up to the batch's.
     """
     provenance = plan.provenance
     mapping: Dict[str, str] = {}
@@ -103,7 +108,32 @@ def job_of_placement(export: PerCutterExport, plan: JobSetPlan) -> Dict[str, str
             owner = provenance.job_of_label(source_id)
             if owner is not None:
                 mapping[str(placement.label_id)] = owner
+    for owners in export.plate_jobs.values():
+        if owners:
+            mapping[PLATE_FRAME_LABEL] = owners[0]
+            break
     return mapping
+
+
+def sheet_first_owners(export: PerCutterExport) -> Dict[int, str]:
+    """Map each plate to the first member whose labels sit on it.
+
+    A sheet's own furniture (its border and registration marks) belongs to no
+    label, so every report view charges it to the sheet's first member. Keying
+    the rule by PLATE is what makes the views agree: a global
+    "first member of the first sheet" entry gives the first member every
+    sheet's frame, so its report over-counts and the members no longer sum to
+    the batch.
+
+    Args:
+        export: The merged export (its ``plate_jobs`` names each sheet's owners
+            in write order).
+
+    Returns:
+        1-based plate number -> that sheet's first ``job_key``; empty when the
+        run recorded no per-plate owners (a single-job run).
+    """
+    return {int(number): tuple(owners)[0] for number, owners in export.plate_jobs.items() if owners}
 
 
 def _plate_numbers(export: PerCutterExport) -> List[int]:
@@ -132,20 +162,22 @@ def _file_plate(path: Path, numbers: Sequence[int]) -> Optional[int]:
 
 
 def _job_files(export: PerCutterExport, job_key: str) -> List[Path]:
-    """Return the PLT files whose strokes belong to one member.
+    """Return the PLT files carrying one member's strokes.
 
-    The export stamps each written file with its single owning job (a plate is
-    segmented per job precisely so a file never belongs to two jobs), so this
-    is a lookup, not an inference from names.
+    The export records every job whose strokes are in each written file (a
+    plate layer is one toolpath shared by the jobs that use that tool), so this
+    is a lookup, not an inference from names. A merged file is listed for EACH
+    of its jobs - it is the batch's toolpath, and a member's own share of it is
+    measured stroke by stroke (see :func:`build_job_usage`).
 
     Args:
         export: The merged export.
         job_key: The member being subset.
 
     Returns:
-        That member's PLT paths, in write order.
+        The PLT paths carrying that member's strokes, in write order.
     """
-    return [path for path in export.plt_paths if export.file_jobs.get(path) == job_key]
+    return [path for path in export.plt_paths if job_key in export.file_jobs.get(path, ())]
 
 
 def _job_previews(
@@ -172,9 +204,8 @@ def _job_previews(
 
 
 def _file_jobs(export: PerCutterExport, path: Path) -> List[str]:
-    """Return the owners the export recorded for one file (``[]`` for a solo run)."""
-    owner = export.file_jobs.get(path)
-    return [owner] if owner else []
+    """Return the jobs one file's toolpath carries (``[]`` for a solo run)."""
+    return list(export.file_jobs.get(path, ()))
 
 
 def _job_plates(plan: JobSetPlan, export: PerCutterExport, job_key: str) -> List[Any]:
@@ -240,6 +271,40 @@ def _job_combined(
 # ---------------------------------------------------------------------------
 
 
+def _batch_job_of_label(plan: JobSetPlan, export: PerCutterExport) -> Dict[str, str]:
+    """Map every placement id of the shared run to its owning member.
+
+    A member's report is measured from the batch's MERGED files, whose strokes
+    belong to several jobs, so attribution needs the whole pool's owner map: a
+    member's own slots cannot explain a neighbour's strokes, and an owner the
+    map does not carry is counted as unattributed. Sheet furniture (a plate's
+    border / registration marks) is charged to the first member of the first
+    sheet that carries it, so the furniture is counted exactly once and the
+    members' rows add up to the batch's.
+
+    Args:
+        plan: The jobset plan (owner of the provenance table).
+        export: The merged export (packed plates and per-plate owners).
+
+    Returns:
+        ``label_id -> job_key`` for every placement of the pool, plus the
+        plate-frame entry when the run has one.
+    """
+    provenance = plan.provenance
+    mapping: Dict[str, str] = {}
+    for plate in export.packed_plates:
+        for placement in plate.labels:
+            source_id = str(getattr(getattr(placement, "source_label", None), "id", "") or "")
+            owner = provenance.job_of_label(source_id) if provenance else None
+            if source_id and owner:
+                mapping[source_id] = owner
+    for owners in export.plate_jobs.values():
+        if owners:
+            mapping[PLATE_FRAME_LABEL] = owners[0]
+            break
+    return mapping
+
+
 def build_job_usage(
     plan: JobSetPlan,
     export: PerCutterExport,
@@ -249,6 +314,14 @@ def build_job_usage(
 ) -> Dict[str, Any]:
     """Measure one member's production usage out of the shared run.
 
+    The counts are the member's own (its labels, its placements, its sheets); the
+    tool travel is measured from the batch's files - the merged toolpaths
+    included - resolved against the BATCH's label/plate pool (so every stroke in a
+    merged file finds its slot) and restricted stroke by stroke to the strokes
+    this member owns (``only_job``). A member's report therefore says what the
+    machine engraved FOR it, its by_label rows partition the batch's, and the
+    members add up to the batch view without double-counting a shared run.
+
     Args:
         plan: The jobset plan.
         export: The merged export (segment files, plates, placements).
@@ -256,7 +329,7 @@ def build_job_usage(
         job_config: The run's job config (the cutter-rate registry).
 
     Returns:
-        That member's ``usage`` block, measured over its own files only.
+        That member's ``usage`` block.
     """
     numbers = _plate_numbers(export)
     plt_files = _job_files(export, context.job_key)
@@ -268,6 +341,12 @@ def build_job_usage(
         material_by_plate=dict(export.material_by_plate),
         job_spec=context.spec,
         job_config=job_config,
+        job_of_label=job_of_placement(export, plan),
+        plate_owner_of=sheet_first_owners(export),
+        file_jobs=dict(export.file_jobs),
+        attribution_labels=list(plan.merged_labels),
+        attribution_plates=list(export.packed_plates),
+        only_job=context.job_key,
     )
 
 

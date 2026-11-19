@@ -234,7 +234,11 @@ class TestMemberUsage:
 
         usage = build_job_usage(plan, export, context, job_config=batch["config"])
 
-        assert usage["distance"].get("by_job") is None  # a member report is single-job
+        # A member report of a jobset DOES carry by_job: its files are the
+        # batch's MERGED toolpaths, so measurement is stroke by stroke and the
+        # member's rows are its share of a shared run. It holds exactly one row.
+        rows = usage["distance"].get("by_job") or []
+        assert [row["job"] for row in rows] == [ALPHA]
         measured = sum(
             float(row["cutting"]) + float(row["rapid"])
             for row in usage["distance"]["files"]
@@ -242,13 +246,22 @@ class TestMemberUsage:
         )
         assert measured == pytest.approx(usage["distance"]["total"]["total"], abs=1e-4)
         assert {row["path"].split("/")[-1] for row in usage["distance"]["files"]} == {
-            path.name for path in export.plt_paths if export.file_jobs.get(path) == ALPHA
+            path.name for path in export.plt_paths if ALPHA in export.file_jobs.get(path, ())
         }
 
     def test_the_members_sum_to_the_batch_total(self, batch: Dict[str, Any]) -> None:
-        """The per-cutter files partition the toolpath, and each member measures
-        exactly the files that carry its strokes - so the members' own reports
-        add up to the batch's measured distance, stroke for stroke."""
+        """Every stroke the batch measured is owned by exactly one member, so the
+        members' reports add up to the batch's - tool travel included.
+
+        A sheet's border and registration marks belong to no label; they are
+        charged to the sheet's FIRST member in every view (see
+        :func:`~plt_optimizer.generate.usage_stats.build_usage_stats`'
+        ``plate_owner_of``), which is what makes this partition exact. A stroke
+        in a file shared by several members that resolves to no placement at all
+        stays unattributed in every view, so it is carried here by the batch's
+        ``unattributed`` row - and the batch's named rows plus that row are the
+        whole total.
+        """
         plan, export = batch["plan"], batch["export"]
 
         members = [build_job_usage(plan, export, context)["distance"] for context in plan.contexts]
@@ -265,15 +278,40 @@ class TestMemberUsage:
         )
 
     def test_a_member_row_is_label_attribution_not_a_file_sum(self, batch: Dict[str, Any]) -> None:
-        """The two per-job views answer different questions and are documented
-        as such: ``by_job`` charges every stroke to the member whose placement
-        contains it (the batch's allocation, summing to the total), while a
-        member's own report is the whole travel of the files it owns.
+        """The two per-job views answer different questions, and each one closes
+        on its own measurement.
 
-        The two meet on the cutting axis only where the sheet's furniture is
-        excluded - a plate border engraved in one member's file is that
-        member's travel and the batch's plate-level row.
+        The batch's ``by_job`` ALLOCATES the shared run: every stroke is charged
+        to the member whose placement contains it, sheet furniture to the
+        sheet's first member, and a stroke no placement explains (a glyph widened
+        by compression in a file several jobs share) to ``unattributed``. A
+        member's own report is measured out of the FILES it contributes to,
+        stroke by stroke, so it also carries the travel the batch could not
+        attribute to a slot. The two numbers are therefore NOT expected to be
+        equal; what is pinned here is that each is internally complete - the
+        member's rows sum to its total, and the batch's ``by_job`` rows partition
+        the batch's total exactly.
         """
+        plan, export = batch["plan"], batch["export"]
+        alpha = next(c for c in plan.contexts if c.job_key == ALPHA)
+
+        member = build_job_usage(plan, export, alpha)["distance"]
+        root = batch["usage"]["distance"]
+
+        assert float(member["total"]["cutting"]) == pytest.approx(
+            sum(float(row["cutting"]) for row in member["files"] if "error" not in row), abs=1e-4
+        )
+        rows = root.get("by_job") or []
+        assert {row["job"] for row in rows} >= {ALPHA}
+        assert sum(float(row["cutting"]) for row in rows) == pytest.approx(
+            root["total"]["cutting"], abs=1e-4
+        )
+        assert sum(float(row["rapid"]) for row in rows) == pytest.approx(
+            root["total"]["rapid"], abs=1e-4
+        )
+        # A member's own report carries no other member's row.
+        member_rows = member.get("by_job") or []
+        assert {row["job"] for row in member_rows} == {ALPHA}
 
     def test_member_material_counts_only_its_own_labels(self, batch: Dict[str, Any]) -> None:
         plan, export = batch["plan"], batch["export"]
@@ -383,7 +421,7 @@ class TestMemberReports:
             owned = {
                 path.name
                 for path in export.plt_paths
-                if export.file_jobs.get(path) == context.job_key
+                if context.job_key in export.file_jobs.get(path, ())
             }
             assert listed == owned, context.job_key
             assert listed, "a member should own at least one file"
@@ -455,7 +493,7 @@ class TestManifest:
             payload = path.read_bytes()
             assert row["bytes"] == len(payload)
             assert row["sha256"] == hashlib.sha256(payload).hexdigest()
-            assert row["jobs"] == [batch["export"].file_jobs[path]]
+            assert row["jobs"] == list(batch["export"].file_jobs[path])
             assert row["layer"] in ("text", "borders_holes")
             assert row["cutter"] is not None
 

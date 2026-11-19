@@ -105,9 +105,20 @@ def _write_plt(path: Path, content: str) -> None:
     Args:
         path: Destination ``.plt`` file (parent must exist).
         content: Compact HPGL content (typically ending in ``SP;``).
+
+    Raises:
+        OSError: The file could not be written (disk full, a file the plotter
+            controller still holds open, a read-only share). The failing path
+            is named in the message - the watch service runs headless, so the
+            path is the whole diagnosis - and re-raised for the CLI to record
+            as a job failure; a plate that cannot be written must never be
+            reported as produced.
     """
-    with open(path, "w", encoding="utf-8", newline="\r\n") as handle:
-        handle.write(format_hpgl_lines(content))
+    try:
+        with open(path, "w", encoding="utf-8", newline="\r\n") as handle:
+            handle.write(format_hpgl_lines(content))
+    except OSError as exc:
+        raise OSError(f"Cannot write PLT file {path}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -459,10 +470,18 @@ class PerCutterExport:
             of the labels packed on it, in jobset-file order. Empty for a
             single-job run. Drives the per-job overlay boxes on the combined
             plate previews and the ``jobset.json`` plate manifest.
-        file_jobs: Jobset only: written PLT path -> the job key whose strokes
-            that file carries. Every file is one job's toolpath, so this is
-            the join a per-job report needs to measure itself out of the
-            shared plate files. Empty for a single-job run.
+        file_jobs: Jobset only: written PLT path -> the owning job keys whose
+            strokes that file carries, in jobset-file order. A plate layer is
+            one file per (cutter, color, header block) shared by every job
+            engraving with that tool, so a merged file names all of its jobs
+            and a per-job report must measure itself out of the shared file
+            stroke by stroke. Empty for a single-job run.
+        combined_by_plate_and_job: Jobset only: 1-based plate number ->
+            ``job_key ->`` that job's own combined per-plate content (its
+            labels only, at the shared plate's placements). Drives the per-job
+            ``all_*`` proof PDFs a batch writes beside the whole-sheet proof,
+            so each job can be approved on its own. Empty for a single-job run
+            (whose whole-sheet proof already IS that job).
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -475,7 +494,8 @@ class PerCutterExport:
     material_by_plate: dict[int, Optional[str]] = field(default_factory=dict)
     packed_plates: list[PackedPlate] = field(default_factory=list)
     plate_jobs: dict[int, tuple[str, ...]] = field(default_factory=dict)
-    file_jobs: dict[Path, str] = field(default_factory=dict)
+    file_jobs: dict[Path, tuple[str, ...]] = field(default_factory=dict)
+    combined_by_plate_and_job: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -842,6 +862,281 @@ def _segment_tag(owner: str, plate_str: str, kind: str) -> str:
     return f"{plate_str} {kind}" if not owner else f"{plate_str} {kind}[{owner}]"
 
 
+def _bucket_tag(owners: tuple[str, ...], plate_str: str, kind: str) -> str:
+    """Name one written layer for log and report prefixes.
+
+    Args:
+        owners: The jobs whose strokes the layer carries (``("",)`` for a
+            single-job run).
+        plate_str: The plate's file-name prefix (``"01_wk_uv"``).
+        kind: Layer kind (``"bh"``, ``"text <tag>"``).
+
+    Returns:
+        ``"01_wk_uv bh"`` when no job boundary splits the layer (a single-job
+        run keeps its unchanged history), else the contributing jobs joined:
+        ``"01_wk_uv bh[seer_2963]"`` for one job, ``"01_wk_uv bh[seer+coolsys]"``
+        for the shared toolpath.
+    """
+    label = "+".join(owner for owner in owners if owner)
+    return f"{plate_str} {kind}" if not label else f"{plate_str} {kind}[{label}]"
+
+
+def _tool_option_signature(
+    spec: Optional[JobSpec], job_config: Optional[JobConfig], plt_type: str
+) -> Tuple[str, ...]:
+    """The engraver-header block one member's layer files carry, as a merge key.
+
+    Jobs may share a cutter, a material and a sheet and still be unable to
+    engrave in one run: a PLT file carries a single ``tool_options`` header
+    block after ``IN;`` (feed rate, spindle speed, Z clearance), so the header
+    block a member generates IS the merge test. Members generating identical
+    blocks share one file; members generating different blocks each keep their
+    own file for that layer, and the writer warns that the tool is being
+    re-run.
+
+    Args:
+        spec: The member's spec (``None`` = this run prepends no headers).
+        job_config: The loaded config (the ``tool_options`` registry).
+        plt_type: ``"text"`` or ``"borders_holes"``.
+
+    Returns:
+        The generated header lines, or ``()`` when no headers are prepended.
+    """
+    if spec is None or job_config is None:
+        return ()
+    from plt_optimizer.generate.tool_options import generate_tool_option_headers
+
+    return tuple(generate_tool_option_headers(spec, job_config, plt_type))
+
+
+@dataclass(frozen=True)
+class _LayerBucket:
+    """One written PLT file's share of a plate.
+
+    Attributes:
+        kind: ``"bh"`` (borders + holes, engraved in one run) or ``"txt"``
+            (one cutter/color text pen).
+        owners: The jobs whose strokes the file carries, in jobset-file order;
+            ``("",)`` for a single-job run (the whole plate).
+        cutter: The cutter every stroke in the bucket engraves with, which is
+            the filename token — so a file never names a tool its strokes were
+            not compensated for.
+        width: That cutter's kerf-buffered engraved width (proof ink width).
+        pen_id: The text layer's HPGL pen number; ``None`` for ``"bh"``.
+        spec: The spec whose ``tool_options`` header block the file carries —
+            byte-identical for every owner in the bucket, by construction.
+    """
+
+    kind: str
+    owners: tuple[str, ...]
+    cutter: float
+    width: float
+    pen_id: Optional[int] = None
+    spec: Optional[JobSpec] = None
+
+    @property
+    def job_keys(self) -> tuple[str, ...]:
+        """The contributing members, without the single-job empty owner."""
+        return tuple(owner for owner in self.owners if owner)
+
+
+def _has_pen(content: str, pen_ids: Sequence[int]) -> bool:
+    """Report whether assembled plate content engraves on any of ``pen_ids``.
+
+    A layer's file must name (and be attributed to) only the jobs whose strokes
+    are inside it. Membership is read from the owner's own assembled plate
+    content, so it is exactly what the writer emits - not an inference from the
+    pen map, which is built pool-wide.
+
+    Args:
+        content: The owner's combined plate content (``""`` = nothing).
+        pen_ids: The pens to test (``2``/``3`` = borders + holes).
+
+    Returns:
+        ``True`` when ``content`` carries geometry on one of those pens.
+    """
+    if not content:
+        return False
+    return plt_has_geometry(extract_pens_from_plt_text(content, list(pen_ids)))
+
+
+def _bh_buckets(
+    plate: PackedPlate,
+    owners: tuple[str, ...],
+    provenance: Optional[JobProvenance],
+    *,
+    hole_cutter: float,
+    hole_cutter_width: float,
+    job_spec: Optional[JobSpec],
+    layer_specs: Optional[Mapping[str, JobSpec]],
+    job_config: Optional[JobConfig],
+    per_owner: Optional[Mapping[str, str]] = None,
+) -> List[_LayerBucket]:
+    """Group one plate's structural strokes into files by TOOL, not by job.
+
+    Args:
+        plate: The packed plate.
+        owners: The jobs present on the plate (``("",)`` for a single-job run).
+        provenance: Jobset side table.
+        hole_cutter: Job-level boundary/hole cutter (kept for a single job).
+        hole_cutter_width: Its kerf-buffered width.
+        job_spec: The run-level spec (headers + pool-wide settings).
+        layer_specs: ``job_key -> member spec``, from the jobset plan.
+        job_config: The loaded config (the ``tool_options`` registry).
+        per_owner: ``job_key ->`` that job's assembled plate content. Given for
+            a mixed plate, it drops jobs that engrave no border/hole on this
+            sheet, so a file's job list names only real contributors. Empty for
+            a plate one job owns outright (its whole sheet is that job's work,
+            so nothing is filtered - and a single-job run has no owner at all).
+
+    Returns:
+        One bucket per distinct (boundary/hole cutter, header block), in
+        jobset-file order of their first contributing job. Members agreeing on
+        both land in the same bucket, which is what makes a shared sheet one
+        structural run per tool.
+    """
+    content_map = per_owner or {}
+    grouped: dict[
+        tuple[float, float, Tuple[str, ...]],
+        tuple[float, float, Optional[JobSpec], List[str]],
+    ] = {}
+    for owner in owners:
+        segment = _segment_plate(plate, owner, provenance)
+        cutter, width = _segment_cutters(segment, owner, hole_cutter, hole_cutter_width)
+        spec = _segment_spec(owner, job_spec, layer_specs)
+        if (
+            owner
+            and content_map
+            and not _has_pen(content_map[owner], (LAYER_BOUNDARY, LAYER_HOLES))
+        ):
+            continue
+        key = (cutter, width, _tool_option_signature(spec, job_config, "borders_holes"))
+        entry = grouped.get(key)
+        if entry is None:
+            grouped[key] = (cutter, width, spec, [owner])
+        else:
+            entry[3].append(owner)
+    return [
+        _LayerBucket(kind="bh", owners=tuple(bucket_owners), cutter=cutter, width=width, spec=spec)
+        for cutter, width, spec, bucket_owners in grouped.values()
+    ]
+
+
+def _text_buckets(
+    owners: tuple[str, ...],
+    *,
+    layer_by_pen: Mapping[int, tuple[float, str]],
+    pen_widths: Mapping[int, float],
+    job_spec: Optional[JobSpec],
+    layer_specs: Optional[Mapping[str, JobSpec]],
+    job_config: Optional[JobConfig],
+    per_owner: Optional[Mapping[str, str]] = None,
+) -> List[_LayerBucket]:
+    """Group one plate's text strokes into files by (pen, header block).
+
+    The pen map is built over every label of the run, so a ``(cutter, color)``
+    layer is already shared by every job that uses that tool and ink; jobs
+    whose text headers agree merge into that layer's single file (and are
+    routed together). Pen order is preserved, so a single-job run writes
+    exactly its historical file sequence.
+
+    Args:
+        owners: The jobs present on the plate (``("",)`` for a single-job run).
+        layer_by_pen: ``pen -> (cutter, color)`` of the run's text layers.
+        pen_widths: Engraved (buffered) width per pen, for the proofs.
+        job_spec: The run-level spec (headers + pool-wide settings).
+        layer_specs: ``job_key -> member spec``, from the jobset plan.
+        job_config: The loaded config (the ``tool_options`` registry).
+        per_owner: ``job_key ->`` that job's assembled plate content. Given for
+            a mixed plate, it drops jobs that engrave nothing on this pen, so a
+            file's job list (and its name) names only real contributors - a pen
+            only one job uses keeps that job's own filename token.
+
+    Returns:
+        One bucket per (pen, header block), in ascending pen order.
+    """
+    content_map = per_owner or {}
+    grouped: dict[tuple[int, Tuple[str, ...]], tuple[Optional[JobSpec], List[str]]] = {}
+    for pen_id in sorted(layer_by_pen):
+        for owner in owners:
+            if owner and not _has_pen(content_map.get(owner, ""), (pen_id,)):
+                continue
+            spec = _segment_spec(owner, job_spec, layer_specs)
+            key = (pen_id, _tool_option_signature(spec, job_config, "text"))
+            entry = grouped.get(key)
+            if entry is None:
+                grouped[key] = (spec, [owner])
+            else:
+                entry[1].append(owner)
+    buckets: List[_LayerBucket] = []
+    for (pen_id, _signature), (spec, bucket_owners) in grouped.items():
+        cutter, _color = layer_by_pen[pen_id]
+        buckets.append(
+            _LayerBucket(
+                kind="txt",
+                owners=tuple(bucket_owners),
+                pen_id=pen_id,
+                cutter=cutter,
+                width=pen_widths.get(pen_id, cutter),
+                spec=spec,
+            )
+        )
+    return buckets
+
+
+def _bucket_plate(
+    plate: PackedPlate, bucket: _LayerBucket, provenance: Optional[JobProvenance]
+) -> PackedPlate:
+    """Return ``plate`` carrying exactly ``bucket``'s labels.
+
+    Args:
+        plate: The packed plate.
+        bucket: The layer being written.
+        provenance: Jobset side table.
+
+    Returns:
+        ``plate`` itself for a single-job bucket (no copy: the assembly then
+        runs exactly as a standalone job's), else the plate whose ``labels``
+        are the bucket's jobs', at the same placements and order.
+    """
+    if not bucket.job_keys or provenance is None:
+        return plate
+    wanted = set(bucket.job_keys)
+    return replace(
+        plate,
+        labels=[
+            packed
+            for packed in plate.labels
+            if provenance.job_of_label(packed.source_label.id) in wanted
+        ],
+    )
+
+
+def _bucket_job_id(bucket: _LayerBucket, job_id: str, provenance: Optional[JobProvenance]) -> str:
+    """Filename ``<job_id>`` token of one plate layer.
+
+    A layer carrying exactly one job's strokes is named for that job, so a
+    batch names those files exactly as the member's standalone run does. A
+    layer the jobs share is named for the batch (``job_id``): the file belongs
+    to every job engraved on that tool, and its membership is recorded in
+    :attr:`PerCutterExport.file_jobs` and the reports rather than in a name the
+    39-character plotter cap would truncate.
+
+    Args:
+        bucket: The layer being written.
+        job_id: The run-level filename token (the batch id for a jobset).
+        provenance: Jobset side table.
+
+    Returns:
+        The lone contributing member's token, else ``job_id``.
+    """
+    if provenance is not None and len(bucket.job_keys) == 1:
+        record = provenance.record(bucket.job_keys[0])
+        if record is not None:
+            return record.job_id
+    return job_id
+
+
 def _segment_cutters(
     segment: PackedPlate, owner: str, default: float, default_width: float
 ) -> tuple[float, float]:
@@ -898,28 +1193,36 @@ def _segment_spec(
     return job_spec
 
 
-def _segment_job_id(owner: str, job_id: str, provenance: Optional[JobProvenance]) -> str:
-    """Filename ``<job_id>`` token of one plate segment.
+def _warn_split_layers(
+    buckets: Sequence[_LayerBucket], *, plate_str: str, logger: Optional[TextLogger]
+) -> None:
+    """Warn when jobs that share a tool cannot share one run.
 
-    Every written PLT carries the id of the job whose strokes it contains:
-    a shared plate's per-cutter files are per-job toolpaths, so a batch
-    token would name a file as if it belonged to every job on the sheet.
-    The plate-level artifact (the combined ``*_all_*`` preview, which really
-    does span the jobs) keeps the run token.
+    Two jobs on one sheet merge into a single file per cutter whenever they
+    can. They cannot when their ``tool_options`` header blocks differ: one PLT
+    carries one block, so the layer is written once per header block and the
+    tool is physically re-run. That is a real (and avoidable) cost, so it is
+    logged, not buried.
 
     Args:
-        owner: Owning job key, or ``""`` for a single-job run.
-        job_id: The run-level filename token.
-        provenance: Jobset side table.
-
-    Returns:
-        The member's own filename token, else ``job_id``.
+        buckets: Every bucket of one plate (structural + text).
+        plate_str: The plate's file-name prefix, for the log line.
+        logger: The text logger (``None`` logs nothing).
     """
-    if owner and provenance is not None:
-        record = provenance.record(owner)
-        if record is not None:
-            return record.job_id
-    return job_id
+    if logger is None:
+        return
+    by_tool: dict[tuple[str, float], List[_LayerBucket]] = {}
+    for bucket in buckets:
+        by_tool.setdefault((bucket.kind, bucket.cutter), []).append(bucket)
+    for (kind, cutter), group in by_tool.items():
+        if len(group) < 2:
+            continue
+        jobs = "; ".join("+".join(bucket.job_keys) for bucket in group)
+        logger.warning(
+            f"Plate {plate_str}: the {kind} tool {_format_cutter(cutter)} is split "
+            f"into {len(group)} files because these jobs' tool_options headers "
+            f"differ, so the cutter is re-run ({jobs})."
+        )
 
 
 def export_per_cutter_plts(
@@ -976,7 +1279,16 @@ def export_per_cutter_plts(
     - The combined per-plate PLT is assembled **in memory only** (never
       written) and exposed via :attr:`PerCutterExport.combined_by_plate`;
       when ``plots`` is enabled it also drives the combined
-      ``[<plate>_][<material>_]all_<job_id>.pdf`` preview.
+      ``[<plate>_][<material>_]all_<job_id>.pdf`` preview. A jobset run
+      additionally writes one **per contributing job** ``all_<member_id>.pdf``
+      proof for every plate its jobs share, so each job has a proof of its own
+      labels on the shared sheet (see
+      :attr:`PerCutterExport.combined_by_plate_and_job`).
+    - Jobset runs group each plate layer **by tool**: one file per (cutter,
+      color, header block) shared by every job engraving with that tool, so a
+      sheet two jobs share yields a single ``_bh_`` file per boundary/hole
+      cutter and a single ``_txt_`` file per cutter/color layer - one run per
+      tool, not one per job. See the ``provenance`` argument.
 
     PLT files are written under ``output_dir/plt/`` and PDFs under
     ``output_dir/pdf/``. Cutter diameters are formatted as integer
@@ -1051,18 +1363,27 @@ def export_per_cutter_plts(
             consumer that needs the numbers regardless of the log level
             (the generation report) passes a collector here.
         layer_specs: Jobset only: ``job_key -> member JobSpec``, used to
-            prepend **each segment's own** ``tool_options`` header block to
-            the shared plate files (see :func:`_segment_spec`). Ignored when
-            ``provenance`` is ``None``.
+            prepend **each contributing member's own** ``tool_options`` header
+            block to the plate files (see :func:`_segment_spec`). Members whose
+            blocks are identical share one file; members whose blocks differ
+            cannot share a run, so that layer is written once per block (and
+            warned about). Ignored when ``provenance`` is ``None``.
         provenance: Jobset only: the composite-id side table from
             :func:`plt_optimizer.generate.jobset.build_jobset_plan`. When
-            given, every plate is cut into **one segment per owning job**
-            (jobset-file order) and each segment is assembled, routed and
-            written as its own per-cutter file, so a shared plate yields
-            ``01_kw_40_txt_seer.plt`` + ``01_kw_40_txt_coolsys.plt`` (one
-            toolpath per job — cross-job routing is deliberately not done,
-            a merged stroke would belong to two jobs and stop being
-            per-job reportable). ``None`` (the default) is the single-job
+            given, each plate layer is grouped **by tool, not by job**: every
+            job whose strokes engrave with the same cutter (and, for text, the
+            same color and header block) shares one file and one routing, so a
+            shared plate yields ONE ``01_kw_40_txt_*.plt`` carrying both jobs
+            instead of one file per job. That is the point of the batch - fewer
+            files, fewer tool swaps, and one travel route over all the strokes
+            that tool makes. A file's ``<job_id>`` token is the batch id when
+            jobs share it and the lone member's own id otherwise; every job
+            contributing to a file is recorded in
+            :attr:`PerCutterExport.file_jobs`, which is how the per-job reports
+            measure themselves out of shared files. Mixed plates also record
+            per-job combined content
+            (:attr:`PerCutterExport.combined_by_plate_and_job`) so each job can
+            be proofed on its own. ``None`` (the default) is the single-job
             path and produces byte-identical output to a run without this
             parameter.
 
@@ -1328,38 +1649,74 @@ def export_per_cutter_plts(
         # show it). Empty map = every preview keeps the per-pen width.
         stroke_widths = build_stroke_width_map(plate.labels, rendered_labels_map)
         plate_stroke_widths[plate_no] = stroke_widths
-        # Jobset segmentation: one plate is written as one file per
-        # (owning job, layer). A single-job run yields the single empty
-        # owner, in which case every helper below hands back the whole
-        # plate and the run-level ids — the pre-jobset path, byte-identical.
         owners = _plate_owners(plate, provenance)
         if provenance is not None:
             result.plate_jobs[plate_no] = owners
         # Combined whole-plate assembly: in memory only, it drives the
-        # per-plate preview and the report's combined view.
+        # per-plate preview, the report's combined view, and the per-job
+        # proofs below.
         with stage_timer("assemble_split", _LOG, timings=stage_timings):
             combined = assemble_plt_from_rendered_labels(plate, rendered_labels_map)
         result.combined_by_plate[plate_no] = combined
-        for owner in owners:
-            segment = _segment_plate(plate, owner, provenance)
-            seg_cutter, seg_cutter_width = _segment_cutters(
-                segment, owner, hole_cutter, hole_cutter_width
-            )
-            seg_spec = _segment_spec(owner, job_spec, layer_specs)
-            seg_job_id = _segment_job_id(owner, job_id, provenance)
-            # A single-job segment is the whole plate, so its structural
-            # layer extracts from the assembly above (no second render pass).
+        # Per-job sheet content on the plates its jobs SHARE (a sheet one job
+        # owns outright already has that job as its sheet proof): it drives the
+        # per-job proof PDFs, and it is the membership test that keeps a merged
+        # file's job list - and its name - honest.
+        per_owner: dict[str, str] = {}
+        if provenance is not None and len(owners) > 1:
             with stage_timer("assemble_split", _LOG, timings=stage_timings):
-                segment_combined = (
+                per_owner = {
+                    owner: assemble_plt_from_rendered_labels(
+                        _segment_plate(plate, owner, provenance), rendered_labels_map
+                    )
+                    for owner in owners
+                }
+            result.combined_by_plate_and_job[plate_no] = per_owner
+        # Jobset file groups: a plate layer is written as ONE file per
+        # (cutter, color, header block), shared by every job whose strokes
+        # engrave with that tool - a shared sheet yields one `kw_45_txt_*`
+        # file carrying both jobs, routed together. A job boundary never splits
+        # a cutter; only a different tool, ink, material, sheet, or a
+        # `tool_options` header the file cannot both carry and honour does. A
+        # single-job run yields one bucket per layer holding the whole plate,
+        # which is exactly the pre-jobset path (byte-identical output).
+        bh_buckets = _bh_buckets(
+            plate,
+            owners,
+            provenance,
+            hole_cutter=hole_cutter,
+            hole_cutter_width=hole_cutter_width,
+            job_spec=job_spec,
+            layer_specs=layer_specs,
+            job_config=job_config,
+            per_owner=per_owner,
+        )
+        text_buckets = _text_buckets(
+            owners,
+            layer_by_pen=layer_by_pen,
+            pen_widths=pen_widths,
+            job_spec=job_spec,
+            layer_specs=layer_specs,
+            job_config=job_config,
+            per_owner=per_owner,
+        )
+        _warn_split_layers([*bh_buckets, *text_buckets], plate_str=plate_str, logger=logger)
+        for bucket in bh_buckets:
+            # A bucket covering the whole plate reuses the assembly above (no
+            # second render pass); a split layer assembles its own subset.
+            with stage_timer("assemble_split", _LOG, timings=stage_timings):
+                bucket_combined = (
                     combined
-                    if not owner
-                    else assemble_plt_from_rendered_labels(segment, rendered_labels_map)
+                    if bucket.owners == owners
+                    else assemble_plt_from_rendered_labels(
+                        _bucket_plate(plate, bucket, provenance), rendered_labels_map
+                    )
                 )
                 structure_content = extract_pens_from_plt_text(
-                    segment_combined, [LAYER_BOUNDARY, LAYER_HOLES]
+                    bucket_combined, [LAYER_BOUNDARY, LAYER_HOLES]
                 )
             # Structural group: borders (SP2) + holes (SP3) share one run.
-            bh_tag = _segment_tag(owner, plate_str, "bh")
+            bh_tag = _bucket_tag(bucket.owners, plate_str, "bh")
             if plt_has_geometry(structure_content):
                 bh_content = structure_content
                 if optimize and strategy_factory is not None:
@@ -1374,16 +1731,18 @@ def export_per_cutter_plts(
                         bh_content = optimization.content
                         _report(bh_tag, optimization)
 
-                # Prepend tool option headers if job_spec and job_config are provided
-                if seg_spec is not None and job_config is not None:
+                # Prepend tool option headers: every job in the bucket
+                # generates the identical block (that is the merge test).
+                if bucket.spec is not None and job_config is not None:
                     from plt_optimizer.generate.tool_options import prepend_tool_option_headers
 
                     bh_content = prepend_tool_option_headers(
-                        bh_content, seg_spec, job_config, "borders_holes"
+                        bh_content, bucket.spec, job_config, "borders_holes"
                     )
 
+                structure_token = _bucket_job_id(bucket, job_id, provenance)
                 structure_path = (
-                    plt_dir / f"{prefix}{_format_cutter(seg_cutter)}_bh_{seg_job_id}.plt"
+                    plt_dir / f"{prefix}{_format_cutter(bucket.cutter)}_bh_{structure_token}.plt"
                 )
                 # Plotter-controller cap: the machine rejects names longer than
                 # 39 characters, so the name is shortened from the right (the
@@ -1391,24 +1750,28 @@ def export_per_cutter_plts(
                 structure_path = ensure_plot_filename_length(structure_path, _LOG)
                 _write_plt(structure_path, bh_content)
                 result.plt_paths.append(structure_path)
-                file_widths[structure_path] = seg_cutter_width
-                if owner:
-                    result.file_jobs[structure_path] = owner
+                file_widths[structure_path] = bucket.width
+                job_keys = bucket.job_keys
+                if job_keys:
+                    result.file_jobs[structure_path] = job_keys
 
             # Text group: one file per distinct text cutter/color pen with
             # content. With optimization enabled the layer is routed directly
             # from the rendered chunk records in plate space (parser/profiler
             # skipped); otherwise the pen layer is extracted from the
             # assembly as-is.
-            for pen_id in sorted(layer_by_pen):
+            for text_bucket in text_buckets:
+                pen_id = text_bucket.pen_id
+                if pen_id is None:  # pragma: no cover - text buckets always carry a pen
+                    continue
                 cutter, text_color = layer_by_pen[pen_id]
                 layer_tag = _format_text_layer(cutter, text_color)
-                text_tag = _segment_tag(owner, plate_str, f"text {layer_tag}")
+                text_tag = _bucket_tag(text_bucket.owners, plate_str, f"text {layer_tag}")
                 written_content: Optional[str] = None
                 if optimize and strategy_factory is not None:
                     with stage_timer("optimize_layer", _LOG, timings=stage_timings):
                         optimization = optimize_text_layer(
-                            segment.labels,
+                            _bucket_plate(plate, text_bucket, provenance).labels,
                             rendered_labels_map,
                             pen_id,
                             strategy_factory,
@@ -1420,28 +1783,37 @@ def export_per_cutter_plts(
                         _report(text_tag, optimization)
                 if written_content is None:
                     with stage_timer("assemble_split", _LOG, timings=stage_timings):
-                        text_content = extract_pens_from_plt_text(segment_combined, [pen_id])
+                        bucket_combined_text = (
+                            combined
+                            if text_bucket.owners == owners
+                            else assemble_plt_from_rendered_labels(
+                                _bucket_plate(plate, text_bucket, provenance),
+                                rendered_labels_map,
+                            )
+                        )
+                        text_content = extract_pens_from_plt_text(bucket_combined_text, [pen_id])
                     if not plt_has_geometry(text_content):
                         continue
                     written_content = text_content
 
-                # Prepend tool option headers if job_spec and job_config are provided
-                if seg_spec is not None and job_config is not None:
+                # Prepend tool option headers (identical for every job here).
+                if text_bucket.spec is not None and job_config is not None:
                     from plt_optimizer.generate.tool_options import prepend_tool_option_headers
 
                     written_content = prepend_tool_option_headers(
-                        written_content, seg_spec, job_config, "text"
+                        written_content, text_bucket.spec, job_config, "text"
                     )
 
-                text_path = plt_dir / f"{prefix}{layer_tag}_txt_{seg_job_id}.plt"
+                text_token = _bucket_job_id(text_bucket, job_id, provenance)
+                text_path = plt_dir / f"{prefix}{layer_tag}_txt_{text_token}.plt"
                 # Plotter-controller cap (see the structural write above).
                 text_path = ensure_plot_filename_length(text_path, _LOG)
                 _write_plt(text_path, written_content)
                 result.plt_paths.append(text_path)
-                file_widths[text_path] = pen_widths[pen_id]
+                file_widths[text_path] = text_bucket.width
                 file_stroke_widths[text_path] = stroke_widths
-                if owner:
-                    result.file_jobs[text_path] = owner
+                if text_bucket.job_keys:
+                    result.file_jobs[text_path] = text_bucket.job_keys
 
     # Extract text height from resolved labels for plot titles
     text_height: float | None = None
@@ -1591,6 +1963,7 @@ def _write_simple_plots(
     from plt_optimizer.core.parser import PLTParser
     from plt_optimizer.diagnostics.plotter import (
         PHYSICAL_STRUCTURAL_ALPHA,
+        JobOverlayBoxLike,
         PhysicalFillLayer,
         PhysicalStrokeLayer,
         plot_physical_strokes,
@@ -1794,14 +2167,35 @@ def _write_simple_plots(
             )
         pdf_paths.append(pdf_path)
 
-    for plate_no, combined in result.combined_by_plate.items():
-        prefix = _format_plate_prefix(
+    def _plate_prefix(plate_no: int) -> str:
+        """The file-name prefix of one plate's combined artifacts."""
+        return _format_plate_prefix(
             plate_no,
             combined_counts.get(plate_no, len(result.combined_by_plate)),
             result.material_by_plate.get(plate_no),
         )
-        pdf_path = pdf_dir / f"{prefix}all_{job_id}.pdf"
-        title = f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization"
+
+    def _combined_proof(
+        plate_no: int,
+        content: str,
+        pdf_path: Path,
+        title: str,
+        overlay_boxes: Sequence[JobOverlayBoxLike],
+    ) -> None:
+        """Render one combined (all-pens) plate proof and record it.
+
+        Args:
+            plate_no: 1-based plate number, selecting the material and the
+                per-stroke width map.
+            content: The combined PLT content to draw (a whole sheet, or one
+                job's labels on it for a per-job proof).
+            pdf_path: Where the proof is written.
+            title: The plot title.
+            overlay_boxes: Per-job boundary boxes drawn over the ink (see
+                :func:`plt_optimizer.generate.jobset.job_overlay_boxes`). Empty
+                for a solo sheet and for the per-job proofs, which show one
+                job's labels only.
+        """
         parsed_material = parse_material_colors(result.material_by_plate.get(plate_no))
         # Material-agnostic (or unrecognized-name) plates proof as "wk"
         # stock: white label background, black text, black outlines.
@@ -1814,7 +2208,7 @@ def _write_simple_plots(
             # The assembly keeps its SP pen sections, so each pen's strokes
             # can be extracted and drawn at its own cutter width.
             for pen_id in sorted(pen_widths):
-                pen_content = extract_pens_from_plt_text(combined, [pen_id])
+                pen_content = extract_pens_from_plt_text(content, [pen_id])
                 if not plt_has_geometry(pen_content):
                     continue
                 pen_document = parser.parse_string(pen_content)
@@ -1883,12 +2277,12 @@ def _write_simple_plots(
                 gridlines=False,
                 fills=fills,
                 background_color=preview_background,
-                overlay_boxes=overlays.get(plate_no, ()),
+                overlay_boxes=overlay_boxes,
             )
         else:
             # No pen widths (synthetic export) or no per-pen geometry:
             # historical thin centerline preview.
-            document = parser.parse_string(combined)
+            document = parser.parse_string(content)
             plot_plt_document(
                 document,
                 output_path=pdf_path,
@@ -1898,6 +2292,39 @@ def _write_simple_plots(
                 gridlines=False,
             )
         pdf_paths.append(pdf_path)
+
+    for plate_no, combined in result.combined_by_plate.items():
+        _combined_proof(
+            plate_no,
+            combined,
+            pdf_dir / f"{_plate_prefix(plate_no)}all_{job_id}.pdf",
+            f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization",
+            overlays.get(plate_no, ()),
+        )
+
+    # Per-job proofs of the SHARED sheets: every contributing job gets an
+    # all-pens view of its own labels on the plate it shares, so a job can be
+    # approved on its own even though the machine runs one merged toolpath for
+    # all of them. A sheet only one job occupies is skipped - its whole-sheet
+    # proof above already is that job's proof.
+    for plate_no, per_job in sorted(result.combined_by_plate_and_job.items()):
+
+        def _display(owner: str) -> str:
+            """This job's legend text (declared name, falling back to its id)."""
+            record = provenance.record(owner) if provenance is not None else None
+            return record.display_name if record is not None else owner
+
+        shared = ", ".join(_display(owner) for owner in sorted(per_job))
+        for owner, content in sorted(per_job.items()):
+            record = provenance.record(owner) if provenance is not None else None
+            member_id = record.job_id if record is not None else owner
+            _combined_proof(
+                plate_no,
+                content,
+                pdf_dir / f"{_plate_prefix(plate_no)}all_{member_id}.pdf",
+                f"{_display(owner)} (plate {plate_no}, sheet shared with {shared})",
+                (),
+            )
 
     return pdf_paths
 

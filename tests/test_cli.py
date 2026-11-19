@@ -234,12 +234,15 @@ class TestGenerateSubcommand:
             job_report = _read_json(out_dir / entry["report"])
             assert job_report["job"]["job_name"] == entry["job_name"]
             assert job_report["job"]["status"] == "success"
-            # A member's ids are its own (the composite namespace is stripped),
-            # and its report carries no by_job breakdown: it is one job.
+            # A member's ids are its own (the composite namespace is stripped).
             assert [label["id"] for label in job_report["labels"]] == [
                 label["id"].split("::")[-1] for label in job_report["labels"]
             ]
-            assert job_report["usage"]["distance"].get("by_job") is None
+            # A member's report DOES carry by_job, holding exactly its own row:
+            # its toolpath is measured out of the batch's merged files, so the
+            # per-job breakdown is what separates its share of a shared run.
+            member_rows = job_report["usage"]["distance"].get("by_job") or []
+            assert [row["job"] for row in member_rows] == [entry["job_key"]]
 
     def test_generate_jobset_rejects_a_job_spec_too(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
