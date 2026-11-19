@@ -1,0 +1,35 @@
+job:
+  job_name: "2026-11-18 air controls"
+  material: kw
+  height: 4
+  width: 6
+  text_height: 0.375
+  font: helv1
+  kerning_window_fraction: 0.2
+  holes:
+    - location: sides
+  labels:
+    - id: a
+      content:
+        - text: "CU MS Phone Room"
+          text_height: 0.625
+        - text: "120 Volt"
+        - text: "Fed from ELP A, Breaker 10"
+        - text: "Supports Phone Room MS evap"
+    - id: b
+      content:
+        - text: "Evap MS Phone Room"
+          text_height: 0.625
+        - text: "120 Volt"
+        - text: "Fed from ELP A, Breaker 10"
+        - text: "Via CU MS Phone Room"
+
+# CU MS Phone Room
+# 120 Volt
+# Fed from ELP A, Breaker 10
+# Supports Phone Room MS evap
+
+# Evap MS Phone Room
+# 120 Volt
+# Fed from ELP A, Breaker 10
+# Via CU MS Phone Room

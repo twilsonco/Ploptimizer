@@ -20,7 +20,7 @@
   "kerning_window_fraction": 0.8,
   "kerning_penetration_scale": 1.0,
   "kerning_recession_scale": 1.0,
-  "kerning_min_gap_fraction": 0.03,
+  "kerning_min_gap_fraction": 0.015,
   "fallback_advance_fraction": 1.0,
   "kern_pos_string": "<+>",
   "kern_neg_string": "<->",
