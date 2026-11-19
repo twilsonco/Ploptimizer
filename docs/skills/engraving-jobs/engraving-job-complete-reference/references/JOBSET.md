@@ -6,8 +6,8 @@ Regenerate:  uv run python docs/schema/generate_ai_docs.py
 Pinned by:   tests/test_job_spec_docs.py
 Semantics that a schema cannot express (the merge plan, the gate
 rules, the output tree, the per-job reports) live in
-../../../generate/AGENTS.md (the jobset contract) and the module
-docstrings of plt_optimizer/generate/jobset.py.
+../../../../../docs/plans/jobset.md (the shipped jobset contract) and
+the module docstrings of plt_optimizer/generate/jobset.py.
 -->
 
 A jobset YAML file is a single top-level `jobset:` mapping: a list of
@@ -33,13 +33,23 @@ Validation entry point: `plt_optimizer.generate.jobset.parse_jobset_yaml
 never interchangeable). Both models reject unknown keys
 (`additionalProperties: false`), and a jobset cannot nest a jobset.
 
+Emission is per **tool**, not per job: a shared plate writes one
+borders/holes file per cutter and one text file per pen and colour, and
+jobs that share a tool and its `tool_options` are engraved in one run
+(the `tool_options` header block is prepended per segment, so every job's
+strokes keep their own parameters inside the shared file). Jobs that give
+the same cutter *different* `tool_options` cannot share a run: the layer
+splits per signature and the batch warns that the cutter engraves the
+sheet once per signature. A layer's filename token is the lone owner's
+job id, or the batch id when the layer is shared.
+
 ## What a jobset shares, and what stays per job
 
 | Per job (unchanged) | Shared by the batch |
 |---|---|
 | cascade, fonts, markup, cutter sizes, hole placement, relief | the pool of plates (one packing pass) |
 | `generation_report/` + `summary.txt` (its own `usage`) | the plate proofs `pdf/*_all_*` (with a per-job overlay) |
-| its own label/plate ids (plain in its own files) | a shared sheet: each plate is engraved as one toolpath segment per job |
+| its own label/plate ids (plain in its own files) | a shared sheet: each plate is engraved as one toolpath segment per tool |
 
 The composite ids (`<job_key>::<label_id>`, `plate:<n>::<job_key>`) are
 internal only — the schema accepts plain ids. `plt_optimizer.generate.
@@ -75,12 +85,15 @@ A jobset is a thin composite: it names existing per-job YAML files and
 nothing else. Every member job is resolved exactly as a standalone
 `generate` run resolves it, then all members' labels are packed as ONE
 pool onto the union of their plates (plus auto-allocated sheets), and each
-plate is engraved as one toolpath segment per job - a shared plate yields a
-`txt` file per (job, cutter, colour) and one `bh` file per (job,
-boundary/hole cutter), so a member's file names and geometry are what that
-job produces standalone. Each job keeps its own `generation_report/`; the
-run also writes a jobset report and a `jobset.json` manifest naming the
-jobs on every plate.
+plate is engraved as one toolpath segment per tool - a shared plate yields
+one `bh` file per (boundary/hole cutter, kerf width, `tool_options`
+signature) and one `txt` file per (pen, signature), so jobs that run the
+same tool with the same engraver parameters share a run and a file. A
+layer's filename token is the owning job's id for a layer only it uses (so
+those names, and all cutting geometry, are what the job produces
+standalone) and the batch id for a layer the jobs share. Each job keeps its
+own `generation_report/`; the run also writes a jobset report and a
+`jobset.json` manifest naming the jobs on every plate.
 
 The layout, rotation and job-level packing defaults must agree across
 members (they are properties of the shared sheets); the gate that
@@ -88,7 +101,7 @@ enforces it lives in :mod:`plt_optimizer.generate.jobset`.
 
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
-| `name` | str \| null | null (unset) | — | Batch name -> jobset id: the key of the files the set writes (combined plate proofs, jobset.json, the batch report) and the plot titles. Per-cutter PLT files stay named for their owning job. Default: the jobset file's stem. |
+| `name` | str \| null | null (unset) | — | Batch name -> jobset id: the key of the files the set writes (combined plate proofs, jobset.json, the batch report) and the plot titles. Per-cutter PLT files are named for their owning job, and for the set when a layer is shared by more than one job. Default: the jobset file's stem. |
 | `jobs` | list[JobSetEntry] | **required** | — | Member job specs, packed as one pool. File order is the deterministic order used for plate concatenation, shared-file segment order and the plot legend. |
 
 ## Models

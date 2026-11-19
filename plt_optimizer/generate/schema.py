@@ -3555,12 +3555,15 @@ class JobSetSpec(BaseModel):
     nothing else. Every member job is resolved exactly as a standalone
     `generate` run resolves it, then all members' labels are packed as ONE
     pool onto the union of their plates (plus auto-allocated sheets), and each
-    plate is engraved as one toolpath segment per job - a shared plate yields a
-    `txt` file per (job, cutter, colour) and one `bh` file per (job,
-    boundary/hole cutter), so a member's file names and geometry are what that
-    job produces standalone. Each job keeps its own `generation_report/`; the
-    run also writes a jobset report and a `jobset.json` manifest naming the
-    jobs on every plate.
+    plate is engraved as one toolpath segment per tool - a shared plate yields
+    one `bh` file per (boundary/hole cutter, kerf width, `tool_options`
+    signature) and one `txt` file per (pen, signature), so jobs that run the
+    same tool with the same engraver parameters share a run and a file. A
+    layer's filename token is the owning job's id for a layer only it uses (so
+    those names, and all cutting geometry, are what the job produces
+    standalone) and the batch id for a layer the jobs share. Each job keeps its
+    own `generation_report/`; the run also writes a jobset report and a
+    `jobset.json` manifest naming the jobs on every plate.
 
     The layout, rotation and job-level packing defaults must agree across
     members (they are properties of the shared sheets); the gate that
@@ -3570,8 +3573,8 @@ class JobSetSpec(BaseModel):
         name: Batch name used for the jobset id, the key of the files the set
             itself writes (the combined plate proofs, `jobset.json`, the batch
             report) and the plot titles. Per-cutter PLT files are named for
-            their owning job, never for the set. Defaults to the jobset file's
-            stem.
+            their owning job, and for the set when a layer is shared by more
+            than one job. Defaults to the jobset file's stem.
         jobs: Member job specs, packed as one pool, in file order.
     """
 
@@ -3582,8 +3585,9 @@ class JobSetSpec(BaseModel):
         description=(
             "Batch name -> jobset id: the key of the files the set writes "
             "(combined plate proofs, jobset.json, the batch report) and the "
-            "plot titles. Per-cutter PLT files stay named for their owning "
-            "job. Default: the jobset file's stem."
+            "plot titles. Per-cutter PLT files are named for their owning job, "
+            "and for the set when a layer is shared by more than one job. "
+            "Default: the jobset file's stem."
         ),
     )
     jobs: list[JobSetEntry] = Field(
