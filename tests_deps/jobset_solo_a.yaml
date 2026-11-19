@@ -1,0 +1,41 @@
+# Jobset fixture: solo member A. Its sheet is deliberately too SHORT to hold
+# both labels in one column (3.0in of labels on a 2.5in sheet, column layout
+# fills a sheet top-to-bottom before spilling), so A's second label spills onto
+# the pool's next sheet - B's (jobset_solo_b.yaml). Result: sheet A carries A
+# and B, sheet B carries B alone - the mix a shop sees when a batch's last job
+# runs over. Root for TestPerJobProofs::test_a_solo_sheet_is_proved_once.
+job:
+  job_name: Solo Alpha
+  layout: columns
+  plates:
+    - id: plateA
+      width: 24.0
+      height: 2.5
+  labels:
+    - id: alpha-main
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      content:
+        - text: ALPHA SOLO
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+    - id: alpha-second
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      content:
+        - text: ALPHA TWO
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+    - id: alpha-third
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      content:
+        - text: ALPHA THREE
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4

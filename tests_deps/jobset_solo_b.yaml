@@ -1,0 +1,39 @@
+# Jobset fixture: solo member B, on one 24x12 sheet (jobset_solo_a.yaml's
+# sheet). Sized so all THREE of B's labels fit on it, i.e. B contributes to
+# every sheet A's overflow touches. Pairs with jobset_solo_a.yaml; see that
+# file and jobset_solo.yaml for which sheet ends up shared and which solo.
+job:
+  job_name: Solo Beta
+  layout: columns
+  plates:
+    - id: plateB
+      width: 24.0
+      height: 12.0
+  labels:
+    - id: beta-main
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      content:
+        - text: BETA SOLO
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+    - id: beta-second
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      content:
+        - text: BETA TWO
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4
+    - id: beta-third
+      width: 6.0
+      height: 2.0
+      cutter_size: 0.04
+      content:
+        - text: BETA THREE
+          text_height: 0.6
+        - text: SECOND LINE
+          text_height: 0.4

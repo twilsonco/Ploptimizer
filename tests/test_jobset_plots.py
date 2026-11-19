@@ -12,6 +12,7 @@ boxes, no legend, no change to a single-job proof).
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Dict, List
 
 import pytest
 from matplotlib.figure import Figure
@@ -28,6 +29,8 @@ from plt_optimizer.generate.jobset import (
     JobOverlayBox,
     JobProvenance,
     JobRecord,
+    JobSetPlan,
+    build_jobset_plan,
     job_overlay_boxes,
     legend_style_for,
 )
@@ -94,6 +97,214 @@ def _provenance(*job_keys: str, ids: dict[str, str]) -> JobProvenance:
 
 def _segment(x1: float, y1: float, x2: float, y2: float) -> StrokeSegment:
     return StrokeSegment(start=Coordinate(x1, y1), end=Coordinate(x2, y2), is_cutting=True)
+
+
+def _record_proofs(monkeypatch: pytest.MonkeyPatch) -> List[Dict[str, Any]]:
+    """Capture every plate proof the export renders, without drawing it.
+
+    :func:`plt_optimizer.generate.vectorize._write_simple_plots` imports the
+    plotter lazily, so patching the plotter module's names catches it. The
+    fixture plates declare a material and the export runs with the shop's
+    ``job-config.json``, so proofs go through ``plot_physical_strokes`` (the
+    per-pen path that carries the job key); ``plot_plt_document`` is the
+    synthetic-export fallback and is captured identically.
+
+    Returns:
+        One dict per proof call: ``path`` (the PDF), ``title`` and
+        ``overlay_boxes``.
+    """
+    from plt_optimizer.diagnostics import plotter
+
+    calls: List[Dict[str, Any]] = []
+
+    def _record(*args: Any, **kwargs: Any) -> None:
+        calls.append(
+            {
+                "path": kwargs.get("output_path", args[1] if len(args) > 1 else None),
+                "title": kwargs.get("title", ""),
+                "overlay_boxes": kwargs.get("overlay_boxes", ()),
+            }
+        )
+
+    monkeypatch.setattr(plotter, "plot_physical_strokes", _record)
+    monkeypatch.setattr(plotter, "plot_plt_document", _record)
+    return calls
+
+
+def _proofs(calls: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Index plate-proof calls by their file stem.
+
+    A plate proof is ``[<plate>_][<material>_]all_<owner>.pdf`` (per-file
+    previews are named ``*_txt_*`` / ``*_bh_*`` and are not plate proofs, so the
+    ``all_`` marker separates them). ``<owner>`` is the batch id for a
+    whole-sheet proof and the member's job id for a per-job proof, so a key
+    ending ``all_<owner>`` says exactly which job that PDF was drawn for.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for call in calls:
+        stem = Path(str(call["path"])).stem
+        marker = stem.rfind("all_")
+        if marker != 0 and stem[marker - 1] != "_":
+            continue
+        out[stem] = call
+    return out
+
+
+def _owner(stem: str) -> str:
+    """The owner token of a plate-proof file stem (after the ``all_`` marker)."""
+    return stem.split("all_", 1)[1]
+
+
+def _proof_by_owner(proofs: Dict[str, Dict[str, Any]], owner: str) -> Dict[str, Any]:
+    """Fetch one plate proof by owner token, failing loudly if it is absent."""
+    hits = [call for stem, call in proofs.items() if _owner(stem) == owner]
+    assert len(hits) == 1, f"expected exactly one proof for {owner!r}, got {len(hits)}"
+    return hits[0]
+
+
+def _plan_proofs(
+    plan: JobSetPlan,
+    output_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Dict[str, Dict[str, Any]]:
+    """Run the real plate-proof writer over a real jobset export.
+
+    The export is produced with ``plots=False`` (it writes the PLTs and fills
+    ``packed_plates`` / ``plate_jobs`` / ``combined_by_plate_and_job``), then
+    :func:`plt_optimizer.generate.vectorize._write_simple_plots` - the function
+    that owns the batch proof, the per-job proofs and the job key - is called
+    on it with the plan's provenance and the plotter faked out.
+
+    Driving the proof writer directly (rather than ``export_per_cutter_plts(...,
+    plots=True)``) is deliberate: the export's plot stage re-runs the whole
+    layout from the SINGLE job spec it is handed, and a batch has one spec per
+    member - so a multi-plate batch cannot be packed from ``contexts[0].spec``.
+    The proofs are drawn from the merged content that stage produces, which is
+    the contract this test is about.
+
+    Returns:
+        The captured proofs, keyed by owner token (see :func:`_proofs`).
+    """
+    from plt_optimizer.generate.vectorize import _write_simple_plots, export_per_cutter_plts
+
+    calls = _record_proofs(monkeypatch)
+    export = export_per_cutter_plts(
+        plan.merged_labels,
+        plan.merged_plates,
+        output_dir=output_dir,
+        job_id=plan.jobset_id,
+        job_name=plan.jobset_name,
+        layout=plan.layout,
+        allow_rotation=plan.allow_rotation,
+        default_plate_clearance=plan.default_plate_clearance,
+        plots=False,
+        optimize=False,
+        provenance=plan.provenance,
+        layer_specs={context.job_key: context.spec for context in plan.contexts},
+    )
+    _write_simple_plots(
+        output_dir,
+        plan.jobset_id,
+        export,
+        job_name=plan.jobset_name,
+        provenance=plan.provenance,
+    )
+    return _proofs(calls)
+
+
+class TestPerJobProofs:
+    """One plate proof per job that shares a sheet, beside the batch's own.
+
+    A pool sheet carries several jobs' labels in one merged toolpath, so the
+    batch's whole-sheet proof cannot be filed under any one job - and a shop
+    fixing one job's label cannot tell which sheet to pull. The proof writer
+    therefore emits, per SHARED sheet, one all-pens proof per contributing
+    job: titled with that job, captioned with the jobs it shares the sheet
+    with, and carrying only its own ink (no job key - the key is for a sheet
+    mixing jobs). A sheet one job occupies gets exactly one proof, because the
+    whole-sheet proof already is that job's proof.
+    """
+
+    def test_a_pool_batch_proves_the_batch_and_every_job_on_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two members sharing one plate -> three proofs: batch + each job."""
+        plan = build_jobset_plan(Path("tests_deps/jobset_export_batch.yaml"), job_config=None)
+        proofs = _plan_proofs(plan, tmp_path / "batch", monkeypatch)
+
+        members = sorted(context.record.job_id for context in plan.contexts)
+        assert len(members) == 2, "fixture must put two jobs on one sheet"
+        owners = sorted(_owner(stem) for stem in proofs)
+        assert owners == sorted([plan.jobset_id, *members]), owners
+
+    def test_each_per_job_proof_is_titled_for_its_job_and_names_its_neighbours(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Titles carry the declared job name and the shared-with caption.
+
+        The shop reads the title off the PDF, so it must use the declared
+        ``job_name`` (not the filesystem slug), and must say the sheet is
+        shared - a per-job view of a merged sheet is not the whole sheet.
+        """
+        plan = build_jobset_plan(Path("tests_deps/jobset_export_batch.yaml"), job_config=None)
+        proofs = _plan_proofs(plan, tmp_path / "batch", monkeypatch)
+
+        for context in plan.contexts:
+            title = _proof_by_owner(proofs, context.record.job_id)["title"]
+            assert context.record.display_name in title, title
+            assert "shared" in title.lower(), title
+            for other in plan.contexts:
+                if other is not context:
+                    assert other.record.display_name in title, f"{other} missing: {title}"
+        # The batch proof is the whole sheet: it is not captioned as shared.
+        assert "shared" not in _proof_by_owner(proofs, plan.jobset_id)["title"].lower()
+
+    def test_a_per_job_proof_shows_one_job_and_carries_no_job_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The key belongs on the mixed sheet; a single-job view needs none.
+
+        A per-job proof is one job's ink by construction, so drawing job boxes
+        over it would key a sheet that has exactly one job on it. (That the
+        BATCH proof of a shared sheet gets one box per job is pinned by
+        :mod:`tests.test_jobset_plots`' overlay-geometry and plotter-drawing
+        tests, which drive the physical-width path with pen widths - the
+        synthetic proofs here take the centerline fallback, which draws no key
+        at all.)
+        """
+        plan = build_jobset_plan(Path("tests_deps/jobset_export_batch.yaml"), job_config=None)
+        proofs = _plan_proofs(plan, tmp_path / "batch", monkeypatch)
+
+        for context in plan.contexts:
+            assert list(_proof_by_owner(proofs, context.record.job_id)["overlay_boxes"]) == []
+
+    def test_a_solo_sheet_is_proved_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A batch mixing a shared sheet and a solo one proves each correctly.
+
+        ``jobset_solo.yaml`` is built so member A's short sheet overflows onto
+        member B's: sheet 1 carries both jobs and sheet 2 carries B alone. A
+        solo sheet has a single owner WITH ink in ``combined_by_plate_and_job``,
+        so without the guard a second PDF is written for it - byte-identical to
+        the whole-sheet proof, and titled as if the sheet were shared with the
+        only job on it. The guard is keyed on owners with content, not on the
+        number of entries, which is every job in the batch.
+        """
+        plan = build_jobset_plan(Path("tests_deps/jobset_solo.yaml"), job_config=None)
+        proofs = _plan_proofs(plan, tmp_path / "solo", monkeypatch)
+
+        # Sheet 1 is shared: the batch's proof plus one per job.
+        shared_sheet = sorted(stem for stem in proofs if stem.startswith("01_"))
+        assert len(shared_sheet) == 3, shared_sheet
+        # Sheet 2 holds one job only: the batch's proof, and nothing else.
+        solo_sheet = sorted(stem for stem in proofs if stem.startswith("02_"))
+        assert solo_sheet == [f"02_all_{plan.jobset_id}"], solo_sheet
+        # Only the shared sheet's per-job proofs are captioned as shared.
+        for stem in shared_sheet:
+            if _owner(stem) != plan.jobset_id:
+                assert "shared" in proofs[stem]["title"].lower(), stem
+        assert "shared" not in proofs[solo_sheet[0]]["title"].lower()
 
 
 class TestJobOverlayGeometry:

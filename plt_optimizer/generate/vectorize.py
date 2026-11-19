@@ -2308,14 +2308,25 @@ def _write_simple_plots(
     # all of them. A sheet only one job occupies is skipped - its whole-sheet
     # proof above already is that job's proof.
     for plate_no, per_job in sorted(result.combined_by_plate_and_job.items()):
+        # Only the owners with ink on THIS sheet count as sharing it: the map
+        # carries an entry per job per plate, and a job packed entirely onto
+        # another sheet contributes empty content here.
+        contributors = {owner: content for owner, content in per_job.items() if content.strip()}
+        if len(contributors) < 2:
+            # A solo sheet is already proved by its whole-sheet proof above. A
+            # second identical PDF - titled "sheet shared with" the one job on
+            # it - is noise in the shop's proof folder and false on the sheet a
+            # human signs, so a sheet one job occupies is skipped (as promised
+            # above).
+            continue
 
         def _display(owner: str) -> str:
             """This job's legend text (declared name, falling back to its id)."""
             record = provenance.record(owner) if provenance is not None else None
             return record.display_name if record is not None else owner
 
-        shared = ", ".join(_display(owner) for owner in sorted(per_job))
-        for owner, content in sorted(per_job.items()):
+        shared = ", ".join(_display(owner) for owner in sorted(contributors))
+        for owner, content in sorted(contributors.items()):
             record = provenance.record(owner) if provenance is not None else None
             member_id = record.job_id if record is not None else owner
             _combined_proof(

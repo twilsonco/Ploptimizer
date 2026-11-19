@@ -1,0 +1,10 @@
+# Jobset fixture: two members whose SHEET SIZES differ (jobset_solo_a.yaml is
+# 24x16, jobset_solo_b.yaml is 12x12) with nothing pinned, so the pool packer
+# gives each job its own sheet: every sheet in the batch is occupied by exactly
+# one job. This is the contrast case to jobset_export_batch.yaml, whose members
+# share one sheet. Root for TestPerJobProofs::test_a_solo_sheet_is_proved_once.
+jobset:
+  name: Jobset Solo
+  jobs:
+    - job: jobset_solo_a.yaml
+    - job: jobset_solo_b.yaml
