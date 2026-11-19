@@ -421,9 +421,14 @@ mode: `layer_specs` (the `job_key -> member JobSpec` map, so each per-cutter
 header carries the options of the job that owns those strokes) and `provenance`
 (the label/plate ownership index, which drives the `jobset.json` stamp and the
 job-coloured plate-proof overlays). A shared sheet is emitted as **one toolpath
-segment per owning job** - `kw_45_txt_Job_A.plt`, `kw_45_txt_Job_B.plt`, one
-`bh` file per job - never a merged run, so no stroke is routed across jobs and
-every member bills exactly as it would have run alone.
+segment per tool** - one `bh` file per (boundary/hole cutter, kerf width,
+`tool_options` signature) and one `txt` file per (pen, signature) - so members
+that run the same tool with the same engraver parameters are engraved in one
+pass, named for the set (`kw_15_bh_Evening_Batch.plt`). A layer a job owns alone
+keeps that job's name (`kw_60_txt_Job_B.plt`), and a layer splits per job only
+where `tool_options` disagree (the run warns). Cutting geometry is unchanged by
+sharing, and every file records all of its owning jobs, so a member still bills
+exactly as it would have run alone.
 
 ### Phase 5J — Jobset Reports (per-job + batch)
 
@@ -436,22 +441,26 @@ Three surfaces, from the CLI's own builders:
 | `<output>/generation_report/report.json` + `summary.txt` | the batch run's own report, carrying the `jobset` block |
 
 The console adds the plate map and the per-job distance / time totals, plus the
-cross-job line (strokes merged, rapid travel saved by packing the jobs together
-- measured on shared sheets only, `0.000` when the packer never crossed a job
-boundary).
+cross-job line (the strokes in shared text layers on mixed plates, and
+`distance_saved` - the per-label sum minus the measured total, i.e. the travel
+sharing reclaims, `0.000` when the packer never crossed a job boundary). The
+per-job totals sum to `usage.distance.by_job`, which equals the batch's measured
+`distance.total`: a stroke is charged to exactly one owner, so sharing never shows
+up as a billing gap.
 
 ### Generated Files (batch mode)
 
 ```text
 test_output/integration_test/<set-stem>/
 ├── plt/
-│   ├── kw_45_txt_Job_A.plt        one segment per (job, cutter, colour)
-│   ├── kw_45_txt_Job_B.plt
-│   ├── kw_60_txt_Job_B.plt
-│   ├── kw_15_bh_Job_A.plt         one segment per (job, boundary/hole cutter)
-│   └── kw_15_bh_Job_B.plt
+│   ├── kw_15_bh_Evening_Batch.plt  every job's borders + holes: one tool, one run
+│   ├── kw_45_txt_Evening_Batch.plt shared layers are named for the set
+│   ├── kw_60_txt_Job_B.plt         a layer one job owns alone keeps its own name
+│   └── ...                         (splits per job where tool_options disagree)
 ├── pdf/                           all_<set>.pdf per plate, job-coloured, with a
-│                                  name-per-job key box on mixed sheets
+│                                  name-per-job key box on mixed sheets; a mixed
+│                                  sheet also gets a per-job proof, a solo sheet
+│                                  gets only its whole-sheet picture
 ├── Job_A/generation_report/       report.json + summary.txt for member A
 ├── Job_B/generation_report/       report.json + summary.txt for member B
 └── generation_report/

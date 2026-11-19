@@ -225,8 +225,9 @@ class TestGenerateSubcommand:
         plt_dir = out_dir / "plt"
         shared = sorted(p.name for p in plt_dir.glob("*.plt"))
         assert len(shared) >= 2
-        # One segment file per (job, cutter, layer): every member keeps its own
-        # toolpath, so the batch's files are named after the members.
+        # Layers merge by tool, so a shared layer is named for the batch and a
+        # layer a member owns alone keeps that member's name - both spellings
+        # have to show up in one batch's file set.
         assert any("Export_Alpha" in name for name in shared)
         assert any("Export_Beta" in name for name in shared)
 
