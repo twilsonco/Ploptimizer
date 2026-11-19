@@ -47,7 +47,10 @@ def _plan(name: str) -> JobSetPlan:
 
 
 def _export_batch(
-    plan: JobSetPlan, output_dir: Path, job_config: Optional[JobConfig] = None
+    plan: JobSetPlan,
+    output_dir: Path,
+    job_config: Optional[JobConfig] = None,
+    logger: Optional[object] = None,
 ) -> PerCutterExport:
     """Export a whole jobset plan (segmented, no plots, no routing)."""
     return export_per_cutter_plts(
@@ -65,6 +68,7 @@ def _export_batch(
         layer_specs={context.job_key: context.spec for context in plan.contexts},
         job_config=job_config,
         job_spec=plan.contexts[0].spec if job_config is not None else None,
+        logger=logger,  # type: ignore[arg-type]
     )
 
 
@@ -321,6 +325,87 @@ class TestPerSegmentHeaders:
         # 0.5 in/s vs 2.5 in/s, as the tool-option emitter formats them.
         assert alpha_lines.pop().startswith("VS0.50")
         assert beta_lines.pop().startswith("VS2.50")
+
+
+class TestToolOptionDivergence:
+    """A shared tool splits into one file per job ONLY where tool_options differ.
+
+    One plate layer is one PLT file, and one PLT file carries one tool-option
+    header block, so jobs that agree on ``tool_options`` merge into a single
+    run and jobs that disagree cannot. The disagreement is a real cost (the
+    cutter is physically re-run), so the writer warns about it. Both halves of
+    that contract are pinned here: the split plus its warning, and the merge
+    with no warning.
+    """
+
+    def test_divergent_tool_options_split_the_layer_and_warn(self, tmp_path: Path) -> None:
+        """Alpha cuts at 0.5 in/s and Beta at 2.5 in/s on one shared sheet.
+
+        They share the 15 (bh) and 75 (txt) cutters, so a merged run is
+        impossible: each layer ships one file per job, named for the job whose
+        headers it carries, and every split tool is reported once.
+        """
+        config = load_job_config(REPO_CONFIG)
+        assert config is not None
+        capture = _CaptureLogger()
+        plan = build_jobset_plan(FIXTURES / "jobset_tool_batch.yaml", job_config=config)
+        result = _export_batch(plan, tmp_path, job_config=config, logger=capture)
+
+        # Set semantics: today `plt_paths` carries each text name TWICE - the
+        # batch declares two identical sheets, and the second (empty) sheet
+        # re-emits the first sheet's per-owner text files with byte-identical
+        # content. One file on disk per layer per job is the contract; the
+        # duplicate list entry is tracked separately.
+        names = {path.name for path in result.plt_paths}
+        assert names == {
+            "15_bh_Tool_Alpha.plt",
+            "15_bh_Tool_Beta.plt",
+            "75_txt_Tool_Alpha.plt",
+            "75_txt_Tool_Beta.plt",
+        }, names
+        # Each file belongs to exactly one job, and no file is batch-named.
+        assert all(len(owners) == 1 for owners in result.file_jobs.values())
+        assert all(plan.jobset_id not in path.name for path in result.plt_paths)
+
+        assert len(capture.warnings) == 2, capture.warnings
+        for warning in capture.warnings:
+            assert "is split into 2 files because these jobs' tool_options headers" in warning
+            assert "so the cutter is re-run (Tool_Alpha; Tool_Beta)" in warning
+        assert any("the bh tool 15 " in w for w in capture.warnings), capture.warnings
+        assert any("the txt tool 75 " in w for w in capture.warnings), capture.warnings
+
+    def test_identical_tool_options_merge_the_layer_without_warning(self, tmp_path: Path) -> None:
+        """The exclusivity half: members that agree on tool_options share one
+        run, so a merged plate must NOT warn. Layers split for any other reason
+        (here the 0.04 red / 0.035 blue text cutters of the two members) are
+        not a tool_options split and are reported the same way: silently.
+        """
+        capture = _CaptureLogger()
+        plan = _plan("jobset_export_batch.yaml")
+        result = _export_batch(plan, tmp_path, logger=capture)
+
+        assert capture.warnings == []
+        merged = [path for path in result.plt_paths if "_bh_" in path.name]
+        assert [path.name for path in merged] == ["15_bh_Export_Batch.plt"]
+        assert result.file_jobs[merged[0]] == (ALPHA, BETA)
+
+
+class _CaptureLogger:
+    """Minimal :class:`TextLogger` stand-in that records the warnings it is sent.
+
+    The export path warns only through an injected logger (``logger=None``
+    silences it), so the split-warning contract is unreachable without one.
+    """
+
+    def __init__(self) -> None:
+        self.warnings: List[str] = []
+        self.infos: List[str] = []
+
+    def warning(self, message: str, *args: object) -> None:
+        self.warnings.append(message)
+
+    def info(self, message: str, *args: object) -> None:
+        self.infos.append(message)
 
 
 class TestSingleJobPathIsInert:
