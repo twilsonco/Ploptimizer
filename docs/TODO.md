@@ -56,7 +56,8 @@
 - [ ] Add spiral rastering pattern for relief engraving. See `examples/plt_relief_engraving/A_relief_spiral_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_spiral_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_spiral_0.005-only.plt` for reference.
 - [ ] Add "island" rastering for relief engraving. See `examples/plt_relief_engraving/A_relief_island_coarse_stroke_0.06.plt`, `examples/plt_relief_engraving/A_relief_island_fine_stroke_0.005.plt`, and `examples/plt_relief_engraving/A_relief_island_0.005-only.plt` for reference.
 - [ ] Optimize unit tests so they complete faster. Let's aim for 120s or less for the entire test suite.
-- [ ] Extend the `summary.txt` report to include price calculation based on the material use and size/number of characters. 
+- [ ] Extend the `summary.txt` report to include price calculation based on the material use and size/number of characters.
+  - Add an optional float `price` field to the job spec, cascading job -> plate -> label, with no default value.
   - Include the price calculation in the JSON file as well, so that it can be programmatically accessed and used by other tools or scripts.
   - Will use pricing parameters from the "OSP label pricing and optimization" Google Sheet to calculate the price based on material usage and character count.
     - Pricing formula parameters will be stored in a config file (perhaps in `job-config.json`, or a dedicated pricing config file e.g. `pricing-config.json`).
@@ -118,7 +119,12 @@
     - Will include a table (dictionary/object) that maps character sizes to per-character pricing, where text with `text_height` $\leq$ a certain value falls into the corresponding pricing tier.
       - "+" indicates any text height greater than the largest specified tier.
       - Text height prices correspond to the text height of *single-stroke* characters, e.g. $S=1$ characters. Multi-stroke character pricing is simply computed by multiplying the stroke count $S$ by the single-stroke price for the corresponding text height.
-    - `preset_label_prices`: A dictionary mapping label sizes to preset prices based on the number of lines. This allows for fixed pricing for common label configurations, overriding the formula-based pricing. (Here I'm unsure of the best approach in order to make it flexible/maintainable and also simple to implement so that prices can be automatically applied. Probably just need to establish a clear convention to allow label size and line count to be parsed.)
+    - `preset_label_prices`: A list of partial pricing rules for labels, allowing for fixed prices based on label size and other attributes, overriding the formula-based pricing.
+      - Each field of the items of the list corresponds to attributes in the job spec schema for label specifications. For each label, we'll look through the list of presets to see if there's a matching preset based on the label's attributes. If a match is found, the `price` field of the preset will be used as the label's price. Only the fields present in the preset need to match.
+      - If a label in the job spec already has a `price` field specified, then that will circumvent the preset *and* formula pricing.
+      - The fields in the preset behave differently from those in the label spec, in that they can specify multiple or a range of values, depending on whether the preset specified for a given field a single value or a list of values. The meaning of the list changes depending on the field type:
+        - If a field is a numerical type (int or float), then the preset can specify either a single value to match or a list of two values representing a range [min, max].
+        - If a field is a string or enum type, then it can specify either a single value or a list of acceptable values.
     - Other pricing formula parameters include:
       - `min_label_price`: The minimum price for any label, regardless of material usage or character count.
       - `base_label_price`: The base price for any label, before adding material usage or character count costs.
