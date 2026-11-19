@@ -1131,19 +1131,25 @@ section. The pipeline-level rules this package owns:
   `main`/`plate1`. `::` is illegal in a spec id, so the split is unambiguous. Any id that
   reaches a report, a filename, or a user-facing line goes through
   `JobProvenance.base_id` first; provenance lookups take the composite form.
-- **Emission is segmented per job, never merged.** `export_per_cutter_plts(provenance=…)`
-  writes a shared plate as one segment per owning job (jobset-file order): a `txt` file per
-  (job, cutter, colour) and one `bh` file per (job, boundary/hole cutter), each named for
-  its owning job - the same names a standalone run writes. Optimisation is scoped to a
-  segment, so **no stroke is ever routed, swept, merged or optimised across two jobs**: a
-  merged stroke would belong to two jobs and stop being per-job reportable, and the per-job
-  report is the product here. `PerCutterExport.file_jobs` / `plate_jobs` carry the ownership
-  the reports and the plate-proof overlay consume.
+- **Emission is segmented per tool; jobs sharing a tool share the run.** `export_per_cutter_plts(provenance=…)`
+  writes a shared plate as one segment per tool-layer: `bh` buckets by (cutter, kerf width,
+  `tool_options` signature), `txt` by (pen, signature) - `vectorize.py::_bh_buckets` /
+  `_text_buckets`. Members agreeing on the tool and its engraver parameters share one file and are
+  routed together; the filename token is the lone owner's `job_id`, or the batch id for a shared
+  layer. The invariants are that a stroke is never routed across two layers and a layer never mixes
+  two tools - optimisation, sweeps and merging run inside one bucket, so a cutter never engraves a
+  sheet twice. Divergent `tool_options` split a layer and warn. Per-job reportability survives the
+  merge through `JobProvenance` and `PerCutterExport.file_jobs` (which names every owning job of every
+  file), not through file separation; `file_jobs` / `plate_jobs` are what the reports and the
+  plate-proof overlay consume.
 - **Reports are per job plus per batch.** `generate/jobset_report.py` writes each member's
   own `OUT/<job_id>/generation_report/` pair measured from `file_jobs` (a member's usage is
   its own files, not a pro-rata split), the batch `report.json` (normal shape + the `jobset`
   block + `usage.distance.by_job` / `usage.time.by_job`), and `jobset.json` naming the jobs,
-  labels and files per plate. `REPORT_SCHEMA_VERSION` stays 1: the jobset keys are additive.
+  labels and files per plate. `by_job` charges every stroke to exactly one owner (the single
+  attribution rule in `usage_stats.py`), so the members' totals sum to `by_job`, which equals the
+  batch `distance.total`; the sharing saving is the `by_label` -> `by_job` gap (`cross_job.distance_saved`),
+  not a distance discrepancy. `REPORT_SCHEMA_VERSION` stays 1: the jobset keys are additive.
 
 ### Colored Combined PDF Previews (`preview_colors`)
 

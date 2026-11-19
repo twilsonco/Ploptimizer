@@ -129,11 +129,15 @@ jobset:
 
 Each member keeps its own cascade, fonts, cutter compensation, holes and
 label geometry: the front half of the pipeline runs per job, and only packing
-and emission are shared. Every PLT file stays **one job's toolpath** - a shared
-plate yields a text file per (job, cutter, colour) plus one borders-and-holes
-file per job, each named for its owning job. Strokes are never routed across
-jobs (a merged stroke would belong to two jobs and stop being per-job
-reportable), so a sheet is engraved pass by pass, job by job, in file order.
+and emission are shared. On a shared plate emission is **per tool** - one
+borders-and-holes file for every job using that cutter, one text file per cutter
+and colour - so a cutter never walks the sheet once per job. Jobs sharing a tool
+are routed together; a layer splits per job only when the tool's parameters
+(`tool_options`) disagree, and the run then warns that the cutter engraves twice
+per sheet. A batch writes the files a standalone run writes for the layers a job
+owns alone, and names the shared layers for the batch. Strokes are never routed
+across two layers and a layer never mixes two tools, so the work is engraved
+layer by layer, sheet by sheet, in file order.
 A shipped batch example lives in
 [`examples/job_specs/job_sets/jobset example.yaml`](examples/job_specs/job_sets/):
 two jobs (one declaring a 24x16 sheet, the other a 12x4), packed by the same
@@ -143,10 +147,10 @@ second member's unused sheet stays unpacked.
 For a set named `Evening Batch` whose members resolve to job keys `Job_A` and
 `Job_B`, the output tree is:
 
-```
-out/plt/kw_45_txt_Job_A.plt              # one job's text: [plate_][material_]cutter[_color]_txt_
-out/plt/kw_15_bh_Job_A.plt               # that job's borders + drill holes
-out/plt/kw_60_txt_Job_B.plt              # job B, its own cutter/colour
+```text
+out/plt/kw_15_bh_Evening_Batch.plt       # every job's borders + holes: one tool, one run
+out/plt/kw_45_txt_Job_A.plt              # a layer one job owns alone keeps its own name
+out/plt/kw_60_txt_Job_B.plt              # job B's own cutter/colour
 out/pdf/all_Evening_Batch.pdf            # the plate proof - every job, with a per-job overlay
 out/generation_report/report.json        # the batch report
 out/generation_report/summary.txt
@@ -156,11 +160,11 @@ out/Job_B/generation_report/report.json
 ```
 
 The PLT names follow the single-job contract
-(`[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`) and keep naming
-the **owning job**: a batch writes the same files each job would have written
-alone, the difference is that they are laid out on shared sheets. Only the
-plate-level artifact - the combined `all_<key>.pdf` proof, which really does
-span jobs - is keyed by the batch.
+(`[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`). The last token is
+the **owning job** for a layer that carries one job's strokes - so those files
+are exactly what that job writes standalone - and the **batch** for a layer the
+jobs share, whose membership the reports record. The difference from separate
+runs is that the work lands on shared sheets, engraved one tool per pass.
 
 Every report carries its own `usage` accounting, so a job inside a batch bills
 exactly as it would have run alone. The batch report adds a `jobset` block (the
@@ -177,7 +181,9 @@ The plate proof is the visual key: on a sheet that carries more than one job,
 each job's labels are boxed in a dashed rectangle from a fixed palette (colour
 first, then line style, indexed by the job's position in the file) with a
 legend naming the jobs. A sheet that carries one job gets no overlay and no
-legend at all - its proof is the same picture a normal `generate` run draws.
+legend at all - its proof is the same picture a normal `generate` run draws - and
+no second proof file either, because that whole-sheet proof already is that job's
+proof.
 
 Before the batch packs, a gate checks that the members can be packed together.
 It **fails** the run (listing every problem at once) when members declare

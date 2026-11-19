@@ -3,8 +3,11 @@
 Rule: a `jobset:` YAML names **existing per-job files** and nothing else. One
 `generate` run resolves every member through the single-job path, packs all
 members' labels as **one pool of plates**, and writes every plate as **one
-toolpath segment per job**. Material utilisation is the point: packing each job
-alone leaves a gap at the end of each job's last sheet.
+toolpath segment per tool** - the sheet's borders and holes in one run, each
+text cutter in one run. Material utilisation is the point: packing each job
+alone leaves a gap at the end of each job's last sheet. Cutter utilisation is
+the second: engraving a shared sheet job by job walks the same tool over the
+same sheet once per job.
 
 Status: SHIPPED. `plt_optimizer/generate/jobset.py` (plan + gate + provenance),
 `plt_optimizer/generate/job_prep.py` (the shared per-job preparation path),
@@ -17,10 +20,11 @@ jobset segmentation in `plt_optimizer/generate/vectorize.py`, the overlay in
 `tests/test_jobset_plots.py`.
 
 > **Record, not plan.** This file documents the shipped contract. The design
-> plan that produced it is not kept here, and one of its early phrases —
-> "one `txt` file carrying every job's text for a plate/cutter/colour" — is
-> **not** what the code does: see *Emission* below. Files are per job; only the
-> plate-level preview spans jobs.
+> plan that produced it is not kept here, and the emission model changed shape
+> during development (whole-plate layers, then one file per job, then the
+> per-tool merge below). Any wording that says a batch writes one file per job
+> is historical, not the contract: *Emission* is the authority. Files are per
+> tool; only the plate-level preview spans jobs, and it keys them.
 
 ## The spec
 
@@ -51,13 +55,28 @@ a jobset.
 | `generation_report/` + `summary.txt`, each with its own `usage` | the plate proofs `pdf/*_all_*` (with a per-job overlay) |
 | its own label/plate ids (namespaced in the run's internals) | the run-level tool options, the shop config, the inventory |
 
-**Emission is per job.** A plate that carries several jobs is written as one
-segment per owning job, in jobset-file order: a `txt` file per
-(job, cutter, colour) and one `bh` file per (job, boundary/hole cutter). No
-stroke is ever routed across jobs — a merged stroke would belong to two jobs
-and stop being per-job reportable, which is the whole reason the reports can
-bill a batch member exactly as it would have run alone. Every PLT file is named
-for its owning job, so a batch's names match what each job produces standalone:
+**Emission is per tool, not per job.** A plate that carries several jobs is
+written as one segment per **tool-layer**: the plate's structural strokes are
+bucketed by (boundary/hole cutter, kerf-buffered width, `tool_options` header
+signature) and its text strokes by (pen, header signature), so members that
+agree on the tool and its engraver parameters share one `bh` file and one `txt`
+file and are routed together (`vectorize.py::_bh_buckets`,
+`vectorize.py::_text_buckets`). The invariants are that a stroke is never routed
+across two layers and a layer never mixes two tools - optimisation, sweeps and
+merging all run inside one bucket. What is deliberately **not** guaranteed any
+more is per-job routing: strokes of different jobs are co-routed inside a shared
+layer, and that is exactly the saving. Per-job reportability survives it through
+`JobProvenance` and `PerCutterExport.file_jobs` (which names every owning job of
+every file), not through file separation.
+
+When `tool_options` diverge, a layer cannot merge: two jobs that share a cutter
+and pen but give it different `tool_options` get one file per distinct signature
+and the run **warns** that the cutter engraves twice per sheet, naming the
+jobs (`vectorize.py::_warn_split_layers`). Same tool, same parameters, one run.
+
+Every PLT file is named for the job that owns its strokes, or for the **batch**
+when the layer is shared, so a batch's names match what each job produces
+standalone for its own layers:
 
 ```text
 [<plate>_][<material>_]<cutter>[_<color>]_txt_<job_key>.plt
@@ -65,8 +84,12 @@ for its owning job, so a batch's names match what each job produces standalone:
 ```
 
 (the single-job naming contract, unchanged; `plt_optimizer/generate/AGENTS.md`
-owns it). A plate's segment order is the jobset file order, which is the run's
-determinism anchor.
+owns it). The `<job_key>` token is the owning member's id when a layer carries
+exactly one job's strokes, and the batch id when the jobs share the layer - the
+file belongs to every job engraved on that tool, and its membership is recorded
+in `file_jobs` and the reports rather than in a name the 39-character plotter
+cap would truncate. A plate's segment order is the jobset file order, which is
+the run's determinism anchor.
 
 ## Provenance and composite ids
 
@@ -133,14 +156,21 @@ The batch writes three things over the run:
   declares. A member report is measured from the files that carry **its**
   strokes, so its `by_cutter` / `by_label` totals are its own.
 
-Because emission is per job, a member's `by_label` sums to its own total; the
-`cross_job` note in the batch report explains why the members' totals sum to
-more than the batch's (the delta is the travel sharing saved).
+The accounting reconciles: each member's `usage.distance.total` sums to the
+batch's `usage.distance.by_job` total, which **equals** the batch's measured
+`distance.total` - a stroke is charged to exactly one job (the single attribution
+rule in `usage_stats.py`), and `unattributed` is the reconciliation escape hatch
+(pinned by `tests/test_jobset_reports.py`). The saving therefore does not show up
+as a distance gap between members and batch. It shows up in `cross_job`:
+`distance_saved` is the excess of the per-label sum over the measured total (the
+travel a shared run does not make), `strokes_merged` counts the strokes in shared
+`txt` layers on mixed plates, and the plate count itself is the material saving.
 
 ## Running it
 
 ```bash
 plt-optimizer generate --jobset batch.yaml -o OUT/       # mutually exclusive with SPEC
+plt-optimizer generate --jobset batch.yaml -o OUT/ --no-plots   # skip the PDF proofs
 python scripts/validate_job_spec.py batch.yaml           # pre-flight; accepts both roots
 ```
 
@@ -164,3 +194,8 @@ Pre-flight output is one line: `OK batch.yaml: jobset is valid (2 members)`;
   plotter.
 - Time accounting is per segment file, so the rapid travel *between* a plate's
   job segments is not modeled (it is not in any segment's file).
+- Two jobs that share a cutter and pen but give it different `tool_options`
+  cannot share a run: the layer splits into one file per distinct header
+  signature, that cutter engraves the sheet once per signature, and the run
+  warns and names the jobs. Same tool with same parameters is one run; the
+  split is the exception, not the shape of a batch (see *Emission*).
