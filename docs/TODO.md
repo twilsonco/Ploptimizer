@@ -139,3 +139,5 @@
   - the `allow_rotation` parameter continues to apply as is does currently.
 - [ ] Regarding text/hole collision avoidance, let's improve the case of labels with `- location: side` holes and an even number of lines of text:
   - In this case, we can often increase line spacing in order to shift the middle two lines of text above/below the side holes, removing the issue of text/hole collisions entirely and letting all lines only worry about margins instead.
+- [ ] Regarding text/hole collision avoidance, let's improve the case of labels with `- location: corners` holes and multiple lines of text:
+  - In this case, we can sometimes avoid text/hole collisions by decreasing line spacing so that the top/bottom lines are below/above the corner hole y positions, thus removing the collision risk and letting lines just worry about the label margins instead.
