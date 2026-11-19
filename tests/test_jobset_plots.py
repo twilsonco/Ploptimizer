@@ -175,12 +175,15 @@ def _plan_proofs(
     that owns the batch proof, the per-job proofs and the job key - is called
     on it with the plan's provenance and the plotter faked out.
 
-    Driving the proof writer directly (rather than ``export_per_cutter_plts(...,
-    plots=True)``) is deliberate: the export's plot stage re-runs the whole
-    layout from the SINGLE job spec it is handed, and a batch has one spec per
-    member - so a multi-plate batch cannot be packed from ``contexts[0].spec``.
-    The proofs are drawn from the merged content that stage produces, which is
-    the contract this test is about.
+    Driving the proof writer directly - with the drawing faked out and the
+    export's own plot stage switched off - keeps this test about proof
+    planning rather than matplotlib. It is not a workaround:
+    ``_write_simple_plots`` draws from the export's own ``packed_plates`` /
+    ``plate_jobs`` / ``combined_by_plate_and_job`` and takes no job spec, so
+    nothing is re-packed here. The full ``export_per_cutter_plts(...,
+    plots=True)`` call on a two-member, two-plate set writes 3 PLTs and
+    returns 6 proofs, one of them carrying the job key; that path is exercised
+    by the CLI end-to-end jobset test.
 
     Returns:
         The captured proofs, keyed by owner token (see :func:`_proofs`).
