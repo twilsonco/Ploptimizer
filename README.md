@@ -151,7 +151,7 @@ For a set named `Evening Batch` whose members resolve to job keys `Job_A` and
 out/plt/kw_15_bh_Evening_Batch.plt       # every job's borders + holes: one tool, one run
 out/plt/kw_45_txt_Job_A.plt              # a layer one job owns alone keeps its own name
 out/plt/kw_60_txt_Job_B.plt              # job B's own cutter/colour
-out/pdf/all_Evening_Batch.pdf            # the plate proof - every job, with a per-job overlay
+out/pdf/all_Evening_Batch.pdf            # the plate proof - every label outlined by job
 out/generation_report/report.json        # the batch report
 out/generation_report/summary.txt
 out/generation_report/jobset.json        # the manifest: jobs, plates, files, gate findings
@@ -177,13 +177,15 @@ job on every sheet, and `files[]` maps each written file to its plate, layer
 (`text` / `borders_holes`), cutter, colour, owning jobs, byte size and sha256 -
 so dropping one job's layer on a re-run is a lookup, not a guess.
 
-The plate proof is the visual key: on a sheet that carries more than one job,
-each job's labels are boxed in a dashed rectangle from a fixed palette (colour
-first, then line style, indexed by the job's position in the file) with a
-legend naming the jobs. A sheet that carries one job gets no overlay and no
-legend at all - its proof is the same picture a normal `generate` run draws - and
-no second proof file either, because that whole-sheet proof already is that job's
-proof.
+The plate proof is the visual key: **every label carries a dashed outline in its
+job's colour** from a fixed palette (colour first, then line style, indexed by
+the job's position in the file), one box per label so a label's owner is read
+off directly, with a legend collapsing to one row per job. The treatment is the
+same on a sheet one job occupies alone - an outlined label is identified at a
+glance, where "no box here" would force you to infer ownership from the absence
+of a key. A normal single-job `generate` run draws no overlay at all (it has one
+job, so there is nothing to key), and a one-job sheet inside a batch gets no
+second proof file, because that whole-sheet proof already is that job's proof.
 
 Before the batch packs, a gate checks that the members can be packed together.
 It **fails** the run (listing every problem at once) when members declare

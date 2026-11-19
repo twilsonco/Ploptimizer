@@ -1950,12 +1950,13 @@ def _write_simple_plots(
             number for the combined previews. ``None`` keeps each pen at its
             single ``pen_widths`` entry.
         provenance: Jobset only: the composite-id side table. When set, every
-            plate that carries more than one job gets the per-job overlay
-            boxes (dashed coloured rectangles plus a legend, see
-            :func:`~plt_optimizer.generate.jobset.job_overlay_boxes`) drawn
-            on its combined ``*_all_*`` proof, so a shared sheet says which
-            labels belong to which job. ``None`` (a single-job run) draws no
-            overlay and leaves the proofs byte-identical to before.
+            label on every plate gets the per-label overlay box (a dashed
+            coloured rectangle in its job's colour, see
+            :func:`~plt_optimizer.generate.jobset.job_overlay_boxes`) drawn on
+            its combined ``*_all_*`` proof, so a shared sheet - and a sheet one
+            job occupies alone - says at a glance which job each label belongs
+            to. ``None`` (a single-job run) draws no overlay and leaves the
+            proofs byte-identical to before.
 
     Returns:
         List of written PDF paths.
@@ -1984,8 +1985,8 @@ def _write_simple_plots(
     parser = PLTParser()
     pdf_paths: list[Path] = []
     combined_counts = _material_plate_counts(result.material_by_plate)
-    # Jobset proofs: one overlay box per job on every mixed plate. Pure
-    # geometry computed once here; the plotter only draws what it gets.
+    # Jobset proofs: one overlay box per label on every plate. Pure geometry
+    # computed once here; the plotter only draws what it gets.
     overlays = (
         job_overlay_boxes(provenance, result.packed_plates, result.plate_jobs)
         if provenance is not None
@@ -2191,10 +2192,11 @@ def _write_simple_plots(
                 job's labels on it for a per-job proof).
             pdf_path: Where the proof is written.
             title: The plot title.
-            overlay_boxes: Per-job boundary boxes drawn over the ink (see
-                :func:`plt_optimizer.generate.jobset.job_overlay_boxes`). Empty
-                for a solo sheet and for the per-job proofs, which show one
-                job's labels only.
+            overlay_boxes: Per-label provenance boxes drawn over the ink (see
+                :func:`plt_optimizer.generate.jobset.job_overlay_boxes`). Every
+                label on a jobset sheet carries one, solo sheets included.
+                Empty for the per-job proofs, which show one job's labels
+                only and need no key.
         """
         parsed_material = parse_material_colors(result.material_by_plate.get(plate_no))
         # Material-agnostic (or unrecognized-name) plates proof as "wk"

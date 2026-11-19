@@ -1,4 +1,4 @@
-"""Jobset plate proofs: the per-job overlay boxes.
+"""Jobset plate proofs: the per-label overlay boxes.
 
 A jobset plate carries several jobs, so its combined ``*_all_*`` proof draws
 one dashed coloured rectangle per job plus a legend (the TODO's answer to
@@ -269,11 +269,11 @@ class TestPerJobProofs:
 
         A per-job proof is one job's ink by construction, so drawing job boxes
         over it would key a sheet that has exactly one job on it. (That the
-        BATCH proof of a shared sheet gets one box per job is pinned by
-        :mod:`tests.test_jobset_plots`' overlay-geometry and plotter-drawing
-        tests, which drive the physical-width path with pen widths - the
-        synthetic proofs here take the centerline fallback, which draws no key
-        at all.)
+        BATCH proof outlines every label on the sheet, one box per label, is
+        pinned by :mod:`tests.test_jobset_plots`' overlay-geometry and
+        plotter-drawing tests, which drive the physical-width path with pen
+        widths - the synthetic proofs here take the centerline fallback, which
+        draws no key at all.)
         """
         plan = build_jobset_plan(Path("tests_deps/jobset_export_batch.yaml"), job_config=None)
         proofs = _plan_proofs(plan, tmp_path / "batch", monkeypatch)
@@ -311,9 +311,9 @@ class TestPerJobProofs:
 
 
 class TestJobOverlayGeometry:
-    """The box is the union of a job's placements, outset, in slot space."""
+    """One box per label: its own slot, outset, in slot space, on every plate."""
 
-    def test_a_mixed_plate_gets_one_box_per_job(self) -> None:
+    def test_a_mixed_plate_gets_one_box_per_label(self) -> None:
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
         plates = [
             PackedPlate(
@@ -335,9 +335,13 @@ class TestJobOverlayGeometry:
         assert boxes[1][0].width == pytest.approx(4.1)
         assert boxes[1][1].x == pytest.approx(5.95)
 
-    def test_a_single_job_plate_gets_no_overlay(self) -> None:
-        """The proof of a plate that carries one job needs no legend, and the
-        run stays byte-identical to the single-job path."""
+    def test_a_single_job_plate_outlines_its_labels_too(self) -> None:
+        """Every label on a jobset proof carries its job's outline, including
+        on a sheet one job occupies alone - an outlined label is read at a
+        glance, while "no box here" forces the reader to infer ownership from
+        the absence of a key. A single-job RUN draws nothing: provenance is
+        ``None`` there, so that path never reaches this function.
+        """
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA})
         plates = [
             PackedPlate(
@@ -350,9 +354,15 @@ class TestJobOverlayGeometry:
 
         boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA,)})
 
-        assert boxes[1] == []
+        assert [box.label for box in boxes[1]] == ["Job Alpha"]
+        assert (boxes[1][0].x, boxes[1][0].y) == pytest.approx((0.95, 0.95))
+        assert (boxes[1][0].width, boxes[1][0].height) == pytest.approx((4.1, 2.1))
 
-    def test_a_job_split_across_a_plate_is_one_box(self) -> None:
+    def test_a_job_split_across_a_plate_is_one_box_per_label(self) -> None:
+        """The boxes are per label, never unioned per job: a 9.1 x 9.1in
+        rectangle around three scattered labels shows where the job's ink
+        *spans*, which is not the question - each label must be identifiable.
+        """
         provenance = _provenance(
             ALPHA, BETA, ids={f"{ALPHA}::l{i}": ALPHA for i in range(3)} | {f"{BETA}::main": BETA}
         )
@@ -372,9 +382,24 @@ class TestJobOverlayGeometry:
 
         boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)})
 
-        alpha = next(box for box in boxes[1] if box.label == "Job Alpha")
-        assert (alpha.x, alpha.y) == pytest.approx((0.95, 0.95))
-        assert (alpha.width, alpha.height) == pytest.approx((9.1, 9.1))
+        # Four labels, four boxes, grouped by job in jobset-file order.
+        assert [box.label for box in boxes[1]] == [
+            "Job Alpha",
+            "Job Alpha",
+            "Job Alpha",
+            "Job Beta",
+        ]
+        # Each box is its own label's slot + the 0.05in margin, in placement order.
+        assert [(b.x, b.y, b.width, b.height) for b in boxes[1]] == pytest.approx(
+            [
+                (0.95, 0.95, 4.1, 2.1),
+                (7.95, 4.95, 2.1, 2.1),
+                (1.95, 8.95, 1.1, 1.1),
+                (13.95, 0.95, 3.1, 3.1),
+            ]
+        )
+        # Explicitly not the union the old geometry produced.
+        assert all((b.width, b.height) != pytest.approx((9.1, 9.1)) for b in boxes[1])
 
     def test_a_rotated_placement_boxes_its_swapped_slot(self) -> None:
         """A sideways placement fills ``[x, x+H] x [y, y+W]`` - the same swap
@@ -528,6 +553,34 @@ class TestPlotterOverlayDrawing:
             assert len(rectangles) == 2
             assert [patch.get_linestyle() for patch in rectangles] == ["--", "-."]
             assert all(not patch.get_fill() for patch in rectangles)
+        finally:
+            _close(fig)
+
+    def test_the_legend_collapses_a_job_to_one_row(self) -> None:
+        """Boxes are per label; the legend is per job. Three labels of two jobs
+        draw three rectangles and two rows, so a sheet of 30 labels does not
+        print a 30-row key.
+        """
+        boxes = [
+            JobOverlayBox(
+                x=1.0, y=1.0, width=4.0, height=2.0, label="Job Alpha", color="tab:blue", style="--"
+            ),
+            JobOverlayBox(
+                x=6.0, y=1.0, width=3.0, height=2.0, label="Job Alpha", color="tab:blue", style="--"
+            ),
+            JobOverlayBox(
+                x=1.0, y=5.0, width=3.0, height=2.0, label="Job Beta", color="tab:red", style="-."
+            ),
+        ]
+
+        fig = plot_physical_strokes(self._layers(), overlay_boxes=boxes)
+
+        try:
+            legend = fig.axes[0].get_legend()
+            assert legend is not None
+            assert [text.get_text() for text in legend.get_texts()] == ["Job Alpha", "Job Beta"]
+            rectangles = [patch for patch in fig.axes[0].patches if isinstance(patch, Rectangle)]
+            assert len(rectangles) == 3
         finally:
             _close(fig)
 

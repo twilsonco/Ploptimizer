@@ -591,7 +591,7 @@ def plot_stroke_path(
 
 
 class JobOverlayBoxLike(Protocol):
-    """The per-job provenance rectangle a caller wants drawn on a proof.
+    """One label's provenance rectangle, as a caller wants it drawn on a proof.
 
     Structural (duck-typed) on purpose: the boxes are built by
     :func:`plt_optimizer.generate.jobset.job_overlay_boxes`, whose dataclass
@@ -685,11 +685,12 @@ def plot_physical_strokes(
         background_color: Optional page/axes background color (e.g. the
             proof previews' configured grey). ``None`` (the default) keeps
             matplotlib's white figure.
-        overlay_boxes: Per-job provenance rectangles drawn over the ink, each
-            with a dashed coloured edge and a legend row (see
-            :class:`JobOverlayBoxLike`; a jobset plate proof passes one box
-            per job so a shared sheet is readable). ``()`` (the default)
-            draws nothing and adds no legend - single-job proofs are
+        overlay_boxes: Provenance rectangles drawn over the ink, one per
+            LABEL, each with a dashed coloured edge (see
+            :class:`JobOverlayBoxLike`; a jobset plate proof passes a box for
+            every label on the sheet, so each label reads as belonging to a
+            job, and the legend collapses to one row per job). ``()`` (the
+            default) draws nothing and adds no legend - single-job proofs are
             unchanged.
 
     Returns:
@@ -815,11 +816,13 @@ def plot_physical_strokes(
 
         ax.set_aspect("equal", adjustable="box")
 
-        # Per-job provenance overlay: a dashed coloured rectangle per job,
-        # above the ink, with one legend row each. Drawn before the layout
-        # pass so the legend claims its own space.
+        # Per-job provenance overlay: a dashed coloured rectangle per LABEL
+        # (boxes repeat a job's colour across its own labels), above the ink,
+        # with one legend row per job. Drawn before the layout pass so the
+        # legend claims its own space.
         if overlay_boxes:
             proxies = []
+            keyed: set[str] = set()
             for box in overlay_boxes:
                 ax.add_patch(
                     Rectangle(
@@ -833,6 +836,12 @@ def plot_physical_strokes(
                         zorder=6,
                     )
                 )
+                # One legend row per job: the boxes are per-label, so a job
+                # with a dozen labels on the sheet would otherwise print its
+                # colour a dozen times.
+                if box.label in keyed:
+                    continue
+                keyed.add(box.label)
                 proxies.append(
                     Line2D(
                         [],

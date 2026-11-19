@@ -1253,7 +1253,7 @@ def build_jobset_markdown() -> str:
         "| Per job (unchanged) | Shared by the batch |",
         "|---|---|",
         "| cascade, fonts, markup, cutter sizes, hole placement, relief | the pool of plates (one packing pass) |",
-        "| `generation_report/` + `summary.txt` (its own `usage`) | the plate proofs `pdf/*_all_*` (with a per-job overlay) |",
+        "| `generation_report/` + `summary.txt` (its own `usage`) | the plate proofs `pdf/*_all_*` (every label outlined in its job's colour) |",
         "| its own label/plate ids (plain in its own files) | a shared sheet: each plate is engraved as one toolpath segment per tool |",
         "",
         "The composite ids (`<job_key>::<label_id>`, `plate:<n>::<job_key>`) are",
