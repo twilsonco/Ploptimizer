@@ -166,3 +166,4 @@
   - During the generation pipeline layout optimization, we allow in the non-"simple" layout modes for labels to be rotated. For the column layout, the layout optimization is mean to prefer to fill columns before moving to the next column, i.e. it should max out the plate height before starting a new column. This should also include rotating labels where label H ≠ W if doing so fills more height and takes less width of the plate.
   - For example, `examples/job_specs/2026-11-18 air controls.yaml` contains two 4x6 labels (wider than tall) that could be rotated to better fit the column layout.
   - For row layout, the opposite applies; we should be rotating labels where label H ≠ W if doing so fills more width and takes less height of the plate.
+  - the `allow_rotation` parameter continues to apply as is does currently.
