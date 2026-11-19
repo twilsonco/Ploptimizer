@@ -444,7 +444,7 @@ class PerCutterExport:
         output_dir: Absolute base output directory (``plt/`` and ``pdf/``
             live inside it).
         job_id: Job identifier embedded in the written file names
-            (``[<plate number>_][<material>_]<cutter>_<kind>_<job_id>``),
+            (``[<material>_][<plate number>_]<cutter>_<kind>_<job_id>``),
             so callers can mirror the naming for any extra artifacts
             (e.g. color-coded combined plots).
         default_pdf_paths: Color-coded ``*_default.pdf`` diagnostic plots
