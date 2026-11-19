@@ -155,24 +155,24 @@ GALLERY_JOB = "2026-10-30 CES vons 1735.yaml"
 #: Filename patterns of the generated artifacts and their role (Part V).
 ARTIFACT_ROLES: Tuple[Tuple[str, str], ...] = (
     (
-        "plt/[<plate>_][<material>_]<cutter>[_<color>]_bh_<job_id>.plt",
+        "plt/[<material>_][<plate>_]<cutter>[_<color>]_bh_<job_id>.plt",
         "Borders + drill holes (`bh`) for one (plate, material, cutter, color) "
         "group - typically the first tool loaded on the engraver.",
     ),
     (
-        "plt/[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt",
+        "plt/[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt",
         "Text strokes for the same group - load with that cutter.",
     ),
     (
-        "pdf/[<plate>_][<material>_]<cutter>[_<color>]_bh_<job_id>.pdf",
+        "pdf/[<material>_][<plate>_]<cutter>[_<color>]_bh_<job_id>.pdf",
         "Simple-outline proof of one borders/holes PLT.",
     ),
     (
-        "pdf/[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.pdf",
+        "pdf/[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.pdf",
         "Simple-outline proof of one text PLT (stroke width = the engraved cutter width).",
     ),
     (
-        "pdf/[<plate>_][<material>_]all_<job_id>.pdf",
+        "pdf/[<material>_][<plate>_]all_<job_id>.pdf",
         "Combined colored proof per plate: every pen on one page, stroke "
         "colors from the layer/material palette, drill holes punched out of "
         "the background. The page to check against the drawing.",
@@ -183,7 +183,7 @@ ARTIFACT_ROLES: Tuple[Tuple[str, str], ...] = (
         "ordering view of one output file.",
     ),
     (
-        "pdf/[<plate>_][<material>_]all_<job_id>_default.pdf",
+        "pdf/[<material>_][<plate>_]all_<job_id>_default.pdf",
         "Combined rapid-travel diagnostic (`--default-plots`): strokes colored "
         "by cumulative travel distance, air moves dashed - the toolpath "
         "ordering view of the whole plate.",
@@ -270,7 +270,7 @@ emission, so never pre-scale anything.
    plt-optimizer generate my_job.yaml
    ```
 
-5. **Check the proof** in `pdf/[<plate>_][<material>_]all_<job_id>.pdf` (one
+5. **Check the proof** in `pdf/[<material>_][<plate>_]all_<job_id>.pdf` (one
    colored page per plate) and read `generation_report/summary.txt` for the
    findings (compression, descender relief, collision avoidance).
 

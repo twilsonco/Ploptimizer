@@ -609,14 +609,17 @@ def _format_plate_prefix(
     material_plate_count: int,
     material: Optional[str] = None,
 ) -> str:
-    """Build the leading ``[<plate>_][<material>_]`` file-name prefix.
+    """Build the leading ``[<material>_][<plate>_]`` file-name prefix.
 
-    The plate number is omitted when the plate's material group spans a
-    single sheet, so its presence doubles as the signal that the material
-    needs more than one plate. The material tag follows (see
-    :func:`_format_material_tag`) and is omitted for material-agnostic
-    plates, whose whole job forms one group (so multi-plate
-    material-agnostic jobs keep their plate numbers).
+    The material tag comes first (see :func:`_format_material_tag`) so every
+    sheet of one stock sorts together in the file manager and on the plotter
+    card; the plate number follows it, which makes a multi-sheet material
+    read as ``wk_uv_01``, ``wk_uv_02``, ... in engraving order. The plate
+    number is omitted when the plate's material group spans a single sheet,
+    so its presence doubles as the signal that the material needs more than
+    one plate. The material tag is omitted for material-agnostic plates,
+    whose whole job forms one group (so multi-plate material-agnostic jobs
+    keep their plate numbers, leading the name on their own).
 
     Args:
         plate_number: 1-based plate index.
@@ -626,14 +629,14 @@ def _format_plate_prefix(
 
     Returns:
         Prefix ending in an underscore, e.g. ``""``, ``"02_"``,
-        ``"wk_uv_"`` or ``"02_wk_uv_"``.
+        ``"wk_uv_"`` or ``"wk_uv_02_"``.
     """
     parts: list[str] = []
-    if material_plate_count > 1:
-        parts.append(_format_plate_number(plate_number))
     material_tag = _format_material_tag(material)
     if material_tag:
         parts.append(material_tag)
+    if material_plate_count > 1:
+        parts.append(_format_plate_number(plate_number))
     return "_".join(parts) + "_" if parts else ""
 
 
@@ -643,6 +646,12 @@ _KIND_TOKENS: tuple[str, ...] = ("txt", "bh")
 # Cutter file-name token: integer thousandths of an inch (see _format_cutter).
 _CUTTER_TOKEN_RE = re.compile(r"^\d+$")
 
+# Plate file-name token: the zero-padded plate number (see
+# _format_plate_number -- two digits, widening past 99). Requiring two digits
+# is what keeps a material tag that ends in a lone number ("3_layer_black")
+# from losing its trailing token to the plate slot.
+_PLATE_TOKEN_RE = re.compile(r"^\d{2,}$")
+
 
 @dataclass(frozen=True)
 class _StemParts:
@@ -651,7 +660,8 @@ class _StemParts:
     Attributes:
         plate: Plate-number token (``"02"``), or ``None`` when the plate's
             material spans a single sheet.
-        material: Material tag token (``"wk_uv"``), or ``None``.
+        material: Material tag token (``"wk_uv"``), or ``None``. May contain
+            underscores (a sanitized ``"wk(uv)"`` is one tag).
         cutter: Cutter-diameter token in integer mils (``"40"``), or
             ``None``.
         kind: Layer kind (``"txt"`` / ``"bh"``), or ``None`` when the stem
@@ -670,7 +680,7 @@ def _parse_plt_stem(stem: str) -> _StemParts:
     """Parse a per-cutter PLT file-name stem into its components.
 
     The naming scheme is
-    ``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>`` where
+    ``[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>`` where
     ``<cutter>`` is an integer-mils token (see :func:`_format_cutter`).
     Because the cutter token is now plain digits -- exactly like the
     zero-padded plate number -- parsing anchors on the layer-kind token
@@ -683,18 +693,19 @@ def _parse_plt_stem(stem: str) -> _StemParts:
     - otherwise the stem carries no parsable cutter (kind only).
 
     Then, relative to the cutter index: index 0 -> no plate, no material;
-    index >= 1 -> the leading token is the plate when it is all digits, and
-    every token between (it and) the cutter is the material (a sanitized
-    material tag may itself contain underscores, e.g. ``wk(uv)`` ->
-    ``wk_uv``).
+    index >= 1 -> the token just left of the cutter is the plate when it has
+    plate-number shape (two or more digits, the zero-padded form
+    :func:`_format_plate_number` emits), and every token left of (it and) the
+    cutter is the material (a sanitized material tag may itself contain
+    underscores, e.g. ``wk(uv)`` -> ``wk_uv``).
 
     Known limitations (all degrade gracefully to the thin-line plot /
     fallback title): a stem shortened by the 39-character filename cap can
     lose trailing cutter digits (``187`` -> ``18``), an unknown numeric
     color tag (``40_123_txt_job``) reads as the cutter, and a material whose
-    sanitized tag is all digits (material ``"02"``) reads as a plate number.
-    ``job_id`` may itself contain underscores; the kind token is the anchor
-    that avoids it.
+    tag ends in a two-digit-or-longer numeric token (material ``"ACM 3100"``)
+    has that token read as a plate number. ``job_id`` may itself contain
+    underscores; the kind token is the anchor that avoids it.
 
     Args:
         stem: File-name stem (``Path(...).stem``).
@@ -719,9 +730,9 @@ def _parse_plt_stem(stem: str) -> _StemParts:
         color = tokens[kind_index - 1]
     if cutter_index is None:
         return _StemParts(kind=kind)
-    if cutter_index >= 1 and tokens[0].isdigit():
-        plate: Optional[str] = tokens[0]
-        material: Optional[str] = "_".join(tokens[1:cutter_index]) or None
+    if cutter_index >= 1 and _PLATE_TOKEN_RE.match(tokens[cutter_index - 1]):
+        plate: Optional[str] = tokens[cutter_index - 1]
+        material: Optional[str] = "_".join(tokens[: cutter_index - 1]) or None
     elif cutter_index >= 1:
         plate, material = None, "_".join(tokens[:cutter_index])
     else:
@@ -767,8 +778,8 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     """Build a descriptive title for a plot from the job name and PLT file path.
 
     The file name format is:
-    - Text: ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt``
-    - Structural: ``[<plate>_][<material>_]<cutter>_bh_<job_id>.plt``
+    - Text: ``[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt``
+    - Structural: ``[<material>_][<plate>_]<cutter>_bh_<job_id>.plt``
 
     Args:
         job_name: The human-readable job name.
@@ -852,12 +863,12 @@ def _segment_tag(owner: str, plate_str: str, kind: str) -> str:
 
     Args:
         owner: Owning job key, or ``""`` for a single-job run.
-        plate_str: The plate's file-name prefix (``"01_wk_uv"``).
+        plate_str: The plate's file-name prefix (``"wk_uv_01"``).
         kind: Layer kind (``"bh"``, ``"text <tag>"``).
 
     Returns:
-        ``"01_wk_uv bh"`` for a single-job run (unchanged history), else
-        ``"01_wk_uv bh[seer_2963]"`` naming the job whose toolpath it is.
+        ``"wk_uv_01 bh"`` for a single-job run (unchanged history), else
+        ``"wk_uv_01 bh[seer_2963]"`` naming the job whose toolpath it is.
     """
     return f"{plate_str} {kind}" if not owner else f"{plate_str} {kind}[{owner}]"
 
@@ -868,13 +879,13 @@ def _bucket_tag(owners: tuple[str, ...], plate_str: str, kind: str) -> str:
     Args:
         owners: The jobs whose strokes the layer carries (``("",)`` for a
             single-job run).
-        plate_str: The plate's file-name prefix (``"01_wk_uv"``).
+        plate_str: The plate's file-name prefix (``"wk_uv_01"``).
         kind: Layer kind (``"bh"``, ``"text <tag>"``).
 
     Returns:
-        ``"01_wk_uv bh"`` when no job boundary splits the layer (a single-job
+        ``"wk_uv_01 bh"`` when no job boundary splits the layer (a single-job
         run keeps its unchanged history), else the contributing jobs joined:
-        ``"01_wk_uv bh[seer_2963]"`` for one job, ``"01_wk_uv bh[seer+coolsys]"``
+        ``"wk_uv_01 bh[seer_2963]"`` for one job, ``"wk_uv_01 bh[seer+coolsys]"``
         for the shared toolpath.
     """
     label = "+".join(owner for owner in owners if owner)
@@ -1254,11 +1265,11 @@ def export_per_cutter_plts(
     layer:
 
     - **borders + holes** share one file (same tool, engraved together),
-      named ``[<plate>_][<material>_]<cutter>_bh_<job_id>.plt`` where
+      named ``[<material>_][<plate>_]<cutter>_bh_<job_id>.plt`` where
       ``<cutter>`` is the boundary/hole cutter diameter (``bh`` =
       borders-holes).
     - **text** gets one file per distinct cutter/color layer, named
-      ``[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt`` (the
+      ``[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt`` (the
       ``<color>`` tag appears when the layer carries a ``text_color``,
       e.g. ``wk_uv_40_m_txt_job.plt`` for magenta). A text cutter equal
       to the boundary/hole cutter still gets its own file (separate run).
@@ -1266,20 +1277,21 @@ def export_per_cutter_plts(
       separate files so the cutter depth can change between runs (3-layer
       material). The inline ``<tc:color>`` markup splits the same way per
       character (each colored run is its own ``(cutter, color)`` layer).
-    - The leading ``[<plate>_][<material>_]`` prefix is built by
-      :func:`_format_plate_prefix`: the 1-based packing-order plate number
-      (zero-padded to two digits) is **omitted whenever the plate's
-      material group spans a single sheet**, so its presence signals that
-      *this material* needs more than one plate; the sanitized material tag
-      (e.g. ``wk(uv)`` -> ``wk_uv``) is omitted for material-agnostic
-      plates. Material-agnostic plates form one group, so multi-sheet
-      material-less jobs always keep their plate numbers. The cutter
+    - The leading ``[<material>_][<plate>_]`` prefix is built by
+      :func:`_format_plate_prefix`: the sanitized material tag (e.g. ``wk(uv)``
+      -> ``wk_uv``) leads, so every sheet of one stock sorts together, and it is
+      omitted for material-agnostic plates. The 1-based packing-order plate
+      number (zero-padded to two digits) follows and is **omitted whenever the
+      plate's material group spans a single sheet**, so its presence signals
+      that *this material* needs more than one plate. Material-agnostic plates
+      form one group, so multi-sheet material-less jobs always keep their plate
+      numbers (leading the name on their own). The cutter
       precedes the kind token so the tool size is visible before the
       text/structural distinction.
     - The combined per-plate PLT is assembled **in memory only** (never
       written) and exposed via :attr:`PerCutterExport.combined_by_plate`;
       when ``plots`` is enabled it also drives the combined
-      ``[<plate>_][<material>_]all_<job_id>.pdf`` preview. A jobset run
+      ``[<material>_][<plate>_]all_<job_id>.pdf`` preview. A jobset run
       additionally writes one **per contributing job** ``all_<member_id>.pdf``
       proof for every plate its jobs share, so each job has a proof of its own
       labels on the shared sheet (see
@@ -1633,10 +1645,11 @@ def export_per_cutter_plts(
     file_stroke_widths: dict[Path, dict[WidthKey, float]] = {}
 
     # Phase 3: Assemble each plate in memory, then split by pen group.
-    # Files are named [<plate>_][<material>_]<cutter>_<kind>_<job_id>: the
-    # plate number (1-based packing-order index, 2-digit padded) is
-    # omitted whenever the plate's material group spans a single sheet,
-    # and the sanitized material tag follows (see _format_plate_prefix).
+    # Files are named [<material>_][<plate>_]<cutter>_<kind>_<job_id>: the
+    # sanitized material tag leads (so one stock's sheets sort together), and
+    # the plate number (1-based packing-order index, 2-digit padded) follows,
+    # omitted whenever the plate's material group spans a single sheet (see
+    # _format_plate_prefix).
     result.material_by_plate = {
         plate_no: plate.material for plate_no, plate in enumerate(packed_plates, start=1)
     }
@@ -1878,7 +1891,7 @@ def _write_simple_plots(
     tool). The structural (``bh`` = borders + holes) layers keep the
     semi-transparent underlay look while text ink renders fully opaque.
 
-    Additionally renders one combined ``[<plate>_][<material>_]all_<job_id>.pdf``
+    Additionally renders one combined ``[<material>_][<plate>_]all_<job_id>.pdf``
     per plate from the in-memory combined content (text + borders + holes
     together). When ``pen_widths`` is provided, the combined content is
     split per pen (the assembly keeps its ``SP`` sections) and every pen
@@ -2126,7 +2139,7 @@ def _write_simple_plots(
     for plt_path in result.plt_paths:
         document = parser.parse_file(plt_path)
         pdf_path = pdf_dir / f"{plt_path.stem}.pdf"
-        # File-name shape: [<plate>_][<material>_]<cutter>[_<color>]_<kind>_
+        # File-name shape: [<material>_][<plate>_]<cutter>[_<color>]_<kind>_
         # <job_id>; the bh (borders + holes) kind is purely structural, text
         # is not.
         is_structural = _is_structural_stem(plt_path.stem)
@@ -2355,7 +2368,7 @@ def write_default_plots(
 
     Renders the plotter's default (color-coded, rapid-travel) view of
     every written per-cutter PLT as ``<plt-stem>_default.pdf`` plus one
-    combined ``[<plate>_][<material>_]all_<job_id>_default.pdf`` per plate
+    combined ``[<material>_][<plate>_]all_<job_id>_default.pdf`` per plate
     from the in-memory combined content (text + borders + holes together;
     skipped when ``include_combined`` is False). These diagnostics are
     strictly opt-in; the simple-outline previews remain the standard

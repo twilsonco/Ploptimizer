@@ -4,6 +4,30 @@
 
 ### Features
 
+* **generate:** per-cutter PLT/PDF file names put the **material first** —
+  `[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>` — so every sheet
+  of one stock sorts together in a folder listing, on a USB stick and in the
+  plotter queue. Previously the plate number led and the material tag followed
+  it, which scattered a material's sheets across the numbering of the others
+  (`01_wk_uv_30_txt_job.plt` -> `wk_uv_01_30_txt_job.plt`). The rule is
+  unchanged: the 2-digit plate number is emitted only when *that material*
+  spans more than one plate, so a single-sheet material and a single-plate job
+  keep their prefix-free names. `vectorize._format_plate_prefix` emits the new
+  order; `vectorize._parse_plt_stem` (used by `usage_stats` attribution and the
+  diagnostics) reads `NN` from the position adjacent to the cutter, not the
+  leading token, so it follows the swap; a material tag whose tail is a
+  zero-padded number of 3+ digits (`ACM 3100`) reads as a plate number, the
+  same documented collision the old order had from the other side. No migration
+  of previously written files: the naming is emission-only.
+  - Pins: `tests/test_phase3_export.py` (prefix helpers, the stem round-trip
+    incl. digit-leading materials, the material-group scoping),
+    `tests/test_usage_stats.py` (emitted names feed plate attribution through
+    the real export, incl. the numbered-material case).
+  - Docs: README, `docs/INTEGRATION_TESTING.md`, `docs/README_DEV.md`,
+    `plt_optimizer/cli/AGENTS.md`, `plt_optimizer/generate/AGENTS.md`,
+    `docs/plans/jobset.md`, the skill tree (regenerated) and the module
+    docstrings.
+
 * **jobset:** a `jobset:` YAML batches several job specs onto **one pool of
   plates** (`plt-optimizer generate --jobset batch.yaml`). Each member is
   prepared through the single-job path, every member's labels join one packing

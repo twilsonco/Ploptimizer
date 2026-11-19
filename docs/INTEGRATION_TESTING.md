@@ -220,9 +220,9 @@ Uses the production export path, `export_per_cutter_plts()`:
   `plt_content`, so rotated labels turn 90° clockwise as a unit).
 - Bin-packs labels onto plates using their **rendered** bounds.
 - Assembles each plate in memory and splits the assembly **by cutter**:
-  - borders + drill holes → one `[<plate>_][<material>_]<cutter>_bh_<job_id>.plt`
+  - borders + drill holes → one `[<material>_][<plate>_]<cutter>_bh_<job_id>.plt`
     per plate
-  - text → one `[<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt` per
+  - text → one `[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt` per
     plate and cutter diameter
 - The combined per-plate PLT stays in memory only (used for the combined PDF
   preview and optional color plots).
@@ -249,12 +249,13 @@ test_output/integration_test/
 The run also writes the generation report (`report.json` + `summary.txt`) into
 `test_output/integration_test/generation_report/` — see Phase 5.
 
-File-name layout: `[<2-digit plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.<ext>`
+File-name layout: `[<material>_][<2-digit plate>_]<cutter>[_<color>]_<kind>_<job_id>.<ext>`
 where `kind` is `txt` (text) or `bh` (borders+holes) and `cutter` is the
 diameter in integer thousandths of an inch, unpadded (`0.060` -> `60`). The
-plate number appears only when a material
-spans more than one plate; the material tag (sanitized, e.g. `wk_uv`) appears
-only for material-declared output. Every name carries only ASCII letters,
+material tag (sanitized, e.g. `wk_uv`) leads, so every sheet of one stock
+sorts together, and appears only for material-declared output; the plate
+number follows it and appears only when a material
+spans more than one plate. Every name carries only ASCII letters,
 digits and underscores (international characters transliterate, punctuation
 collapses to a single underscore). PLT names are capped at 39 characters
 including the extension (the plotter controller rejects longer names; the
@@ -283,7 +284,7 @@ plate spans 19304 units and a 2in-tall one spans 2032.
 ### Phase 4 — Visualization (Optional, opt-in)
 
 The simple-outline PDF previews (one per per-cutter PLT plus one combined
-`[<plate>_][<material>_]all_<job_id>.pdf` per plate) are already written by Phase 3.
+`[<material>_][<plate>_]all_<job_id>.pdf` per plate) are already written by Phase 3.
 The combined preview is a colored proof: the page background is the configured
 `preview_background_color` (default `#D3D3D3` grey), text ink in its resolved color
 (`text_color` / `<tc:color>` pen tag, then the material core, then black) over the
@@ -470,8 +471,9 @@ test_output/integration_test/<set-stem>/
 ```
 
 The cutter token is the diameter in unpadded integer thousandths of an inch
-(`45` = 0.045"), the plate number appears only when the material spans several
-sheets and the material tag (`kw`) only when the plate declares a material.
+(`45` = 0.045"), the material tag (`kw`) leads and appears only when the plate
+declares a material, and the plate number follows it only when the material
+spans several sheets.
 
 ## Verification Checklist
 
@@ -486,12 +488,12 @@ After a run:
 - [ ] Final line: `✓ Pipeline executed successfully` (exit code 0)
 
 ### Generated Files (`test_output/integration_test/`)
-- [ ] `plt/` contains one `[<plate>_][<material>_]<cutter>_bh_<job>.plt` per plate
-      and one `[<plate>_][<material>_]<cutter>[_<color>]_txt_<job>.plt` per
+- [ ] `plt/` contains one `[<material>_][<plate>_]<cutter>_bh_<job>.plt` per plate
+      and one `[<material>_][<plate>_]<cutter>[_<color>]_txt_<job>.plt` per
       plate/cutter diameter (colored text layers gain a 1-letter suffix, e.g.
       `40_k_txt_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
-      `[<plate>_][<material>_]all_<job>.pdf` combined preview per plate
+      `[<material>_][<plate>_]all_<job>.pdf` combined preview per plate
 - [ ] `generation_report/` contains `report.json` and `summary.txt`, and the
       summary's cutter list / plate count / output counts match the files
       actually written (a failed run writes the pair too, with

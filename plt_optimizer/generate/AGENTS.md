@@ -1155,7 +1155,7 @@ section. The pipeline-level rules this package owns:
 
 Module docstring: `preview_colors.py` (pure string handling, matplotlib-free, Python 3.8-safe - it sits
 on the headless export path). The combined per-plate proof
-`pdf/[<plate>_][<material>_]all_<job_id>.pdf` renders text ink in its real color over the material's
+`pdf/[<material>_][<plate>_]all_<job_id>.pdf` renders text ink in its real color over the material's
 background color on the (light grey, configurable) proof page. Only the combined plots are colored;
 the per-cutter `_txt_`/`_bh_` PDFs and the `*_default.pdf` diagnostics keep the historical black ink
 on white.

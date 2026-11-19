@@ -39,12 +39,14 @@ cutters), `--job-config` (default `job-config.json`; top-layer job defaults and
 the required-when-unconfigured gate, see
 [`../generate/AGENTS.md`](../generate/AGENTS.md)), `--fast-mode` (plate-space
 routing via `NearestNeighbor2Opt` instead of the default `ParallelEnsemble`). File names:
-`[<2-digit plate>_][<material>_]<cutter>[_<color>]_{txt|bh}_<job_id>.<plt|pdf>`
-plus combined `[<2-digit plate>_][<material>_]all_<job_id>.pdf`. The plate
-number appears only when a material spans more than one plate (its presence
+`[<material>_][<2-digit plate>_]<cutter>[_<color>]_{txt|bh}_<job_id>.<plt|pdf>`
+plus combined `[<material>_][<2-digit plate>_]all_<job_id>.pdf`. The material
+tag leads (so every sheet of one stock sorts together) and appears only for
+material-declared output; the plate number follows it and appears only when a
+material spans more than one plate (its presence
 signals that *this material* needs multiple sheets; material-less plates form
-one group, so multi-sheet material-less jobs always keep their numbers); the
-material tag appears only for material-declared output. Every component (job id,
+one group, so multi-sheet material-less jobs always keep their numbers, leading
+the name on their own). Every component (job id,
 plate number, material tag) is sanitized by `core/filenames.sanitize_filename_component`
 — ASCII letters/digits/underscores only, international characters transliterated,
 punctuation collapsed to a single underscore — and PLT names are capped at 39

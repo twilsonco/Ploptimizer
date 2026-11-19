@@ -134,7 +134,7 @@ def _record_proofs(monkeypatch: pytest.MonkeyPatch) -> List[Dict[str, Any]]:
 def _proofs(calls: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Index plate-proof calls by their file stem.
 
-    A plate proof is ``[<plate>_][<material>_]all_<owner>.pdf`` (per-file
+    A plate proof is ``[<material>_][<plate>_]all_<owner>.pdf`` (per-file
     previews are named ``*_txt_*`` / ``*_bh_*`` and are not plate proofs, so the
     ``all_`` marker separates them). ``<owner>`` is the batch id for a
     whole-sheet proof and the member's job id for a per-job proof, so a key

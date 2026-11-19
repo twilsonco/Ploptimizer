@@ -97,7 +97,7 @@ for speed (see the running-and-troubleshooting skill).
 
 The layout report (run log) shows every label's plate, position, rotation,
 and the per-plate fill. PLT files are per (plate, material, cutter, layer):
-the stem is `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.plt`
+the stem is `[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>.plt`
 where `kind` is `txt` (the text layer) or `bh` (borders + holes, engraved
 with the boundary/hole tool). Each file takes one tool on the engraver;
 every PLT also gets a matching proof PDF.

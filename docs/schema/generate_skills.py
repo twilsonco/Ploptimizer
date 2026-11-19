@@ -1423,7 +1423,7 @@ RECIPES: Tuple[Recipe, ...] = (
         ),
         notes=(
             "`material: kw` — the material tag lands in every PLT/PDF file name "
-            "(`[<plate>_][<material>_]<cutter>_...`), so mixed runs sort at the machine.",
+            "(`[<material>_][<plate>_]<cutter>_...`), so mixed runs sort at the machine.",
             "Commented-out `plates:` blocks show how the same job is pinned to "
             "declared plate sizes when stock is fixed.",
         ),

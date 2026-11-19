@@ -68,11 +68,11 @@ internally — you work only in inches.
    | `-v`, `--verbose` | DEBUG logging |
 5. **Collect outputs** under the output directory:
    - `plt/*.plt` — one file per (plate, material, cutter, layer); the stem
-     is `[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job_id>.plt` with
+     is `[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>.plt` with
      `kind` = `txt` (text) or `bh` (borders + holes). Load each with one
      tool on the engraver,
    - `pdf/*.pdf` — a proof preview per PLT, plus one combined
-     `[<plate>_][<material>_]all_<job_id>.pdf` per plate (when plotting is
+     `[<material>_][<plate>_]all_<job_id>.pdf` per plate (when plotting is
      on; rapid-travel diagnostics add `*_all_*_default.pdf` with
      `--default-plots`).
 6. **On failure** the run exits non-zero with a logged reason; the

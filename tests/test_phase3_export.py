@@ -88,7 +88,7 @@ class TestExportAndOptimizePhase3:
 
         # test123 uses a single 0.5in text height (ideal cutter 0.06in,
         # no inventory snapping) plus borders. Names are
-        # [<plate>_][<material>_]<cutter>_<kind>_<job_id>.plt and this job
+        # [<material>_][<plate>_]<cutter>_<kind>_<job_id>.plt and this job
         # packs onto one material-less plate, so both prefixes are omitted.
         names = sorted(p.name for p in exported_paths)
         assert any(name.startswith("60_txt_") for name in names)
@@ -134,7 +134,7 @@ class TestExportAndOptimizePhase3:
         # One PDF per PLT (same stem).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}.pdf" in pdf_names
-        # One combined [<plate>_][<material>_]all_<job_id>.pdf per plate
+        # One combined [<material>_][<plate>_]all_<job_id>.pdf per plate
         # (single material-less plate -> the bare `all_` name).
         assert any(name.endswith("all_plotjob.pdf") for name in pdf_names)
         # Combined content is exposed in memory, never written as PLT.
@@ -211,7 +211,7 @@ class TestExportAndOptimizePhase3:
         # One color plot per written PLT (same stem + _default).
         for plt_path in result.plt_paths:
             assert f"{plt_path.stem}_default.pdf" in names
-        # Combined color plot mirrors the [<plate>_][<material>_]all_<job_id>.pdf
+        # Combined color plot mirrors the [<material>_][<plate>_]all_<job_id>.pdf
         # name (single material-less plate -> `all_dp.pdf`).
         assert any("all_dp_" in name and name.endswith("_default.pdf") for name in names)
         assert all(p.parent == tmp_path / "pdf" for p in result.default_pdf_paths)
@@ -385,7 +385,7 @@ class TestExportAndOptimizePhase3:
         )
 
         text_files = [p.name for p in result.plt_paths if "_txt_" in p.name]
-        # Name shape: [<plate>_][<material>_]<cutter>[_<color>]_txt_<job_id>.plt
+        # Name shape: [<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt
         cutter_tags = {_parse_plt_stem(name).cutter for name in text_files}
         # complex_test_job exercises at least three distinct text cutters.
         assert len(cutter_tags) >= 3
@@ -1072,7 +1072,7 @@ class TestTextColorDemoExample:
 
 
 class TestPlateFilenameFormatting:
-    """Unit tests for the [<plate>_][<material>_]<cutter>_<kind> naming."""
+    """Unit tests for the [<material>_][<plate>_]<cutter>_<kind> naming."""
 
     def test_material_tag_sanitizes(self) -> None:
         """Free-form material names become filesystem-safe tags."""
@@ -1093,9 +1093,10 @@ class TestPlateFilenameFormatting:
         assert _format_plate_prefix(2, 1) == ""
 
     def test_multi_plate_material_includes_plate_number(self) -> None:
-        """A material spanning several plates keeps the padded plate number."""
+        """A material spanning several plates keeps the padded plate number,
+        which follows the material tag (so one stock's sheets sort together)."""
         assert _format_plate_prefix(2, 3) == "02_"
-        assert _format_plate_prefix(2, 3, "wk(uv)") == "02_wk_uv_"
+        assert _format_plate_prefix(2, 3, "wk(uv)") == "wk_uv_02_"
 
     def test_material_plate_counts_groups_by_material(self) -> None:
         """Plate numbers are scoped to a material group, not the whole job.
@@ -1106,9 +1107,9 @@ class TestPlateFilenameFormatting:
         """
         counts = _material_plate_counts({1: "wk", 2: "wk(uv)", 3: "WK"})
         assert counts == {1: 2, 2: 1, 3: 2}
-        assert _format_plate_prefix(1, counts[1], "wk") == "01_wk_"
+        assert _format_plate_prefix(1, counts[1], "wk") == "wk_01_"
         assert _format_plate_prefix(2, counts[2], "wk(uv)") == "wk_uv_"
-        assert _format_plate_prefix(3, counts[3], "WK") == "03_WK_"
+        assert _format_plate_prefix(3, counts[3], "WK") == "WK_03_"
 
     def test_material_plate_counts_treats_null_as_one_group(self) -> None:
         """Material-agnostic plates share one group, keeping plate numbers."""
@@ -1124,9 +1125,17 @@ class TestPlateFilenameFormatting:
             "15_bh_job": (None, None, "15", "bh", None),
             "wkuv_40_txt_job": (None, "wkuv", "40", "txt", None),
             "wkuv_15_bh_job": (None, "wkuv", "15", "bh", None),
-            "02_wkuv_40_k_txt_job": ("02", "wkuv", "40", "txt", "k"),
+            "wkuv_02_40_k_txt_job": ("02", "wkuv", "40", "txt", "k"),
+            "wk_uv_02_15_bh_job": ("02", "wk_uv", "15", "bh", None),
             "02_40_txt_job": ("02", None, "40", "txt", None),
             "02_15_bh_job": ("02", None, "15", "bh", None),
+            # A material whose tag ENDS in a lone digit keeps the whole tag:
+            # a plate number is zero-padded to two digits, so "black" (not a
+            # number) sits beside the cutter and nothing is a plate here.
+            "3_layer_black_40_bh_job": (None, "3_layer_black", "40", "bh", None),
+            "3_layer_black_01_40_bh_job": ("01", "3_layer_black", "40", "bh", None),
+            # Documented collision: a numeric tail of the tag reads as a plate.
+            "ACM_3100_40_bh_job": ("3100", "ACM", "40", "bh", None),
         }
         for stem, (plate, material, cutter, kind, color) in cases.items():
             parts = _parse_plt_stem(stem)
@@ -1139,11 +1148,11 @@ class TestPlateFilenameFormatting:
             ), stem
 
     def test_structural_detection_is_prefix_agnostic(self) -> None:
-        """The bh kind is found regardless of plate/material prefixes."""
+        """The bh kind is found regardless of material/plate prefixes."""
         assert _is_structural_stem("15_bh_job")
         assert _is_structural_stem("wkuv_15_bh_job")
-        assert _is_structural_stem("02_wkuv_15_bh_job")
-        assert not _is_structural_stem("02_wkuv_40_txt_job")
+        assert _is_structural_stem("wkuv_02_15_bh_job")
+        assert not _is_structural_stem("wkuv_02_40_txt_job")
         # Stems outside the scheme are treated as non-structural.
         assert not _is_structural_stem("readme")
 
@@ -1165,7 +1174,7 @@ class TestMaterialDemoExample:
     The fixture is the hand-crafted mixed-stock demo: two materials, one
     plate each, plus a magenta text layer on the uv sheet. It pins the
     material-tagged filename scheme
-    (``[<plate>_][<material>_]<cutter>[_<color>]_<kind>_<job>.plt``):
+    (``[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job>.plt``):
     because each material spans exactly one plate, the material tag alone
     identifies every sheet and the plate numbers are omitted.
     """
@@ -2228,12 +2237,15 @@ class TestPlateNumberScoping:
             layout=LayoutMode.ROWS,
             allow_rotation=False,
         )
-        uv = [p for p in result.plt_paths if p.name.startswith("wk_uv_")]
-        wk = [p for p in result.plt_paths if p.name[:2].isdigit()]
+        uv = [p for p in result.plt_paths if _parse_plt_stem(p.stem).material == "wk_uv"]
+        wk = [p for p in result.plt_paths if _parse_plt_stem(p.stem).material == "wk"]
         assert wk, "wk labels must overflow onto both wk sheets"
-        assert {p.name.split("_")[0] for p in wk} >= {"01", "02"}
+        # The material tag leads the name and the plate number follows it.
+        assert all(p.name.startswith("wk_0") for p in wk), [p.name for p in wk]
+        assert {_parse_plt_stem(p.stem).plate for p in wk} >= {"01", "02"}
         assert uv, "wk(uv) labels must export"
         # The single uv sheet is identified by its material tag alone.
+        assert all(p.name.startswith("wk_uv_") for p in uv), [p.name for p in uv]
         assert all(_parse_plt_stem(p.stem).plate is None for p in uv)
 
     def test_combined_pdfs_follow_the_same_scoping(self, tmp_path: Path) -> None:
@@ -2258,7 +2270,7 @@ class TestPlateNumberScoping:
         )
         combined = sorted(p.name for p in result.pdf_paths if "all_" in p.name)
         assert any(name.startswith("wk_uv_all_") for name in combined), combined
-        assert any(name[:2].isdigit() and "_wk_all_" in name for name in combined), combined
+        assert any(name.startswith("wk_01_all_") for name in combined), combined
 
 
 class TestSmallCapsDemoExample:

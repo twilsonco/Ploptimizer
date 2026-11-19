@@ -819,11 +819,11 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
             ),
         },
         "plt_files": [
-            write_plt(tmp_path, "01_uv_30_txt_job.plt", document(rect_path(0.5, 2.5, 1.0, 0.5))),
-            write_plt(tmp_path, "02_wk_30_txt_job.plt", document(rect_path(1.0, 4.0, 2.0, 1.0))),
+            write_plt(tmp_path, "uv_01_30_txt_job.plt", document(rect_path(0.5, 2.5, 1.0, 0.5))),
+            write_plt(tmp_path, "wk_02_30_txt_job.plt", document(rect_path(1.0, 4.0, 2.0, 1.0))),
             write_plt(
                 tmp_path,
-                "02_wk_60_bh_job.plt",
+                "wk_02_60_bh_job.plt",
                 document(
                     rect_path(1.0, 4.0, 6.0, 3.0),
                     circle_path(1.5, 4.5, WK_HOLE_SIDE_IN),
@@ -837,7 +837,7 @@ def make_job(tmp_path: Path) -> Dict[str, Any]:
 class TestDistanceCutting:
     def test_cutting_distance_is_measured_from_the_emitted_file(self, tmp_path: Path) -> None:
         usage = stats_for(**make_job(tmp_path))
-        row = file_row(usage, "01_uv_30_txt_job.plt", tmp_path)
+        row = file_row(usage, "uv_01_30_txt_job.plt", tmp_path)
         assert row["cutting"] == pytest.approx(UV_TEXT_IN)
         assert row["rapid"] == pytest.approx(0.0)
         assert row["strokes"] == 1
@@ -848,7 +848,7 @@ class TestDistanceCutting:
 
     def test_arc_length_counts_as_cutting(self, tmp_path: Path) -> None:
         usage = stats_for(**make_job(tmp_path))
-        row = file_row(usage, "02_wk_60_bh_job.plt", tmp_path)
+        row = file_row(usage, "wk_02_60_bh_job.plt", tmp_path)
         assert row["cutting"] == pytest.approx(WK_BORDER_IN + WK_HOLE_IN)
         assert row["strokes"] == 2
 
@@ -928,7 +928,7 @@ class TestDistanceStrokeClasses:
                 plate(material="uv", labels=[placement(spec, label_id="r_0", x=0.5, y=2.5)])
             ],
             combined_by_plate={1: document(content)},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", document(content))],
             material_by_plate={1: "uv"},
         )["distance"]
         assert usage["by_class"]["relief"] == pytest.approx(UV_TEXT_IN)
@@ -943,7 +943,7 @@ class TestDistanceStrokeClasses:
             # No placements: the whole plate's strokes are unattributable.
             packed_plates=[plate(material="uv")],
             combined_by_plate={1: document(inside, outside)},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", document(inside, outside))],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", document(inside, outside))],
             material_by_plate={1: "uv"},
         )["distance"]
         assert usage["by_class"]["unattributed"] == pytest.approx(2 * UV_TEXT_IN)
@@ -983,7 +983,7 @@ class TestDistanceAttribution:
                 )
             ],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
         )["distance"]
         rows = {row["label_id"]: row for row in usage["by_label"]}
@@ -1015,7 +1015,7 @@ class TestDistanceAttribution:
                 )
             ],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
         )["distance"]
         assert [row["label_id"] for row in usage["by_label"]] == ["b_0"]
@@ -1043,7 +1043,7 @@ class TestDistanceAttribution:
                 )
             ],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
         )["distance"]
         rows = {row["label_id"]: row for row in usage["by_label"]}
@@ -1067,7 +1067,7 @@ class TestDistanceRapid:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[place])],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
         )["distance"]
         assert usage["total"]["cutting"] == pytest.approx(1.0)
@@ -1130,7 +1130,7 @@ class TestDistanceCounters:
             combined_by_plate={},
             # Plate 3 does not exist in this job, so its material can only
             # come from the file name.
-            plt_files=[write_plt(tmp_path, "03_wkuv_30_txt_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "wkuv_03_30_txt_job.plt", document(content))],
             material_by_plate={1: "uv"},
         )["distance"]
         assert [row["plate"] for row in distance["by_plate"]] == [3]
@@ -1143,7 +1143,7 @@ class TestDistanceCounters:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.5, y=2.5)])],
             combined_by_plate={1: document(content)},
-            plt_files=[write_plt(tmp_path, "01_uv_15_txt_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "uv_01_15_txt_job.plt", document(content))],
             material_by_plate={1: "uv"},
         )["distance"]
         assert distance["by_cutter"][0]["cutter"] == pytest.approx(0.015)
@@ -1296,7 +1296,7 @@ class TestUsageEdgeCases:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.5, y=1.1)])],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
         )["distance"]
         # Measured on the device grid: 200 units + (1016 - 610) units.
@@ -1305,7 +1305,7 @@ class TestUsageEdgeCases:
     def test_routing_file_without_a_plate_frame_is_unattributed(self, tmp_path: Path) -> None:
         content = rect_path(1.0, 4.0, 6.0, 3.0)
         distance = stats_for(
-            plt_files=[write_plt(tmp_path, "02_wk_60_bh_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "wk_02_60_bh_job.plt", document(content))],
         )["distance"]
         assert distance["by_class"]["unattributed"] == pytest.approx(WK_BORDER_IN)
         assert distance["by_class"]["borders"] == pytest.approx(0.0)
@@ -1316,7 +1316,7 @@ class TestUsageEdgeCases:
         content = rect_path(0.5, 2.5, 1.0, 0.5)
         distance = stats_for(
             packed_plates=[plate(plate_id="p1", material="uv")],
-            plt_files=[write_plt(tmp_path, "99999999999999_uv_30_txt_job.plt", document(content))],
+            plt_files=[write_plt(tmp_path, "uv_99999999999999_30_txt_job.plt", document(content))],
         )["distance"]
         # Python integers are unbounded, so the token is a plate number; the
         # strokes are unattributed (no such plate frame) and the distance is
@@ -1377,7 +1377,7 @@ class TestUsageEdgeCases:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.0, y=2.0)])],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_60_bh_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_60_bh_job.plt", content)],
             material_by_plate={1: "uv"},
         )["distance"]
         assert distance["total"]["cutting"] > 0.0
@@ -1585,7 +1585,7 @@ class TestFormatUsageLines:
                 }
                 for index in range(total)
             ],
-            "files": [{"path": "01_uv_30_txt_job.plt"}],
+            "files": [{"path": "uv_01_30_txt_job.plt"}],
             "unattributed": {"strokes": 0, "cutting": 0.0, "rapid": 0.0},
         }
         text = "\n".join(format_usage_lines(usage))
@@ -1605,7 +1605,7 @@ class TestFormatUsageLines:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.5, y=2.5)])],
             combined_by_plate={1: document(inside, outside)},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", document(inside, outside))],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", document(inside, outside))],
             material_by_plate={1: "uv"},
         )
         text = "\n".join(format_usage_lines(usage))
@@ -1723,7 +1723,7 @@ class TestTimeEstimate:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.4, y=0.4)])],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
             job_spec=job_spec(),
             job_config=tool_config(),
@@ -1792,7 +1792,7 @@ class TestTimeEstimate:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.4, y=0.4)])],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
             job_spec=job_spec(),
             job_config=tool_config(),
@@ -1813,7 +1813,7 @@ class TestTimeEstimate:
             resolved_labels=[spec],
             packed_plates=[plate(material="uv", labels=[placement(spec, x=0.4, y=0.4)])],
             combined_by_plate={1: content},
-            plt_files=[write_plt(tmp_path, "01_uv_30_txt_job.plt", content)],
+            plt_files=[write_plt(tmp_path, "uv_01_30_txt_job.plt", content)],
             material_by_plate={1: "uv"},
             job_spec=job_spec(),
             job_config=tool_config(),
@@ -1909,7 +1909,7 @@ class TestRunTimeJobRollup:
                     section(rect_path(0.0, 0.0, 1.0, 1.0)), section(rect_path(2.0, 0.0, 1.0, 1.0))
                 )
             },
-            plt_files=[write_plt(tmp_path, "01_ACM_30_txt_job.plt", rect)],
+            plt_files=[write_plt(tmp_path, "ACM_01_30_txt_job.plt", rect)],
             material_by_plate={1: "ACM"},
             job_spec=job_spec(),
             job_config=tool_config(),
