@@ -134,7 +134,7 @@ def _record_proofs(monkeypatch: pytest.MonkeyPatch) -> List[Dict[str, Any]]:
 def _proofs(calls: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Index plate-proof calls by their file stem.
 
-    A plate proof is ``[<material>_][<plate>_]all_<owner>.pdf`` (per-file
+    A plate proof is ``[<material>_][p<plate>_]all_<owner>.pdf`` (per-file
     previews are named ``*_txt_*`` / ``*_bh_*`` and are not plate proofs, so the
     ``all_`` marker separates them). ``<owner>`` is the batch id for a
     whole-sheet proof and the member's job id for a per-job proof, so a key
@@ -298,11 +298,11 @@ class TestPerJobProofs:
         proofs = _plan_proofs(plan, tmp_path / "solo", monkeypatch)
 
         # Sheet 1 is shared: the batch's proof plus one per job.
-        shared_sheet = sorted(stem for stem in proofs if stem.startswith("01_"))
+        shared_sheet = sorted(stem for stem in proofs if stem.startswith("p01_"))
         assert len(shared_sheet) == 3, shared_sheet
         # Sheet 2 holds one job only: the batch's proof, and nothing else.
-        solo_sheet = sorted(stem for stem in proofs if stem.startswith("02_"))
-        assert solo_sheet == [f"02_all_{plan.jobset_id}"], solo_sheet
+        solo_sheet = sorted(stem for stem in proofs if stem.startswith("p02_"))
+        assert solo_sheet == [f"p02_all_{plan.jobset_id}"], solo_sheet
         # Only the shared sheet's per-job proofs are captioned as shared.
         for stem in shared_sheet:
             if _owner(stem) != plan.jobset_id:

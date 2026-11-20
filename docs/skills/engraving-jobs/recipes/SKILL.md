@@ -74,7 +74,7 @@ A real multi-size shop job: a job-level `material` tag on every output stem, thr
 
 Files: `examples/2026-10-30-CES-vons-1735.yaml`, `examples/2026-10-30 CES vons 1735 1x3.txt`
 
-- `material: kw` — the material tag lands in every PLT/PDF file name (`[<material>_][<plate>_]<cutter>_...`), so mixed runs sort at the machine.
+- `material: kw` — the material tag lands in every PLT/PDF file name (`[<material>_][p<plate>_]<cutter>_...`), so mixed runs sort at the machine.
 - Commented-out `plates:` blocks show how the same job is pinned to declared plate sizes when stock is fixed.
 
 ## Engraver tool options

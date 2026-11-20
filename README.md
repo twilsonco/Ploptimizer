@@ -80,10 +80,11 @@ out/pdf/30_txt_<job_id>.pdf          # simple-outline previews (--no-plots skips
 out/pdf/01_all_<job_id>.pdf          # combined preview per plate
 ```
 
-File names read `[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>`:
+File names read `[<material>_][p<plate>_]<cutter>[_<color>]_<kind>_<job_id>`:
 the sanitized material tag (e.g. `wk(uv)` -> `wk_uv`) leads, so all sheets of
 one stock sort together, and it appears only when the job declares a
-`material`; the 2-digit plate number follows it and appears only when a
+`material`; the plate number follows it, marked with a `p` (`p01`) so it never
+reads as a second number beside the integer-mils cutter, and appears only when a
 material spans more than one plate (its presence signals that material needs
 multiple sheets); the cutter is the diameter in integer thousandths of an inch
 (`0.030` -> `30`). Every name carries only ASCII letters, digits and
@@ -161,7 +162,7 @@ out/Job_B/generation_report/report.json
 ```
 
 The PLT names follow the single-job contract
-(`[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>`). The last token is
+(`[<material>_][p<plate>_]<cutter>[_<color>]_<kind>_<job_id>`). The last token is
 the **owning job** for a layer that carries one job's strokes - so those files
 are exactly what that job writes standalone - and the **batch** for a layer the
 jobs share, whose membership the reports record. The difference from separate

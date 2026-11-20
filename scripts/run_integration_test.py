@@ -806,9 +806,9 @@ def phase_3_vectorization_and_export(
     assembles the per-label PLT content at packed positions and splits the
     assembly by CUTTER:
 
-    - borders + holes -> one ``[<material>_][<plate>_]<cutter>_bh_<job_id>.plt``
+    - borders + holes -> one ``[<material>_][p<plate>_]<cutter>_bh_<job_id>.plt``
       per plate
-    - text -> one ``[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt``
+    - text -> one ``[<material>_][p<plate>_]<cutter>[_<color>]_txt_<job_id>.plt``
       per plate and (cutter, stroke-color) layer; colored layers gain a
       1-letter tag, colorless jobs keep the cutter-only name. The cutter
       token is the diameter in integer thousandths of an inch, unpadded
@@ -1326,17 +1326,19 @@ def _run_single_spec(spec_override: Path | None) -> int:
         print("1. Inspect the generated artifacts under the output directory:")
         print("   - plt/: per-cutter toolpath files")
         print(
-            "       [<material>_][<plate>_]<cutter>[_<color>]_txt_<job>.plt: "
+            "       [<material>_][p<plate>_]<cutter>[_<color>]_txt_<job>.plt: "
             "one file per text layer"
         )
-        print("       [<material>_][<plate>_]<cutter>_bh_<job>.plt: borders + drill holes together")
+        print(
+            "       [<material>_][p<plate>_]<cutter>_bh_<job>.plt: borders + drill holes together"
+        )
         print(
             "       (material tag first when set; plate number only after it, "
             "when a material spans several sheets)"
         )
         print("   - pdf/: simple-outline previews")
         print(
-            "       [<material>_][<plate>_]all_<job>.pdf: combined text + borders + holes per plate"
+            "       [<material>_][p<plate>_]all_<job>.pdf: combined text + borders + holes per plate"
         )
         if GENERATE_DEFAULT_PLOTS:
             print("       *_default.pdf: color-coded toolpath with rapid travel")
@@ -1611,10 +1613,10 @@ def _run_single_jobset(jobset_yaml: Path) -> int:
         print("1. Inspect the generated artifacts under the output directory:")
         print("   - plt/: per-cutter toolpath files, one SEGMENT per job that owns strokes")
         print(
-            "       [<material>_][<plate>_]<cutter>[_<color>]_txt_<job_id>.plt: "
+            "       [<material>_][p<plate>_]<cutter>[_<color>]_txt_<job_id>.plt: "
             "that job's text on that cutter"
         )
-        print("       [<material>_][<plate>_]<cutter>_bh_<job_id>.plt: that job's borders + holes")
+        print("       [<material>_][p<plate>_]<cutter>_bh_<job_id>.plt: that job's borders + holes")
         print("   - pdf/: simple-outline previews; [<...>_]all_<jobset_id>.pdf shows every job")
         print("       on the sheet, one colour per job, with a name-per-job key box")
         print("   - <job_id>/generation_report/: the per-job report + summary")

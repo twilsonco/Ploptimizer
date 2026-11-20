@@ -10,7 +10,8 @@ Output layout (under ``-o``, defaulting to the spec's parent directory)::
 
     <out>/plt/30_txt_<job_id>.plt        # one file per text cutter (single sheet)
     <out>/plt/wk_uv_30_m_txt_<job_id>.plt  # ... per material/color tag
-    <out>/plt/wk_uv_01_30_txt_<job_id>.plt  # ... plate number only when a
+    <out>/plt/wk_uv_p01_30_txt_<job_id>.plt  # ... plate number (``p`` +
+    #                                        2 digits) only when a
     #                                        material spans several sheets
     <out>/plt/15_bh_<job_id>.plt         # borders + holes together
     <out>/pdf/30_txt_<job_id>.pdf        # simple-outline previews

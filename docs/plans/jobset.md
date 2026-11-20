@@ -79,8 +79,8 @@ when the layer is shared, so a batch's names match what each job produces
 standalone for its own layers:
 
 ```text
-[<material>_][<plate>_]<cutter>[_<color>]_txt_<job_key>.plt
-[<material>_][<plate>_]<cutter>_bh_<job_key>.plt
+[<material>_][p<plate>_]<cutter>[_<color>]_txt_<job_key>.plt
+[<material>_][p<plate>_]<cutter>_bh_<job_key>.plt
 ```
 
 (the single-job naming contract, unchanged; `plt_optimizer/generate/AGENTS.md`

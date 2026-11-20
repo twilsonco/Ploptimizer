@@ -4,21 +4,48 @@
 
 ### Features
 
-* **generate:** per-cutter PLT/PDF file names put the **material first** —
-  `[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>` — so every sheet
+* **generate:** the plate number in per-cutter PLT/PDF file names is marked with
+  a `p` (for "plate") — `wk_uv_p01_30_txt_job.plt`, `p02_15_bh_job.plt`. The
+  material-first naming put the plate number directly beside the cutter token,
+  which is itself a bare number of thousandths of an inch, so a multi-sheet
+  material's name read as two adjacent numeric fields (`wk_01_30_txt` — plate 1?
+  size 0.010"? 0.030" plate?). `_format_plate_number` now emits `p` + the 2-digit
+  number, and `_parse_plt_stem` (used by `usage_stats` plate attribution, the
+  jobset manifest and the diagnostics) requires that marker, reporting the digits
+  alone — so the plate slot is unambiguous in both directions and the numeric
+  material tag that material-first naming made ambiguous (`ACM 3100` ->
+  `ACM_3100_40_bh_job.plt`) is a material again. A material tagged *exactly* like
+  a plate number (`p02`) is the collision that remains, and it is pinned as such.
+  - Pins: `tests/test_phase3_export.py` (the prefix helpers, the stem round-trip
+    incl. the marked plate and the numeric-material cases, real exports),
+    `tests/test_usage_stats.py` (plate attribution read from a name built by the
+    production `_format_plate_prefix` + `_format_cutter`).
+  - Docs: README, `docs/INTEGRATION_TESTING.md`, `docs/README_DEV.md`,
+    `plt_optimizer/cli/AGENTS.md`, `plt_optimizer/generate/AGENTS.md`,
+    `docs/plans/jobset.md`, the skill tree (regenerated), the `cli/generate.py`
+    output-layout block and the `vectorize` / `usage_stats` docstrings.
+
+* **generate:** per-cutter PLT/PDF file names put the **material first** and
+  mark the plate —
+  `[<material>_][p<plate>_]<cutter>[_<color>]_<kind>_<job_id>` — so every sheet
   of one stock sorts together in a folder listing, on a USB stick and in the
   plotter queue. Previously the plate number led and the material tag followed
   it, which scattered a material's sheets across the numbering of the others
-  (`01_wk_uv_30_txt_job.plt` -> `wk_uv_01_30_txt_job.plt`). The rule is
-  unchanged: the 2-digit plate number is emitted only when *that material*
+  (`01_wk_uv_30_txt_job.plt` -> `wk_uv_p01_30_txt_job.plt`). The `p` (for
+  "plate") is what keeps the plate token readable as a field: unmarked it sat
+  directly beside the integer-mils cutter, so a name read as two adjacent
+  numbers (`wk_01_30_txt`). The rule is
+  unchanged: the plate number (2-digit padded, after the `p`) is emitted only
+  when *that material*
   spans more than one plate, so a single-sheet material and a single-plate job
   keep their prefix-free names. `vectorize._format_plate_prefix` emits the new
   order; `vectorize._parse_plt_stem` (used by `usage_stats` attribution and the
-  diagnostics) reads `NN` from the position adjacent to the cutter, not the
-  leading token, so it follows the swap; a material tag whose tail is a
-  zero-padded number of 3+ digits (`ACM 3100`) reads as a plate number, the
-  same documented collision the old order had from the other side. No migration
-  of previously written files: the naming is emission-only.
+  diagnostics) now requires the `p` marker there (and reports the digits, marker
+  stripped), so a material whose tag is or ends in a number (`ACM 3100` ->
+  `ACM_3100_40_bh_job.plt`) keeps its whole tag: the collision the material-first
+  swap introduced is gone. No migration
+  of previously written files: the naming is emission-only, and the leading-token
+  form keeps parsing.
   - Pins: `tests/test_phase3_export.py` (prefix helpers, the stem round-trip
     incl. digit-leading materials, the material-group scoping),
     `tests/test_usage_stats.py` (emitted names feed plate attribution through

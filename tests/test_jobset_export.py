@@ -239,7 +239,7 @@ class TestSharedPlateSegmentation:
         plan, result = batch
 
         assert 2 not in result.plate_jobs
-        assert not [path for path in result.plt_paths if path.name.startswith("02_")]
+        assert not [path for path in result.plt_paths if path.name.startswith("p02_")]
 
     def test_combined_preview_is_the_whole_plate(
         self, batch: Tuple[JobSetPlan, PerCutterExport]

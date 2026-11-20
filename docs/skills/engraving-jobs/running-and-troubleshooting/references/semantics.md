@@ -61,10 +61,10 @@ message. Match the class (or the message prefix) and apply the fix:
 
 ## Outputs
 
-- `plt/[<material>_][<plate>_]<cutter>[_<color>]_<kind>_<job_id>.plt` — one
+- `plt/[<material>_][p<plate>_]<cutter>[_<color>]_<kind>_<job_id>.plt` — one
   tool per file; `kind` = `txt` (text layer) / `bh` (borders + holes).
 - `pdf/<same stem>.pdf` — proof per PLT;
-  `pdf/[<material>_][<plate>_]all_<job_id>.pdf` — combined per-plate proof
+  `pdf/[<material>_][p<plate>_]all_<job_id>.pdf` — combined per-plate proof
   (with `--default-plots`: `..._all_<job_id>_default.pdf` rapid-travel view).
 - The **layout report** (run log, and the `--verbose` output) lists per
   label: plate + position + rotation, final cutter per line (incl.

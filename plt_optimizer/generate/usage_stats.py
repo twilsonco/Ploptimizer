@@ -1885,9 +1885,9 @@ def _file_plate_number(
         The 1-based plate number, or ``None`` when the file cannot be placed.
     """
     if stem.plate is not None:
-        # The stem parser only records a token with plate-number shape (the
-        # digits just left of the cutter), so this is always a plate number
-        # (there is no unparsable form to guard).
+        # The stem parser only records the p-marked token there, and hands back
+        # its digits, so this is always a plate number (there is no unparsable
+        # form to guard).
         return int(stem.plate)
     if len(plate_numbers) == 1:
         return plate_numbers[0]
