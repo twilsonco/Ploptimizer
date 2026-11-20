@@ -1,0 +1,2 @@
+145 RACK-01-01;M/N AS;S/N 141214-1;400 lbs. R-744;First Charge 05/2025;Key Mechanical
+751 RACK-01-01;M/N AS;S/N 144503-1;550 lbs. R-744;First Charge 04/2026;Executive Refrigeration
