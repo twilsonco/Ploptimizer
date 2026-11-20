@@ -129,11 +129,6 @@
       - `min_label_price`: The minimum price for any label, regardless of material usage or character count.
       - `base_label_price`: The base price for any label, before adding material usage or character count costs.
       - `material_price_per_sq_in`: The price per square inch of material used for the label.
-- [ ] Implement alternative, more expensive kerning algorithm during toolpath generation.
-  - The current algorithm (based on a windowed, width profile approach), falls short. I want to add a more computationally expensive algorithm that steps down every stroke of every character, checking adjacent characters pairwise, and adjusting spacing to ensure that every pair of subsequent characters is separated by the same kerning distance.
-  - If this is prohibitively slow, then consider ways to run it faster (cython, rust, etc.), but probably best to first implement it in python + numpy (+ scipy) for easier prototyping and testing, before profiling and optimizing further.
-  - We'll add a new enum parameter, `kerning_quality` to specify which kerning algorithm to use, `fast` or `precise`. And add a new float parameter, `kerning_precise_distance_fraction` to specify the desired kerning distance for the precise algorithm as a fraction of the `capline - baseline` distance.
-  - Both parameters will cascade job -> plate -> label -> text line, and have defaults in job-config.json of `precise` and 0.1.
 - [ ] Add to summary txt/json report approximated weight of engraved labels
   - one 16x24 plate weighs approx. 1 lb. (0.00260417 lb/in²)
   - we'll add a new parameter `material_weight_per_square_inch` to specify the weight of the material per square inch. Cascades job -> plate (not label), and defaults in job-config.json to 0.00260417.
@@ -150,3 +145,8 @@
   - In this case, we can sometimes avoid text/hole collisions by decreasing line spacing so that the top/bottom lines are below/above the corner hole y positions, thus removing the collision risk and letting lines just worry about the label margins instead.
   - Decreasing line spacing would be the first line of defense for avoiding text-hole collisions in this scenario. Once exhausted, then we resort to the existing collision avoidance strategies.
   - In implementing this, note that we now have different behavior for text/hole collision avoidance depending on hole location and/or number of text lines. This seems like something that should be abstracted into a dedicated function or module that handles text/hole collision avoidance logic, making it easier to extend and maintain. Please research how it's implemented currently and whether such a refactoring/abstraction will be helpful for future enhancements and code readability/maintenance.
+- [ ] Implement optical/fluid kerning system.
+  - See `docs/optical_fluid_kerning.md`
+  - This will *fully replace* the current kerning system; all of the current kerning parameters will be removed. The cleanup of the old kerning system will be a separate task to ensure a smooth transition and avoid breaking existing functionality.
+  - Because the current kerning system will be removed, do not utilize any of its existing parameters for the new system.
+  - Any new parameters should cascade job -> plate -> label -> line, and have defaults in `job-config.json`.
