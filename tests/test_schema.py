@@ -4465,3 +4465,182 @@ class TestReliefEngravingFields:
             ),
         )
         assert job.labels[0].relief_engraving_quality == "fine"
+
+
+class TestMaterialWeightPerSquareInch:
+    """``material_weight_per_square_inch`` cascades job -> plate, never label."""
+
+    DENSITY = 0.00260417  # The shop's 16x24 sheet: approx. 1 lb per sheet.
+
+    @staticmethod
+    def _job(plates: list[PlateSpec], **kwargs: object) -> JobSpec:
+        """Build a minimal job with the given plates and job-level overrides."""
+        return JobSpec(
+            job_name="Weight Job",
+            width=2.0,
+            height=1.0,
+            plates=plates,
+            labels=cast(
+                List[Any],
+                [
+                    LabelSpec(
+                        id="l1",
+                        width=2.0,
+                        height=1.0,
+                        content=[TextLine(text="X")],
+                    )
+                ],
+            ),
+            **kwargs,  # type: ignore[arg-type]
+        )
+
+    def test_fields_default_to_none(self) -> None:
+        """Unset everywhere: weight is not estimated (never 0 lb)."""
+        job = JobSpec(job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")])
+        plate = PlateSpec(id="p1", width=24.0, height=16.0)
+        assert job.material_weight_per_square_inch is None
+        assert plate.material_weight_per_square_inch is None
+
+    def test_plate_value_parses(self) -> None:
+        plate = PlateSpec(id="p1", width=24.0, height=16.0, material_weight_per_square_inch=1.5)
+        assert plate.material_weight_per_square_inch == 1.5
+
+    def test_negative_rejected_on_both_tiers(self) -> None:
+        """Both tiers enforce ``ge=0.0`` (a negative density is nonsense)."""
+        with pytest.raises(ValidationError):
+            PlateSpec(id="p1", width=24.0, height=16.0, material_weight_per_square_inch=-0.1)
+        with pytest.raises(ValidationError):
+            JobSpec(
+                job_name="J",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                material_weight_per_square_inch=-0.1,
+            )
+
+    def test_the_field_is_not_label_level(self) -> None:
+        """Labels reject it: the density is a property of the stock, not the art."""
+        with pytest.raises(ValidationError):
+            LabelSpec(
+                id="l1",
+                width=2.0,
+                height=1.0,
+                content=[TextLine(text="X")],
+                material_weight_per_square_inch=self.DENSITY,
+            )
+
+    def test_job_value_cascades_to_plates_omitting_it(self) -> None:
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0)],
+            material_weight_per_square_inch=self.DENSITY,
+        )
+        assert job.plates is not None
+        assert job.plates[0].material_weight_per_square_inch == self.DENSITY
+
+    def test_explicit_plate_value_wins(self) -> None:
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0, material_weight_per_square_inch=0.01)],
+            material_weight_per_square_inch=self.DENSITY,
+        )
+        assert job.plates is not None
+        assert job.plates[0].material_weight_per_square_inch == 0.01
+
+    def test_explicit_plate_zero_wins(self) -> None:
+        """A plate ``0.0`` is a value (report 0 lb), not "unset, inherit"."""
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0, material_weight_per_square_inch=0.0)],
+            material_weight_per_square_inch=self.DENSITY,
+        )
+        assert job.plates is not None
+        assert job.plates[0].material_weight_per_square_inch == 0.0
+
+    def test_plate_null_inherits_job_value(self) -> None:
+        """An explicit plate ``null`` is unset semantics: inherit (per material)."""
+        job = JobSpec(
+            job_name="J",
+            width=2.0,
+            height=1.0,
+            content=[TextLine(text="X")],
+            material_weight_per_square_inch=self.DENSITY,
+            plates=cast(
+                List[Any],
+                [
+                    {
+                        "id": "p1",
+                        "width": 24.0,
+                        "height": 16.0,
+                        "material_weight_per_square_inch": None,
+                    }
+                ],
+            ),
+        )
+        assert job.plates is not None
+        assert job.plates[0].material_weight_per_square_inch == self.DENSITY
+
+    def test_resolves_a_declared_plate(self) -> None:
+        job = self._job(
+            [
+                PlateSpec(id="p1", width=24.0, height=16.0, material_weight_per_square_inch=0.01),
+                PlateSpec(id="p2", width=24.0, height=16.0, material_weight_per_square_inch=0.02),
+            ]
+        )
+        assert job.material_weight_for_plate("p1") == 0.01
+        assert job.material_weight_for_plate("p2") == 0.02
+
+    def test_falls_back_to_the_job_level(self) -> None:
+        """An id no plate declares (unbounded / jobset sheets) uses the job value."""
+        job = self._job(
+            [PlateSpec(id="p1", width=24.0, height=16.0)],
+            material_weight_per_square_inch=self.DENSITY,
+        )
+        assert job.material_weight_for_plate("default_plate_3") == self.DENSITY
+        assert job.material_weight_for_plate(None) == self.DENSITY
+
+    def test_resolves_a_material_prefixed_packing_id(self) -> None:
+        """``rect`` packing names pools ``<material>_<n>``; the Nth plate of that
+        material supplies the density (the same rule the packer used)."""
+        job = self._job(
+            [
+                PlateSpec(id="a", width=24.0, height=16.0, material="uv"),
+                PlateSpec(id="b", width=24.0, height=16.0, material="uv"),
+                PlateSpec(id="c", width=24.0, height=16.0, material="acm"),
+            ],
+            material_weight_per_square_inch=self.DENSITY,
+        )
+        with pytest.raises(ValidationError):
+            PlateSpec(id="x", width=1.0, height=1.0, material_weight_per_square_inch=-1.0)
+        # b is the second uv plate: uv_2 carries its (job-cascaded) density.
+        assert job.material_weight_for_plate("uv_2") == self.DENSITY
+        assert job.material_weight_for_plate("acm_1") == self.DENSITY
+        # Case and spacing follow the packer's material comparison.
+        assert job.material_weight_for_plate("UV_1") == self.DENSITY
+        assert job.material_weight_for_plate("uv_9") == self.DENSITY  # past the end: job level
+
+    def test_an_exact_id_beats_the_material_prefix_rule(self) -> None:
+        job = self._job(
+            [
+                PlateSpec(
+                    id="uv_1",
+                    width=24.0,
+                    height=16.0,
+                    material="uv",
+                    material_weight_per_square_inch=0.05,
+                )
+            ],
+            material_weight_per_square_inch=self.DENSITY,
+        )
+        assert job.material_weight_for_plate("uv_1") == 0.05
+
+    def test_a_declared_plate_without_a_density_reports_none(self) -> None:
+        """Configured nowhere: a declared plate's ``None`` is not coerced to 0."""
+        job = self._job([PlateSpec(id="p1", width=24.0, height=16.0)])
+        assert job.material_weight_for_plate("p1") is None
+
+    def test_a_declared_plate_with_nothing_configured_reports_none(self) -> None:
+        job = self._job(
+            [
+                PlateSpec(id="a", width=24.0, height=16.0, material="uv"),
+                PlateSpec(id="b", width=24.0, height=16.0, material="uv"),
+            ]
+        )
+        assert job.material_weight_for_plate("uv_2") is None

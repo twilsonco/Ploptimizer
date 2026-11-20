@@ -1,6 +1,6 @@
 ---
 name: plates-layout-and-packing
-description: 'Pack labels onto material plates: layout, rotation, clearances. Use when: packing many labels onto stock; declaring plates and materials; pinning labels to one plate; choosing rows vs columns layout. Keywords: plates, layout, packing, rotation, material, clearance, plate_id, text_chunk_mode.'
+description: 'Pack labels onto material plates: layout, rotation, clearances. Use when: packing many labels onto stock; declaring plates and materials; pinning labels to one plate; choosing rows vs columns layout. Keywords: plates, layout, packing, rotation, material, material_weight_per_square_inch, clearance, plate_id, text_chunk_mode.'
 version: 1.0.0
 metadata:
   hermes:
@@ -28,10 +28,12 @@ metadata:
 | `layout` | LayoutMode | `"columns"` | — | job | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. 'columns-simple'/'rows-simple' bypass bin packing with a flush grid fill in content order (no rotation; incompatible with an explicit `allow_rotation: true`). |
 | `left_clearance` | float \| null | null (unset) | >=0 | job | Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `top_clearance` | float \| null | null (unset) | >=0 | job | Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
+| `material_weight_per_square_inch` | float \| null | null (unset) | >=0 | job | Job-level default material weight per square inch in pounds (lb/in2), cascades job -> plate (an explicit plate value, including 0.0, wins) and is never label-level. Reports the estimated weight of engraved labels; unset means weight is not estimated. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb). |
 | `left_clearance` | float | `0.0` | >=0 | plate | Unused material width along the plate's left edge in inches (shifts the usable area rightward; must be >= 0). |
 | `top_clearance` | float | `0.0` | >=0 | plate | Unused material height along the plate's top edge in inches (shifts the usable area downward; must be >= 0). |
 | `layout` | LayoutMode \| null | null (unset) | — | plate | Per-plate fill-order override (None = inherit the job layout). Simple modes ('columns-simple'/'rows-simple') grid-fill this plate without bin packing and never rotate labels. |
 | `material` | str \| null | null (unset) | — | plate | Stock material this plate is cut from (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case. |
+| `material_weight_per_square_inch` | float \| null | null (unset) | >=0 | plate | Material weight per square inch in pounds (lb/in2), used only to estimate the weight of the labels engraved on this plate; cascades job -> plate (an explicit plate value, including 0.0, wins) and is never label-level. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb per sheet). Unset (`null`) everywhere means weight is not estimated (reported as null, never as 0). |
 | `plate_id` | str \| null | null (unset) | — | label | Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion. |
 
 ## Enums

@@ -28,6 +28,11 @@ Semantics:
   unbounded (auto-allocated) bins shift by the same pair. A job spec may
   omit ``plates:`` entirely: packing then runs in unbounded mode on
   config-sized default sheets, overflowing onto as many as needed.
+- ``material_weight_per_square_inch`` is injected at the **job layer** by
+  the same route and cascades job -> plate (see
+  ``JobSpec._apply_job_level_material_weights``). It is an accounting
+  constant (lb per square inch) used only by the usage report's weight
+  estimate; the code default is ``None``, which keeps the estimate off.
 - **Required-when-unconfigured:** the fields in
   :data:`REQUIRED_WHEN_UNCONFIGURED` must be provided either by this config
   or by the job spec (job level, or every label individually). When a
@@ -1119,6 +1124,17 @@ class JobDefaults(BaseModel):
         ge=0.0,
         description="Default plate top-edge clearance in inches (same cascade as `left_clearance`).",
     )
+    material_weight_per_square_inch: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Default material weight per square inch in pounds (lb/in2; job layer, "
+            "cascades onto plates that omit it, never label-level). Used only to "
+            "estimate the weight of engraved labels in the usage report; unset "
+            "disables the estimate. 0.00260417 is the shop's 16x24 sheet "
+            "(approx. 1 lb per sheet)."
+        ),
+    )
     auto_line_spacing_interline_to_top_bottom_ratio: Optional[float] = Field(
         default=None,
         gt=0.0,
@@ -1259,7 +1275,8 @@ class JobConfig:
 # ``plate_width``/``plate_height`` are plate-layer only (see module
 # docstring) and ``hole_diameter`` is applied by hole-entry surgery, so
 # neither appears here. ``left_clearance``/``top_clearance`` land at the
-# job layer and cascade onto plates via ``JobSpec``.
+# job layer and cascade onto plates via ``JobSpec``, as does
+# ``material_weight_per_square_inch`` (job -> plate, never label-level).
 _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "text_height",
     "font",
@@ -1343,6 +1360,7 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "relief_engraving_stroke_overlap_percent",
     "left_clearance",
     "top_clearance",
+    "material_weight_per_square_inch",
     "auto_line_spacing_interline_to_top_bottom_ratio",
 )
 

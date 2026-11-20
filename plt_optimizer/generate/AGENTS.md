@@ -180,6 +180,13 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
   `adjust_h_center_for_single_side_hole` (true) · `hole_adjust_for_cutter` (true; engraved diameter =
   declared, the centerline shrinks by the tool) · `align_margin_adjust_global` (false; explicit true
   honored) → [`collision/AGENTS.md`](collision/AGENTS.md) "Sharing Inherits the Label Groups".
+- `material_weight_per_square_inch` - the stock's areal density in **pounds per square inch**,
+  used only to estimate the weight of the engraved labels for reporting. Cascades **job → plate**
+  (an explicit plate value, including `0.0`, wins) and is **never label-level** - weight belongs
+  to the stock, not to a label. `null` everywhere means weight is *not estimated*: reports carry
+  `null`, never `0`. `0.00260417` is the shop's 16x24 sheet (approx. 1 lb per sheet) and is the
+  `job-config.json` default. Consumed only by `usage_stats.py`; it never enters packing, layout
+  or the emitted PLT. `JobSpec.material_weight_for_plate(plate_id)` is the accessor.
 - `material` - free-form stock name (trimmed, case-insensitive); labels sharing a material pack together
   and a plate never mixes materials. job → label, job → plate (an explicit plate value wins) →
   [`packing/AGENTS.md`](packing/AGENTS.md) "Material-Aware Grouping".
@@ -946,6 +953,24 @@ A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsiz
   an entry in `TIME_OPERATIONS`, whose accumulator is indexed by operation -
   adding a term to a bucket without adding it to `time_by_op` silently breaks
   the reconciliation every bucket must keep with `time.total`.
+  **`weight` is the other estimated block** (the 5th key of `usage`).
+  `usage.weight` estimates the weight of the **engraved labels** as their nominal
+  area (`LabelSpec.width × height` in inches - the box the packer reserved, not the
+  ink and not the 0.010-padded bbox) × the plate's
+  `material_weight_per_square_inch`, at the **label-instance** grain, so
+  `total` / `by_label` (per spec **and plate** - the smallest grain that has a
+  density) / `by_plate` / `by_material` / `unconfigured` all reconcile with each
+  other and with the label count, exactly like `material`'s grains. The density is
+  read from the PLATE (`JobSpec.material_weight_for_plate(plate_id)`), never from
+  the label - the weight of a label is a property of the stock it was cut from, and
+  a plate carries exactly one material. Only label area is weighed: sheet weight is
+  the same formula over `material.plates[].area`, so the block stays a measure of
+  what was engraved. It is **opt-in**: `null` everywhere means "not estimated",
+  reported as `available: false` + a `note` and `total: null`, and a plate with no
+  density is a row with `material_weight_per_square_inch: null` / `lb: null` while
+  its labels still land in `unconfigured` - **"not estimated" is never reported as
+  `0`**, the same rule as `time`. Like `time` it is reporting-only: no geometry,
+  packing or PLT byte depends on it, and a missing density can never fail a job.
   Breaking changes to the block bump `generation_report.REPORT_SCHEMA_VERSION`.
 - `scripts/run_integration_test.py` prints the full report as the
   **Phase 3.6: LAYOUT REPORT** section; the `generate` CLI prints it **only under `-v`**

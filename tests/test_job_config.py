@@ -192,6 +192,55 @@ class TestJobDefaultsModel:
         with pytest.raises(ValidationError):
             JobDefaults(tool_options={"rapid_velocity": {"type": "float", "default": 4.0}})
 
+    def test_material_weight_per_square_inch_defaults_to_unset(self) -> None:
+        """Unset is the shipped default: the weight estimate stays off."""
+        assert JobDefaults().material_weight_per_square_inch is None
+
+    def test_material_weight_per_square_inch_loads_a_density(self, tmp_path: Path) -> None:
+        """The shop's areal density loads from the config file."""
+        config = load_job_config(
+            _write_config(tmp_path, {"material_weight_per_square_inch": 0.00260417})
+        )
+        assert config is not None
+        assert config.defaults.material_weight_per_square_inch == pytest.approx(0.00260417)
+
+    def test_material_weight_per_square_inch_zero_opts_out(self) -> None:
+        """0.0 is a legal, explicit "weigh nothing" density (the bound is >= 0)."""
+        assert (
+            JobDefaults(material_weight_per_square_inch=0.0).material_weight_per_square_inch == 0.0
+        )
+
+    @pytest.mark.parametrize("bad", [-0.001, -1.0])
+    def test_material_weight_per_square_inch_rejects_a_negative_density(self, bad: float) -> None:
+        """A negative lb/in2 density fails at config load, not at engraving time."""
+        with pytest.raises(ValidationError, match="material_weight_per_square_inch"):
+            JobDefaults(material_weight_per_square_inch=bad)
+
+    def test_material_weight_per_square_inch_is_injected_at_the_job_layer(self) -> None:
+        """It cascades job -> plate, so it must be injected at the job layer."""
+        from plt_optimizer.generate.job_config import _JOB_LAYER_FIELDS
+
+        assert "material_weight_per_square_inch" in _JOB_LAYER_FIELDS
+
+    def test_material_weight_per_square_inch_injects_into_the_job(self, tmp_path: Path) -> None:
+        """A spec omitting the density receives the config's job-level value."""
+        path = _write_config(tmp_path, {"material_weight_per_square_inch": 0.01})
+        config = load_job_config(path)
+        assert config is not None
+        filled = apply_job_config_defaults({"job_name": "J", "width": 2.0, "height": 1.0}, config)
+        assert filled["material_weight_per_square_inch"] == pytest.approx(0.01)
+
+    def test_a_spec_density_wins_over_the_config(self, tmp_path: Path) -> None:
+        """A job spec that declares the density keeps it (the config is a default)."""
+        path = _write_config(tmp_path, {"material_weight_per_square_inch": 0.01})
+        config = load_job_config(path)
+        assert config is not None
+        filled = apply_job_config_defaults(
+            {"job_name": "J", "width": 2.0, "height": 1.0, "material_weight_per_square_inch": 0.5},
+            config,
+        )
+        assert filled["material_weight_per_square_inch"] == pytest.approx(0.5)
+
     def test_material_is_not_a_config_field(self) -> None:
         """material is a per-job decision, not a shop-level default."""
         with pytest.raises(ValidationError):

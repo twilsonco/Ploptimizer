@@ -22,6 +22,11 @@ Metric sources
   material. The labels' nominal (spec ``width x height``) area is reported
   alongside; the gap between the two is the packer's waste, and for round
   labels the corners the packer cannot use.
+* **Weight is estimated, not measured**: each label instance's nominal area
+  times the ``material_weight_per_square_inch`` (lb/in\u00b2) of the plate it sits
+  on, so it answers "what do the labels I just engraved weigh". The density is
+  opt-in (``job-config.json`` default -> job -> plate); unconfigured it reports
+  ``available: false`` with ``null`` numbers, never a zero weight.
 * **Tool distance is measured from the emitted per-cutter PLT files** with the
   production HPGL parser, so it is exact machine truth: post-optimization rapid
   travel, relief passes, borders, and drill holes all included. Plan-derived
@@ -102,6 +107,9 @@ USAGE_FLOAT_DECIMALS: int = 6
 
 #: Square inches per square foot.
 SQ_IN_PER_SQ_FT: float = 144.0
+
+#: Ounces per pound (the weight block reports both units).
+OZ_PER_LB: float = 16.0
 
 #: Inches per foot (distances are reported in inches with a foot conversion).
 IN_PER_FT: float = 12.0
@@ -1071,6 +1079,233 @@ def _material_usage(
         "label_bbox_area": {
             "sq_in": _round(total_bbox),
             "sq_ft": _round(total_bbox / SQ_IN_PER_SQ_FT),
+        },
+    }
+
+
+@dataclass
+class _WeightBucket:
+    """One weight-report bucket: a plate, material, or (spec, plate) pair.
+
+    Attributes:
+        material: Stock material name of the bucket (``None`` = unset).
+        density: The plate's lb/in2 density, or ``None`` when the bucket's
+            plates carry no configured density (its weight is then ``None``).
+        instances: Label instances counted in the bucket.
+        area: Sum of those instances' nominal areas in square inches.
+        lb: Sum of those instances' estimated weights in pounds.
+    """
+
+    material: Optional[str]
+    density: Optional[float]
+    instances: int = 0
+    area: float = 0.0
+    lb: float = 0.0
+
+    def add(self, area: float, lb: float) -> None:
+        """Accumulate one label instance into the bucket.
+
+        Args:
+            area: The instance's nominal area in square inches.
+            lb: Its estimated weight in pounds (``0.0`` when the plate has no
+                configured density, which :attr:`weight_lb` reports as ``None``).
+        """
+        self.instances += 1
+        self.area += area
+        self.lb += lb
+
+    @property
+    def weight_lb(self) -> Optional[float]:
+        """The bucket's pounds, or ``None`` when its density is unconfigured."""
+        return None if self.density is None else _round(self.lb)
+
+    @property
+    def weight_oz(self) -> Optional[float]:
+        """The bucket's ounces, or ``None`` when its density is unconfigured."""
+        return None if self.density is None else _round(self.lb * OZ_PER_LB)
+
+
+def _weight_usage(
+    packed_plates: Sequence[Any],
+    material_by_plate: Mapping[int, Optional[str]],
+    job_spec: Any,
+) -> Dict[str, Any]:
+    """Estimate the weight of the labels the job engraved.
+
+    Every placement (one per physical label instance - packing unrolls
+    ``count``) contributes its spec's nominal ``width x height`` area times the
+    ``material_weight_per_square_inch`` (lb/in\u00b2) density of the plate it sits on,
+    resolved by :meth:`~plt_optimizer.generate.schema.JobSpec.material_weight_for_plate`
+    (a plate that declares a density wins; any other plate - including an
+    auto-allocated one whose id is generated, not declared - uses the job-level
+    density; ``None`` when neither is configured).
+
+    Only the label's nominal area is weighed, never the sheet: the sheet's own
+    weight is one multiplication away from ``usage.material.by_material``'s
+    ``sq_in`` rows, which carry the plate area.
+
+    The density is opt-in. When no plate carrying labels has one, the block
+    reports ``available: false`` with ``total: null`` (the ``usage.time``
+    convention) - an unconfigured density must never read as a 0 lb job, and
+    every label then lands in ``unconfigured``.
+    Partially configured (a plate without a density among plates that have
+    one) reports ``available: true``, keeps those plates' rows at ``null``
+    weights, counts their instances in ``unconfigured``, and says so in
+    ``note``: the totals then cover the configured plates only.
+
+    A jobset member's report resolves densities from the member's own spec,
+    whose ``plates`` do not carry the batch's plate ids (a merged sheet is
+    numbered from the batch), so a member's rows fall back to its job-level
+    density.
+
+    Args:
+        packed_plates: The packed plates, in packing order.
+        material_by_plate: Stock material name per 1-based plate number (the
+            counting pool's material names, for the row labels).
+        job_spec: The resolved job spec, used to resolve each plate's density.
+            ``None`` (a spec-less API call) disables the estimate.
+
+    Returns:
+        The ``usage.weight`` block, in pounds (with ``oz`` alongside every
+        pound figure). ``material_weight_per_square_inch`` is echoed per row
+        verbatim - it is a configured number, not a measurement, so it is the
+        one float in this module that is not rounded.
+    """
+    weight_of: Any = getattr(job_spec, "material_weight_for_plate", None)
+    densities: Dict[int, Optional[float]] = {}
+    for number, plate in enumerate(packed_plates, start=1):
+        plate_id = getattr(plate, "plate_id", None)
+        value: Any = (
+            weight_of(str(plate_id))
+            if callable(weight_of) and plate_id is not None
+            else getattr(job_spec, "material_weight_per_square_inch", None)
+        )
+        densities[number] = None if value is None else float(value)
+
+    plate_rows: List[Dict[str, Any]] = []
+    label_acc: Dict[Tuple[str, int], _WeightBucket] = {}
+    material_acc: Dict[Optional[str], _WeightBucket] = {}
+    total_instances = 0
+    total_area = 0.0
+    total_lb = 0.0
+    unconfigured_instances = 0
+    unconfigured_area = 0.0
+
+    for number, plate in enumerate(packed_plates, start=1):
+        density = densities[number]
+        material = material_by_plate.get(number, getattr(plate, "material", None))
+        plate_instances = 0
+        plate_area = 0.0
+        plate_lb = 0.0
+        for placement in plate.labels:
+            spec = placement.source_label
+            spec_id = str(spec.id)
+            area = float(spec.width) * float(spec.height)
+            lb = area * density if density is not None else 0.0
+            plate_instances += 1
+            plate_area += area
+            plate_lb += lb
+            total_instances += 1
+            total_area += area
+            if density is None:
+                unconfigured_instances += 1
+                unconfigured_area += area
+            label = label_acc.setdefault((spec_id, number), _WeightBucket(material, density))
+            label.add(area, lb)
+            material_acc.setdefault(material, _WeightBucket(material, density)).add(area, lb)
+        if density is not None:
+            total_lb += plate_lb
+        plate_rows.append(
+            {
+                "plate": number,
+                "plate_id": str(getattr(plate, "plate_id", number)),
+                "material": material,
+                "material_label": _material_label(material),
+                "material_weight_per_square_inch": density,
+                "label_instances": plate_instances,
+                "label_sq_in": _round(plate_area),
+                "lb": _round(plate_lb) if density is not None else None,
+                "oz": _round(plate_lb * OZ_PER_LB) if density is not None else None,
+            }
+        )
+
+    available = any(density is not None for density in densities.values())
+    if not available:
+        return {
+            "available": False,
+            "note": (
+                "No material_weight_per_square_inch is configured (job-config.json "
+                "defaults, the job, or a plate), so label weight is not estimated."
+            ),
+            "units": "lb",
+            "density_units": "lb/in2",
+            "basis": "label nominal area (spec width x height, per instance)",
+            "total": None,
+            "by_material": [],
+            "by_plate": [],
+            "by_label": [],
+            # Every instance is unweighed in this case, which is what the block
+            # is saying: the bucket stays a dict so consumers never branch on
+            # ``available`` to read it.
+            "unconfigured": {
+                "label_instances": total_instances,
+                "label_sq_in": _round(total_area),
+            },
+        }
+
+    notes: List[str] = []
+    if unconfigured_instances:
+        notes.append(
+            f"{unconfigured_instances} label instance(s) sit on plates with no configured "
+            "density and are excluded from the weights (listed under 'unconfigured')."
+        )
+    return {
+        "available": True,
+        "note": "  ".join(notes),
+        "units": "lb",
+        "density_units": "lb/in2",
+        "basis": "label nominal area (spec width x height, per instance)",
+        "total": {
+            "label_instances": total_instances,
+            "label_sq_in": _round(total_area),
+            "lb": _round(total_lb),
+            "oz": _round(total_lb * OZ_PER_LB),
+        },
+        "by_material": [
+            {
+                "material": key,
+                "material_label": _material_label(key),
+                "label_instances": material_acc[key].instances,
+                "label_sq_in": _round(material_acc[key].area),
+                "lb": material_acc[key].weight_lb,
+                "oz": material_acc[key].weight_oz,
+            }
+            for key in sorted(
+                material_acc,
+                key=lambda key: (-material_acc[key].lb, _sort_token(key)),
+            )
+        ],
+        "by_plate": plate_rows,
+        "by_label": [
+            {
+                "spec_id": spec_id,
+                "plate": number,
+                "material": label_acc[(spec_id, number)].material,
+                "material_label": _material_label(label_acc[(spec_id, number)].material),
+                "material_weight_per_square_inch": label_acc[(spec_id, number)].density,
+                "instances": label_acc[(spec_id, number)].instances,
+                "label_sq_in": _round(label_acc[(spec_id, number)].area),
+                "lb": label_acc[(spec_id, number)].weight_lb,
+                "oz": label_acc[(spec_id, number)].weight_oz,
+            }
+            for (spec_id, number) in sorted(
+                label_acc,
+                key=lambda key: (-label_acc[key].lb, key[0], key[1]),
+            )
+        ],
+        "unconfigured": {
+            "label_instances": unconfigured_instances,
+            "label_sq_in": _round(unconfigured_area),
         },
     }
 
@@ -2481,7 +2716,9 @@ def build_usage_stats(
             falls back to the plate object's own material.
         job_spec: The resolved job spec, used with ``job_config`` to resolve
             the ``tool_options`` rates of the run-time estimate. ``None`` (or
-            ``job_config=None``) omits the ``time`` numbers entirely.
+            ``job_config=None``) omits the ``time`` numbers entirely. It also
+            resolves the per-plate ``material_weight_per_square_inch`` density
+            of the weight estimate; ``None`` there omits the ``weight`` numbers.
         job_config: The loaded job config (the ``tool_options`` registry plus
             the ``rapid_velocity`` estimate field).
         job_of_label: Placement id to owning jobset member (the composite-id
@@ -2503,7 +2740,7 @@ def build_usage_stats(
 
     Returns:
         The ``usage`` mapping: ``labels``, ``characters``, ``holes``,
-        ``material``, ``distance`` and ``time`` blocks, JSON-ready.
+        ``material``, ``weight``, ``distance`` and ``time`` blocks, JSON-ready.
     """
     attr_labels = list(resolved_labels if attribution_labels is None else attribution_labels)
     attr_plates = list(packed_plates if attribution_plates is None else attribution_plates)
@@ -2561,6 +2798,7 @@ def build_usage_stats(
         "characters": _characters_usage(resolved_labels),
         "holes": _holes_usage(resolved_labels),
         "material": _material_usage(packed_plates, counts_materials, resolved_labels),
+        "weight": _weight_usage(packed_plates, counts_materials, job_spec),
         "distance": _distance_rows(totals, frames, label_meta),
         "time": _time_rows(totals, frames, label_meta, rates_by_layer or None, file_count),
     }
@@ -2667,6 +2905,7 @@ def format_usage_lines(usage: Mapping[str, Any]) -> List[str]:
     lines.extend(_characters_lines(usage))
     lines.extend(_holes_lines(usage))
     lines.extend(_material_lines(usage))
+    lines.extend(_weight_lines(usage))
     lines.extend(_distance_lines(usage))
     lines.extend(_time_lines(usage))
     return lines
@@ -2838,6 +3077,131 @@ def _material_lines(usage: Mapping[str, Any]) -> List[str]:
     lines.append(
         f"    label bounding-box area: {_fmt3(bbox.get('sq_in'))} sq in "
         f"({_fmt3(bbox.get('sq_ft'))} sq ft)"
+    )
+    return lines
+
+
+def _trim(value: float, decimals: int) -> str:
+    """Format a fixed-decimal number with trailing zeros stripped.
+
+    Args:
+        value: The number.
+        decimals: The maximum number of decimals to show.
+
+    Returns:
+        ``1.5`` for ``(1.500, 3)``, ``2`` for ``(2.0, 2)``, ``0.00260417`` for
+        a value needing every digit.
+    """
+    text = f"{value:.{decimals}f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def _fmt_lb(value: Any) -> str:
+    """Render a weight in pounds with an ounce part for readability.
+
+    A shop weighing labels thinks in pounds and ounces, so a value of 1.25 lb
+    reads ``1 lb 4 oz (1.250 lb)``: the compound form first, the exact decimal
+    in parentheses. A sub-pound weight drops the (always zero) pound part
+    (``0.67 oz (0.042 lb)``).
+
+    Args:
+        value: The pounds, or ``None`` (weight not estimated).
+
+    Returns:
+        The rendered weight, or :data:`MISSING_TEXT` when absent.
+    """
+    if value is None:
+        return MISSING_TEXT
+    pounds = float(value)
+    if pounds <= 0.0:
+        return "0.000 lb"
+    if pounds < 1.0:
+        return f"{_trim(pounds * OZ_PER_LB, 2)} oz ({pounds:.3f} lb)"
+    whole = int(pounds)
+    ounces = (pounds - whole) * OZ_PER_LB
+    if ounces <= 0.0:
+        return f"{whole} lb 0 oz ({pounds:.3f} lb)"
+    return f"{whole} lb {_trim(ounces, 2)} oz ({pounds:.3f} lb)"
+
+
+def _fmt_density(value: Any) -> str:
+    """Render a lb/in2 density exactly as configured.
+
+    Args:
+        value: The density, or ``None`` (unconfigured plate).
+
+    Returns:
+        The shortest representation that round-trips (never the 3-decimal
+        rounding :func:`_fmt3` applies to measurements, which would print the
+        shop's ``0.00260417`` as ``0.003``), or :data:`MISSING_TEXT`.
+    """
+    if value is None:
+        return MISSING_TEXT
+    return str(float(value))
+
+
+def _weight_lines(usage: Mapping[str, Any]) -> List[str]:
+    """Render the ``usage.weight`` block.
+
+    Args:
+        usage: The ``usage`` block.
+
+    Returns:
+        The section's lines.
+    """
+    block = usage.get("weight", {})
+    lines = ["  weight (estimated, from the labels' nominal area x the plate density):"]
+    if not block.get("available"):
+        note = block.get("note")
+        lines.append(f"    Not estimated: {note}" if note else "    Not estimated.")
+        return lines
+    total = block.get("total") or {}
+    lines.append(
+        f"    total: {_fmt_lb(total.get('lb'))}  {total.get('label_instances', 0)} label(s)  "
+        f"{_fmt3(total.get('label_sq_in'))} sq in of material"
+    )
+    lines.append(
+        "    by material: "
+        + _join(
+            [
+                f"{row.get('material_label')} {_fmt_lb(row.get('lb'))}"
+                for row in _rows(usage, "weight", "by_material")
+            ]
+        )
+    )
+    lines.append(
+        "    by plate: "
+        + _join(
+            [
+                f"{row.get('plate')} ({row.get('material_label')}, "
+                f"{_fmt_density(row.get('material_weight_per_square_inch'))} lb/in2) "
+                f"{_fmt_lb(row.get('lb'))} x{row.get('label_instances')}"
+                for row in _rows(usage, "weight", "by_plate")
+            ]
+        )
+    )
+    per_label = _rows(usage, "weight", "by_label")
+    lines.append("    per label (per spec on one plate):")
+    for row in per_label[:SUMMARY_USAGE_LABEL_LIMIT]:
+        lines.append(
+            f"      {row.get('spec_id')}  plate {row.get('plate')}  "
+            f"{_material_label(row.get('material'))}  x{row.get('instances')}  "
+            f"{_fmt_lb(row.get('lb'))}"
+        )
+    remaining = len(per_label) - SUMMARY_USAGE_LABEL_LIMIT
+    if remaining > 0:
+        lines.append(f"      ... and {remaining} more (see report.json)")
+    unconfigured = block.get("unconfigured") or {}
+    if int(unconfigured.get("label_instances", 0)) > 0:
+        lines.append(
+            f"    unconfigured: {unconfigured.get('label_instances')} label(s)  "
+            f"{_fmt3(unconfigured.get('label_sq_in'))} sq in on plates with no density "
+            f"(excluded from the weights above)"
+        )
+    lines.append(
+        "    Estimated from material_weight_per_square_inch; not a measured weight,\n"
+        "      and it covers the labels only, not the sheet they are cut from.\n"
+        "      Sheet weight = usage.material area x the same density."
     )
     return lines
 

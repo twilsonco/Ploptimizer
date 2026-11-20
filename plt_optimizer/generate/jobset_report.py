@@ -446,15 +446,21 @@ def _relative(path: Optional[Path], root: Path) -> Optional[str]:
 
 
 def _job_usage_totals(usage: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
-    """Pull the three numbers a manifest job row carries out of a usage block."""
+    """Pull the numbers a manifest job row carries out of a usage block."""
     block = dict(usage or {})
     distance = block.get("distance") or {}
     time_block = block.get("time") or {}
+    weight_block = block.get("weight") or {}
     unattributed = distance.get("unattributed") or {}
     time_total = (time_block.get("total") or {}).get("total")
+    weight_total = (weight_block.get("total") or {}).get("lb")
     return {
         "distance_total": (distance.get("total") or {}).get("total"),
         "time_total": time_total if time_block.get("available") else None,
+        # Pounds, estimated from the labels' nominal area; ``None`` when the
+        # member configures no material_weight_per_square_inch (the same
+        # "not estimated is not zero" rule as ``time_total``).
+        "weight_total": weight_total if weight_block.get("available") else None,
         "unattributed": round(
             float(unattributed.get("cutting") or 0.0) + float(unattributed.get("rapid") or 0.0),
             _MANIFEST_DECIMALS,
@@ -544,6 +550,13 @@ def build_manifest(
             "total_labels": len(plan.merged_labels),
             "total_plates": len(plates),
             "total_files": len(export.plt_paths),
+            # Batch weight total, pounds (null when no member configures a
+            # material_weight_per_square_inch).
+            "total_weight_lb": (((root_usage or {}).get("weight") or {}).get("total") or {}).get(
+                "lb"
+            )
+            if ((root_usage or {}).get("weight") or {}).get("available")
+            else None,
         },
         "gate": {"warnings": list(plan.warnings), "errors": []},
         "jobs": jobs,

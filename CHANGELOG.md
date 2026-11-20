@@ -4,6 +4,52 @@
 
 ### Features
 
+* **generate:** the report now estimates the **weight of the engraved labels**.
+  `usage.weight` (a new key of the `usage` block, mirrored by a "weight" section in
+  `summary.txt`'s "Job usage:") multiplies each label instance's nominal area
+  (`LabelSpec.width × height` in inches — the box the packer reserved, not the ink)
+  by the plate's `material_weight_per_square_inch`, a new cascading field in pounds
+  per square inch (job → plate, an explicit plate value wins; **never label-level**
+  — weight belongs to the stock a label was cut from, not to the label). It is
+  reporting-only: no geometry, packing decision, or PLT byte depends on it.
+  - **Grains** mirror `material`: `total`, `by_label` (per spec on one plate — the
+    smallest grain that has a density), `by_plate` (label area plus the sheet's
+    `plate_sq_in` and the unused `remaining_sq_in`), `by_material`, and
+    `unconfigured`. Every grain reconciles with the total, and each row carries the
+    `material_weight_per_square_inch` it was computed with, so the estimate is
+    auditable. `oz` is `lb × 16`. Weight is reported for labels only — sheet weight
+    is the same formula under a different numerator, already readable as
+    `usage.material.plates[].area × the density`.
+  - **Opt-in, and "not estimated" is never 0**: the field defaults to `null` in the
+    schema, so a job that configures nothing gets `available: false` + a `note` and
+    null weights. A plate with no density still contributes its labels' *area* (and
+    its `remaining_sq_in`) with `lb: null` — a mixed job reports what it can and
+    names what it skipped (`unconfigured.label_instances`). `job-config.json`'s
+    `material` block carries `0.00260417` (the shop's 16×24 sheet ≈ 1 lb).
+  - **Sheet vs label**: the estimate covers the labels only, per the request. Sheet
+    weight is the same formula under a different numerator and is already readable:
+    `usage.material.<grain>.area` × the density.
+  - **Text rendering**: pounds with an ounce part — `1 lb 4 oz (1.250 lb)` — the
+    exact decimal in parentheses, because a shop weighing labels thinks in lb + oz.
+    Sub-pound weights drop the pound part (`0.67 oz (0.042 lb)`).
+  - Files: `plt_optimizer/generate/schema.py` (both fields, the job → plate
+    inheritance validator `_apply_job_level_material_weights`, the
+    `JobSpec.material_weight_for_plate` accessor),
+    `plt_optimizer/generate/job_config.py` (`JobDefaults` + the job-layer
+    injection of the density),
+    `plt_optimizer/generate/usage_stats.py` (`_weight_usage`, `_weight_lines`,
+    `_fmt_lb`), `plt_optimizer/generate/jobset_report.py` (`weight_total` per member,
+    `jobset.total_weight_lb`), `job-config.json`, `docs/plans/jobset.md`,
+    `plt_optimizer/generate/AGENTS.md`.
+  - Pins: `tests/test_usage_stats.py` (`TestWeightUsage` grains / units / opt-in /
+    unconfigured / jobset plates, `_fmt_lb`, the renderer contract;
+    `TestWeightResolutionAtGeneration` job-vs-plate density through a real
+    `resolve_job_spec`), `tests/test_schema.py` (`TestMaterialWeightPerSquareInch`
+    cascade, bounds, accessor, legacy JSON), `tests/test_job_config.py` (the
+    `JobDefaults` density default / load / bounds / job-layer injection),
+    `tests/test_jobset_reports.py` (the manifest's `weight_total` /
+    `total_weight_lb`).
+
 * **generate:** the plate number in per-cutter PLT/PDF file names is marked with
   a `p` (for "plate") — `wk_uv_p01_30_txt_job.plt`, `p02_15_bh_job.plt`. The
   material-first naming put the plate number directly beside the cutter token,

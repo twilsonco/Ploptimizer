@@ -4503,6 +4503,20 @@
           "description": "Stock material this plate is cut from (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case.",
           "title": "Material"
         },
+        "material_weight_per_square_inch": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Material weight per square inch in pounds (lb/in2), used only to estimate the weight of the labels engraved on this plate; cascades job -> plate (an explicit plate value, including 0.0, wins) and is never label-level. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb per sheet). Unset (`null`) everywhere means weight is not estimated (reported as null, never as 0).",
+          "title": "Material Weight Per Square Inch"
+        },
         "replacement_text_file": {
           "anyOf": [
             {
@@ -6700,6 +6714,20 @@
       "default": null,
       "description": "Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins).",
       "title": "Top Clearance"
+    },
+    "material_weight_per_square_inch": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Job-level default material weight per square inch in pounds (lb/in2), cascades job -> plate (an explicit plate value, including 0.0, wins) and is never label-level. Reports the estimated weight of engraved labels; unset means weight is not estimated. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb).",
+      "title": "Material Weight Per Square Inch"
     },
     "auto_line_spacing_interline_to_top_bottom_ratio": {
       "anyOf": [

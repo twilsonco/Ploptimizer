@@ -471,6 +471,66 @@ class TestManifest:
     def test_job_rows_follow_jobset_file_order(self, manifest: Dict[str, Any]) -> None:
         assert [row["job_key"] for row in manifest["jobs"]] == [ALPHA, BETA]
 
+    def test_a_configured_member_row_carries_its_weight(self) -> None:
+        """A member whose spec declares the density is weighed; one that does not is null."""
+        from plt_optimizer.generate.jobset_report import _job_usage_totals
+
+        weighed = _job_usage_totals(
+            {"weight": {"available": True, "total": {"lb": 0.5}, "note": ""}}
+        )
+        assert weighed["weight_total"] == pytest.approx(0.5)
+        unweighed = _job_usage_totals(
+            {"weight": {"available": False, "total": None, "note": "no density"}}
+        )
+        assert unweighed["weight_total"] is None
+
+    def test_a_member_without_a_density_reports_a_null_weight(self, batch: Dict[str, Any]) -> None:
+        """Mixed batch: ``null`` is never folded into the total as 0."""
+        plan, export, out = batch["plan"], batch["export"], batch["out"]
+        keys = [context.record.key for context in plan.contexts]
+        usage_by_job: Dict[str, Dict[str, Any]] = {
+            keys[0]: {"weight": {"available": True, "total": {"lb": 1.25}}},
+            keys[1]: {
+                "weight": {
+                    "available": False,
+                    "total": None,
+                    "note": "No material_weight_per_square_inch configured.",
+                }
+            },
+        }
+        document = build_manifest(
+            plan,
+            export,
+            output_dir=out,
+            usage_by_job=usage_by_job,
+            reports={key: out / f"{key}.json" for key in keys},
+            root_usage={"weight": {"available": True, "total": {"lb": 1.25}}},
+        )
+        rows = {row["job_key"]: row for row in document["jobs"]}
+
+        assert rows[keys[0]]["usage"]["weight_total"] == pytest.approx(1.25)
+        assert rows[keys[1]]["usage"]["weight_total"] is None
+        # The batch total is the root usage's own number, not a sum of rows.
+        assert document["jobset"]["total_weight_lb"] == pytest.approx(1.25)
+
+    def test_an_unweighed_batch_reports_a_null_total(self, batch: Dict[str, Any]) -> None:
+        """No member configured a density: the batch carries no weight at all."""
+        plan, export, out = batch["plan"], batch["export"], batch["out"]
+        keys = [context.record.key for context in plan.contexts]
+        unweighed: Dict[str, Any] = {"weight": {"available": False, "total": None, "note": "x"}}
+        usage_by_job: Dict[str, Dict[str, Any]] = {key: dict(unweighed) for key in keys}
+        document = build_manifest(
+            plan,
+            export,
+            output_dir=out,
+            usage_by_job=usage_by_job,
+            reports={key: out / f"{key}.json" for key in keys},
+            root_usage=dict(unweighed),
+        )
+
+        assert document["jobset"]["total_weight_lb"] is None
+        assert [row["usage"]["weight_total"] for row in document["jobs"]] == [None] * len(keys)
+
     def test_plate_rows_name_every_owner_and_label(self, manifest: Dict[str, Any]) -> None:
         plate = manifest["plates"][0]
 
@@ -671,9 +731,14 @@ class TestManifestHelperEdgeCases:
         assert _job_usage_totals(None) == {
             "distance_total": None,
             "time_total": None,
+            "weight_total": None,
             "unattributed": 0.0,
         }
         assert _job_usage_totals(batch["usage"])["distance_total"] is not None
+        # The batch fixture's specs declare no density (they are parsed without
+        # the shop config), so the weight is not estimated - the same "absent is
+        # not zero" contract as ``time_total``.
+        assert _job_usage_totals(batch["usage"])["weight_total"] is None
 
     def test_manifest_of_an_unbounded_batch(self, tmp_path: Path) -> None:
         """No declared plates: the pool is auto-allocated, ids are the packer's."""

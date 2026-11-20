@@ -40,12 +40,14 @@ from plt_optimizer.generate.usage_stats import (
     CUTTING_VELOCITY_KEY,
     DISTANCE_CLASSES,
     DWELL_TIME_KEY,
+    OZ_PER_LB,
     PLUNGE_VELOCITY_KEY,
     SUMMARY_USAGE_LABEL_LIMIT,
     TIME_OPERATIONS,
     UNKNOWN_CUTTER,
     Z_CLEARANCE_KEY,
     Z_UP_VELOCITY_KEY,
+    _fmt_lb,
     build_usage_stats,
     format_usage_lines,
 )
@@ -1572,6 +1574,10 @@ class TestFormatUsageLines:
         assert "uv: 1 plate  96.000 sq in (0.667 sq ft)" in text
         assert "label nominal area: 26.000 sq in" in text
         assert "label bounding-box area: 26.000 sq in" in text
+        # No density is configured in this fixture, so the section states that
+        # the weight is not estimated (it must never read as 0 lb).
+        assert "weight (estimated" in text
+        assert "Not estimated:" in text
         assert "tool distance (inches, measured from the emitted PLT files):" in text
 
     def test_distance_total_reads_cut_plus_rapid_equals(self, tmp_path: Path) -> None:
@@ -1661,6 +1667,7 @@ class TestTimeEstimate:
             "characters",
             "holes",
             "material",
+            "weight",
             "distance",
             "time",
         ]
@@ -2037,3 +2044,381 @@ class TestReportContract:
         report = self._report(tmp_path, None)
         assert report["usage"] is None
         assert "Job usage:" not in format_summary(report)
+
+
+# ---------------------------------------------------------------------------
+# Weight estimate (material_weight_per_square_inch)
+#
+# Test-owned density, and chosen to be the shop's own arithmetic check: a
+# 16 x 24 in sheet at 0.00260417 lb/in2 weighs approximately 1 lb
+# (docs/TODO.md). The repo's job-config.json default is covered by
+# tests/test_job_config.py's per-field injection test, not pinned here.
+# ---------------------------------------------------------------------------
+
+WEIGHT_LB_PER_SQ_IN = 0.00260417
+SHEET_WIDTH_IN = 16.0
+SHEET_HEIGHT_IN = 24.0
+SHEET_SQ_IN = SHEET_WIDTH_IN * SHEET_HEIGHT_IN  # 384.0
+MAKES_A_POUND = pytest.approx(1.0, abs=1e-5)
+
+
+def weight_spec(
+    *,
+    job_density: Optional[float] = None,
+    p1_density: Optional[float] = None,
+    p2_density: Optional[float] = None,
+) -> Any:
+    """A JobSpec declaring :func:`make_job`'s plates ``p1``/``p2`` with densities.
+
+    Args:
+        job_density: The job-level ``material_weight_per_square_inch``, or
+            ``None`` to leave the key undeclared.
+        p1_density: Density declared on plate ``p1``; ``None`` means the plate
+            omits the key and inherits the job-level value.
+        p2_density: Density declared on plate ``p2`` (same rule).
+
+    Returns:
+        The spec.
+    """
+    from plt_optimizer.generate.schema import ContentEntry, JobSpec, PlateSpec
+
+    def declared(plate_id: str, material: str, density: Optional[float]) -> PlateSpec:
+        fields: Dict[str, Any] = {
+            "id": plate_id,
+            "width": 12.0,
+            "height": 8.0,
+            "material": material,
+        }
+        if density is not None:
+            fields["material_weight_per_square_inch"] = density
+        return PlateSpec(**fields)
+
+    return JobSpec(
+        job_name="weighing",
+        width=4.0,
+        height=2.0,
+        content=[ContentEntry(text="SIGN")],
+        material_weight_per_square_inch=job_density,
+        plates=[declared("p1", "uv", p1_density), declared("p2", "wk", p2_density)],
+    )
+
+
+def weight_job_stats(tmp_path: Path, **spec_kwargs: Any) -> Dict[str, Any]:
+    """The ``usage`` block of :func:`make_job` with a density-configured spec.
+
+    Args:
+        tmp_path: Directory for the PLT fixtures.
+        **spec_kwargs: Forwarded to :func:`weight_spec`.
+
+    Returns:
+        The full ``usage`` block.
+    """
+    return stats_for(**make_job(tmp_path), job_spec=weight_spec(**spec_kwargs))
+
+
+def single_plate_job(
+    tmp_path: Path, *, width: float, height: float, copies: int = 1
+) -> Dict[str, Any]:
+    """One ``p1`` plate carrying ``copies`` instances of a single spec.
+
+    Args:
+        tmp_path: Unused; kept so callers read like the other builders.
+        width: The spec's nominal width in inches.
+        height: The spec's nominal height in inches.
+        copies: How many placements to lay out.
+
+    Returns:
+        The ``stats_for`` kwargs.
+    """
+    del tmp_path  # Part of the builder family's signature, not needed here.
+    spec = label("one", material="uv", width=width, height=height)
+    plates = [
+        plate(
+            plate_id="p1",
+            material="uv",
+            labels=[placement(spec, label_id=f"one_{i}", x=3.0 * i, y=0.0) for i in range(copies)],
+        )
+    ]
+    return {
+        "resolved_labels": [spec],
+        "packed_plates": plates,
+        "material_by_plate": {1: "uv"},
+    }
+
+
+class TestWeightUsage:
+    def test_the_job_density_weighs_every_plate(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN)["weight"]
+        assert weight["available"] is True
+        assert weight["total"]["label_instances"] == 2
+        assert weight["total"]["label_sq_in"] == pytest.approx(26.0)
+        assert weight["total"]["lb"] == pytest.approx(26.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6)
+        assert [row["material_weight_per_square_inch"] for row in weight["by_plate"]] == [
+            WEIGHT_LB_PER_SQ_IN,
+            WEIGHT_LB_PER_SQ_IN,
+        ]
+
+    def test_a_sixteen_by_twentyfour_label_weighs_a_pound(self, tmp_path: Path) -> None:
+        """The shop's sanity check: one 16x24 sheet's area x its density = 1 lb."""
+        usage = stats_for(
+            **single_plate_job(tmp_path, width=SHEET_WIDTH_IN, height=SHEET_HEIGHT_IN),
+            job_spec=weight_spec(job_density=WEIGHT_LB_PER_SQ_IN),
+        )
+        weight = usage["weight"]
+        assert weight["total"]["label_sq_in"] == pytest.approx(SHEET_SQ_IN)
+        assert weight["total"]["lb"] == MAKES_A_POUND
+        assert weight["total"]["oz"] == pytest.approx(16.0, abs=1e-4)
+
+    def test_a_plate_density_wins_and_moves_only_that_plate(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN, p1_density=0.01)[
+            "weight"
+        ]
+        rows = {int(row["plate"]): row for row in weight["by_plate"]}
+        # Plate 1 carries the 8 sq in rect spec, plate 2 the 18 sq in round one.
+        assert rows[1]["lb"] == pytest.approx(8.0 * 0.01)
+        assert rows[2]["lb"] == pytest.approx(18.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6)
+        assert weight["total"]["lb"] == pytest.approx(
+            8.0 * 0.01 + 18.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6
+        )
+
+    def test_the_four_grains_reconcile(self, tmp_path: Path) -> None:
+        """Plate, material, per-label and total all sum to the same weight."""
+        weight = weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN)["weight"]
+
+        def total_of(key: str) -> float:
+            return sum(float(row["lb"]) for row in weight[key])
+
+        assert total_of("by_plate") == pytest.approx(float(weight["total"]["lb"]), abs=1e-5)
+        assert total_of("by_material") == pytest.approx(float(weight["total"]["lb"]), abs=1e-5)
+        assert total_of("by_label") == pytest.approx(float(weight["total"]["lb"]), abs=1e-5)
+        assert sum(int(row["label_instances"]) for row in weight["by_plate"]) == 2
+        assert sum(int(row["instances"]) for row in weight["by_label"]) == 2
+
+    def test_by_material_rows_carry_the_plate_materials(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN)["weight"]
+        rows = {str(row["material"]): row for row in weight["by_material"]}
+        assert set(rows) == {"uv", "wk"}
+        assert rows["uv"]["label_sq_in"] == pytest.approx(8.0)
+        assert rows["wk"]["lb"] == pytest.approx(18.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6)
+        # Heaviest first: wk (18 sq in) leads uv (8 sq in).
+        assert [row["material"] for row in weight["by_material"]] == ["wk", "uv"]
+
+    def test_count_copies_are_counted_per_instance(self, tmp_path: Path) -> None:
+        """Packing unrolls ``count`` into placements; each one weighs."""
+        usage = stats_for(
+            **single_plate_job(tmp_path, width=2.0, height=2.0, copies=3),
+            job_spec=weight_spec(job_density=0.01),
+        )
+        row = usage["weight"]["by_label"][0]
+        assert row["instances"] == 3
+        assert row["label_sq_in"] == pytest.approx(12.0)
+        assert row["lb"] == pytest.approx(12.0 * 0.01)
+        assert usage["weight"]["total"]["lb"] == pytest.approx(row["lb"])
+
+    def test_no_density_anywhere_disables_the_estimate(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path)["weight"]
+        assert weight["available"] is False
+        assert weight["total"] is None
+        assert weight["by_plate"] == []
+        assert weight["by_material"] == []
+        assert weight["by_label"] == []
+        # The bucket stays a dict (never null), so a reader of "what did not get
+        # weighed" never has to branch on ``available``: all of it did not.
+        assert weight["unconfigured"] == {"label_instances": 2, "label_sq_in": 26.0}
+        assert "material_weight_per_square_inch" in str(weight["note"])
+
+    def test_a_spec_less_call_disables_the_estimate(self, tmp_path: Path) -> None:
+        assert stats_for(**make_job(tmp_path))["weight"]["available"] is False
+
+    def test_a_plate_without_a_density_is_not_silently_zero(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path, p1_density=WEIGHT_LB_PER_SQ_IN)["weight"]
+        rows = {int(row["plate"]): row for row in weight["by_plate"]}
+        assert weight["available"] is True
+        assert rows[1]["lb"] == pytest.approx(8.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6)
+        assert rows[2]["lb"] is None  # Not 0.0: the density is simply unknown.
+        assert rows[2]["material_weight_per_square_inch"] is None
+        # The total covers the configured plate only, and says so.
+        assert weight["total"]["lb"] == pytest.approx(8.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6)
+        assert weight["unconfigured"] == {"label_instances": 1, "label_sq_in": 18.0}
+        assert "excluded from the weights" in str(weight["note"])
+
+    def test_a_zero_density_is_a_real_zero_not_missing(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path, p1_density=0.0, p2_density=0.0)["weight"]
+        assert weight["available"] is True
+        assert weight["total"]["lb"] == 0.0
+        assert weight["total"]["oz"] == 0.0
+        assert all(row["lb"] == 0.0 for row in weight["by_plate"])
+        assert weight["unconfigured"]["label_instances"] == 0
+
+    def test_the_density_is_echoed_verbatim_on_every_row(self, tmp_path: Path) -> None:
+        """Densities are configured numbers, not measurements: never 3-dp rounded."""
+        weight = weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN)["weight"]
+        assert all(
+            row["material_weight_per_square_inch"] == WEIGHT_LB_PER_SQ_IN
+            for row in weight["by_plate"] + weight["by_label"]
+        )
+
+    def test_ounces_are_sixteenths_of_the_pounds(self, tmp_path: Path) -> None:
+        weight = weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN)["weight"]
+        for row in weight["by_plate"] + weight["by_material"] + weight["by_label"]:
+            assert float(row["oz"]) == pytest.approx(float(row["lb"]) * OZ_PER_LB, abs=1e-3)
+
+    def test_a_jobset_member_falls_back_to_its_job_density(self, tmp_path: Path) -> None:
+        """A member's packed plate carries the batch's composite id, which never
+        matches the member's declared plates - so its job-level density is used.
+
+        A merged sheet is numbered from the batch, so an exact per-plate density is
+        not resolvable in a member report; the job-level value is.
+        """
+        spec = label("one", material="uv", width=4.0, height=2.0)
+        usage = stats_for(
+            resolved_labels=[spec],
+            packed_plates=[
+                plate(
+                    plate_id="Export_Alpha::p1",
+                    material="uv",
+                    labels=[placement(spec, label_id="one_0")],
+                )
+            ],
+            material_by_plate={1: "uv"},
+            job_spec=weight_spec(job_density=WEIGHT_LB_PER_SQ_IN),
+        )
+        weight = usage["weight"]
+        assert weight["total"]["lb"] == pytest.approx(8.0 * WEIGHT_LB_PER_SQ_IN, abs=1e-6)
+        assert weight["by_plate"][0]["material_weight_per_square_inch"] == WEIGHT_LB_PER_SQ_IN
+
+    def test_the_block_is_json_serializable(self, tmp_path: Path) -> None:
+        payload = json.loads(json.dumps(weight_job_stats(tmp_path, job_density=0.01)))
+        assert payload["weight"]["total"]["lb"] == pytest.approx(26.0 * 0.01)
+
+
+class TestFmtLb:
+    """The pounds-and-ounces renderer of ``summary.txt``."""
+
+    def test_a_pound_and_a_quarter(self) -> None:
+        assert _fmt_lb(1.25) == "1 lb 4 oz (1.250 lb)"
+
+    def test_the_ounce_part_drops_trailing_zeros(self) -> None:
+        assert _fmt_lb(1.0078125) == "1 lb 0.12 oz (1.008 lb)"
+
+    def test_exactly_one_pound(self) -> None:
+        assert _fmt_lb(1.0) == "1 lb 0 oz (1.000 lb)"
+
+    def test_two_pounds(self) -> None:
+        assert _fmt_lb(2.0) == "2 lb 0 oz (2.000 lb)"
+
+    @pytest.mark.parametrize(
+        ("pounds", "expected"),
+        [
+            (0.042, "0.67 oz (0.042 lb)"),
+            (0.0625, "1 oz (0.062 lb)"),
+            (0.999, "15.98 oz (0.999 lb)"),
+        ],
+    )
+    def test_a_sub_pound_weight_drops_the_pound_part(self, pounds: float, expected: str) -> None:
+        assert _fmt_lb(pounds) == expected
+
+    def test_zero_is_a_real_zero(self) -> None:
+        assert _fmt_lb(0.0) == "0.000 lb"
+
+    def test_none_is_missing_not_zero(self) -> None:
+        assert _fmt_lb(None) == "n/a"
+
+
+class TestWeightSummaryLines:
+    @staticmethod
+    def _usage(lb: Optional[float], *, instances: int = 1, sq_in: float = 100.0) -> Dict[str, Any]:
+        """A usage block carrying one hand-built ``weight`` block."""
+        usage = stats_for()
+        usage["weight"] = {
+            "available": True,
+            "note": "",
+            "units": "lb",
+            "density_units": "lb/in2",
+            "basis": "label nominal area (spec width x height, per instance)",
+            "total": {
+                "label_instances": instances,
+                "label_sq_in": sq_in,
+                "lb": lb,
+                "oz": None if lb is None else lb * OZ_PER_LB,
+            },
+            "by_material": [
+                {
+                    "material": "uv",
+                    "material_label": "uv",
+                    "label_instances": instances,
+                    "label_sq_in": sq_in,
+                    "lb": lb,
+                    "oz": None if lb is None else lb * OZ_PER_LB,
+                }
+            ],
+            "by_plate": [
+                {
+                    "plate": 1,
+                    "plate_id": "plate1",
+                    "material": "uv",
+                    "material_label": "uv",
+                    "material_weight_per_square_inch": WEIGHT_LB_PER_SQ_IN,
+                    "label_instances": instances,
+                    "label_sq_in": sq_in,
+                    "lb": lb,
+                    "oz": None if lb is None else lb * OZ_PER_LB,
+                }
+            ],
+            "by_label": [
+                {
+                    "spec_id": "SPEC-1",
+                    "plate": 1,
+                    "material": "uv",
+                    "material_label": "uv",
+                    "material_weight_per_square_inch": WEIGHT_LB_PER_SQ_IN,
+                    "instances": instances,
+                    "label_sq_in": sq_in,
+                    "lb": lb,
+                    "oz": None if lb is None else lb * OZ_PER_LB,
+                }
+            ],
+            "unconfigured": {"label_instances": 0, "label_sq_in": 0.0},
+        }
+        return usage
+
+    def test_a_pound_and_a_quarter_renders_compound(self) -> None:
+        text = "\n".join(format_usage_lines(self._usage(1.25)))
+        assert "total: 1 lb 4 oz (1.250 lb)" in text
+        assert "1 (uv, 0.00260417 lb/in2) 1 lb 4 oz (1.250 lb) x1" in text
+        assert "SPEC-1  plate 1  uv  x1  1 lb 4 oz (1.250 lb)" in text
+
+    def test_exactly_one_pound_keeps_the_zero_ounce_part(self) -> None:
+        text = "\n".join(format_usage_lines(self._usage(1.0)))
+        assert "total: 1 lb 0 oz (1.000 lb)" in text
+
+    def test_a_sub_pound_weight_renders_in_ounces(self) -> None:
+        text = "\n".join(format_usage_lines(self._usage(0.042)))
+        assert "total: 0.67 oz (0.042 lb)" in text
+
+    def test_a_missing_weight_renders_as_unknown(self) -> None:
+        text = "\n".join(format_usage_lines(self._usage(None)))
+        assert "total: n/a" in text
+
+    def test_the_not_estimated_case_is_a_single_line(self) -> None:
+        usage = stats_for()
+        usage["weight"] = {"available": False, "note": "No density configured."}
+        text = "\n".join(format_usage_lines(usage))
+        assert "Not estimated: No density configured." in text
+        assert "by plate" not in text.split("weight (")[1].split("\n\n")[0]
+
+    def test_the_weight_section_sits_between_material_and_distance(self, tmp_path: Path) -> None:
+        text = "\n".join(
+            format_usage_lines(weight_job_stats(tmp_path, job_density=WEIGHT_LB_PER_SQ_IN))
+        )
+        assert (
+            text.index("  material:")
+            < text.index("  weight (estimated")
+            < text.index("  tool distance")
+        )
+
+    def test_the_unconfigured_bucket_is_listed(self) -> None:
+        usage = self._usage(0.25)
+        usage["weight"]["unconfigured"] = {"label_instances": 3, "label_sq_in": 42.0}
+        text = "\n".join(format_usage_lines(usage))
+        assert "unconfigured: 3 label(s)  42.000 sq in" in text

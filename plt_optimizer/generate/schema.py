@@ -2548,6 +2548,18 @@ class PlateSpec(BaseModel):
             "Comparison trims whitespace and ignores case."
         ),
     )
+    material_weight_per_square_inch: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Material weight per square inch in pounds (lb/in2), used only to "
+            "estimate the weight of the labels engraved on this plate; cascades "
+            "job -> plate (an explicit plate value, including 0.0, wins) and is "
+            "never label-level. 0.00260417 is the shop's 16x24 sheet (approx. "
+            "1 lb per sheet). Unset (`null`) everywhere means weight is not "
+            "estimated (reported as null, never as 0)."
+        ),
+    )
     replacement_text_file: Optional[str] = Field(
         default=None,
         description=_REPLACEMENT_FILE_LEAD
@@ -2785,18 +2797,25 @@ class PlateSpec(BaseModel):
         counts as unset: dropping the key lets the plate fall through to
         the job-level `left_clearance` / `top_clearance` cascade (see
         :meth:`JobSpec._apply_job_level_clearances`) or its own `0.0`
-        default. The same rule applies to `material`: an explicit
-        `null` falls through to the job-level cascade (see
-        :meth:`JobSpec._apply_job_level_materials`) or stays unset.
+        default. The same rule applies to `material` (see
+        :meth:`JobSpec._apply_job_level_materials`) and to
+        `material_weight_per_square_inch` (see
+        :meth:`JobSpec._apply_job_level_material_weights`): an explicit
+        `null` falls through to the job-level cascade or stays unset.
 
         Args:
             data: Raw input mapping (or any other input, passed through).
 
         Returns:
-            The mapping with null clearance/material keys removed.
+            The mapping with null clearance/material/weight keys removed.
         """
         if isinstance(data, dict):
-            for key in ("left_clearance", "top_clearance", "material"):
+            for key in (
+                "left_clearance",
+                "top_clearance",
+                "material",
+                "material_weight_per_square_inch",
+            ):
                 if data.get(key) is None:
                     data = {k: v for k, v in data.items() if k != key}
         return data
@@ -2933,6 +2952,17 @@ class JobSpec(LabelAttributes):
             "0.0, wins)."
         ),
     )
+    material_weight_per_square_inch: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Job-level default material weight per square inch in pounds "
+            "(lb/in2), cascades job -> plate (an explicit plate value, "
+            "including 0.0, wins) and is never label-level. Reports the "
+            "estimated weight of engraved labels; unset means weight is not "
+            "estimated. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb)."
+        ),
+    )
     auto_line_spacing_interline_to_top_bottom_ratio: Optional[float] = Field(
         default=None,
         gt=0.0,
@@ -3050,6 +3080,39 @@ class JobSpec(LabelAttributes):
         for plate in self.plates:
             if "material" not in plate.model_fields_set:
                 updated_plates.append(plate.model_copy(update={"material": self.material}))
+            else:
+                updated_plates.append(plate)
+        self.plates = updated_plates
+        return self
+
+    @model_validator(mode="after")
+    def _apply_job_level_material_weights(self) -> JobSpec:
+        """Cascade the job-level material weight onto plates that omit it.
+
+        Mirrors :meth:`_apply_job_level_materials`: an explicit plate value
+        always wins (an explicit `null` counts as unset, see
+        :meth:`PlateSpec._drop_null_clearances`); plates that omit
+        `material_weight_per_square_inch` inherit the job-level value when
+        set. Without a job-level value, plates keep `None`, which the usage
+        report renders as "weight not estimated" rather than 0 lb.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.plates is None or self.material_weight_per_square_inch is None:
+            return self
+        updated_plates: list[PlateSpec] = []
+        for plate in self.plates:
+            if "material_weight_per_square_inch" not in plate.model_fields_set:
+                updated_plates.append(
+                    plate.model_copy(
+                        update={
+                            "material_weight_per_square_inch": (
+                                self.material_weight_per_square_inch
+                            )
+                        }
+                    )
+                )
             else:
                 updated_plates.append(plate)
         self.plates = updated_plates
@@ -3527,6 +3590,31 @@ class JobSpec(LabelAttributes):
                     )
 
         return self
+
+    def material_weight_for_plate(self, plate_id: Optional[str]) -> Optional[float]:
+        """Resolve the material weight per square inch of one packed plate.
+
+        Mirrors the packing layer's plate lookup: a declared plate matched on
+        its exact id supplies its own (already cascaded, see
+        :meth:`_apply_job_level_material_weights`) density. Any other id -
+        the generated `default_plate_N` / material-prefixed ids of unbounded
+        mode, and a jobset's merged-sheet ids, which are numbered from the
+        batch and never match a member's declared plates - falls back to the
+        job-level density. `None` (weight is not estimated) is reported as-is,
+        never coerced to `0.0`.
+
+        Args:
+            plate_id: The packed plate's id (`PackedPlate.plate_id`), or
+                `None` when the caller has no id for it.
+
+        Returns:
+            The density in lb/in2, or `None` when no tier configures it.
+        """
+        if plate_id is not None:
+            for plate in self.plates or []:
+                if plate.id == plate_id:
+                    return plate.material_weight_per_square_inch
+        return self.material_weight_per_square_inch
 
 
 class JobSetEntry(BaseModel):

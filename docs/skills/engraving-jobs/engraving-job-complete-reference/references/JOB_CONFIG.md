@@ -439,6 +439,7 @@ excluded from the docs byte-pin.
 | `plate_height` | float \| null | `16.0` | **set** | plates-layout-and-packing |
 | `left_clearance` | float \| null | — | **set** | plates-layout-and-packing |
 | `top_clearance` | float \| null | — | **set** | plates-layout-and-packing |
+| `material_weight_per_square_inch` | float \| null | — | **set** | — |
 | `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | — | **set** | line-stacking-and-reflow |
 | `tool_options` | dict \| null | — | **set** | tool-options |
 | `rapid_velocity` | float \| null | — | unset | tool-options |

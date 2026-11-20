@@ -72,6 +72,7 @@
   "plate_height": 16.0,
   "left_clearance": 0.0,
   "top_clearance": 0.0,
+  "material_weight_per_square_inch": 0.00260417,
   "layout": "columns",
   "replacement_text_delimiter": ";",
   "replacement_text_file_comment_string": "# ",

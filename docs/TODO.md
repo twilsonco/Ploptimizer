@@ -129,9 +129,6 @@
       - `min_label_price`: The minimum price for any label, regardless of material usage or character count.
       - `base_label_price`: The base price for any label, before adding material usage or character count costs.
       - `material_price_per_sq_in`: The price per square inch of material used for the label.
-- [ ] Add to summary txt/json report approximated weight of engraved labels
-  - one 16x24 plate weighs approx. 1 lb. (0.00260417 lb/in²)
-  - we'll add a new parameter `material_weight_per_square_inch` to specify the weight of the material per square inch. Cascades job -> plate (not label), and defaults in job-config.json to 0.00260417.
 - [ ] In the job spec schema, rename `job_name` to `name`
 - [ ] Improve label rotation behavior during layout optimization.
   - During the generation pipeline layout optimization, we allow in the non-"simple" layout modes for labels to be rotated. For the column layout, the layout optimization is mean to prefer to fill columns before moving to the next column, i.e. it should max out the plate height before starting a new column. This should also include rotating labels where label H ≠ W if doing so fills more height and takes less width of the plate.

@@ -141,10 +141,13 @@ The batch writes three things over the run:
 
 - `OUT/generation_report/report.json` — the normal generation report, plus a
   `jobset` block: the set identity, one entry per member (`job_key`, `job_id`,
-  `job_name`, `report`, `distance_total`, `time_total`, `unattributed`) and the
+  `job_name`, `report`, `distance_total`, `time_total`, `weight_total`,
+  `unattributed`) and the
   `cross_job` measure of what sharing saved. `usage.distance.by_job` and
   `usage.time.by_job` split the run per member (`by_operation` seconds, `total`,
-  and the member's `share` of the run).
+  and the member's `share` of the run). `weight_total` is the member's estimated
+  label weight in pounds, `null` when that member configures no
+  `material_weight_per_square_inch`; `jobset.total_weight_lb` is the batch sum.
 - `OUT/generation_report/jobset.json` — the manifest (`MANIFEST_NAME`):
   `jobset` (identity, layout, counts, status), `gate` (the findings), `jobs[]`
   (source file, declared plates, report path, usage), `plates[]` (the jobs on
