@@ -28,7 +28,7 @@ from plt_optimizer.generate.packing.layout import (
     unroll_labels,
 )
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
-from plt_optimizer.generate.schema import LayoutMode, PlateSpec
+from plt_optimizer.generate.schema import JobSpec, LayoutMode, PlateSpec
 
 
 def _make_label(
@@ -244,10 +244,15 @@ class TestRotationDetection:
     """Tests for rotation detection in packed labels."""
 
     def test_non_rotated_label(self) -> None:
-        """A label that fits without rotation should have rotated=False."""
+        """A label that fits without rotation should have rotated=False.
+
+        Packed as a ``rows`` job: in a ``columns`` job the fill order may prefer
+        the sideways orientation at an equal footprint (see
+        :class:`TestFillOrderRotation`).
+        """
         # Single label that fits comfortably
         labels = [_make_label(width=2.0, height=1.0)]
-        plates = generate_layout(labels)
+        plates = generate_layout(labels, layout=LayoutMode.ROWS)
         packed = plates[0].labels[0]
         # Width should match the original (no rotation)
         assert math.isclose(packed.width, 2.0)
@@ -286,32 +291,36 @@ class TestRotationEnabled:
             generate_layout(labels, plates, allow_rotation=False)
 
     def test_tie_prefers_unrotated(self) -> None:
-        """Equal footprints must resolve to the all-horizontal layout.
+        """Equal footprints must resolve to the layout's fill axis.
 
         MaxRects fitness functions can strictly prefer a rotated placement
-        (e.g. short-side tie-breaks); the (footprint, rotations) selection
-        key in _pack_best must still pick the unrotated candidate whenever
-        rotation does not strictly improve the footprint.
+        (e.g. short-side tie-breaks); the selection key in _pack_best must
+        never let that float noise decide the tie. In a ``rows`` job the
+        all-horizontal layout also fills the plate width, so the unrotated
+        candidate wins; the mirror case (the same tie in a ``columns`` job)
+        is pinned by :class:`TestFillOrderRotation`.
         """
         labels = [_make_label(width=2.0, height=1.0)]
-        plates = generate_layout(labels)
+        plates = generate_layout(labels, layout=LayoutMode.ROWS)
         packed = plates[0].labels[0]
         assert packed.rotated is False
         assert math.isclose(packed.width, 2.0)
         assert math.isclose(packed.height, 1.0)
 
     def test_tie_prefers_unrotated_with_float_noise(self) -> None:
-        """Footprint ties differing only by float noise stay unrotated.
+        """Footprint ties must compare equal, not flip on the last float bit.
 
         Three 1.05x2.8 labels on a 12x3 plate: unrotated footprint
-        (3*1.05) * 2.8 and rotated footprint (3*2.8) * 1.05 are
-        mathematically equal but differ in the last float bits, so the
-        selection must compare footprints with a tolerance before falling
-        back to the rotation-count tie-break.
+        (3*1.05) * 2.8 and rotated footprint (3*2.8) * 1.0.5 are
+        mathematically equal (8.82 sq in) but differ in the last float bits, so
+        the selection must compare footprints with a tolerance. Once they tie, the
+        fill order of the layout decides (see
+        :class:`TestFillOrderRotation`): this is a ``columns`` job, so the layout
+        that fills the plate *height* (the 2.8in-tall stack) wins.
         """
         labels = [_make_label(label_id="t", width=1.05, height=2.8, count=3)]
         plates = [PlateSpec(id="s", width=12.0, height=3.0)]
-        result = generate_layout(labels, plates)
+        result = generate_layout(labels, plates, layout=LayoutMode.COLUMNS)
         assert sum(len(p.labels) for p in result) == 3
         assert all(not p.rotated for plate in result for p in plate.labels)
 
@@ -354,6 +363,11 @@ class TestRotationEnabled:
         width. A label whose rendered content overflows its nominal boundary
         (long text, compression disabled) packs unrotated and must report
         rotated=False.
+
+        The pack runs as a ``rows`` job: in a ``columns`` job the fill order
+        prefers the sideways orientation at an equal footprint (see
+        :class:`TestFillOrderRotation`), which would mask the detection being
+        asserted here.
         """
         from plt_optimizer.generate.packing.layout import generate_layout_with_bounds
 
@@ -376,7 +390,7 @@ class TestRotationEnabled:
                 )
             ],
         )
-        plates, rendered_map = generate_layout_with_bounds([label])
+        plates, rendered_map = generate_layout_with_bounds([label], layout=LayoutMode.ROWS)
         packed = plates[0].labels[0]
         rendered = rendered_map[label.id]
         # The rendered content must actually overflow for this to be a
@@ -384,6 +398,113 @@ class TestRotationEnabled:
         assert rendered.width > label.width + 0.5
         assert packed.rotated is False
         assert math.isclose(packed.width, rendered.width, rel_tol=1e-6)
+
+
+class TestFillOrderRotation:
+    """Rotation follows the fill order: at equal material, the fill axis wins.
+
+    ``columns`` fills each plate top-to-bottom, so it prefers the orientation
+    that spends the most plate height (and the least plate width); ``rows``
+    fills left-to-right, so it prefers the most plate width. The footprint
+    stays the primary metric, so this never costs material (see
+    :meth:`test_material_economy_beats_the_fill_axis`).
+    """
+
+    def test_columns_stand_labels_upright(self) -> None:
+        """Two wider-than-tall labels stand up in a column job (the TODO case).
+
+        ``examples/job_specs/2026-11-18 air controls.yaml`` packs two 6x4
+        labels on a 24x16 sheet: upright they need 12x4 of plate, on their side
+        4x12 -- the same material and a far taller column, so they rotate.
+        """
+        labels = [_make_label(label_id=f"c{i}", width=6.0, height=4.0) for i in range(2)]
+        plates = [PlateSpec(id="p", width=24.0, height=16.0)]
+        result = generate_layout(labels, plates, layout=LayoutMode.COLUMNS)
+        packed = [pl for plate in result for pl in plate.labels]
+        assert len(result) == 1
+        assert len(packed) == 2
+        assert all(pl.rotated for pl in packed)
+        assert all(math.isclose(pl.width, 4.0) and math.isclose(pl.height, 6.0) for pl in packed)
+        # The whole set is one 4in-wide column that spends 12in of plate height.
+        assert math.isclose(max(pl.x + pl.width for pl in packed), 4.0, abs_tol=0.01)
+        assert math.isclose(max(pl.y + pl.height for pl in packed), 12.0, abs_tol=0.01)
+
+    def test_rows_lay_labels_along_the_width(self) -> None:
+        """The same pair lies along the plate width in a row job."""
+        labels = [_make_label(label_id=f"r{i}", width=6.0, height=4.0) for i in range(2)]
+        plates = [PlateSpec(id="p", width=24.0, height=16.0)]
+        result = generate_layout(labels, plates, layout=LayoutMode.ROWS)
+        packed = [pl for plate in result for pl in plate.labels]
+        assert len(result) == 1
+        assert all(not pl.rotated for pl in packed)
+        assert math.isclose(max(pl.x + pl.width for pl in packed), 12.0, abs_tol=0.01)
+
+    def test_material_economy_beats_the_fill_axis(self) -> None:
+        """Six 6x4 labels on a 24x8 sheet stay horizontal: the fill axis loses.
+
+        Lying down the set fills the whole 8in of plate height (two 4in rows) in
+        an 18x8 = 144 sq in block; standing them up caps at 6in of height
+        (9/16 of the column) for the same 144 sq in. Equal material, so the fill
+        axis decides -- in favour of the layout that fills the column more.
+        """
+        labels = [_make_label(label_id=f"m{i}", width=6.0, height=4.0) for i in range(6)]
+        plates = [PlateSpec(id="p", width=24.0, height=8.0)]
+        result = generate_layout(labels, plates, layout=LayoutMode.COLUMNS)
+        packed = [pl for plate in result for pl in plate.labels]
+        assert len(packed) == 6
+        assert all(not pl.rotated for pl in packed)
+        assert math.isclose(max(pl.y + pl.height for pl in packed), 8.0, abs_tol=0.01)
+
+    def test_allow_rotation_false_is_unaffected(self) -> None:
+        """``allow_rotation=False`` keeps every label horizontal (the opt-out)."""
+        labels = [_make_label(label_id=f"n{i}", width=6.0, height=4.0) for i in range(2)]
+        tight = [PlateSpec(id="p", width=10.0, height=7.0)]
+        with pytest.raises(LayoutFitError):
+            generate_layout(labels, tight, allow_rotation=False, layout=LayoutMode.COLUMNS)
+        roomy = [PlateSpec(id="q", width=24.0, height=16.0)]
+        result = generate_layout(labels, roomy, allow_rotation=False, layout=LayoutMode.COLUMNS)
+        assert all(not pl.rotated for plate in result for pl in plate.labels)
+
+    def test_fill_axis_decides_an_exact_footprint_tie(self) -> None:
+        """At an equal footprint each mode takes its own fill axis.
+
+        Three 1.05x2.8 labels fill 1.05x8.4 (3.15*2.8 = 8.82 sq in) or, rotated,
+        8.4x1.05 (2.8*1.05 = the same 8.82). The geometry is a perfect tie, so
+        ``rows`` (12x3) keeps the wide row that spends 8.4in of plate width and
+        ``columns`` (12x9) takes the tall column that spends 8.4in of height.
+        """
+        row_job = generate_layout(
+            [_make_label(label_id=f"w{i}", width=1.05, height=2.8) for i in range(3)],
+            [PlateSpec(id="r", width=12.0, height=3.0)],
+            layout=LayoutMode.ROWS,
+        )
+        wide = [pl for plate in row_job for pl in plate.labels]
+        assert all(pl.rotated for pl in wide)
+        assert math.isclose(max(pl.x + pl.width for pl in wide), 8.4, abs_tol=0.01)
+
+        column_job = generate_layout(
+            [_make_label(label_id=f"h{i}", width=1.05, height=2.8) for i in range(3)],
+            [PlateSpec(id="c", width=12.0, height=9.0)],
+            layout=LayoutMode.COLUMNS,
+        )
+        tall = [pl for plate in column_job for pl in plate.labels]
+        assert all(not pl.rotated for pl in tall)
+        assert math.isclose(max(pl.y + pl.height for pl in tall), 8.4, abs_tol=0.01)
+
+    def test_lone_label_follows_the_fill_axis(self) -> None:
+        """A single label is oriented by the fill order too (uniform rule).
+
+        One 6x4 label on a 24x16 sheet costs the same material either way, so
+        the layout's fill axis decides: upright in a column job, lying down in
+        a row job.
+        """
+        plates = [PlateSpec(id="p", width=24.0, height=16.0)]
+        columns = generate_layout(
+            [_make_label(width=6.0, height=4.0)], plates, layout=LayoutMode.COLUMNS
+        )
+        assert columns[0].labels[0].rotated is True
+        rows = generate_layout([_make_label(width=6.0, height=4.0)], plates, layout=LayoutMode.ROWS)
+        assert rows[0].labels[0].rotated is False
 
 
 class TestRotationDemoExample:
@@ -396,7 +517,7 @@ class TestRotationDemoExample:
     expectations are row-frame specific.
     """
 
-    def _load(self) -> tuple[list[ResolvedLabel], object]:
+    def _load(self) -> tuple[list[ResolvedLabel], JobSpec]:
         """Parse and resolve the rotation demo job."""
         from plt_optimizer.generate.resolution import resolve_job_spec
         from plt_optimizer.generate.schema import parse_yaml
@@ -439,7 +560,7 @@ class TestColumnsDemoExample:
     right. The historical row-major fill instead spreads them 24x2.
     """
 
-    def _load(self) -> tuple[list[ResolvedLabel], object]:
+    def _load(self) -> tuple[list[ResolvedLabel], JobSpec]:
         """Parse and resolve the column-major demo job."""
         from plt_optimizer.generate.resolution import resolve_job_spec
         from plt_optimizer.generate.schema import parse_yaml
@@ -1789,7 +1910,7 @@ class TestMaterialDemoExample:
     material and never mix the two label groups on a sheet.
     """
 
-    def _load(self) -> tuple[list[ResolvedLabel], object]:
+    def _load(self) -> tuple[list[ResolvedLabel], JobSpec]:
         """Parse and resolve the material demo job."""
         from plt_optimizer.generate.resolution import resolve_job_spec
         from plt_optimizer.generate.schema import parse_yaml

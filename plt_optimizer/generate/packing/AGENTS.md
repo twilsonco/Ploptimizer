@@ -158,11 +158,21 @@ already knows each toolpath's kind, the `Profiler` is skipped entirely.
 `JobSpec.allow_rotation` (bool, default `True`) lets the `rectpack` bin
 packer test both orientations (0°/90°) for every label instance.
 
-- `_pack_best()` (layout.py) evaluates every `PACK_CONFIGS` heuristic twice
-  (rotation off, then on) and ranks candidates by `(footprint, rotated_count)`
-  with a float-tolerant footprint comparison. Labels therefore rotate only
-  when rotation *strictly* improves the used bounding-box area; at equal
-  footprints the all-horizontal layout always wins (backward compatible).
+- `_pack_best()` (layout.py) evaluates every packing config twice (rotation
+  off, then on) and ranks full-fit candidates by
+  `(footprint, fill-axis fill, cross-axis fill, rotated_count)`
+  (`_fill_rank_key`): used bounding-box area **first**, so rotation never costs
+  material; then how far the layout's fill axis is filled, measured by
+  `_fill_axis_extents` in the **plate** frame (columns packs transposed, so
+  packer X is the plate height) as the *smallest*
+  used-extent/plate-extent ratio over the non-empty plates — the least-filled
+  plate is what a fill order has left to give; then the cross-axis ratio; then
+  the rotation count. Labels therefore rotate when rotation is material-free and
+  standing them up fills the axis the layout fills first (`columns` = height,
+  `rows` = width); at equal footprint *and* equal fill ratios the all-horizontal
+  layout wins. The ratio (not the raw span) is what keeps the metric
+  comparable across plate sizes: an unbounded pack runs on the default 24x16
+  bins, which *is* a real sheet, so the fill axis is meaningful there too.
 - Rotation is detected in `_extract_packed_plates()` by comparing
   `rect.width` against the *packing* width carried in the `rid` payload
   (rendered bounds in `generate_layout_with_bounds`, nominal otherwise) —

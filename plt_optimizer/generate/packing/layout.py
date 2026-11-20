@@ -632,11 +632,15 @@ def _pack_best(
     fits everything.
 
     When ``allow_rotation`` is set, every candidate is evaluated twice — once
-    with rotation disabled and once with it enabled — and candidates are
-    ranked by ``(footprint, rotated_count)``. Labels therefore only ever
-    rotate when rotation *strictly* improves the footprint; at equal
-    footprints the all-horizontal layout always wins, keeping output stable
-    for jobs that pack just as well without rotation.
+    with rotation disabled and once with it enabled — and candidates are ranked
+    by ``(footprint, fill-axis span, cross-axis span, rotated_count)``. The
+    footprint stays first, so a label only rotates when rotation costs no extra
+    material; among footprints that tie, the candidate that fills the axis
+    ``layout`` fills first wins (``columns`` the plate height, ``rows`` the plate
+    width), which is why a wider-than-tall label stands upright in a column job
+    and lies along the plate in a row job. The rotation count decides only when
+    both spans tie as well, keeping output stable for jobs whose layouts are
+    indistinguishable on geometry.
 
     ``layout`` selects the fill-order frame (the simple grid modes never
     reach this function -- :func:`_pack_group` routes them to
@@ -684,6 +688,8 @@ def _pack_best(
     best_packer: Optional[_Packer] = None
     best_packed: int = -1
     best_footprint: float = 0.0
+    best_fill_axis: float = 0.0
+    best_cross_axis: float = 0.0
     best_rotations: int = 0
 
     for pack_algo, sort_algo in configs:
@@ -713,10 +719,19 @@ def _pack_best(
             total_packed = sum(len(b) for b in packer)
             footprint = _plate_footprint(packer)
             rotations = _count_rotated(packer)
+            height_fill, width_fill = _fill_axis_extents(packer, transpose)
+            # ``columns`` fills each plate top-to-bottom, so its fill axis is the
+            # plate height; ``rows`` fills left-to-right, so it is the plate
+            # width. (The simple-grid modes never reach this function.)
+            if transpose:
+                fill_axis, cross_axis = height_fill, width_fill
+            else:
+                fill_axis, cross_axis = width_fill, height_fill
 
-            # Rank: full fits first; among equals, smallest footprint, then
-            # fewest rotations. Partials rank by packed count only (ties keep
-            # the incumbent); they only matter for error reporting.
+            # Rank: full fits first; among equals, smallest footprint, then the
+            # fill order of ``layout``, then fewest rotations. Partials rank by
+            # packed count only (ties keep the incumbent); they only matter for
+            # error reporting.
             full_fit = total_packed == len(rectangles_with_rid)
             best_full = best_packer is not None and best_packed == len(rectangles_with_rid)
             if best_packer is None:
@@ -724,17 +739,17 @@ def _pack_best(
             elif full_fit != best_full:
                 take = full_fit
             elif full_fit:
-                if math.isclose(footprint, best_footprint, rel_tol=1e-9, abs_tol=1e-9):
-                    # Footprint tie (within float noise): prefer fewer rotations.
-                    take = rotations < best_rotations
-                else:
-                    take = footprint < best_footprint
+                take = _fill_rank_key(footprint, fill_axis, cross_axis, rotations) < _fill_rank_key(
+                    best_footprint, best_fill_axis, best_cross_axis, best_rotations
+                )
             else:
                 take = total_packed > best_packed
 
             if take:
                 best_packed = total_packed
                 best_footprint = footprint
+                best_fill_axis = fill_axis
+                best_cross_axis = cross_axis
                 best_rotations = rotations
                 best_packer = packer
 
@@ -1446,6 +1461,97 @@ def _plate_footprint(packer: _Packer) -> float:
             max_y = max(max_y, rect.y + rect.height)
         footprint += max_x * max_y
     return footprint
+
+
+def _fill_axis_extents(packer: _Packer, transpose: bool) -> tuple[float, float]:
+    """Measure how far the plates are filled along the plate's own axes.
+
+    One plate's span is ``max(position + size)`` along an axis, the same
+    bounding-box pass :func:`_plate_footprint` uses (clearance excluded), divided
+    by that plate's own extent on the same axis. The ratio is what matters: it
+    reads as "how much of the column (``columns``) or row (``rows``) did this
+    layout fill", and it stays comparable across plate sizes. It also makes an
+    auto-allocated plate (unbounded mode, sized to its content) neutral at 1.0
+    for every orientation, so the fill-order preference never reorients a pack
+    that has no plate to fill.
+
+    The result reports the *least*-filled plate per axis, because the fill-order
+    goal is to max out the plate that is filled least before adding another one;
+    a sum would let several short plates outrank one full plate.
+
+    Args:
+        packer: A ``rectpack.Packer`` that has already executed ``pack()``.
+        transpose: Whether the pack ran in the transposed frame (the ``columns``
+            mode). There the packer's X axis is the plate's *height* and its Y
+            axis the plate's width, so the spans are swapped back to plate space.
+
+    Returns:
+        ``(height_fill, width_fill)``: over the non-empty plates, the smallest
+        used-height/plate-height and used-width/plate-width ratio. ``(0.0, 0.0)``
+        when no plate carries a label.
+    """
+    height_fill: Optional[float] = None
+    width_fill: Optional[float] = None
+    for bin_obj in packer:
+        if len(bin_obj) == 0:
+            continue
+        pack_right = 0.0
+        pack_bottom = 0.0
+        for rect in bin_obj:
+            pack_right = max(pack_right, rect.x + rect.width)
+            pack_bottom = max(pack_bottom, rect.y + rect.height)
+        # In the transposed frame the packer's X axis is the plate's height.
+        if transpose:
+            used_height, used_width, tall_bin, wide_bin = (
+                pack_right,
+                pack_bottom,
+                bin_obj.width,
+                bin_obj.height,
+            )
+        else:
+            used_height, used_width, tall_bin, wide_bin = (
+                pack_bottom,
+                pack_right,
+                bin_obj.height,
+                bin_obj.width,
+            )
+        bin_height = used_height / tall_bin if tall_bin else 0.0
+        bin_width = used_width / wide_bin if wide_bin else 0.0
+        height_fill = bin_height if height_fill is None else min(height_fill, bin_height)
+        width_fill = bin_width if width_fill is None else min(width_fill, bin_width)
+    if height_fill is None or width_fill is None:
+        return (0.0, 0.0)
+    return (height_fill, width_fill)
+
+
+def _fill_rank_key(
+    footprint: float,
+    fill_axis: float,
+    cross_axis: float,
+    rotations: int,
+) -> tuple[float, float, float, int]:
+    """Build the ranking key of a packing candidate that fits everything.
+
+    ``footprint`` leads so rotation never costs extra material; the fill-axis
+    ratio and then the cross-axis ratio prefer the fill order of the layout (see
+    :func:`_fill_axis_extents`); the rotation count decides last, so two layouts
+    that are geometrically identical keep producing the same output. The fill axis
+    enters NEGATED (it is the span we want long, while every other term is one we
+    want short). Floats are rounded to the packing-unit precision (0.01 in), which
+    makes layouts that differ only by float noise compare exactly, while a genuine
+    1/16 in fill difference still separates them.
+
+    Args:
+        footprint: Total used material area from :func:`_plate_footprint`.
+        fill_axis: Least-filled plate's fill ratio along the axis the layout
+            fills first (see :func:`_fill_axis_extents`); larger is better.
+        cross_axis: The same plate's fill ratio along the other plate axis.
+        rotations: Rotated rectangle count from :func:`_count_rotated`.
+
+    Returns:
+        The lexicographically comparable ranking tuple (smaller is better).
+    """
+    return (round(footprint, 4), -round(fill_axis, 4), round(cross_axis, 4), rotations)
 
 
 def _split_shape_entries(

@@ -2914,8 +2914,10 @@ class JobSpec(LabelAttributes):
         default=True,
         description=(
             "Allow the bin packer to rotate labels 90 degrees (clockwise at "
-            "assembly) for tighter layouts. Set false to keep every label "
-            "horizontal."
+            "assembly) for tighter layouts. Rotation also follows the "
+            "`layout` fill order: at equal used material a label stands "
+            "upright in 'columns' and lies along the width in 'rows'. Set "
+            "false to keep every label horizontal."
         ),
     )
     text_chunk_mode: Literal["line", "word"] = Field(
@@ -2931,7 +2933,10 @@ class JobSpec(LabelAttributes):
         description=(
             "Preferential plate fill order: 'columns' (default) fills the "
             "plate height before extending rightward; 'rows' fills width "
-            "before extending downward. 'columns-simple'/'rows-simple' "
+            "before extending downward. With bin packing the fill order also "
+            "picks the orientation: at equal used material a label stands "
+            "upright in 'columns' and lies along the width in 'rows' (see "
+            "`allow_rotation`). 'columns-simple'/'rows-simple' "
             "bypass bin packing with a flush grid fill in content order "
             "(no rotation; incompatible with an explicit "
             "`allow_rotation: true`)."

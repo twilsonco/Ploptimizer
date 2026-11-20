@@ -23,6 +23,8 @@
 - `layout: columns` (default) fills each plate's **height** before extending
   rightward — the scrap-friendly single rectangular block.
 - `layout: rows` is the historical width-first fill.
+- Both bin-packing modes also pick the **orientation** that fills their own
+  axis, at no material cost — see ## Rotation below.
 - `layout: columns-simple` / `rows-simple` bypass bin packing: labels place
   one at a time in strict content order on a flush grid (top-to-bottom then
   right, resp. left-to-right then down), never rotated — the VisionPro
@@ -36,10 +38,13 @@
 
 ## Rotation
 
-`allow_rotation` (job → config, default `true`): a label rotates 90° CW only
-when it **strictly improves** used area; ties keep all-horizontal. Set
-`false` when grain, hinge edges, or reading direction matter (uses more
-plate space).
+`allow_rotation` (job → config, default `true`): a full-fit layout is ranked by
+used material area **first**, then by how far it fills the axis `layout` fills
+first (`columns` the plate height, `rows` the plate width), then by how many
+labels are rotated. A label therefore rotates 90° CW when rotation costs **no**
+extra material and standing it up fills that axis better; a rotation that would
+spend more material never happens. Set `false` when grain, hinge edges, or
+reading direction matter (uses more plate space).
 
 ## Material grouping
 

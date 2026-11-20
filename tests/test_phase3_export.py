@@ -893,6 +893,9 @@ class TestLayerReport:
                 fast_mode=True,
                 plots=False,
                 logger=logger,
+                # The report text is what this test pins; pack as a rows job
+                # so the lone wide label keeps the historical horizontal slot.
+                layout=LayoutMode.ROWS,
             )
 
         lines = [
@@ -5897,6 +5900,9 @@ class TestHoleAwareCenteringDemoExample:
                 job_id="ha",
                 optimize=optimize,
                 plots=False,
+                # Both runs must keep the historical horizontal slot: the
+                # hole-aware shift is read back from the engraved Y origin.
+                layout=LayoutMode.ROWS,
             )
 
         unopt = _do_export(optimize=False, subdir="unopt")
@@ -7867,6 +7873,9 @@ class TestEdgeMarginCollisionAvoidanceExport:
                 job_id=tag,
                 optimize=False,
                 plots=False,
+                # Packed as a rows job in both runs so the label keeps the
+                # historical horizontal slot; only the slide is measured below.
+                layout=LayoutMode.ROWS,
             )
             path = next(p for p in result.plt_paths if "_txt_" in p.name)
             xs = [units_to_inches(int(x)) for x, _y in pair_xy.findall(path.read_text())]
@@ -7935,6 +7944,9 @@ class TestEdgeMarginFlushExport:
             job_id="flush",
             optimize=False,
             plots=False,
+            # Pack as a rows job: the flush edges are read back from the
+            # engraved X origin, which a column-mode rotation would move.
+            layout=LayoutMode.ROWS,
         )
 
         (rendered,) = result.rendered_labels.values()
@@ -8025,6 +8037,9 @@ class TestSharedShiftFlushCompressExport:
             job_id="flushcompress",
             optimize=False,
             plots=False,
+            # Pack as a rows job (see the flush export above): the assertions
+            # compare emitted X origins, not packing orientation.
+            layout=LayoutMode.ROWS,
         )
         (rendered,) = result.rendered_labels.values()
         src = rendered.source_label

@@ -488,6 +488,27 @@
   JSON block is machine-readable and already carries the number), so no schema
   version moves.
 
+* **generate:** bin-packing **rotation now follows the fill order**. A full-fit
+  layout used to be ranked by `(used area, rotated count)`, so at an equal
+  footprint the all-horizontal pack always won: a `columns` job — whose fill order
+  climbs the plate **height** before opening the next column — kept a
+  wider-than-tall label lying down, leaving the column half empty and the sheet's
+  height unused. `_pack_best` now ranks full-fit candidates by
+  `(footprint, fill-axis fill, cross-axis fill, rotated count)`
+  (`_fill_rank_key`, over the spans measured by the new `_fill_axis_extents`):
+  used material **first**, so rotation can never cost a scrap of material, then how
+  far the layout's fill axis is filled, then the cross axis, and only then the
+  rotation count. `columns` therefore stands labels upright when standing them up
+  is material-free and `rows` keeps them lying along the width — the air-controls
+  pair (two 4x6 labels) packs 4 wide x 12 tall where it packed 12 wide x 4 tall.
+  The fill metric is the *smallest* used-extent/plate-extent **ratio** over the
+  non-empty plates: the least-filled plate is what a fill order has left to give
+  (a sum lets N short plates outrank one full one), and the ratio, not the raw
+  span, keeps the metric comparable when a pack runs on auto-allocated sheets,
+  where every orientation fills its content-sized bin completely. `allow_rotation`
+  keeps its meaning and stays the only knob: `false` reproduces the old best
+  all-horizontal layout exactly, at the cost of plate space.
+
 ### Fixes
 
 * **generate:** the integration runner's **single-job** report now estimates label
