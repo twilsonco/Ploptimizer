@@ -89,7 +89,7 @@ Fixed 3x1.5in label, 0.15in margins, rounded corners.
 
 ```yaml
 job:
-  job_name: "Rounded placard"
+  name: "Rounded placard"
   width: 3.0
   height: 1.5
   margin: 0.15

@@ -2,7 +2,7 @@
 # Sunwest SW0008
 # 1x3 white 0.75 text on black with 2 holes
 job:
-  job_name: Sunwest SW0008
+  name: Sunwest SW0008
   material: kw
   layout: columns-simple
   replacement_text_file: 2026-07-22 sunwest.txt

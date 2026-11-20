@@ -1,5 +1,5 @@
 job:
-    job_name: balance demo
+    name: balance demo
     material: wk
     type: round
     height: 2

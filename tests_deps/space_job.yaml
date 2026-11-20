@@ -31,7 +31,7 @@
 # Pinned end-to-end by tests/test_space_example.py (the frozen-fixture twin of
 # this sample lives in tests_deps/ only when a test reads it directly).
 job:
-  job_name: "Space Tag Fixture"
+  name: "Space Tag Fixture"
   width: 6
   height: 2
   layout: columns-simple

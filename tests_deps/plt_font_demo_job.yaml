@@ -22,7 +22,7 @@
 #
 # Run with: python run_integration_test.py tests_deps/plt_font_demo_job.yaml
 job:
-  job_name: "PLT Font Demo - Dino Jhanuni TTF"
+  name: "PLT Font Demo - Dino Jhanuni TTF"
 
   # Job-level default: every label/line without an explicit font renders
   # with the PLT-extracted Dino glyphs (arc-native).

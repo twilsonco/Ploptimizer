@@ -3,7 +3,7 @@
 # Its sheet is plate2, so no geometry is declared twice - the batch's pool is
 # the union of the members' plate lists.
 job:
-  job_name: "Job B"
+  name: "Job B"
   font: helv1
   material: kw
   height: 4

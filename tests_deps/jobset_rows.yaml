@@ -1,7 +1,7 @@
 # Jobset gate fixture: a rows-layout member, for the layout-conflict gate
 # error against the columns-layout jobset_a.yaml / jobset_b.yaml.
 job:
-  job_name: Jobset Gamma
+  name: Jobset Gamma
   layout: rows
   plates:
     - id: plate1

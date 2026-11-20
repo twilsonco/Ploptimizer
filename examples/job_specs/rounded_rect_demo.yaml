@@ -19,7 +19,7 @@
 # the text margin applies to the engraved rounded boundary, and the labels
 # keep packing through rectpack in their exact nominal box.
 job:
-  job_name: Rounded Rect Demo
+  name: Rounded Rect Demo
 
   text_height: 0.5
   margin: 0.15

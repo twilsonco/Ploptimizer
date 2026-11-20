@@ -1,7 +1,7 @@
 # 2026-10-15
 # Coolsys Target 2206
 job:
-  job_name: Coolsys Target 2206
+  name: Coolsys Target 2206
   type: round
   material: wk
   width: 2

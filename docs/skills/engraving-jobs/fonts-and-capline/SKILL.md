@@ -47,7 +47,7 @@ Font at job level, per-line override, small-caps variant.
 
 ```yaml
 job:
-  job_name: "Font demo"
+  name: "Font demo"
   font: "ReliefSingleLineCAD-Regular"
   content:
     - text: "Main line"

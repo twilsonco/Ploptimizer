@@ -452,7 +452,7 @@ def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
     instances = expand_label_with_replacements(template, base_dir)
     logger.info(
         "Job '%s': job-level replacement file produced %d label(s).",
-        job.job_name,
+        job.name,
         len(instances),
     )
     return job.model_copy(
@@ -600,7 +600,7 @@ def expand_job_spec(job: JobSpec, yaml_path: Path) -> JobSpec:
 
     logger.info(
         "Job '%s': replacement expansion produced %d label(s) from %d specification(s).",
-        job.job_name,
+        job.name,
         len(expanded_labels),
         len(job.labels),
     )

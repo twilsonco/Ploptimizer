@@ -106,7 +106,7 @@ own.
 | `2` | the file itself is unusable: absent, unreadable, or not valid JSON/YAML — or `plt_optimizer` could not be located |
 
 `--json` emits `{path, ok, errors, warnings, findings: [{severity, message}]}`
-(plus `job_name` / `label_count` / `plate_count` for a spec that parsed).
+(plus `name` / `label_count` / `plate_count` for a spec that parsed).
 
 ## What validation cannot check
 

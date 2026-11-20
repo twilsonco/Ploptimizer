@@ -786,7 +786,7 @@ def _cutter_token_to_inches(cutter_token: str) -> float:
     return int(cutter_token) / 1000.0
 
 
-def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None = None) -> str:
+def _build_plot_title(name: str, plt_path: Path, text_height: float | None = None) -> str:
     """Build a descriptive title for a plot from the job name and PLT file path.
 
     The file name format is:
@@ -794,7 +794,7 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     - Structural: ``[<material>_][p<plate>_]<cutter>_bh_<job_id>.plt``
 
     Args:
-        job_name: The human-readable job name.
+        name: The human-readable job name.
         plt_path: Path to the PLT file, used to extract plot type, material
             and cutter size.
         text_height: Text height in inches, included for text plots (optional).
@@ -808,7 +808,7 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     parts = _parse_plt_stem(plt_path.stem)
     if parts.kind is None:
         # Fallback for unexpected format
-        return f"{job_name} {plt_path.stem}"
+        return f"{name} {plt_path.stem}"
 
     cutter_label = (
         f"{_cutter_token_to_inches(parts.cutter):.3f} cutter"
@@ -817,11 +817,11 @@ def _build_plot_title(job_name: str, plt_path: Path, text_height: float | None =
     )
     material_suffix = f" [{parts.material}]" if parts.material else ""
     if parts.kind == "bh":
-        return f"{job_name} borders and holes ({cutter_label}){material_suffix}"
+        return f"{name} borders and holes ({cutter_label}){material_suffix}"
     text_height_str = f"{text_height:.3g}" if text_height is not None else ""
     if text_height_str:
-        return f"{job_name} {text_height_str} text ({cutter_label}){material_suffix}"
-    return f"{job_name} text ({cutter_label}){material_suffix}"
+        return f"{name} {text_height_str} text ({cutter_label}){material_suffix}"
+    return f"{name} text ({cutter_label}){material_suffix}"
 
 
 def _plate_owners(plate: PackedPlate, provenance: Optional[JobProvenance]) -> tuple[str, ...]:
@@ -1253,7 +1253,7 @@ def export_per_cutter_plts(
     provided_plates: list[PlateSpec] | None = None,
     output_dir: str | Path = "output",
     job_id: str = "job",
-    job_name: str = "",
+    name: str = "",
     optimize: bool = True,
     plots: bool = True,
     default_plots: bool = False,
@@ -1334,7 +1334,7 @@ def export_per_cutter_plts(
             subdirectories are created inside it.
         job_id: Job identifier used as the file-name prefix (should be
             filesystem-safe; the CLI sanitizes the job name).
-        job_name: Human-readable job name for plot titles (optional).
+        name: Human-readable job name for plot titles (optional).
         optimize: If True, run the PLT optimizer on each written file.
         plots: If True, write simple-outline PDF previews for every
             written PLT plus a combined ``*_all_*`` PDF per plate.
@@ -1859,7 +1859,7 @@ def export_per_cutter_plts(
                 output_dir,
                 job_id,
                 result,
-                job_name=job_name,
+                name=name,
                 text_height=text_height,
                 pen_widths=pen_widths,
                 pen_colors=pen_colors,
@@ -1872,7 +1872,7 @@ def export_per_cutter_plts(
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
             result.default_pdf_paths = write_default_plots(
-                output_dir, job_id, result, job_name=job_name, text_height=text_height
+                output_dir, job_id, result, name=name, text_height=text_height
             )
 
     return result
@@ -1882,7 +1882,7 @@ def _write_simple_plots(
     output_dir: Path,
     job_id: str,
     result: PerCutterExport,
-    job_name: str = "",
+    name: str = "",
     text_height: float | None = None,
     pen_widths: Optional[Mapping[int, float]] = None,
     pen_colors: Optional[Mapping[int, str]] = None,
@@ -1940,7 +1940,7 @@ def _write_simple_plots(
         job_id: Job identifier used in combined PDF names.
         result: The export result whose ``plt_paths`` and
             ``combined_by_plate`` drive the plots.
-        job_name: Human-readable job name for plot titles (optional).
+        name: Human-readable job name for plot titles (optional).
         text_height: Text height in inches for text plot titles (optional).
         pen_widths: Engraved stroke width (inches) per HPGL pen number of
             the assembled plate -- the physical cutter plus its kerf buffer
@@ -2158,8 +2158,8 @@ def _write_simple_plots(
         # is not.
         is_structural = _is_structural_stem(plt_path.stem)
         title = (
-            _build_plot_title(job_name, plt_path, text_height=text_height)
-            if job_name
+            _build_plot_title(name, plt_path, text_height=text_height)
+            if name
             else "PLT Toolpath Visualization"
         )
         width_inches = _stem_cutter_inches(plt_path.stem)
@@ -2328,7 +2328,7 @@ def _write_simple_plots(
             plate_no,
             combined,
             pdf_dir / f"{_plate_prefix(plate_no)}all_{job_id}.pdf",
-            f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization",
+            f"{name} (plate {plate_no})" if name else "PLT Toolpath Visualization",
             overlays.get(plate_no, ()),
         )
 
@@ -2374,7 +2374,7 @@ def write_default_plots(
     output_dir: Path,
     job_id: str,
     result: PerCutterExport,
-    job_name: str = "",
+    name: str = "",
     text_height: float | None = None,
     include_combined: bool = True,
 ) -> list[Path]:
@@ -2396,7 +2396,7 @@ def write_default_plots(
         job_id: Job identifier used in combined PDF names.
         result: The export result whose ``plt_paths`` and
             ``combined_by_plate`` drive the plots.
-        job_name: Human-readable job name for plot titles (optional).
+        name: Human-readable job name for plot titles (optional).
         text_height: Text height in inches for text plot titles (optional).
         include_combined: When True (the default), also render the
             combined per-plate default plot (text + borders + holes
@@ -2418,8 +2418,8 @@ def write_default_plots(
         document = parser.parse_file(plt_path)
         pdf_path = pdf_dir / f"{plt_path.stem}_default.pdf"
         title = (
-            _build_plot_title(job_name, plt_path, text_height=text_height)
-            if job_name
+            _build_plot_title(name, plt_path, text_height=text_height)
+            if name
             else "PLT Toolpath Visualization"
         )
         plot_plt_document(
@@ -2441,7 +2441,7 @@ def write_default_plots(
                 result.material_by_plate.get(plate_no),
             )
             pdf_path = pdf_dir / f"{prefix}all_{job_id}_default.pdf"
-            title = f"{job_name} (plate {plate_no})" if job_name else "PLT Toolpath Visualization"
+            title = f"{name} (plate {plate_no})" if name else "PLT Toolpath Visualization"
             plot_plt_document(
                 document,
                 output_path=pdf_path,

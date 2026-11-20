@@ -5426,7 +5426,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Top-level specification for a batch label generation job.\n\nInherits styling fields from LabelAttributes so they can be set at the\njob level and inherited down to labels and text lines. `width` and\n`height` must be defined at either the job level or on each label.\n\nA job may be specified in one of three forms:\n1. A list of explicit labels (`labels`), each with width/height defined.\n2. A single root-level label definition (`content` + optional `count`),\n    with width/height defined at the job or root level.\n3. A job-level EngraveLab/Vision Pro-style replacement text file\n    (`replacement_text_file`): each line of the file produces one\n    label, generated from the job-level label attributes. `width`,\n    `height` and `text_height` must be defined at the job level;\n    `content` is an optional per-line attribute template (exactly\n    like on :class:`LabelSpec`). This form is mutually exclusive with\n    `labels` and `count`.\n\nThe label source forms (1-3) are mutually exclusive; exactly one must\nbe provided. The `width` and `height` cascade from label to job;\nthey are no longer auto-sized from rendered content.",
+  "description": "Top-level specification for a batch label generation job.\n\nInherits styling fields from LabelAttributes so they can be set at the\njob level and inherited down to labels and text lines. `width` and\n`height` must be defined at either the job level or on each label.\n\nA job may be specified in one of three forms:\n1. A list of explicit labels (`labels`), each with width/height defined.\n2. A single root-level label definition (`content` + optional `count`),\n    with width/height defined at the job or root level.\n3. A job-level EngraveLab/Vision Pro-style replacement text file\n    (`replacement_text_file`): each line of the file produces one\n    label, generated from the job-level label attributes. `width`,\n    `height` and `text_height` must be defined at the job level;\n    `content` is an optional per-line attribute template (exactly\n    like on :class:`LabelSpec`). This form is mutually exclusive with\n    `labels` and `count`.\n\nThe label source forms (1-3) are mutually exclusive; exactly one must\nbe provided. The `width` and `height` cascade from label to job;\nthey are no longer auto-sized from rendered content.\n\nAttributes:\n    name: Human-readable job display name. It feeds the reports, the logs\n        and the plot titles, and `_sanitize_job_id` derives the\n        filesystem-safe `job_id` that names every generated file. Distinct\n        from :attr:`JobSetSpec.name`, the batch's own display name.",
   "properties": {
     "text_height": {
       "anyOf": [
@@ -6547,9 +6547,9 @@
       "description": "With `relief_engraving` enabled: percent overlap between adjacent relief raster rows. The row pitch is `cutter_diameter * (1 - overlap/100)`: 60.0 (the EngraveLab reference grid) gives a 0.4d pitch - a 0.036in overlap for a 0.06in cutter, 0.003in for a 0.005in cutter. Higher values engrave denser (more rows, more travel); 0.0 leaves rows merely touching. Cascades job -> plate -> label (never text lines); unset (`null`) falls back to `job-config.json` then 60.0. Accepted on plates for schema parity only.",
       "title": "Relief Engraving Stroke Overlap Percent"
     },
-    "job_name": {
-      "description": "Human-readable name for this job.",
-      "title": "Job Name",
+    "name": {
+      "description": "Human-readable name for this job. Reports, logs and plot titles print it verbatim, and `_sanitize_job_id` derives the filesystem-safe `job_id` from it that names every generated file. Distinct from `JobSetSpec.name`, the batch's own display name.",
+      "title": "Name",
       "type": "string"
     },
     "plates": {
@@ -6759,7 +6759,7 @@
     }
   },
   "required": [
-    "job_name"
+    "name"
   ],
   "title": "JobSpec",
   "type": "object"

@@ -1,5 +1,5 @@
 job:
-  job_name: RMS TJ 088
+  name: RMS TJ 088
   material: kw
   height: 5
   width: 7

@@ -7,7 +7,7 @@ label-level-file:
   # Form 3: per-label file; each data line is one label copy.
   yaml: |
     job:
-      job_name: "Batch 02"
+      name: "Batch 02"
       labels:
         - id: badge
           replacement_text_file: data.txt
@@ -19,7 +19,7 @@ job-level-file:
   # Form 4: job-level file; job width/height/text_height required.
   yaml: |
     job:
-      job_name: "Batch 03"
+      name: "Batch 03"
       width: 3.0
       height: 1.0
       text_height: 0.75

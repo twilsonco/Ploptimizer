@@ -7,7 +7,7 @@ two-plates:
   # Pack onto two named plates, one with a clearance strip.
   yaml: |
     job:
-      job_name: "Plate demo"
+      name: "Plate demo"
       width: 3.0
       height: 1.0
       plates:

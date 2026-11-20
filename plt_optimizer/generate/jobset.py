@@ -126,10 +126,10 @@ class JobRecord:
     """Identity of one jobset member, in jobset-file order.
 
     Attributes:
-        key: Composite-id prefix (the sanitized ``job_name``, made unique).
+        key: Composite-id prefix (the sanitized ``name``, made unique).
         job_id: Filename token for this job (``key`` unless a collision
             appended a numeric suffix).
-        job_name: The member's declared ``job_name``.
+        name: The member's declared ``name``.
         spec_path: Absolute path of the member spec file.
         label_ids: The member's label ids as the member file declares them
             (un-prefixed; the suffixes a ``count``/replacement expansion
@@ -140,7 +140,7 @@ class JobRecord:
 
     key: str
     job_id: str
-    job_name: str
+    name: str
     spec_path: Path
     label_ids: tuple[str, ...] = ()
     plate_ids: tuple[str, ...] = ()
@@ -148,7 +148,7 @@ class JobRecord:
     @property
     def display_name(self) -> str:
         """Legend/title text: the declared name, falling back to the id."""
-        return self.job_name or self.job_id
+        return self.name or self.job_id
 
 
 @dataclass(frozen=True)
@@ -887,7 +887,7 @@ def namespace_job(
         record=JobRecord(
             key=job_key,
             job_id=job_key,
-            job_name=spec.job_name,
+            name=spec.name,
             spec_path=prepared.spec_path,
             label_ids=tuple(label.id for label in prepared.resolved_labels),
             plate_ids=tuple(plate.id for plate in (spec.plates or [])),
@@ -903,25 +903,25 @@ def namespace_job(
     )
 
 
-def _unique_job_key(job_name: str, taken: set[str]) -> tuple[str, Optional[str]]:
+def _unique_job_key(name: str, taken: set[str]) -> tuple[str, Optional[str]]:
     """Return a unique composite-id key for a member job.
 
     Args:
-        job_name: The member's declared ``job_name``.
+        name: The member's declared ``name``.
         taken: Keys already used by earlier members (mutated by the caller).
 
     Returns:
         ``(key, collision_note)`` - ``collision_note`` is ``None`` when the
         sanitized name was already unique.
     """
-    base = sanitize_job_id(job_name)
+    base = sanitize_job_id(name)
     if base not in taken:
         return base, None
     suffix = 2
     while f"{base}_{suffix}" in taken:
         suffix += 1
     key = f"{base}_{suffix}"
-    return key, f"job key collision: '{base}' is taken; '{job_name}' uses '{key}'"
+    return key, f"job key collision: '{base}' is taken; '{name}' uses '{key}'"
 
 
 def build_jobset_plan(
@@ -999,19 +999,19 @@ def build_jobset_plan(
                 stage_timings=stage_timings,
             )
         except JobPreparationError as exc:
-            tag = sanitize_job_id(exc.job_name) if exc.job_name else job_path.stem
+            tag = sanitize_job_id(exc.name) if exc.name else job_path.stem
             raise JobPreparationError(
                 f"{exc.stage}[{tag}]",
                 exc.cause,
                 console_message=exc.console_message,
-                job_name=exc.job_name,
+                name=exc.name,
             ) from exc
-        key, collision = _unique_job_key(prepared.job_name, taken_keys)
+        key, collision = _unique_job_key(prepared.name, taken_keys)
         taken_keys.add(key)
         if collision is not None:
             warnings.append(collision)
         contexts.append(namespace_job(key, prepared))
-        LOG.debug("Jobset member prepared: %s (%s)", key, prepared.job_name)
+        LOG.debug("Jobset member prepared: %s (%s)", key, prepared.name)
 
     # The gate compares member contexts; with no context prepared there is
     # nothing to compare, and the per-file errors above already explain the

@@ -46,7 +46,7 @@ Force a 0.040in cutter on one line only.
 
 ```yaml
 job:
-  job_name: "Cutter demo"
+  name: "Cutter demo"
   content:
     - text: "Fine detail"
       cutter_size: 0.040

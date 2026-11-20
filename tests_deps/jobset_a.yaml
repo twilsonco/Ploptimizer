@@ -3,7 +3,7 @@
 # plate id, label id and plate geometry deliberately collide with this
 # file's - that is what the jobset merge must namespace.
 job:
-  job_name: Jobset Alpha
+  name: Jobset Alpha
   layout: columns
   plates:
     - id: plate1

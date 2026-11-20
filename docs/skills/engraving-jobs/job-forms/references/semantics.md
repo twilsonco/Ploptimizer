@@ -15,7 +15,7 @@ label's `count` replicates it (`label_1` → `label_1_0000`, `label_1_0001`,
 
 ```yaml
 job:
-  job_name: "Batch 01"
+  name: "Batch 01"
   text_height: 0.5
   labels:
     - id: label_1
@@ -33,7 +33,7 @@ is no label dict to put them in. `labels` must be absent.
 
 ```yaml
 job:
-  job_name: "Simple Labels"
+  name: "Simple Labels"
   count: 20
   content:
     - text: "Single repeating label"
@@ -56,7 +56,7 @@ and `count` are rejected.
 
 ```yaml
 job:
-  job_name: "Batch 03"
+  name: "Batch 03"
   width: 3.0
   height: 1.0
   text_height: 0.75
@@ -76,7 +76,7 @@ and pack normally onto the unpinned plates.
 
 ```yaml
 job:
-  job_name: "Batch 04"
+  name: "Batch 04"
   width: 3.0
   height: 1.0
   text_height: 0.75
@@ -108,7 +108,7 @@ job:
 
 ## Identity and output naming
 
-`id` (label) and `job_name` (job) drive output organization; ids must be
+`id` (label) and `name` (job) drive output organization; ids must be
 unique within the job and filesystem-safe. Replacement copies get the
 `_NNNN` suffix automatically — never author it yourself.
 

@@ -22,7 +22,7 @@
 # No plate declares a material and the job packs onto one sheet, so emitted
 # names carry no plate/material prefix.
 job:
-  job_name: V Center By Content Demo
+  name: V Center By Content Demo
 
   width: 6.0
   margin: 0.1

@@ -128,7 +128,7 @@ def _expected(config: JobConfig, key: str, value: Any) -> str:
 def _job(**tool_options: Any) -> JobSpec:
     """Build a minimal job carrying the given spec-declared tool options."""
     return JobSpec(
-        job_name="Test",
+        name="Test",
         width=3.0,
         height=1.0,
         content=[ContentEntry(text="Test")],
@@ -476,7 +476,7 @@ class TestToolOptionsEdgeCases:
     def test_tool_options_none(self, repo_config: JobConfig) -> None:
         """tool_options=None uses config defaults."""
         job = JobSpec(
-            job_name="Test",
+            name="Test",
             width=3.0,
             height=1.0,
             content=[ContentEntry(text="Test")],

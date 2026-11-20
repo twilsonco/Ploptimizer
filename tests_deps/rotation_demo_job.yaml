@@ -24,7 +24,7 @@
 #
 # Run with: python run_integration_test.py tests_deps/rotation_demo_job.yaml
 job:
-  job_name: "Rotation Demo - Mix Rack Tags"
+  name: "Rotation Demo - Mix Rack Tags"
 
   # Row-major fill order (see header): pins the historical packing frame.
   layout: rows

@@ -1,4 +1,4 @@
 # Jobset fixture: a member that is itself a jobset (the gate must reject
-# recursion with a clear message, not a Pydantic error about `job_name`).
+# recursion with a clear message, not a Pydantic error about `name`).
 jobset:
   - job: jobset_batch.yaml

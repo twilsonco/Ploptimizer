@@ -560,13 +560,13 @@ def _gate_views(spec: Any, members: Sequence[tuple[Path, JobSpec]]) -> list[Reso
     """
     views: list[ResolvedJobContext] = []
     for member_path, job in members:
-        key = job.job_name or member_path.stem
+        key = job.name or member_path.stem
         views.append(
             ResolvedJobContext(
                 record=JobRecord(
                     key=key,
                     job_id=key,
-                    job_name=job.job_name,
+                    name=job.name,
                     spec_path=member_path,
                     label_ids=tuple(label.id for label in job.labels or ()),
                     plate_ids=tuple(plate.id for plate in job.plates or ()),
@@ -652,7 +652,7 @@ def format_json(
         payload["kind"] = "jobset"
         payload["member_count"] = member_count
     if job is not None:
-        payload["job_name"] = job.job_name
+        payload["name"] = job.name
         payload["label_count"] = len(job.labels or [])
         payload["plate_count"] = len(job.plates or [])
     return json.dumps(payload, indent=2)

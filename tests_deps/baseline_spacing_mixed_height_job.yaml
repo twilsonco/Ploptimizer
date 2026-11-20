@@ -27,7 +27,7 @@
 # demonstrates STACKING geometry in isolation. All content is cap-only, so the
 # relief would never fire anyway; disabling it keeps the intent explicit.
 job:
-  job_name: Baseline Spacing Mixed Height Demo
+  name: Baseline Spacing Mixed Height Demo
 
   width: 3.0
   height: 1.4

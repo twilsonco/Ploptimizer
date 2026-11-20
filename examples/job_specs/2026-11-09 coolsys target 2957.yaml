@@ -1,5 +1,5 @@
 job:
-    job_name: coolsys target 2957
+    name: coolsys target 2957
     material: kw
     font: helv1
     labels:

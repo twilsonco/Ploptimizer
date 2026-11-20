@@ -77,7 +77,7 @@ report shows the final state.
 
 ```yaml
 job:
-  job_name: "Tight serials"
+  name: "Tight serials"
   max_h_compress: 0.25
   cutter_downsize: true
   max_cutter_downsizes: 2

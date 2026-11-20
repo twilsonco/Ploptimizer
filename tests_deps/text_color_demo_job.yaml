@@ -16,7 +16,7 @@
 #
 # Run with: python run_integration_test.py tests_deps/text_color_demo_job.yaml
 job:
-  job_name: "Text Color Demo - 3-Layer Panel"
+  name: "Text Color Demo - 3-Layer Panel"
 
   # Shared label dimensions and typography (cascade to every label).
   width: 3.0

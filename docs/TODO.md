@@ -129,7 +129,7 @@
       - `min_label_price`: The minimum price for any label, regardless of material usage or character count.
       - `base_label_price`: The base price for any label, before adding material usage or character count costs.
       - `material_price_per_sq_in`: The price per square inch of material used for the label.
-- [ ] In the job spec schema, rename `job_name` to `name`
+- [x] In the job spec schema, rename `job_name` to `name` (shipped; see `docs/DONE.md`)
 - [ ] Implement optical/fluid kerning system.
   - See `docs/optical_fluid_kerning.md`
   - This will *fully replace* the current kerning system; all of the current kerning parameters will be removed. The cleanup of the old kerning system will be a separate task to ensure a smooth transition and avoid breaking existing functionality.

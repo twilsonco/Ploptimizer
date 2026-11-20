@@ -58,7 +58,7 @@ def _export_batch(
         plan.merged_plates,
         output_dir=output_dir,
         job_id=plan.jobset_id,
-        job_name=plan.jobset_name,
+        name=plan.jobset_name,
         layout=plan.layout,
         allow_rotation=plan.allow_rotation,
         default_plate_clearance=plan.default_plate_clearance,
@@ -79,7 +79,7 @@ def _export_alone(context: ResolvedJobContext, output_dir: Path) -> PerCutterExp
         list(context.plates) if context.plates is not None else None,
         output_dir=output_dir,
         job_id=context.record.job_id,
-        job_name=context.record.display_name,
+        name=context.record.display_name,
         layout=context.layout,
         allow_rotation=context.allow_rotation,
         default_plate_clearance=context.default_plate_clearance,
@@ -450,7 +450,7 @@ def _pinned_pair(tmp_path: Path) -> JobSetPlan:
         (tmp_path / name.replace("jobset_", "jobset_pin_")).write_text(text, encoding="utf-8")
     (tmp_path / "jobset_pin_c.yaml").write_text(
         "job:\n"
-        "  job_name: Pool Gamma\n"
+        "  name: Pool Gamma\n"
         "  layout: columns\n"
         "  material: kw\n"
         "  plates:\n"

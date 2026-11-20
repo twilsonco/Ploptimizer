@@ -51,7 +51,7 @@
 # =============================================================================
 
 job:
-  job_name: "Top/Bottom Hole Collision Avoidance Demo"
+  name: "Top/Bottom Hole Collision Avoidance Demo"
   width: 6.0
   height: 1.5
   text_height: 0.5

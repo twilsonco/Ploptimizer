@@ -1,5 +1,5 @@
 job:
-  job_name: "2026-11-18 WM3354"
+  name: "2026-11-18 WM3354"
   material: kw
   height: 2
   width: 3

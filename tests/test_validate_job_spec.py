@@ -40,7 +40,7 @@ def script() -> Any:
 #: so the job declares explicit plates to stay config-independent.
 _GOOD_SPEC = """\
 job:
-  job_name: Script Validation Job
+  name: Script Validation Job
   max_h_compress: 0.5
   hole_margin: 0.0625
   min_hole_margin: 0.05
@@ -96,7 +96,7 @@ class TestCollectReplacementFiles:
 
         job = JobSpec.model_validate(
             {
-                "job_name": "J",
+                "name": "J",
                 "replacement_text_file": "data.txt",
                 "max_h_compress": 0.5,
                 "hole_margin": 0.06,
@@ -115,7 +115,7 @@ class TestCollectReplacementFiles:
 
         job = JobSpec.model_validate(
             {
-                "job_name": "J",
+                "name": "J",
                 "max_h_compress": 0.5,
                 "hole_margin": 0.06,
                 "min_hole_margin": 0.05,
@@ -238,7 +238,7 @@ class TestValidateSpec:
         assert report.job is None
 
     def test_malformed_yaml_is_file_error(self, script: Any, tmp_path: Path) -> None:
-        spec = _write_spec(tmp_path, "job:\n  job_name: [unclosed\n")
+        spec = _write_spec(tmp_path, "job:\n  name: [unclosed\n")
         assert script.validate_spec(spec, None).file_error is True
 
     def test_unknown_key_is_not_file_error(self, script: Any, tmp_path: Path) -> None:
@@ -276,7 +276,7 @@ class TestValidateSpec:
             ),
             encoding="utf-8",
         )
-        lean = "job:\n  job_name: Lean\n  labels:\n    - id: l1\n      width: 3.0\n      height: 1.0\n      content:\n        - text: Hi\n"
+        lean = "job:\n  name: Lean\n  labels:\n    - id: l1\n      width: 3.0\n      height: 1.0\n      content:\n        - text: Hi\n"
         report = script.validate_spec(_write_spec(tmp_path, lean), config)
         assert report.job is not None
         assert report.findings == []
@@ -297,7 +297,7 @@ class TestExitCodes:
         capsys.readouterr()
 
     def test_schema_error_exits_one(self, script: Any, tmp_path: Path, capsys: Any) -> None:
-        spec = _write_spec(tmp_path, "spec:\n  job_name: T\n")
+        spec = _write_spec(tmp_path, "spec:\n  name: T\n")
         assert script.run([str(spec)]) == script.EXIT_ERRORS
         capsys.readouterr()
 
@@ -311,7 +311,7 @@ class TestExitCodes:
         assert script.run([str(spec), "--json", "--job-config", "", "--tools", ""]) == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["ok"] is True
-        assert payload["job_name"] == "Script Validation Job"
+        assert payload["name"] == "Script Validation Job"
         assert payload["label_count"] == 1
         assert payload["plate_count"] == 1
 

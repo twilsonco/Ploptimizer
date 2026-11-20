@@ -1,5 +1,5 @@
 job:
-  job_name: coolsys target 2164
+  name: coolsys target 2164
   material: kw(uv)
   width: 6
   height: 3

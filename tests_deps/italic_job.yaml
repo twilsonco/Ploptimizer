@@ -19,7 +19,7 @@
 # names carry no plate/material prefix. `max_h_compress` stays unset (0.0):
 # no line compresses, so every pinned number below is pure italic geometry.
 job:
-  job_name: Italic Demo
+  name: Italic Demo
 
   width: 3.0
   height: 1.0

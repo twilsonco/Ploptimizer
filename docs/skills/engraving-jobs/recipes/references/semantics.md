@@ -23,7 +23,7 @@ about **choosing** one and **adapting** it safely.
 
 ## Adapting rules
 
-1. **Copy the file, then change `job_name` first.** It seeds output naming
+1. **Copy the file, then change `name` first.** It seeds output naming
    (`job_id`) — a new job should not overwrite an old run's files.
 2. **Keep label `id`s unique and filesystem-safe** (they become file stems).
 3. **Paths are relative to the YAML.** Each recipe's
@@ -41,7 +41,7 @@ about **choosing** one and **adapting** it safely.
 
 - `2026-10-06-seer.yaml` — multiple labels with per-label `content`,
   per-line `text_height` overrides, `holes`, and label-level replacement
-  data files. When copying it, change `job_name` and every `id`.
+  data files. When copying it, change `name` and every `id`.
 - `2026-10-30-CES-vons-1735.yaml` — a `material`-tagged run (the tag lands
   in every output file name); its commented `plates:` blocks show how to
   pin the same job to declared plate sizes when stock is fixed.

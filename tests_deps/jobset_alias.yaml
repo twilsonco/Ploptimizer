@@ -1,8 +1,8 @@
-# Jobset gate fixture: a DIFFERENT job whose job_name sanitizes to the same
+# Jobset gate fixture: a DIFFERENT job whose name sanitizes to the same
 # filename key as jobset_a.yaml ("Jobset Alpha"), for the job-key collision
 # suffix rule.
 job:
-  job_name: Jobset Alpha
+  name: Jobset Alpha
   layout: columns
   plates:
     - id: plate1

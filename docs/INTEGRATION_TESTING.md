@@ -325,7 +325,7 @@ test_output/integration_test/generation_report/
 | Key | Contents |
 |-----|----------|
 | `schema_version` | Integer document version (currently `1`) |
-| `job` | `job_name`, `job_id` (sanitized, = the id in the file names), `status`, `error`, `spec_path`, `output_dir`, `report_dir`, `started_at`, `finished_at`, `duration_seconds`, `tools`, `options` |
+| `job` | `name`, `job_id` (sanitized, = the id in the file names), `status`, `error`, `spec_path`, `output_dir`, `report_dir`, `started_at`, `finished_at`, `duration_seconds`, `tools`, `options` |
 | `summary` | `plates`, `labels`, `lines`, `labels_with_findings`, `compressed_lines`, `downsized_cutters`, `descender_reliefs`, `distinct_cutters`, `warnings`, `errors` |
 | `timings` | Per-stage wall clock in seconds (`parse`, `resolve`, `layout`, the export's per-plate/per-layer stages) |
 | `outputs` | `plt_files`, `pdf_files`, `default_pdf_files` (paths) and `plates` — per-plate geometry with every placed label (`label_id`, `x`, `y`, `width`, `height`, `rotated`) |
@@ -388,7 +388,7 @@ and the per-line effects come from the render cache Phase 3 exposes on
 `job.status: "failed"` with `job.error: {type, message, stage}` naming the phase
 that aborted (e.g. `export`), the warnings logged before the failure, and
 whatever the export had already written. When parsing itself failed there is no
-job to read the name from, so the spec stem stands in for both `job_name` and
+job to read the name from, so the spec stem stands in for both `name` and
 `job_id`, and `summary.plates` is `0`.
 
 ## Jobset Phase Sequence — 2J / 2J-B / 5J

@@ -181,7 +181,7 @@ class TestBuildReportShape:
         """The report carries exactly the documented sections."""
         resolved, rendered = _label("l1", [_line("A")])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -227,7 +227,7 @@ class TestBuildReportShape:
             },
         }
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -263,7 +263,7 @@ class TestBuildReportShape:
     def test_failure_report_carries_the_error(self, tmp_path: Path) -> None:
         """A failed job records the error type, message and stage."""
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -288,7 +288,7 @@ class TestBuildReportShape:
             downsizes={0: (0.06, 0.045)},
         )
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -314,7 +314,7 @@ class TestBuildReportShape:
             _record(logging.INFO, "stage export: 2.000s"),
         ]
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -331,7 +331,7 @@ class TestBuildReportShape:
             _record(logging.ERROR, "Something else went wrong"),
         ]
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -358,7 +358,7 @@ class TestBuildReportShape:
         stage_records = [_record(logging.INFO, "stage parse: 0.100s")]
 
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -377,7 +377,7 @@ class TestBuildReportShape:
         ]
 
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -395,7 +395,7 @@ class TestLineFindings:
         """A compressed line records its scale and the percentage."""
         resolved, rendered = _label("l1", [_line("WIDE")], compression={0: 0.87})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -411,7 +411,7 @@ class TestLineFindings:
         """A clamped gap records the requested and effective values."""
         resolved, rendered = _label("l1", [_line("A", 0.5), _line("B")], spacing={0: 0.2})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -427,7 +427,7 @@ class TestLineFindings:
         """A downsized cutter records the original and the final diameter."""
         resolved, rendered = _label("l1", [_line("A")], downsizes={0: (0.06, 0.045)})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -443,7 +443,7 @@ class TestLineFindings:
         """Each relieved glyph becomes its own finding entry."""
         resolved, rendered = _label("l1", [_line("pg")], descenders={0: (_fix("g"),)})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -463,7 +463,7 @@ class TestLineFindings:
         """A slid line records the anchored side and the margin it gained."""
         resolved, rendered = _label("l1", [_line("SERIAL", 0.0, "left")], edge_margins={0: 0.3525})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -479,7 +479,7 @@ class TestLineFindings:
         """A switched line records the alignment it declared and the one it got."""
         resolved, rendered = _label("l1", [_line("SERIAL", 0.0, "left")], center_switched={0})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -495,7 +495,7 @@ class TestLineFindings:
         """A line with no applied effect carries an empty finding list."""
         resolved, rendered = _label("l1", [_line("A")])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -510,7 +510,7 @@ class TestLineFindings:
         """Each line carries its own resolved typography."""
         resolved, rendered = _label("l1", [_line("A")])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -532,7 +532,7 @@ class TestLineFindings:
         resolved = replace(resolved, content=[replace(resolved.content[0], cutter_buffer=0.005)])
         rendered = replace(rendered, source_label=resolved)
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -553,7 +553,7 @@ class TestLineFindings:
         resolved = replace(resolved, hole_cutter_diameter=0.015, hole_cutter_buffer=0.045)
         rendered = replace(rendered, source_label=resolved)
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -573,7 +573,7 @@ class TestLineFindings:
         """Every float in the report is rounded to the fixed precision."""
         resolved, rendered = _label("l1", [_line("A")], compression={0: 1.0 / 3.0})
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -630,7 +630,7 @@ class TestFormatSummary:
         """The summary names the job, its status and its counts."""
         resolved, rendered = _label("l1", [_line("WIDE")], compression={0: 0.87})
         report = build_report(
-            job_name="Coolsys Walmart",
+            name="Coolsys Walmart",
             job_id="Coolsys_Walmart",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -651,7 +651,7 @@ class TestFormatSummary:
     def test_summary_names_the_failure(self, tmp_path: Path) -> None:
         """A failed job's summary states the error and its stage."""
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -675,7 +675,7 @@ class TestFormatSummary:
             center_switched={0},
         )
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -694,7 +694,7 @@ class TestFormatSummary:
         lines = [_line(f"L{i}") for i in range(60)]
         resolved, rendered = _label("l1", lines, compression=dict.fromkeys(range(60), 0.9))
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -716,7 +716,7 @@ class TestWriteReport:
         """Both the JSON document and the text summary are written."""
         report_dir = report_dir_for(tmp_path)
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -734,7 +734,7 @@ class TestWriteReport:
         """The written JSON parses back to the same document."""
         report_dir = report_dir_for(tmp_path)
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -749,7 +749,7 @@ class TestWriteReport:
         """The report directory is created when it does not exist."""
         report_dir = tmp_path / "nested" / "generation_report"
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -780,7 +780,7 @@ class TestVCenterFinding:
         line = _line("A-A").with_markup("A<vc>-</vc>A")
         resolved, rendered = _label("l1", [line])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -801,7 +801,7 @@ class TestVCenterFinding:
         line = _line("A-A").with_markup("A<vc>-</vc>A")
         resolved, rendered = _label("l1", [line])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -823,7 +823,7 @@ class TestTextColorMarkupFinding:
         line = _line("AB").with_markup("A<tc:red>B</tc>")
         resolved, rendered = _label("l1", [line])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -845,7 +845,7 @@ class TestTextColorMarkupFinding:
         line = _line("AB").with_markup("A<tc:red>B</tc>")
         resolved, rendered = _label("l1", [line])
         report = build_report(
-            job_name="Job",
+            name="Job",
             job_id="Job",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,

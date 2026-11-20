@@ -3,7 +3,7 @@
 # job's plate segment must be the exact toolpath that job engraves on its own
 # - the strongest form of the segment-equality contract.
 job:
-  job_name: Norot Beta
+  name: Norot Beta
   layout: columns
   allow_rotation: false
   plates:

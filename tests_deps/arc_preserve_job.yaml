@@ -11,7 +11,7 @@
 # names carry no plate prefix: [<cutter>]_txt_<job>.plt per distinct cutter plus
 # one bh file.
 job:
-  job_name: Arc Preserve Compression Demo
+  name: Arc Preserve Compression Demo
 
   width: 3.0
   height: 1.2

@@ -212,9 +212,9 @@ THEMES: Tuple[Theme, ...] = (
             "content",
             "count",
             "single label",
-            "job_name",
+            "name",
         ),
-        fields=("job_name", "labels", "content", "count", "id", "text"),
+        fields=("name", "labels", "content", "count", "id", "text"),
         pitfalls=(
             "A job defines exactly ONE label source (`labels`, root `content`, or a "
             "job-level `replacement_text_file`); mixing sources fails validation at "
@@ -233,7 +233,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Form 1: explicit labels list, each with its own content lines.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Batch 01"\n'
+                    '  name: "Batch 01"\n'
                     "  text_height: 0.5\n"
                     "  labels:\n"
                     "    - id: label_1\n"
@@ -248,7 +248,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Form 2: root-level single label, repeated with count.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Simple Labels"\n'
+                    '  name: "Simple Labels"\n'
                     "  count: 20\n"
                     "  content:\n"
                     '    - text: "Single repeating label"\n'
@@ -305,7 +305,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Form 3: per-label file; each data line is one label copy.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Batch 02"\n'
+                    '  name: "Batch 02"\n'
                     "  labels:\n"
                     "    - id: badge\n"
                     "      replacement_text_file: data.txt\n"
@@ -320,7 +320,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Form 4: job-level file; job width/height/text_height required.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Batch 03"\n'
+                    '  name: "Batch 03"\n'
                     "  width: 3.0\n"
                     "  height: 1.0\n"
                     "  text_height: 0.75\n"
@@ -371,7 +371,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Job sets defaults, label overrides, line overrides again.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Cascade demo"\n'
+                    '  name: "Cascade demo"\n'
                     "  text_height: 0.5\n"
                     "  labels:\n"
                     "    - id: big\n"
@@ -455,7 +455,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Fixed 3x1.5in label, 0.15in margins, rounded corners.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Rounded placard"\n'
+                    '  name: "Rounded placard"\n'
                     "  width: 3.0\n"
                     "  height: 1.5\n"
                     "  margin: 0.15\n"
@@ -504,7 +504,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Font at job level, per-line override, small-caps variant.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Font demo"\n'
+                    '  name: "Font demo"\n'
                     '  font: "ReliefSingleLineCAD-Regular"\n'
                     "  content:\n"
                     '    - text: "Main line"\n'
@@ -562,7 +562,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Add breathing room between characters.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Tracking demo"\n'
+                    '  name: "Tracking demo"\n'
                     "  character_spacing: 0.12\n"
                     "  content:\n"
                     '    - text: "SPACED OUT"\n'
@@ -614,7 +614,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Reflow a long sentence to the label width, max 3 lines.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Reflow demo"\n'
+                    '  name: "Reflow demo"\n'
                     "  width: 4.0\n"
                     "  optimize_line_content: true\n"
                     "  optimize_line_content_max_lines: 3\n"
@@ -673,7 +673,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="More descender room: raise the relief higher, allow deeper scale.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Descender demo"\n'
+                    '  name: "Descender demo"\n'
                     "  descending_character_raise: 0.85\n"
                     "  descending_character_v_scale: 0.45\n"
                     "  content:\n"
@@ -762,7 +762,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Italic, bold and superscript in one line.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Markup demo"\n'
+                    '  name: "Markup demo"\n'
                     "  content:\n"
                     '    - text: "Nom <i>240</i> V / <b>50</b> A"\n'
                     '    - text: "Area 12<sup>2</sup> ft"\n'
@@ -773,7 +773,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Inline font switch, cutter force, color split.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Markup demo 2"\n'
+                    '  name: "Markup demo 2"\n'
                     "  content:\n"
                     '    - text: "Model <f:Dino>X900</f> rev <c:0.030>fine</c>"\n'
                     '    - text: "DANGER <tc:red>high voltage</tc>"\n'
@@ -784,7 +784,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Per-span kerf buffer: deep cut engraves wider, no tool change.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Kerf buffer markup demo"\n'
+                    '  name: "Kerf buffer markup demo"\n'
                     "  cutter_buffer_text: 0.008\n"
                     "  content:\n"
                     '    - text: "Shallow <cb:0.020>deep pocket</cb> shallow"\n'
@@ -842,7 +842,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="A numbered block and a bullet block in one label.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Lists demo"\n'
+                    '  name: "Lists demo"\n'
                     "  content:\n"
                     '    - text: "MAINTENANCE SCHEDULE"\n'
                     "    - enumerate:\n"
@@ -931,7 +931,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Force a 0.040in cutter on one line only.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Cutter demo"\n'
+                    '  name: "Cutter demo"\n'
                     "  content:\n"
                     '    - text: "Fine detail"\n'
                     "      cutter_size: 0.040\n"
@@ -943,7 +943,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Widen the engraved stroke estimate for deep cuts.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Kerf buffer demo"\n'
+                    '  name: "Kerf buffer demo"\n'
                     "  cutter_buffer_text: 0.008\n"
                     "  cutter_buffer_routing: 0.045\n"
                     "  content:\n"
@@ -989,7 +989,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Heavier engraved strokes for a bold PLT font.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Bold demo"\n'
+                    '  name: "Bold demo"\n'
                     '  font: "Claret4"\n'
                     "  target_boldness_factor: 0.18\n"
                     "  content:\n"
@@ -1048,7 +1048,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Allow up to 30% horizontal squeeze, shared per label.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Compression demo"\n'
+                    '  name: "Compression demo"\n'
                     "  max_h_compress: 0.3\n"
                     "  h_compress_global: true\n"
                     "  content:\n"
@@ -1144,7 +1144,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Four corner holes, 0.125in, 0.2in from the edges.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Holes demo"\n'
+                    '  name: "Holes demo"\n'
                     "  width: 4.0\n"
                     "  height: 2.0\n"
                     "  hole_margin: 0.2\n"
@@ -1165,7 +1165,7 @@ THEMES: Tuple[Theme, ...] = (
                 ),
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Edge-aligned collision demo"\n'
+                    '  name: "Edge-aligned collision demo"\n'
                     "  width: 4.0\n"
                     "  height: 1.0\n"
                     "  margin: 0.1\n"
@@ -1242,7 +1242,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Pack onto two named plates, one with a clearance strip.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Plate demo"\n'
+                    '  name: "Plate demo"\n'
                     "  width: 3.0\n"
                     "  height: 1.0\n"
                     "  plates:\n"
@@ -1302,7 +1302,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="Faster cut and higher spindle, at the job level.",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Custom Speeds"\n'
+                    '  name: "Custom Speeds"\n'
                     "  tool_options:\n"
                     "    cutting_velocity: 1.5\n"
                     "    spindle_speed: 15000\n"
@@ -1355,7 +1355,7 @@ THEMES: Tuple[Theme, ...] = (
                 comment="The smallest job that generates (validated by parse_yaml).",
                 yaml_text=(
                     "job:\n"
-                    '  job_name: "Any valid job"\n'
+                    '  name: "Any valid job"\n'
                     "  text_height: 0.5\n"
                     "  content:\n"
                     '    - text: "OK"\n'

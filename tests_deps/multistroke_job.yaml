@@ -23,7 +23,7 @@
 #                                              clamped to 0.0175, stepped up)
 #   - explicit_cutter (Avenge5, cutter_size 0.09) 0.090 (ladder bypassed)
 job:
-  job_name: Multistroke Demo
+  name: Multistroke Demo
 
   width: 3.0
   height: 1.0

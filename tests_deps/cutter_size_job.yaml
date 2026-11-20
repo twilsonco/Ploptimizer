@@ -6,7 +6,7 @@
 # and the job packs onto a single sheet, so emitted names carry no plate or
 # material prefix: [<cutter>]_txt_<job>.plt per distinct cutter + one bh file.
 job:
-  job_name: Cutter Size Demo
+  name: Cutter Size Demo
 
   width: 3.0
   height: 1.0

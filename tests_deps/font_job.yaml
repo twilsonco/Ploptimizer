@@ -33,7 +33,7 @@
 #   - Wingdings (S4, symbol font) ..... boldness ladder 0.0215 -> 0.030
 #   - ReliefSingleLineCAD-Regular ..... height ladder 0.060 (TTF)
 job:
-  job_name: Font Demo
+  name: Font Demo
   width: 3.0
   height: 1.0
   margin: 0.1

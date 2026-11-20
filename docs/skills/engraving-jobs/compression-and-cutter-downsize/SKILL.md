@@ -58,7 +58,7 @@ Allow up to 30% horizontal squeeze, shared per label.
 
 ```yaml
 job:
-  job_name: "Compression demo"
+  name: "Compression demo"
   max_h_compress: 0.3
   h_compress_global: true
   content:

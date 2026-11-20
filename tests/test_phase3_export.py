@@ -5455,7 +5455,7 @@ class TestFontDemoExample:
 
         spec = {
             "job": {
-                "job_name": "x",
+                "name": "x",
                 "width": 3.0,
                 "height": 1.0,
                 "text_height": 0.5,
@@ -7092,7 +7092,7 @@ class TestTextColorMarkupDemoExample:
 
         content: List[Any] = [TextLine(text="<tc:x>A</tc>")]
         spec = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="l",
@@ -7485,8 +7485,8 @@ class TestZeroBufferRegression:
         """Copy the reference spec, optionally declaring both buffers as 0.0."""
         text = Path("tests_deps/test123_spec.yaml").read_text(encoding="utf-8")
         if buffers is not None:
-            # Insert above the job_name line (the value must stay on its key).
-            text = text.replace("  job_name:", f"{buffers}  job_name:", 1)
+            # Insert above the name line (the value must stay on its key).
+            text = text.replace("  name:", f"{buffers}  name:", 1)
         path = tmp_path / "spec.yaml"
         path.write_text(text, encoding="utf-8")
         return path
@@ -7815,7 +7815,7 @@ class TestEdgeMarginCollisionAvoidanceExport:
         from plt_optimizer.generate.schema import PlateSpec
 
         kwargs: Dict[str, Any] = {
-            "job_name": "Edge Avoid",
+            "name": "Edge Avoid",
             "width": 4.0,
             "height": 1.0,
             "text_height": 0.4,
@@ -7909,7 +7909,7 @@ class TestEdgeMarginFlushExport:
         from plt_optimizer.generate.schema import PlateSpec
 
         kwargs: Dict[str, Any] = {
-            "job_name": "Flush Avoid",
+            "name": "Flush Avoid",
             "width": 2.9,
             "height": 1.0,
             "text_height": 0.4,
@@ -8008,7 +8008,7 @@ class TestSharedShiftFlushCompressExport:
         from plt_optimizer.generate.schema import PlateSpec
 
         kwargs: Dict[str, Any] = {
-            "job_name": "Flush Compress",
+            "name": "Flush Compress",
             "width": 4.0,
             "height": 1.0,
             "text_height": 0.4,

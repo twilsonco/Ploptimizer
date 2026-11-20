@@ -251,7 +251,7 @@ emission, so never pre-scale anything.
 ## The five-step loop
 
 1. **Copy a recipe** from `examples/job_specs/` (the recipes skill maps job
-   shapes to starting points) and change `job_name` first - it seeds the output
+   shapes to starting points) and change `name` first - it seeds the output
    file names, so a new job must not overwrite an old run.
 2. **Author the spec.** A job YAML is a single top-level `job:` mapping. Pick
    exactly one label source: an explicit `labels` list, a root-level `content`

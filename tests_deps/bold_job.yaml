@@ -37,7 +37,7 @@
 # No plate declares a material and the job packs onto one sheet, so emitted
 # names carry no plate/material prefix.
 job:
-  job_name: Bold Demo
+  name: Bold Demo
 
   width: 3.0
   height: 1.0

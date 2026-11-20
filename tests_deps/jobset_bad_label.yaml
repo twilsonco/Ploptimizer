@@ -1,7 +1,7 @@
 # Job fixture: a label pinned to an undeclared plate - fails per-job
 # validation, which is how a member can break after the file parses.
 job:
-  job_name: Jobset Bad Label
+  name: Jobset Bad Label
   layout: columns
   labels:
     - id: orphan-pin

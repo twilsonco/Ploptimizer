@@ -1,5 +1,5 @@
 job:
-    job_name: coolsys target 2957
+    name: coolsys target 2957
     font: helv1
     left_clearance: 1.25
     top_clearance: 1.25

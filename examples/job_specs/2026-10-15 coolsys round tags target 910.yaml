@@ -1,7 +1,7 @@
 # 2026-10-15
 # Coolsys Target 910
 job:
-  job_name: Coolsys Target 910
+  name: Coolsys Target 910
   type: round
   material: wk
   width: 2

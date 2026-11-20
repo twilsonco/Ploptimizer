@@ -4,7 +4,7 @@
 # caps. A group grows to one agreed ceiling, so the conflicting declaration
 # aborts the job at resolution time with LineContentConfigError.
 job:
-  job_name: Optimize Line Content Max Lines Conflict Demo
+  name: Optimize Line Content Max Lines Conflict Demo
 
   width: 4.0
   height: 1.6

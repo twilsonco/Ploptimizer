@@ -65,7 +65,7 @@ Add breathing room between characters.
 
 ```yaml
 job:
-  job_name: "Tracking demo"
+  name: "Tracking demo"
   character_spacing: 0.12
   content:
     - text: "SPACED OUT"

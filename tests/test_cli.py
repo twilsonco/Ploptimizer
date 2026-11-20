@@ -233,7 +233,7 @@ class TestGenerateSubcommand:
 
         for entry in manifest["jobs"]:
             job_report = _read_json(out_dir / entry["report"])
-            assert job_report["job"]["job_name"] == entry["job_name"]
+            assert job_report["job"]["name"] == entry["name"]
             assert job_report["job"]["status"] == "success"
             # A member's ids are its own (the composite namespace is stripped).
             assert [label["id"] for label in job_report["labels"]] == [
@@ -254,7 +254,7 @@ class TestGenerateSubcommand:
         jobset = tmp_path / "batch.yaml"
         jobset.write_text("jobset:\n  - job: a.yaml\n", encoding="utf-8")
         spec = tmp_path / "a.yaml"
-        spec.write_text("job_name: A\n", encoding="utf-8")
+        spec.write_text("name: A\n", encoding="utf-8")
         monkeypatch.setattr(
             sys, "argv", ["plt-optimizer", "generate", str(spec), "--jobset", str(jobset)]
         )
@@ -331,7 +331,7 @@ class TestGenerateSubcommand:
         spec_file = tmp_path / "cli_spec.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Cli Smoke Job\n"
+            "  name: Cli Smoke Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -378,7 +378,7 @@ class TestGenerateSubcommand:
         spec_file = tmp_path / "cli_spec.yaml"
         spec_file.write_text(
             "job:\n"
-            '  job_name: "Café Sign #3 (2x4) — ' + "long" * 12 + '"\n'
+            '  name: "Café Sign #3 (2x4) — ' + "long" * 12 + '"\n'
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -494,7 +494,7 @@ class TestCLIIntegration:
         spec_file = tmp_path / "test_spec.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Stub Test\n"
+            "  name: Stub Test\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -540,7 +540,7 @@ class TestCLIIntegration:
         spec_file = tmp_path / "repl_spec.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Repl Cli Job\n"
+            "  name: Repl Cli Job\n"
             "  text_height: 0.3\n"
             "  plates:\n"
             "    - id: p1\n"
@@ -593,7 +593,7 @@ class TestCLIIntegration:
         spec_file = tmp_path / "repl_spec.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Missing Repl Job\n"
+            "  name: Missing Repl Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1224,7 +1224,7 @@ class TestGenerateRun:
         spec_file = directory / name
         spec_file.write_text(
             "job:\n"
-            "  job_name: Generate Run Job\n"
+            "  name: Generate Run Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1497,7 +1497,7 @@ class TestGenerateRun:
 
         spec_file = tmp_path / "bad.yaml"
         spec_file.write_text(
-            "job:\n  job_name: Bad\n  count: -1\n  content:\n    - text: Hi\n",
+            "job:\n  name: Bad\n  count: -1\n  content:\n    - text: Hi\n",
             encoding="utf-8",
         )
         args = self._args(spec_file)
@@ -1519,7 +1519,7 @@ class TestGenerateRun:
         spec_file = tmp_path / "root.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Root Job\n"
+            "  name: Root Job\n"
             "  width: 2.0\n"
             "  height: 1.0\n"
             "  count: 2\n"
@@ -1711,7 +1711,7 @@ class TestGenerateRun:
 
         spec_file = tmp_path / "bad.yaml"
         spec_file.write_text(
-            "job:\n  job_name: Bad\n  count: -1\n  content:\n    - text: Hi\n",
+            "job:\n  name: Bad\n  count: -1\n  content:\n    - text: Hi\n",
             encoding="utf-8",
         )
         args = self._args(spec_file)
@@ -1760,7 +1760,7 @@ class TestGenerateRun:
         member = root / "member.yaml"
         member.write_text(
             "job:\n"
-            "  job_name: Batch Default Job\n"
+            "  name: Batch Default Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1831,7 +1831,7 @@ class TestGenerateRun:
         assert report_path.is_file()
         report = json.loads(report_path.read_text(encoding="utf-8"))
         assert report["job"]["status"] == "failed"
-        assert report["job"]["job_name"] == "Broken Batch"
+        assert report["job"]["name"] == "Broken Batch"
         assert report["job"]["spec_path"].endswith("batch.yaml")
         assert report["job"]["error"]["stage"] == "resolve"
         assert "missing.yaml" in report["job"]["error"]["message"]
@@ -1858,7 +1858,7 @@ class TestGenerateRun:
         )
         (tmp_path / "member.yaml").write_text(
             "job:\n"
-            "  job_name: Guarded Job\n"
+            "  name: Guarded Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -2077,8 +2077,8 @@ class TestGenerateRun:
         spec_file = self._write_spec(tmp_path, name="rows_spec.yaml")
         spec_file.write_text(
             spec_file.read_text(encoding="utf-8").replace(
-                "  job_name: Generate Run Job\n",
-                "  job_name: Generate Run Job\n  layout: rows\n",
+                "  name: Generate Run Job\n",
+                "  name: Generate Run Job\n  layout: rows\n",
             ),
             encoding="utf-8",
         )
@@ -2121,7 +2121,7 @@ class TestGenerateRun:
 
         def _job(**clearances: float) -> JobSpec:
             return JobSpec(  # type: ignore[arg-type]
-                job_name="J", width=2.0, height=1.0, content=[TextLine(text="X")], **clearances
+                name="J", width=2.0, height=1.0, content=[TextLine(text="X")], **clearances
             )
 
         assert _default_plate_clearance(_job()) is None
@@ -2139,7 +2139,7 @@ class TestGenerateRun:
         spec_file = tmp_path / "bare.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Bare Cli Job\n"
+            "  name: Bare Cli Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -2233,7 +2233,7 @@ class TestGenerateRun:
         spec_file = tmp_path / "no_plate.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Default Plate Job\n"
+            "  name: Default Plate Job\n"
             "  layout: rows\n"
             "  labels:\n"
             "    - id: l1\n"

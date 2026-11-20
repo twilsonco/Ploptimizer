@@ -31,7 +31,7 @@
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
 # cutter plus one bh file.
 job:
-  job_name: Descender Border Demo
+  name: Descender Border Demo
 
   width: 6.0
   margin: 0.1

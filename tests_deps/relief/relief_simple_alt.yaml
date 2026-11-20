@@ -1,5 +1,5 @@
 job:
-  job_name: relief_simple
+  name: relief_simple
   relief_engraving: true
   relief_engraving_cutters: [0.25, 0.005]
   width: 1

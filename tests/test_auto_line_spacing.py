@@ -25,7 +25,7 @@ class TestAutoLineSpacing:
         - v_margin should be set to 0.3125"
         """
         job = JobSpec(
-            job_name="Test Auto Spacing No Explicit Margin",
+            name="Test Auto Spacing No Explicit Margin",
             width=3.0,
             height=2.0,
             text_height=0.25,
@@ -56,7 +56,7 @@ class TestAutoLineSpacing:
         - v_margin should stay at 0.2"
         """
         job = JobSpec(
-            job_name="Test Auto Spacing with Explicit Margin",
+            name="Test Auto Spacing with Explicit Margin",
             width=3.0,
             height=2.0,
             text_height=0.25,
@@ -80,7 +80,7 @@ class TestAutoLineSpacing:
     def test_auto_spacing_single_line(self) -> None:
         """Auto spacing handles single-line labels correctly."""
         job = JobSpec(
-            job_name="Test Auto Spacing Single Line",
+            name="Test Auto Spacing Single Line",
             width=3.0,
             height=1.0,
             text_height=0.25,
@@ -97,7 +97,7 @@ class TestAutoLineSpacing:
     def test_auto_spacing_two_lines(self) -> None:
         """Auto spacing with two lines calculates based on available space."""
         job = JobSpec(
-            job_name="Test Auto Spacing Two Lines",
+            name="Test Auto Spacing Two Lines",
             width=3.0,
             height=1.5,
             text_height=0.25,
@@ -126,7 +126,7 @@ class TestAutoLineSpacing:
         all are treated as auto with a warning logged.
         """
         job = JobSpec(
-            job_name="Test Mixed Auto and Explicit",
+            name="Test Mixed Auto and Explicit",
             width=3.0,
             height=2.0,
             text_height=0.25,
@@ -148,7 +148,7 @@ class TestAutoLineSpacing:
     def test_auto_spacing_label_level(self) -> None:
         """Auto spacing can be specified at label level in explicit labels list."""
         job = JobSpec(
-            job_name="Test Label-Level Auto Spacing",
+            name="Test Label-Level Auto Spacing",
             labels=[
                 LabelSpec(
                     id="label_1",
@@ -173,7 +173,7 @@ class TestAutoLineSpacing:
     def test_auto_spacing_cascade_from_job_to_lines(self) -> None:
         """Auto spacing at job level cascades to lines that don't override it."""
         job = JobSpec(
-            job_name="Test Job-Level Auto Spacing Cascade",
+            name="Test Job-Level Auto Spacing Cascade",
             width=3.0,
             height=2.0,
             text_height=0.25,
@@ -200,7 +200,7 @@ class TestAutoLineSpacing:
     def test_auto_spacing_respects_margin_constraints(self) -> None:
         """Auto spacing fits content within margin constraints."""
         job = JobSpec(
-            job_name="Test Auto Spacing with Margins",
+            name="Test Auto Spacing with Margins",
             width=3.0,
             height=2.0,
             text_height=0.25,
@@ -235,7 +235,7 @@ class TestAutoLineSpacing:
         - v_margin should be set to 0.2857"
         """
         job = JobSpec(
-            job_name="Test Auto Spacing with Ratio",
+            name="Test Auto Spacing with Ratio",
             width=3.0,
             height=2.0,
             text_height=0.5,

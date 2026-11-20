@@ -20,7 +20,7 @@
 #     examples/job_specs/descender_adjust_demo.yaml \
 #     -o test_output/descender_adjust_demo --default-plots
 job:
-  job_name: Descender Relief Demo
+  name: Descender Relief Demo
   width: 6.0
   height: 3.0
   margin: 0.2

@@ -101,7 +101,7 @@ internally — you work only in inches.
 
 ```yaml
 job:
-  job_name: "First job"
+  name: "First job"
   text_height: 0.5
   content:
     - text: "HELLO"

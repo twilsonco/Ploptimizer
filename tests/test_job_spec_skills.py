@@ -113,6 +113,23 @@ def _skill_dirs() -> List[Path]:
     return sorted(d for d in CATEGORY_DIR.iterdir() if d.is_dir() and (d / "SKILL.md").exists())
 
 
+def _visible_entries(base: Path) -> List[Path]:
+    """List a skill subdirectory's real files, ignoring Python's bytecode.
+
+    Importing the mirrored ``scripts/`` helpers (which the suite does, via the
+    mirror-identity pins) drops a ``__pycache__/`` beside them, and a fresh
+    clone never has one. These pins compare a directory's *contents*, so the
+    byproducts are filtered rather than committed to a fixture.
+
+    Args:
+        base: The directory to list.
+
+    Returns:
+        Sorted entries that are not ``__pycache__`` / ``.pyc`` artifacts.
+    """
+    return sorted(p for p in base.iterdir() if p.name != "__pycache__" and p.suffix != ".pyc")
+
+
 def _frontmatter(skill_md: Path) -> Dict[str, Any]:
     """Parse a SKILL.md's YAML frontmatter.
 
@@ -460,7 +477,7 @@ class TestLinkIntegrity:
                 base = skill_dir / subdir
                 if not base.exists():
                     continue
-                for path in sorted(base.iterdir()):
+                for path in _visible_entries(base):
                     if f"{subdir}/{path.name}" not in named:
                         unref.append(f"{skill_dir.name}/{subdir}/{path.name}")
         assert not unref, f"files not referenced from a SKILL.md: {unref}"
@@ -486,7 +503,7 @@ class TestSkillScriptsMirror:
     def test_mirror_set_matches_registry(self) -> None:
         """validating-jobs/scripts/ contains exactly the mirrored basenames."""
         expected = set(gen.SKILL_SCRIPT_SOURCES)
-        actual = {p.name for p in gen.SKILL_SCRIPTS_DIR.iterdir()}
+        actual = {p.name for p in _visible_entries(gen.SKILL_SCRIPTS_DIR)}
         assert actual == expected
 
     def test_mirrors_are_byte_identical_to_sources(self) -> None:

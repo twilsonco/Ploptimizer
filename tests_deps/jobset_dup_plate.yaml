@@ -1,7 +1,7 @@
 # Job fixture: the same plate id twice, for the gate's per-member plate-id
 # uniqueness rule (the schema allows it; the jobset merge cannot honour it).
 job:
-  job_name: Jobset Dup Plate
+  name: Jobset Dup Plate
   layout: columns
   plates:
     - id: plate1

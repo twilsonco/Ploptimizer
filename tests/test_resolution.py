@@ -226,7 +226,7 @@ class TestResolveJobSpecRootLevel:
     def test_root_level_uses_job_dimensions(self) -> None:
         """Root-level jobs should use job-level width/height directly."""
         job = JobSpec(
-            job_name="Batch",
+            name="Batch",
             width=3.0,
             height=1.5,
             count=10,
@@ -245,7 +245,7 @@ class TestResolveJobSpecRootLevel:
     def test_root_level_generates_unique_ids(self) -> None:
         """Each root-level job should get a unique synthetic ID."""
         job = JobSpec(
-            job_name="Batch",
+            name="Batch",
             width=2.0,
             height=1.0,
             count=1,
@@ -262,7 +262,7 @@ class TestResolveJobSpecExplicitLabels:
     def test_explicit_labels_preserve_ids(self) -> None:
         """Explicit labels should keep their provided IDs."""
         job = JobSpec(
-            job_name="Multi",
+            name="Multi",
             labels=[
                 LabelSpec(
                     id="pump_warn",
@@ -290,7 +290,7 @@ class TestResolveJobSpecExplicitLabels:
     def test_explicit_labels_use_label_dimensions(self) -> None:
         """Explicit labels should use their own width/height when provided."""
         job = JobSpec(
-            job_name="Multi",
+            name="Multi",
             labels=[
                 LabelSpec(
                     id="big",
@@ -321,7 +321,7 @@ class TestCascadeResolution:
     def test_text_line_overrides_label(self) -> None:
         """Text line values should override label values."""
         job = JobSpec(
-            job_name="Cascade",
+            name="Cascade",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -339,7 +339,7 @@ class TestCascadeResolution:
     def test_label_overrides_job(self) -> None:
         """Label values should override job values."""
         job = JobSpec(
-            job_name="Cascade",
+            name="Cascade",
             text_height=0.3,
             labels=[
                 LabelSpec(
@@ -358,7 +358,7 @@ class TestCascadeResolution:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job values should be used when label omits them."""
         job = JobSpec(
-            job_name="Cascade",
+            name="Cascade",
             text_height=0.35,
             labels=[
                 LabelSpec(
@@ -376,7 +376,7 @@ class TestCascadeResolution:
     def test_fallback_used_when_all_omit(self) -> None:
         """Fallback constants should be used when all levels omit."""
         job = JobSpec(
-            job_name="Fallback",
+            name="Fallback",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -404,7 +404,7 @@ class TestHoleResolution:
     def test_label_holes_override_job_holes(self) -> None:
         """Label-defined holes should take precedence over job-defined holes."""
         job = JobSpec(
-            job_name="Holes",
+            name="Holes",
             holes=[HoleSpec(diameter=0.25, location="top")],
             labels=[
                 LabelSpec(
@@ -425,7 +425,7 @@ class TestHoleResolution:
     def test_location_only_hole_resolves_default_diameter(self) -> None:
         """A location-only hole resolves with the 0.125in default diameter."""
         job = JobSpec(
-            job_name="Holes",
+            name="Holes",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -445,7 +445,7 @@ class TestHoleResolution:
     def test_group_holes_resolve_to_atomic_locations(self) -> None:
         """``corners`` / ``sides`` groups resolve into atomic hole locations."""
         job = JobSpec(
-            job_name="Holes",
+            name="Holes",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -475,7 +475,7 @@ class TestHoleResolution:
     def test_job_holes_used_when_label_omits(self) -> None:
         """Job-defined holes should be used when label omits them."""
         job = JobSpec(
-            job_name="Holes",
+            name="Holes",
             holes=[HoleSpec(diameter=0.25, location="top")],
             labels=[
                 LabelSpec(
@@ -495,7 +495,7 @@ class TestHoleResolution:
     def test_no_holes_when_neither_defines(self) -> None:
         """Empty holes list when neither label nor job defines holes."""
         job = JobSpec(
-            job_name="NoHoles",
+            name="NoHoles",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -516,7 +516,7 @@ class TestHoleMarginResolution:
     def test_default_hole_margin_when_unset(self) -> None:
         """hole_margin should fall back to the global default."""
         job = JobSpec(
-            job_name="HM",
+            name="HM",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
             ],
@@ -527,7 +527,7 @@ class TestHoleMarginResolution:
     def test_job_hole_margin_used_when_label_omits(self) -> None:
         """Job-level hole_margin should apply when the label omits it."""
         job = JobSpec(
-            job_name="HM",
+            name="HM",
             hole_margin=0.25,
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
@@ -539,7 +539,7 @@ class TestHoleMarginResolution:
     def test_label_hole_margin_overrides_job(self) -> None:
         """Label-level hole_margin should take precedence over the job."""
         job = JobSpec(
-            job_name="HM",
+            name="HM",
             hole_margin=0.25,
             labels=[
                 LabelSpec(
@@ -562,7 +562,7 @@ class TestHoleMarginResolution:
         which is a valid and intentional configuration.
         """
         job = JobSpec(
-            job_name="HM",
+            name="HM",
             hole_margin=0.25,
             labels=[
                 LabelSpec(
@@ -584,7 +584,7 @@ class TestHoleMarginResolution:
             ValidationError, match=r"hole_margin\s+Input should be greater than or equal to 0"
         ):
             JobSpec(
-                job_name="HM",
+                name="HM",
                 hole_margin=-0.1,
                 labels=[
                     LabelSpec(
@@ -600,7 +600,7 @@ class TestCutterCompensation:
     def test_toolpath_height_subtracts_cutter(self) -> None:
         """toolpath_text_height should equal nominal minus cutter diameter."""
         job = JobSpec(
-            job_name="Cutter",
+            name="Cutter",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -621,7 +621,7 @@ class TestCutterCompensation:
     def test_cutter_diameter_stored_on_line(self) -> None:
         """Each ResolvedTextLine should store its matched cutter diameter."""
         job = JobSpec(
-            job_name="Cutter",
+            name="Cutter",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -643,7 +643,7 @@ class TestCutterCompensation:
         """When inventory is provideder should snap to closest available."""
         inventory = [0.005, 0.01, 0.05]
         job = JobSpec(
-            job_name="Cutter",
+            name="Cutter",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -664,7 +664,7 @@ class TestCutterCompensation:
     def test_char_spacing_fallback_uses_cutter(self) -> None:
         """When char_spacing is omitted, it should fall back to cutter * 1.5."""
         job = JobSpec(
-            job_name="Cutter",
+            name="Cutter",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -808,7 +808,7 @@ class TestMarginPrecedenceInResolution:
     def test_high_line_spacing_is_reduced_to_preserve_margin(self) -> None:
         """valve_tag-style case: 2 x 0.3in lines with 0.3in spacing."""
         job = JobSpec(
-            job_name="Tight",
+            name="Tight",
             text_height=0.3,
             line_spacing=0.3,
             labels=[
@@ -835,7 +835,7 @@ class TestMarginPrecedenceInResolution:
     def test_margin_wins_over_job_level_spacing(self) -> None:
         """A job-level spacing that overflows a label must be clamped."""
         job = JobSpec(
-            job_name="Tight",
+            name="Tight",
             text_height=0.3,
             line_spacing=0.3,
             margin=0.25,
@@ -856,7 +856,7 @@ class TestMarginPrecedenceInResolution:
     def test_untouched_when_spacing_fits(self) -> None:
         """Labels with room to spare keep their requested spacing."""
         job = JobSpec(
-            job_name="Roomy",
+            name="Roomy",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -876,7 +876,7 @@ class TestMarginPrecedenceInResolution:
     def test_single_line_label_is_unaffected(self) -> None:
         """Single-line labels have no spacing to clamp even when too tall."""
         job = JobSpec(
-            job_name="Single",
+            name="Single",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -896,7 +896,7 @@ class TestMarginPrecedenceInResolution:
     def test_per_line_spacing_override_is_respected(self) -> None:
         """A line-level spacing smaller than the label's need stays intact."""
         job = JobSpec(
-            job_name="Mixed",
+            name="Mixed",
             text_height=0.3,
             line_spacing=0.5,
             labels=[
@@ -929,7 +929,7 @@ class TestMarginAgainstConfigAxisMargins:
     def test_spec_margin_wins_over_config_h_margin(self, tmp_path: Path) -> None:
         """margin=2.0 + config h_margin=0.3 resolves 2.0in on both axes."""
         job_data = {
-            "job_name": "Coolsys",
+            "name": "Coolsys",
             "width": 24.0,
             "height": 16.0,
             "text_height": 1.0,
@@ -945,7 +945,7 @@ class TestMarginAgainstConfigAxisMargins:
     def test_config_axis_margin_applies_without_spec_margin(self, tmp_path: Path) -> None:
         """Without a spec margin the configured h_margin keeps working."""
         job_data = {
-            "job_name": "Shop",
+            "name": "Shop",
             "width": 24.0,
             "height": 16.0,
             "text_height": 1.0,
@@ -1006,7 +1006,7 @@ class TestMaxHCompressCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the no-compression default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1022,7 +1022,7 @@ class TestMaxHCompressCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             max_h_compress=0.4,
             labels=[
                 LabelSpec(
@@ -1039,7 +1039,7 @@ class TestMaxHCompressCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             max_h_compress=0.4,
             labels=[
                 LabelSpec(
@@ -1057,7 +1057,7 @@ class TestMaxHCompressCascade:
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             max_h_compress=0.4,
             labels=[
                 LabelSpec(
@@ -1075,7 +1075,7 @@ class TestMaxHCompressCascade:
     def test_explicit_zero_at_label_disables_job_compression(self) -> None:
         """An explicit 0.0 must win over a parent value, not fall through."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             max_h_compress=0.5,
             labels=[
                 LabelSpec(
@@ -1093,7 +1093,7 @@ class TestMaxHCompressCascade:
     def test_explicit_zero_at_line_disables_parent(self) -> None:
         """An explicit 0.0 at the line level disables inherited compression."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             max_h_compress=0.5,
             labels=[
                 LabelSpec(
@@ -1110,7 +1110,7 @@ class TestMaxHCompressCascade:
     def test_root_level_job_cascades(self) -> None:
         """Root-level single-label jobs inherit the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             max_h_compress=0.7,
             width=2.0,
             height=1.0,
@@ -1219,7 +1219,7 @@ class TestTextHAlignmentCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the centering default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1235,7 +1235,7 @@ class TestTextHAlignmentCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_h_alignment="left",
             labels=[
                 LabelSpec(
@@ -1252,7 +1252,7 @@ class TestTextHAlignmentCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_h_alignment="left",
             labels=[
                 LabelSpec(
@@ -1270,7 +1270,7 @@ class TestTextHAlignmentCascade:
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_h_alignment="left",
             labels=[
                 LabelSpec(
@@ -1288,7 +1288,7 @@ class TestTextHAlignmentCascade:
     def test_per_line_alignment_within_one_label(self) -> None:
         """Different lines in one label may carry different alignments."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_h_alignment="center",
             labels=[
                 LabelSpec(
@@ -1329,7 +1329,7 @@ class TestTextColorResolution:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the implicit 'none' color."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1345,7 +1345,7 @@ class TestTextColorResolution:
     def test_label_value_used_when_line_omits(self) -> None:
         """Label-level color applies to its lines."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1362,7 +1362,7 @@ class TestTextColorResolution:
     def test_line_overrides_label(self) -> None:
         """Line-level color overrides the label-level color."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1379,7 +1379,7 @@ class TestTextColorResolution:
     def test_per_line_color_within_one_label(self) -> None:
         """Different lines in one label may carry different colors."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1404,7 +1404,7 @@ class TestTextColorResolution:
         """A job-level color is rejected outright, so nothing cascades."""
         with pytest.raises(ValidationError):
             JobSpec(
-                job_name="J",
+                name="J",
                 text_color="red",
                 labels=[
                     LabelSpec(
@@ -1435,7 +1435,7 @@ class TestFontCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields DEFAULT_FONT."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1451,7 +1451,7 @@ class TestFontCascade:
     def test_job_value_used_when_lower_levels_omit(self) -> None:
         """Job-level font applies to labels and lines that omit it."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             font="dino",
             labels=[
                 LabelSpec(
@@ -1468,7 +1468,7 @@ class TestFontCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level font overrides the job-level font."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             font="dino",
             labels=[
                 LabelSpec(
@@ -1486,7 +1486,7 @@ class TestFontCascade:
     def test_line_overrides_label_and_job(self) -> None:
         """Line-level font wins over both parent tiers."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             font="dino",
             labels=[
                 LabelSpec(
@@ -1504,7 +1504,7 @@ class TestFontCascade:
     def test_per_line_font_within_one_label(self) -> None:
         """Different lines in one label may carry different fonts."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             font="dino",
             labels=[
                 LabelSpec(
@@ -1549,7 +1549,7 @@ class TestMinHoleMarginCascade:
     def test_default_is_none_when_unset(self) -> None:
         """Unset min_hole_margin falls back to the global default (None)."""
         job = JobSpec(
-            job_name="MHM",
+            name="MHM",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
             ],
@@ -1561,7 +1561,7 @@ class TestMinHoleMarginCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level min_hole_margin applies when the label omits it."""
         job = JobSpec(
-            job_name="MHM",
+            name="MHM",
             min_hole_margin=0.05,
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
@@ -1573,7 +1573,7 @@ class TestMinHoleMarginCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level min_hole_margin takes precedence over the job."""
         job = JobSpec(
-            job_name="MHM",
+            name="MHM",
             min_hole_margin=0.05,
             labels=[
                 LabelSpec(
@@ -1596,7 +1596,7 @@ class TestMinHoleMarginCascade:
         way to tangent, which is a valid intentional configuration.
         """
         job = JobSpec(
-            job_name="MHM",
+            name="MHM",
             min_hole_margin=0.05,
             labels=[
                 LabelSpec(
@@ -1615,7 +1615,7 @@ class TestMinHoleMarginCascade:
     def test_root_level_job_cascades(self) -> None:
         """Root-level single-label jobs inherit the job-level value."""
         job = JobSpec(
-            job_name="MHM",
+            name="MHM",
             min_hole_margin=0.075,
             width=2.0,
             height=1.0,
@@ -1628,7 +1628,7 @@ class TestMinHoleMarginCascade:
         """Negative min_hole_margin values must fail schema validation."""
         with pytest.raises(ValidationError):
             JobSpec(
-                job_name="MHM",
+                name="MHM",
                 min_hole_margin=-0.1,
                 labels=[
                     LabelSpec(
@@ -1656,7 +1656,7 @@ class TestHoleTextCollisionDistanceCascade:
     def test_default_is_015_when_unset(self) -> None:
         """Unset collision distance falls back to the 0.15in default."""
         job = JobSpec(
-            job_name="HTCD",
+            name="HTCD",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
             ],
@@ -1668,7 +1668,7 @@ class TestHoleTextCollisionDistanceCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level collision distance applies when the label omits it."""
         job = JobSpec(
-            job_name="HTCD",
+            name="HTCD",
             hole_text_collision_distance=0.25,
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
@@ -1680,7 +1680,7 @@ class TestHoleTextCollisionDistanceCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level collision distance takes precedence over the job."""
         job = JobSpec(
-            job_name="HTCD",
+            name="HTCD",
             hole_text_collision_distance=0.25,
             labels=[
                 LabelSpec(
@@ -1703,7 +1703,7 @@ class TestHoleTextCollisionDistanceCascade:
         are allowed to touch (stroke floor only, no air gap).
         """
         job = JobSpec(
-            job_name="HTCD",
+            name="HTCD",
             hole_text_collision_distance=0.25,
             labels=[
                 LabelSpec(
@@ -1722,7 +1722,7 @@ class TestHoleTextCollisionDistanceCascade:
     def test_root_level_job_cascades(self) -> None:
         """Root-level single-label jobs inherit the job-level value."""
         job = JobSpec(
-            job_name="HTCD",
+            name="HTCD",
             hole_text_collision_distance=0.2,
             width=2.0,
             height=1.0,
@@ -1771,7 +1771,7 @@ class TestSnapBoundaryHoleCutter:
     def test_resolution_threads_and_snaps_boundary_cutter(self) -> None:
         """resolve_job_spec stores the snapped boundary/hole cutter."""
         job = JobSpec(
-            job_name="BHC",
+            name="BHC",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1926,7 +1926,7 @@ class TestTextChunkModeCascade:
     def test_default_is_line(self) -> None:
         """Unset chunk mode resolves to 'line' (backward compatible)."""
         job = JobSpec(
-            job_name="TCM",
+            name="TCM",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
             ],
@@ -1937,7 +1937,7 @@ class TestTextChunkModeCascade:
     def test_job_word_value_cascades(self) -> None:
         """Job-level 'word' applies to every label."""
         job = JobSpec(
-            job_name="TCM",
+            name="TCM",
             text_chunk_mode="word",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
@@ -1949,7 +1949,7 @@ class TestTextChunkModeCascade:
     def test_root_level_job_cascades(self) -> None:
         """Root-level single-label jobs carry their own chunk mode."""
         job = JobSpec(
-            job_name="TCM",
+            name="TCM",
             text_chunk_mode="word",
             width=2.0,
             height=1.0,
@@ -1972,7 +1972,7 @@ class TestSpaceWidthFractionCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 0.3 default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -1988,7 +1988,7 @@ class TestSpaceWidthFractionCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             space_width_fraction=0.45,
             labels=[
                 LabelSpec(
@@ -2005,7 +2005,7 @@ class TestSpaceWidthFractionCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             space_width_fraction=0.45,
             labels=[
                 LabelSpec(
@@ -2023,7 +2023,7 @@ class TestSpaceWidthFractionCascade:
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             space_width_fraction=0.45,
             labels=[
                 LabelSpec(
@@ -2041,7 +2041,7 @@ class TestSpaceWidthFractionCascade:
     def test_explicit_zero_at_label_beats_job(self) -> None:
         """An explicit 0.0 must win over a parent value, not fall through."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             space_width_fraction=0.5,
             labels=[
                 LabelSpec(
@@ -2063,7 +2063,7 @@ class TestMinGlyphWidthCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the pure-envelope default (0.0)."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -2082,7 +2082,7 @@ class TestMinGlyphWidthCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
@@ -2099,7 +2099,7 @@ class TestMinGlyphWidthCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
@@ -2117,7 +2117,7 @@ class TestMinGlyphWidthCascade:
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
@@ -2135,7 +2135,7 @@ class TestMinGlyphWidthCascade:
     def test_explicit_zero_at_line_beats_parents(self) -> None:
         """An explicit 0.0 must win over a parent value, not fall through."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             min_glyph_width_fraction=0.1,
             labels=[
                 LabelSpec(
@@ -2157,7 +2157,7 @@ class TestKerningWindowFractionCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 0.05 window default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -2176,7 +2176,7 @@ class TestKerningWindowFractionCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             kerning_window_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -2193,7 +2193,7 @@ class TestKerningWindowFractionCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             kerning_window_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -2211,7 +2211,7 @@ class TestKerningWindowFractionCascade:
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             kerning_window_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -2229,7 +2229,7 @@ class TestKerningWindowFractionCascade:
     def test_explicit_zero_at_line_beats_parents(self) -> None:
         """An explicit 0.0 (historical same-height kerning) must win."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             kerning_window_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -2249,7 +2249,7 @@ class TestKerningWindowFractionCascade:
         with pytest.raises(ValueError):
             TextLine(text="X", kerning_window_fraction=1.01)
         with pytest.raises(ValueError):
-            JobSpec(job_name="J", kerning_window_fraction=1.5)
+            JobSpec(name="J", kerning_window_fraction=1.5)
 
 
 class TestSmallCapsScaleCascade:
@@ -2259,7 +2259,7 @@ class TestSmallCapsScaleCascade:
     def _job(**line_kwargs: object) -> JobSpec:
         """Build a one-label/one-line job carrying optional line overrides."""
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -2285,7 +2285,7 @@ class TestSmallCapsScaleCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             sc_scale=0.3,
             labels=[
                 LabelSpec(
@@ -2303,7 +2303,7 @@ class TestSmallCapsScaleCascade:
     def test_line_overrides_label(self) -> None:
         """Line-level value overrides the label-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             sc_scale=0.3,
             labels=[
                 LabelSpec(
@@ -2321,7 +2321,7 @@ class TestSmallCapsScaleCascade:
     def test_explicit_one_is_honored(self) -> None:
         """An explicit 1.0 (base-identical rendering) beats the parents."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             sc_scale=0.3,
             labels=[
                 LabelSpec(
@@ -2339,7 +2339,7 @@ class TestSmallCapsScaleCascade:
     def test_scale_never_touches_the_cutter(self) -> None:
         """The small-caps scale must not change the resolved heights/cutter."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             font="Dino SC",
             sc_scale=0.4,
@@ -2365,7 +2365,7 @@ class TestSmallCapsScaleCascade:
         with pytest.raises(ValueError):
             TextLine(text="X", sc_scale=1.01)
         with pytest.raises(ValueError):
-            JobSpec(job_name="J", sc_scale=0.0)
+            JobSpec(name="J", sc_scale=0.0)
 
 
 class TestKerningSpacingKnobCascades:
@@ -2401,7 +2401,7 @@ class TestKerningSpacingKnobCascades:
             if "line" in levels:
                 line_kwargs[field] = levels["line"]
             job = JobSpec(
-                job_name="J",
+                name="J",
                 **job_kwargs,  # type: ignore[arg-type]
                 labels=[
                     LabelSpec(
@@ -2417,7 +2417,7 @@ class TestKerningSpacingKnobCascades:
 
         # All levels omit -> module default (checked via the resolved value).
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         defaults = {
@@ -2447,7 +2447,7 @@ class TestKerningSpacingKnobCascades:
         with pytest.raises(ValidationError):
             TextLine(text="X", **{field: -0.1})  # type: ignore[arg-type]
         with pytest.raises(ValidationError):
-            JobSpec(job_name="J", **{field: -0.1})  # type: ignore[arg-type]
+            JobSpec(name="J", **{field: -0.1})  # type: ignore[arg-type]
 
 
 class TestCutterSizeCascade:
@@ -2466,7 +2466,7 @@ class TestCutterSizeCascade:
         if "line" in levels:
             line_kwargs["cutter_size"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -2549,7 +2549,7 @@ class TestCutterSizeCascade:
     def test_mixed_explicit_and_auto_lines(self) -> None:
         """A label can mix an explicit-cutter line with an auto-selected one."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             labels=[
                 LabelSpec(
@@ -2655,7 +2655,7 @@ class TestMultistrokeCascade:
             field, tier = key.split("__")
             {"job": job_kwargs, "label": label_kwargs, "line": line_kwargs}[tier][field] = value
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -2736,7 +2736,7 @@ class TestMultiStrokeCutterResolution:
     @staticmethod
     def _job(font: str, **line_kwargs: object) -> JobSpec:
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             font=font,
             labels=[
@@ -2837,7 +2837,7 @@ class TestCutterDownsizeCascade:
         if "line" in levels:
             line_kwargs["cutter_downsize"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -2892,7 +2892,7 @@ class TestMaxCutterDownsizesCascade:
         if "line" in levels:
             line_kwargs["max_cutter_downsizes"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -2952,7 +2952,7 @@ class TestCutterDownsizeGlobalCascade:
         if "line" in levels:
             line_kwargs["cutter_downsize_global"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3007,7 +3007,7 @@ class TestCutterDownsizeGlobalJobWideCascade:
         if "line" in levels:
             line_kwargs["cutter_downsize_global_job_wide"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3062,7 +3062,7 @@ class TestHCompressGlobalCascade:
         if "line" in levels:
             line_kwargs["h_compress_global"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3117,7 +3117,7 @@ class TestHCompressGlobalSameHeightOnlyCascade:
         if "line" in levels:
             line_kwargs["h_compress_global_same_height_only"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3172,7 +3172,7 @@ class TestArcPreserveCompressionCascade:
         if "line" in levels:
             line_kwargs["arc_preserve_compression"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3227,7 +3227,7 @@ class TestEnforceCapLineCascade:
         if "line" in levels:
             line_kwargs["enforce_cap_line"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3332,7 +3332,7 @@ class TestMaterialCascade:
     def test_default_is_none(self) -> None:
         """Unset material resolves to None (material-agnostic)."""
         job = JobSpec(
-            job_name="M",
+            name="M",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
             ],
@@ -3342,7 +3342,7 @@ class TestMaterialCascade:
     def test_job_value_cascades(self) -> None:
         """Job-level material applies to every label that omits it."""
         job = JobSpec(
-            job_name="M",
+            name="M",
             material="wk",
             labels=[
                 LabelSpec(id="lbl", count=1, width=2.0, height=1.0, content=[TextLine(text="X")]),
@@ -3353,7 +3353,7 @@ class TestMaterialCascade:
     def test_label_overrides_job(self) -> None:
         """A label-level material wins over the job-level value."""
         job = JobSpec(
-            job_name="M",
+            name="M",
             material="wk",
             labels=[
                 LabelSpec(
@@ -3371,7 +3371,7 @@ class TestMaterialCascade:
     def test_root_level_job_cascades(self) -> None:
         """Root-level single-label jobs carry their own material."""
         job = JobSpec(
-            job_name="M",
+            name="M",
             material="wk",
             width=2.0,
             height=1.0,
@@ -3403,7 +3403,7 @@ class TestOptimizeLineContentCascade:
         if "line" in levels:
             line_kwargs["optimize_line_content"] = levels["line"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3491,7 +3491,7 @@ class TestOptimizeLineContentMaxLinesCascade:
         if "line1" in flags:
             line1_kwargs["optimize_line_content"] = flags["line1"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,
             labels=[
@@ -3596,7 +3596,7 @@ class TestNewLineResolution:
             A validated JobSpec (single label).
         """
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             optimize_line_content=reflow,
             labels=[
@@ -3636,7 +3636,7 @@ class TestNewLineResolution:
     def test_flag_does_not_cascade_from_the_label(self) -> None:
         """new_line is line-level only: a label-level declaration is ignored."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             optimize_line_content=True,
             labels=[
@@ -3950,7 +3950,7 @@ class TestUseBaselineSpacingCascade:
         if "label" in levels:
             label_kwargs["use_baseline_spacing"] = levels["label"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -3987,7 +3987,7 @@ class TestUseBaselineSpacingCascade:
     def test_root_level_job_resolves_own_value(self) -> None:
         """A root-level job masquerading as a label resolves its own field."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             text_height=0.5,
@@ -4023,7 +4023,7 @@ class TestVCenterByContentCascade:
         if "label" in levels:
             label_kwargs["v_center_by_content"] = levels["label"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -4119,7 +4119,7 @@ class TestAutoLineSpacingBaselineProbe:
     def _job(**label_kwargs: object) -> JobSpec:
         """Build a two-line job (one with descenders) using auto line_spacing."""
         return JobSpec(
-            job_name="J",
+            name="J",
             width=4.0,
             height=2.0,
             text_height=0.5,
@@ -4211,7 +4211,7 @@ class TestDescendingCharacterCascade:
             target = job_kwargs if tier == "job" else label_kwargs
             target[field] = value
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -4302,7 +4302,7 @@ class TestDescendingCharacterCascade:
     def test_root_level_job_resolves_own_values(self) -> None:
         """A root-level job masquerading as a label resolves its own fields."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             text_height=0.5,
@@ -4343,7 +4343,7 @@ class TestHtmlBracketsCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the '<>' default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4360,7 +4360,7 @@ class TestHtmlBracketsCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             html_brackets="\u00ab\u00bb",
             labels=[
                 LabelSpec(
@@ -4376,7 +4376,7 @@ class TestHtmlBracketsCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             html_brackets="\u00ab\u00bb",
             labels=[
                 LabelSpec(
@@ -4393,7 +4393,7 @@ class TestHtmlBracketsCascade:
     def test_line_overrides_label_and_job(self) -> None:
         """Line-level value wins over both parents."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             html_brackets="\u00ab\u00bb",
             labels=[
                 LabelSpec(
@@ -4410,7 +4410,7 @@ class TestHtmlBracketsCascade:
     def test_brackets_drive_the_parse(self) -> None:
         """The line's own resolved pair parses its markup."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             html_brackets="\u00ab\u00bb",
             labels=[
                 LabelSpec(
@@ -4428,7 +4428,7 @@ class TestHtmlBracketsCascade:
     def test_chevron_data_survives_a_custom_pair(self) -> None:
         """The motivating case: chevrons engrave verbatim under \u00ab\u00bb."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             html_brackets="\u00ab\u00bb",
             labels=[
                 LabelSpec(
@@ -4450,7 +4450,7 @@ class TestItalicAngleCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 12-degree default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4467,7 +4467,7 @@ class TestItalicAngleCascade:
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (upright) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             italic_angle=30.0,
             labels=[
                 LabelSpec(
@@ -4483,7 +4483,7 @@ class TestItalicAngleCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             italic_angle=20.0,
             labels=[
                 LabelSpec(
@@ -4499,7 +4499,7 @@ class TestItalicAngleCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             italic_angle=20.0,
             labels=[
                 LabelSpec(
@@ -4528,7 +4528,7 @@ class TestMarkupResolution:
     def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
         """Build a single-label job over ``lines``."""
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -4603,7 +4603,7 @@ class TestMarkupResolution:
     def test_with_markup_reparses_with_the_line_pair(self) -> None:
         """The re-parse honors the line's own resolved delimiters."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             html_brackets="\u00ab\u00bb",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="x")])],
         )
@@ -4619,7 +4619,7 @@ class TestUnderlineOffsetCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 0.0 default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4636,7 +4636,7 @@ class TestUnderlineOffsetCascade:
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (strokes touch) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_offset_fraction=0.25,
             labels=[
                 LabelSpec(
@@ -4652,7 +4652,7 @@ class TestUnderlineOffsetCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_offset_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4668,7 +4668,7 @@ class TestUnderlineOffsetCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_offset_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4685,7 +4685,7 @@ class TestUnderlineOffsetCascade:
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_offset_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4711,7 +4711,7 @@ class TestUnderlineBreakClearanceCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 0.0 default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4730,7 +4730,7 @@ class TestUnderlineBreakClearanceCascade:
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (tangency) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_clearance_fraction=0.25,
             labels=[
                 LabelSpec(
@@ -4746,7 +4746,7 @@ class TestUnderlineBreakClearanceCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_clearance_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4762,7 +4762,7 @@ class TestUnderlineBreakClearanceCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_clearance_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4779,7 +4779,7 @@ class TestUnderlineBreakClearanceCascade:
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_clearance_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4805,7 +4805,7 @@ class TestUnderlineBreakSpacesCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the False default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[
                 LabelSpec(
                     id="lbl",
@@ -4822,7 +4822,7 @@ class TestUnderlineBreakSpacesCascade:
     def test_explicit_false_is_honored(self) -> None:
         """An intentional False (continuous underline) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_spaces=True,
             labels=[
                 LabelSpec(
@@ -4838,7 +4838,7 @@ class TestUnderlineBreakSpacesCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_spaces=True,
             labels=[
                 LabelSpec(
@@ -4854,7 +4854,7 @@ class TestUnderlineBreakSpacesCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_spaces=False,
             labels=[
                 LabelSpec(
@@ -4871,7 +4871,7 @@ class TestUnderlineBreakSpacesCascade:
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             underline_break_spaces=True,
             labels=[
                 LabelSpec(
@@ -4892,7 +4892,7 @@ class TestStrikethroughOffsetCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the None default (mid-cap centering)."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
@@ -4902,7 +4902,7 @@ class TestStrikethroughOffsetCascade:
     def test_explicit_zero_is_honored(self) -> None:
         """An intentional 0.0 (stroke on the baseline) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_offset_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4918,7 +4918,7 @@ class TestStrikethroughOffsetCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_offset_fraction=0.2,
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
@@ -4927,7 +4927,7 @@ class TestStrikethroughOffsetCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_offset_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -4944,7 +4944,7 @@ class TestStrikethroughOffsetCascade:
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_offset_fraction=0.2,
             labels=[
                 LabelSpec(
@@ -5051,7 +5051,7 @@ class TestStrikethroughBreakSpacesCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the False default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
@@ -5061,7 +5061,7 @@ class TestStrikethroughBreakSpacesCascade:
     def test_explicit_false_is_honored(self) -> None:
         """An intentional False (continuous stroke) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_break_spaces=True,
             labels=[
                 LabelSpec(
@@ -5077,7 +5077,7 @@ class TestStrikethroughBreakSpacesCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_break_spaces=True,
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
@@ -5086,7 +5086,7 @@ class TestStrikethroughBreakSpacesCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_break_spaces=False,
             labels=[
                 LabelSpec(
@@ -5103,7 +5103,7 @@ class TestStrikethroughBreakSpacesCascade:
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             strikethrough_break_spaces=True,
             labels=[
                 LabelSpec(
@@ -5127,7 +5127,7 @@ class TestBoldBoldnessMultiplierCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the 1.5 default."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
@@ -5137,7 +5137,7 @@ class TestBoldBoldnessMultiplierCascade:
     def test_explicit_one_is_honored(self) -> None:
         """An intentional 1.0 (no boost) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             bold_boldness_multiplier=3.0,
             labels=[
                 LabelSpec(
@@ -5153,7 +5153,7 @@ class TestBoldBoldnessMultiplierCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             bold_boldness_multiplier=2.5,
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
@@ -5162,7 +5162,7 @@ class TestBoldBoldnessMultiplierCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value overrides the job-level value."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             bold_boldness_multiplier=2.0,
             labels=[
                 LabelSpec(
@@ -5185,7 +5185,7 @@ class TestBoldCutterResolution:
         """Build a single-label job over ``lines`` (0.5in text height)."""
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             width=3.0,
             height=1.0,
             labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
@@ -5253,7 +5253,7 @@ class TestBoldCutterResolution:
     def test_top_of_inventory_warns_and_keeps_plain(self, caplog: pytest.LogCaptureFixture) -> None:
         """At the largest tool there is no larger rung: bold stays plain (WARNING)."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=3.0,
             height=2.6,
             labels=[
@@ -5360,7 +5360,7 @@ class TestScaleResolution:
         """Build a single-label job over ``lines``."""
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             width=3.0,
             height=1.0,
             labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
@@ -5633,7 +5633,7 @@ class TestSupersubscriptDownscaleCascade:
         label_kwargs = {k[len("label_") :]: v for k, v in kwargs.items() if k.startswith("label_")}
         job_kwargs = {k[len("job_") :]: v for k, v in kwargs.items() if k.startswith("job_")}
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=3.0,
             height=1.0,
             text_height=0.5,
@@ -5696,7 +5696,7 @@ class TestSupSubResolution:
         """Build a single-label job over ``lines``."""
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             width=3.0,
             height=1.0,
             labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
@@ -5902,7 +5902,7 @@ class TestSmallCapsMarkupFlags:
     def _job(*lines: TextLine, **job_kwargs: object) -> JobSpec:
         """Build a single-label job over ``lines``."""
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=3.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -5982,7 +5982,7 @@ class TestLabelShapeResolution:
         if "label" in levels:
             label_kwargs["type"] = levels["label"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,
             labels=[
@@ -6031,7 +6031,7 @@ class TestRoundedRectangleResolution:
             else:
                 label_kwargs[field] = value
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,
             labels=[
@@ -6097,7 +6097,7 @@ class TestRoundLabelCircleFilling:
     def test_width_only_fills_height(self) -> None:
         """Width-only round label resolves width == height (a circle)."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             labels=[LabelSpec(id="c", type="round", width=2.5, content=[TextLine(text="X")])],
         )
@@ -6109,7 +6109,7 @@ class TestRoundLabelCircleFilling:
     def test_height_only_fills_width(self) -> None:
         """Height-only round label resolves to the matching circle."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             labels=[LabelSpec(id="c", type="round", height=1.5, content=[TextLine(text="X")])],
         )
@@ -6120,7 +6120,7 @@ class TestRoundLabelCircleFilling:
     def test_both_dimensions_stay_independent(self) -> None:
         """A round label declaring both keeps the ellipse (no square-up)."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             labels=[
                 LabelSpec(id="e", type="round", width=4.0, height=2.0, content=[TextLine(text="X")])
@@ -6132,7 +6132,7 @@ class TestRoundLabelCircleFilling:
     def test_rect_label_unaffected(self) -> None:
         """A rect label's dimensions resolve exactly as before."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             labels=[LabelSpec(id="r", width=4.0, height=2.0, content=[TextLine(text="X")])],
         )
@@ -6621,7 +6621,7 @@ class TestFontRunResolution:
         job_kwargs.setdefault("font", "Dino")
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -6743,7 +6743,7 @@ class TestCutterMarkupResolution:
         job_kwargs.setdefault("font", "Dino")
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -6907,7 +6907,7 @@ class TestRunCutterLineClamp:
     def _job(text: str, height: float = 1.0) -> JobSpec:
         """Build a one-label job carrying a single text line."""
         return JobSpec(
-            job_name="clamp",
+            name="clamp",
             width=24.0,
             height=16.0,
             text_height=height,
@@ -7076,7 +7076,7 @@ class TestAlignMarginAdjustGlobalCascade:
         if "label" in levels:
             label_kwargs["align_margin_adjust_global"] = levels["label"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -7151,7 +7151,7 @@ class TestHoleAdjustForCutterCascade:
         if "label" in levels:
             label_kwargs["hole_adjust_for_cutter"] = levels["label"]
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -7188,7 +7188,7 @@ class TestHoleAdjustForCutterCascade:
     def test_root_level_job_resolves_own_value(self) -> None:
         """A root-level job masquerading as a label resolves its own field."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             text_height=0.5,
@@ -7213,7 +7213,7 @@ class TestHoleAdjustForCutterCascade:
     def test_hole_diameters_stay_nominal(self) -> None:
         """Resolution keeps the SPECIFIED diameters; the renderer shrinks the radius."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             text_height=0.5,
@@ -7241,7 +7241,7 @@ class TestOriginalCutterResolution:
         job_kwargs.setdefault("font", "Dino")
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -7374,7 +7374,7 @@ class TestVCenterCharsCascade:
     def test_default_when_all_omit(self) -> None:
         """All levels omitting yields the '' code fallback (auto-apply off)."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
         line = resolve_job_spec(job)[0].content[0]
@@ -7384,7 +7384,7 @@ class TestVCenterCharsCascade:
     def test_explicit_empty_string_is_honored(self) -> None:
         """An intentional "" (auto-apply disabled) is not treated as unset."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             v_center_chars="-",
             labels=[
                 LabelSpec(
@@ -7400,7 +7400,7 @@ class TestVCenterCharsCascade:
     def test_job_value_used_when_label_omits(self) -> None:
         """Job-level value cascades to the line."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             v_center_chars="=",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
         )
@@ -7409,7 +7409,7 @@ class TestVCenterCharsCascade:
     def test_label_overrides_job(self) -> None:
         """Label-level value wins over job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             v_center_chars="=",
             labels=[
                 LabelSpec(
@@ -7426,7 +7426,7 @@ class TestVCenterCharsCascade:
     def test_line_overrides_label(self) -> None:
         """Text-line value wins over label and job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             v_center_chars="=",
             labels=[
                 LabelSpec(
@@ -7450,7 +7450,7 @@ class TestVCenterFlags:
         job_kwargs.setdefault("font", "Dino")
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -7528,7 +7528,7 @@ class TestKernStringCascade:
 
     def _job(self, line_kwargs=None, label_kwargs=None, job_kwargs=None):
         return JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             **(job_kwargs or {}),
@@ -7611,7 +7611,7 @@ class TestKernWidthFractionCascade:
 
     def _job(self, width=None):
         return JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             kern_pos_string="<+>",
@@ -7629,7 +7629,7 @@ class TestKernWidthFractionCascade:
     def test_default_is_one_tenth(self) -> None:
         """Unset everywhere yields the 0.1 code fallback."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=[TextLine(text="X")])],
@@ -7656,7 +7656,7 @@ class TestKernMarkerValidation:
 
     def _job(self, text, brackets, pos, neg=None):
         return JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             html_brackets=brackets,
@@ -7704,7 +7704,7 @@ class TestListResolution:
     def _job(**content_tiers: object) -> JobSpec:
         """Build a single-label job whose content is the given entries."""
         return JobSpec(
-            job_name="J",
+            name="J",
             width=6.0,
             height=3.0,
             text_height=0.3,
@@ -7759,7 +7759,7 @@ class TestListResolution:
     def test_bullet_string_cascades_label_and_job(self) -> None:
         """The label tier beats the job tier; the block beats both."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=6.0,
             height=3.0,
             text_height=0.3,
@@ -7833,7 +7833,7 @@ class TestListResolution:
     def test_counter_settings_cascade_label_and_job(self) -> None:
         """The counter fields cascade block -> label -> job."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             width=6.0,
             height=3.0,
             text_height=0.3,
@@ -8011,7 +8011,7 @@ class TestTextColorMarkupResolution:
         job_kwargs.setdefault("font", "Dino")
         job_kwargs.setdefault("text_height", 0.5)
         return JobSpec(
-            job_name="J",
+            name="J",
             labels=[LabelSpec(id="lbl", width=2.0, height=1.0, content=list(lines))],
             **job_kwargs,
         )
@@ -8116,7 +8116,7 @@ class TestCutterBufferResolution:
             tier, _, field = key.partition("__")
             (job_kwargs if tier == "job" else label_kwargs)[field] = value
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[
@@ -8140,7 +8140,7 @@ class TestCutterBufferResolution:
     def _tall_job(line: TextLine, **job_kwargs: object) -> JobSpec:
         """Build a tiny-text-height job (so a cutter can run out of material)."""
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.05,
             **job_kwargs,  # type: ignore[arg-type]
             labels=[LabelSpec(id="lbl", width=4.0, height=2.0, content=[line])],
@@ -8212,7 +8212,7 @@ class TestCutterBufferResolution:
     def test_plate_tier_is_never_applied(self) -> None:
         """The plate tier is schema parity: its value must not reach a label."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             plates=[PlateSpec(id="p", width=24.0, height=16.0, cutter_buffer_text=0.5)],
             labels=[
@@ -8373,7 +8373,7 @@ class TestInlineCutterBufferOverrides:
     def _line(text: str, line_buffer: float = 0.01) -> ResolvedTextLine:
         """Resolve a minimal line with the given text and line-level buffer."""
         job = JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             cutter_buffer_text=line_buffer,
             labels=[LabelSpec(id="lbl", width=4.0, height=2.0, content=[TextLine(text=text)])],
@@ -8458,7 +8458,7 @@ class TestCutterBufferRoutingCascade:
     def _job(**levels: float | None) -> JobSpec:
         """Build a one-label job with holes; keys are ``job`` / ``label``."""
         return JobSpec(
-            job_name="J",
+            name="J",
             text_height=0.5,
             cutter_buffer_routing=levels.get("job"),
             holes=[{"location": "left", "diameter": 0.25}],
@@ -8570,7 +8570,7 @@ class TestReliefEngravingCascade:
             key[len("label_") :]: value for key, value in levels.items() if key.startswith("label_")
         }
         return JobSpec(
-            job_name="J",
+            name="J",
             width=2.0,
             height=1.0,
             text_height=0.5,
@@ -8683,7 +8683,7 @@ def _balanced_job(**label_kwargs: object) -> JobSpec:
     }
     kwargs = {renames.get(str(k), str(k)): v for k, v in label_kwargs.items()}
     return JobSpec(
-        job_name="BAL",
+        name="BAL",
         balanced_centering=True,
         labels=[
             LabelSpec(
@@ -8760,7 +8760,7 @@ class TestBalancedCenteringParameterCascade:
         )
         filled = apply_job_config_defaults(
             {
-                "job_name": "J",
+                "name": "J",
                 "labels": [
                     {"id": "lbl", "width": 2.0, "height": 2.0, "content": [{"text": "X"}]},
                 ],
@@ -8776,7 +8776,7 @@ class TestBalancedCenteringParameterCascade:
     def test_plate_tier_is_parity_only(self) -> None:
         """A plate-level declaration is accepted by the schema and never used."""
         job = JobSpec(
-            job_name="PLT",
+            name="PLT",
             plates=[
                 PlateSpec(
                     id="p1",

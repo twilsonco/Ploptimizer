@@ -13,7 +13,7 @@
 #
 # Run with: python run_integration_test.py tests_deps/simple_layout_job.yaml
 job:
-  job_name: "Simple Columns Demo - Mixed Sizes"
+  name: "Simple Columns Demo - Mixed Sizes"
 
   # Simple column-major grid fill; set explicitly so this fixture reads as
   # a deliberate pin of the fill order. allow_rotation stays undeclared:

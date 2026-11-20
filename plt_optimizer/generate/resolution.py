@@ -6147,7 +6147,7 @@ def resolve_job_spec(
 
     Example:
         >>> job = JobSpec(
-        ...     job_name="Batch",
+        ...     name="Batch",
         ...     width=3.0,
         ...     height=1.5,
         ...     count=10,

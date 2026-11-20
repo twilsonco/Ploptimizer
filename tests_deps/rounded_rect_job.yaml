@@ -35,7 +35,7 @@
 # `max_h_compress` stays unset (0.0): no line compresses, so every pinned
 # number in the export test is pure border geometry.
 job:
-  job_name: Rounded Rect Demo
+  name: Rounded Rect Demo
 
   text_height: 0.5
   margin: 0.1

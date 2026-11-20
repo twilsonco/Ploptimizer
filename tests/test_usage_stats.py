@@ -355,7 +355,7 @@ def job_spec(**tool_options: Any) -> Any:
     from plt_optimizer.generate.schema import ContentEntry, JobSpec
 
     return JobSpec(
-        job_name="timing",
+        name="timing",
         width=4.0,
         height=2.0,
         content=[ContentEntry(text="SIGN")],
@@ -2038,7 +2038,7 @@ class TestReportContract:
 
     def _report(self, tmp_path: Path, usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         return build_report(
-            job_name="job",
+            name="job",
             job_id="job_0001",
             spec_path=tmp_path / "spec.yaml",
             output_dir=tmp_path,
@@ -2114,7 +2114,7 @@ def weight_spec(
         return PlateSpec(**fields)
 
     return JobSpec(
-        job_name="weighing",
+        name="weighing",
         width=4.0,
         height=2.0,
         content=[ContentEntry(text="SIGN")],

@@ -1,7 +1,7 @@
 # Jobset member fixture B: same plate id (`plate1`), same plate geometry
 # and a label id that already exists in jobset_a.yaml (`alpha-main`).
 job:
-  job_name: Jobset Beta
+  name: Jobset Beta
   layout: columns
   plates:
     - id: plate1

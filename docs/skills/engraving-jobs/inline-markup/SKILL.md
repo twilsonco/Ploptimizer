@@ -102,7 +102,7 @@ Italic, bold and superscript in one line.
 
 ```yaml
 job:
-  job_name: "Markup demo"
+  name: "Markup demo"
   content:
     - text: "Nom <i>240</i> V / <b>50</b> A"
     - text: "Area 12<sup>2</sup> ft"

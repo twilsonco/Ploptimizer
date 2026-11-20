@@ -54,7 +54,7 @@ usable width requires:
 
 ```yaml
 job:
-  job_name: "Reflow"
+  name: "Reflow"
   width: 4.0
   content:
     - text: "HEAD"

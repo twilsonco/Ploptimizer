@@ -8,7 +8,7 @@
 # a disabled line breaks the group. The reflow runs as an export pre-pass
 # before the cutter-reduction and shared-compression pre-passes.
 job:
-  job_name: Optimize Line Content Demo
+  name: Optimize Line Content Demo
 
   width: 4.0
   height: 1.6

@@ -2,7 +2,7 @@
 # ADK 111577 UPS2
 # 4x6 white 0.22in text on black; WARNING line red
 job:
-  job_name: ADK 111577 UPS2
+  name: ADK 111577 UPS2
   replacement_text_file: 2026-09-28 adk.txt
   material: kw
   width: 6.0

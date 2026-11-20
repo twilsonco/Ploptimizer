@@ -161,7 +161,7 @@ def run_pipeline(
         parse_yaml(spec, job_config_path=job_config_path),
         spec,
     )
-    job_id = _sanitize_job_id(job.job_name)
+    job_id = _sanitize_job_id(job.name)
 
     with open(REPO_ROOT / TOOLS_JSON) as f:
         tools_data = json.load(f)
@@ -179,7 +179,7 @@ def run_pipeline(
         job.plates,
         output_dir=output_dir,
         job_id=job_id,
-        job_name=job.job_name,
+        name=job.name,
         optimize=optimize,
         plots=plots,
         fast_mode=fast_mode,

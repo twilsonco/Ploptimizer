@@ -2,7 +2,7 @@
 # jobset_a.yaml (rotation allowed) under jobset_rotation_split.yaml, where
 # the gate must warn that the first member wins pool-wide.
 job:
-  job_name: Jobset Delta
+  name: Jobset Delta
   layout: columns
   allow_rotation: false
   plates:

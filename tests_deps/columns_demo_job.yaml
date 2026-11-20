@@ -9,7 +9,7 @@
 #
 # Run with: python run_integration_test.py tests_deps/columns_demo_job.yaml
 job:
-  job_name: "Column Major Demo - Breaker Tags"
+  name: "Column Major Demo - Breaker Tags"
 
   # Column-major is the default; set explicitly so this fixture reads as a
   # deliberate pin of the fill order.

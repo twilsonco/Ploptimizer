@@ -11,7 +11,7 @@
 # holes land on the ellipse, and all existing label features -- holes, borders,
 # collision avoidance, HTML markup -- work on round labels.
 job:
-  job_name: Round Labels Demo
+  name: Round Labels Demo
 
   text_height: 0.5
   margin: 0.15

@@ -3,7 +3,7 @@
 # every sheet A's overflow touches. Pairs with jobset_solo_a.yaml; see that
 # file and jobset_solo.yaml for which sheet ends up shared and which solo.
 job:
-  job_name: Solo Beta
+  name: Solo Beta
   layout: columns
   plates:
     - id: plateB

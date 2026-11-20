@@ -295,7 +295,7 @@ class TestProvenanceHelpers:
         record = provenance.record("Jobset_Beta")
 
         assert record is not None
-        assert record.job_name == "Jobset Beta"
+        assert record.name == "Jobset Beta"
         assert record.display_name == "Jobset Beta"
         assert provenance.record("nope") is None
 

@@ -58,7 +58,7 @@ pack in one pass. Unbounded mode allocates one auto-bin pool per material
 
 ```yaml
 job:
-  job_name: "Two stocks"
+  name: "Two stocks"
   width: 3.0
   height: 1.0
   plates:

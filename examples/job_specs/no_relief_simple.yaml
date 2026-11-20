@@ -1,5 +1,5 @@
 job:
-  job_name: relief_simple
+  name: relief_simple
   relief_engraving: false
   width: 1
   height: 1

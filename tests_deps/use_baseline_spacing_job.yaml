@@ -17,7 +17,7 @@
 # very gap/block numbers this fixture pins. See descender_adjust_job.yaml for
 # the relief's own demo.
 job:
-  job_name: Baseline Spacing Demo
+  name: Baseline Spacing Demo
 
   width: 3.0
   height: 1.4

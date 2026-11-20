@@ -1,4 +1,4 @@
-# Jobset fixture: two members whose job_names sanitize to the same key.
+# Jobset fixture: two members whose names sanitize to the same key.
 # The gate suffixes the second and warns; plate ids stay distinct, so the
 # composite ids remain unique.
 jobset:

@@ -64,7 +64,7 @@ Fixed placard, rounded corners, generous margins:
 
 ```yaml
 job:
-  job_name: "Placard"
+  name: "Placard"
   width: 6.0
   height: 3.0
   h_margin: 0.35

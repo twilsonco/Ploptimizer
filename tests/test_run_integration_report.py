@@ -24,6 +24,7 @@ import pytest
 
 from plt_optimizer.generate.generation_report import (
     REPORT_JSON_NAME,
+    REPORT_SCHEMA_VERSION,
     REPORT_SUMMARY_NAME,
     ReportCapture,
     build_report,
@@ -60,7 +61,7 @@ def script() -> Any:
 def _job(name: str = "Report Phase Job") -> JobSpec:
     """Build a minimal valid job spec declaring one plate and one label."""
     return JobSpec(
-        job_name=name,
+        name=name,
         plates=[PlateSpec(id="p1", width=PLATE_WIDTH, height=PLATE_HEIGHT)],
         labels=[
             LabelSpec(id="greeting", width=4.0, height=2.0, content=[ContentEntry(text="Hello")])
@@ -219,7 +220,7 @@ class TestPhase5GenerationReport:
         """The script's document has the CLI builder's keys, in the same order."""
         payload = self._run(script, tmp_path)
         reference = build_report(
-            job_name="x",
+            name="x",
             job_id="x",
             spec_path=Path("x.yaml"),
             output_dir=tmp_path,
@@ -232,8 +233,8 @@ class TestPhase5GenerationReport:
         job = _job()
         payload = self._run(script, tmp_path, job=job, inventory=[0.06, 0.125])
 
-        assert payload["schema_version"] == 1
-        assert payload["job"]["job_name"] == "Report Phase Job"
+        assert payload["schema_version"] == REPORT_SCHEMA_VERSION
+        assert payload["job"]["name"] == "Report Phase Job"
         # The id is the CLI's sanitized form, i.e. the one in the file names.
         from plt_optimizer.cli.generate import _sanitize_job_id
 
@@ -431,7 +432,7 @@ class TestFailureReport:
             duration_seconds=0.1,
         )
         payload = _read_report(tmp_path)
-        assert payload["job"]["job_name"] == "cold_start"
+        assert payload["job"]["name"] == "cold_start"
         assert payload["job"]["job_id"] == "cold_start"
         assert payload["summary"]["plates"] == 0
         assert payload["job"]["error"]["stage"] == "prep"
@@ -584,7 +585,7 @@ class TestJobsetModeArgs:
 
     def test_jobset_directory_mode_takes_only_the_sets(self, script: Any, set_files: Path) -> None:
         (set_files / "plain_job.yaml").write_text(
-            "job:\n  job_name: Plain\n  labels: []\n", encoding="utf-8"
+            "job:\n  name: Plain\n  labels: []\n", encoding="utf-8"
         )
         collected = script._collect_jobset_paths(set_files)
         assert [path.name for path in collected] == ["jobset example.yaml"]
@@ -628,7 +629,7 @@ class TestJobsetModeArgs:
     ) -> None:
         monkeypatch.setattr(script, "WRITE_PLOTS", False, raising=False)
         export = _export(tmp_path, _job())
-        assert script.phase_4_visualization(export, job_name="x") == []
+        assert script.phase_4_visualization(export, name="x") == []
 
     def test_two_paths_are_refused(
         self, script: Any, set_files: Path, capsys: pytest.CaptureFixture[str]

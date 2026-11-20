@@ -15,7 +15,7 @@
 # the cap while its ascender lowercase overshoot (b/d/f/h/k/l ~1.096, i/j
 # ~1.154 of the cap).
 job:
-  job_name: Enforce Cap Line Demo
+  name: Enforce Cap Line Demo
   width: 3.0
   height: 1.0
   margin: 0.1

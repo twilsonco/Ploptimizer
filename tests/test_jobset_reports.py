@@ -62,7 +62,7 @@ def _export(
         plan.merged_plates,
         output_dir=output_dir,
         job_id=plan.jobset_id,
-        job_name=plan.jobset_name,
+        name=plan.jobset_name,
         layout=plan.layout,
         allow_rotation=plan.allow_rotation,
         default_plate_clearance=plan.default_plate_clearance,
@@ -396,7 +396,7 @@ class TestMemberReports:
         job = document["job"]
 
         assert job["job_id"] == context.record.job_id
-        assert job["job_name"] == context.record.job_name
+        assert job["name"] == context.record.name
         assert Path(job["spec_path"]).name == context.record.spec_path.name
         assert document["summary"]["labels"] == len(context.resolved_labels)
         assert document["usage"]["distance"]["total"]["total"] == pytest.approx(
@@ -454,7 +454,7 @@ class TestManifest:
         assert set(rows) == {ALPHA, BETA}
         for context in batch["plan"].contexts:
             row = rows[context.job_key]
-            assert row["job_name"] == context.record.job_name
+            assert row["name"] == context.record.name
             assert row["spec"].endswith(context.record.spec_path.name)
             assert row["labels"] == len(context.record.label_ids)
             assert row["plates_declared"] == list(context.record.plate_ids)
@@ -631,7 +631,7 @@ class TestBatchReportSection:
         reports = write_job_reports(plan, export, output_dir=out, job_config=batch["config"])
         block = build_jobset_block(plan, export, reports, output_dir=out, root_usage=batch["usage"])
         document = build_report(
-            job_name=plan.jobset_name,
+            name=plan.jobset_name,
             job_id=plan.jobset_id,
             spec_path=plan.jobset_path,
             output_dir=out,
@@ -654,7 +654,7 @@ class TestBatchReportSection:
 
     def test_a_solo_summary_has_no_jobs_section(self) -> None:
         document = build_report(
-            job_name="Solo",
+            name="Solo",
             job_id="solo",
             spec_path=Path("solo.yaml"),
             output_dir=Path("out"),
@@ -673,7 +673,7 @@ class TestReportBuilderIdPrefix:
         context = next(c for c in plan.contexts if c.job_key == ALPHA)
 
         document = build_report(
-            job_name=context.record.job_name,
+            name=context.record.name,
             job_id=context.record.job_id,
             spec_path=context.record.spec_path,
             output_dir=Path("out"),
@@ -694,7 +694,7 @@ class TestReportBuilderIdPrefix:
         plan = batch["plan"]
 
         document = build_report(
-            job_name=plan.jobset_name,
+            name=plan.jobset_name,
             job_id=plan.jobset_id,
             spec_path=plan.jobset_path,
             output_dir=Path("out"),

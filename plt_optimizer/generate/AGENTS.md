@@ -220,7 +220,7 @@ layer where `_JOB_LAYER_FIELDS` includes it; exceptions are named inline.
 
 #### Job / plate fields owned by other contracts
 
-- `job_name`, `labels`, `plates`, `content`, `count` - **exactly one** label source: `labels`, root
+- `name`, `labels`, `plates`, `content`, `count` - **exactly one** label source: `labels`, root
   `content`, a job-level `replacement_text_file`, or plate-level files. `plate_id` (label) pins a label
   to a declared plate (validated against `plates`); pinned entries pack in exclusive single-plate passes
   → §Job Specification Patterns, §Plate-Level Replacement Files, [`packing/AGENTS.md`](packing/AGENTS.md).
@@ -986,21 +986,21 @@ A third finding - the cutter downsize - comes from `ResolvedLabel.cutter_downsiz
 
 **Pattern 1: Explicit Labels List** (each label must have `width` and `height`)
 ```yaml
-job: {job_name: "Batch 01", text_height: 0.5,
+job: {name: "Batch 01", text_height: 0.5,
       labels: [{id: "label_1", width: 3.0, height: 1.0, count: 10,
                 content: [{text: "Line 1"}, {text: "Line 2"}]}]}
 ```
 
 **Pattern 2: Root-Level Single Label** (auto-repeated via `count`; dimensions required)
 ```yaml
-job: {job_name: "Simple Labels", width: 3.0, height: 1.0, text_height: 0.5, count: 20,
+job: {name: "Simple Labels", width: 3.0, height: 1.0, text_height: 0.5, count: 20,
       content: [{text: "Single repeating label"}]}
 ```
 
 **Pattern 3: Replacement Text File Template** (EngraveLab/Vision Pro style; the label expands to
 `badge_0000`, `badge_0001`, ...; a relative path resolves against the job YAML directory)
 ```yaml
-job: {job_name: "Batch 02",
+job: {name: "Batch 02",
       labels: [{id: "badge", replacement_text_file: data.txt, replacement_text_delimiter: ";",
                 content: [{text: "PLACEHOLDER L1", text_height: 0.45}]}]}
 ```
@@ -1008,14 +1008,14 @@ job: {job_name: "Batch 02",
 **Pattern 4: Job-Level Replacement File** (no `labels` section; job-level `width`/`height`/
 `text_height` are **required** - they define every synthesized label)
 ```yaml
-job: {job_name: "Batch 03", width: 3.0, height: 1.0, text_height: 0.75,
+job: {name: "Batch 03", width: 3.0, height: 1.0, text_height: 0.75,
       holes: [{location: sides}], replacement_text_file: data.txt}
 ```
 
 **Pattern 5: Plate-Level Replacement File** (`full_b` accepts the unpinned labels; static `labels`
 pack normally)
 ```yaml
-job: {job_name: "Batch 04", width: 3.0, height: 1.0, text_height: 0.75,
+job: {name: "Batch 04", width: 3.0, height: 1.0, text_height: 0.75,
       plates: [{id: scrap_a, width: 24.0, height: 16.0, replacement_text_file: data_a.txt},
                {id: full_b, width: 24.0, height: 16.0}],
       labels: [{id: header, content: [{text: "HEADER"}]}]}

@@ -1,5 +1,5 @@
 job:
-  job_name: seer 1811
+  name: seer 1811
   material: kw
   font: helv1
 

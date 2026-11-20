@@ -303,7 +303,7 @@ class TestExampleSpecsParse:
         # contract (the required-when-unconfigured gate is exercised in
         # test_job_config.py).
         job = parse_yaml(spec_path)
-        assert job.job_name
+        assert job.name
 
     @pytest.mark.parametrize(
         "spec_path",

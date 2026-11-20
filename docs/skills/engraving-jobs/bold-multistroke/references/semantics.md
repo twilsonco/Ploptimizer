@@ -53,7 +53,7 @@ parity-only); `job-config.json` supplies the shop defaults.
 
 ```yaml
 job:
-  job_name: "Heavy plate"
+  name: "Heavy plate"
   font: "Claret4"   # a multi-stroke catalog font (stroke_count 4)
   target_boldness_factor: 0.18
   content:

@@ -1,6 +1,6 @@
 ---
 name: job-forms
-description: 'Choose the job structure: labels list, single label, or files. Use when: starting any new job spec; deciding how labels are defined; a spec fails the label-source validation. Keywords: job form, labels, content, count, single label, job_name.'
+description: 'Choose the job structure: labels list, single label, or files. Use when: starting any new job spec; deciding how labels are defined; a spec fails the label-source validation. Keywords: job form, labels, content, count, single label, name.'
 version: 1.0.0
 metadata:
   hermes:
@@ -20,7 +20,7 @@ metadata:
 
 | Field | Type | Default | Constraints | Tiers | Description |
 |---|---|---|---|---|---|
-| `job_name` | str | **required** | — | job | Human-readable name for this job. |
+| `name` | str | **required** | — | job | Human-readable name for this job. Reports, logs and plot titles print it verbatim, and `_sanitize_job_id` derives the filesystem-safe `job_id` from it that names every generated file. Distinct from `JobSetSpec.name`, the batch's own display name. |
 | `labels` | list[LabelSpec] \| null | null (unset) | — | job | Explicit label list. Mutually exclusive with root-level content and a job-level `replacement_text_file`. |
 | `count` | int \| null | null (unset) | >=1 | job | Instance count for root-level single-label jobs; not allowed with replacement files. |
 | `content` | list[ContentEntry] \| null | null (unset) | — | job | Root-level content entries (single-label job) or the per-line attribute template when a replacement file is in play. |
@@ -37,7 +37,7 @@ Form 1: explicit labels list, each with its own content lines.
 
 ```yaml
 job:
-  job_name: "Batch 01"
+  name: "Batch 01"
   text_height: 0.5
   labels:
     - id: label_1

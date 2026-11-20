@@ -7,7 +7,7 @@ reflow:
   # Reflow a long sentence to the label width, max 3 lines.
   yaml: |
     job:
-      job_name: "Reflow demo"
+      name: "Reflow demo"
       width: 4.0
       optimize_line_content: true
       optimize_line_content_max_lines: 3

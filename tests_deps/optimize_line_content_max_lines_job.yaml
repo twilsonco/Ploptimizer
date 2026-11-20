@@ -11,7 +11,7 @@
 # banner "DANGER CONVEYER START AND STOP HERE" repartitions to a widest line
 # of 3.21in at M=4 (fits), 5.94in at M=3 and 7.16in at M=2 (both compress).
 job:
-  job_name: Optimize Line Content Max Lines Demo
+  name: Optimize Line Content Max Lines Demo
 
   width: 4.0
   height: 2.6

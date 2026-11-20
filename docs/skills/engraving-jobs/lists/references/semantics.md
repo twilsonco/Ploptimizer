@@ -45,7 +45,7 @@ it is computed, an enumerated item's own `bullet_string` is **inert**.
 
 ```yaml
 job:
-  job_name: "Service tag"
+  name: "Service tag"
   width: 4.0
   text_height: 0.25
   content:

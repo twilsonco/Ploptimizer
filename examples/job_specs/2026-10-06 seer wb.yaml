@@ -1,7 +1,7 @@
 # 2026-10-06
 # SEER 2963 Equip. Labels
 job:
-  job_name: SEER 2963
+  name: SEER 2963
   font: dino
   
   labels:

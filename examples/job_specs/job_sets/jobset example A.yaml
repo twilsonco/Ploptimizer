@@ -4,7 +4,7 @@
 # batch gate stays silent; identical sheet geometry in both members would be
 # reported as a pool the set packs as one.
 job:
-  job_name: "Job A"
+  name: "Job A"
   font: helv1
   material: kw
   height: 3

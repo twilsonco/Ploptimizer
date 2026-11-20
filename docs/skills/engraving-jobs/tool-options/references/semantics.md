@@ -52,7 +52,7 @@ the header in the output PLT when a setting is safety-critical.
 
 ```yaml
 job:
-  job_name: "Deep engrave"
+  name: "Deep engrave"
   tool_options:
     cutting_velocity: 0.5     # slow, in/sec (range from config)
     spindle_speed: 18000      # rpm

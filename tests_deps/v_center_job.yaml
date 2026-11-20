@@ -29,7 +29,7 @@
 # names carry no plate/material prefix. `<vc>` adds NO cutter of its own: every
 # label here engraves with the single 0.060in tool.
 job:
-  job_name: V-Center Demo
+  name: V-Center Demo
 
   width: 3.0
   height: 1.0

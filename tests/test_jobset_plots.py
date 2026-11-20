@@ -86,7 +86,7 @@ def _provenance(*job_keys: str, ids: dict[str, str]) -> JobProvenance:
             JobRecord(
                 key=key,
                 job_id=key,
-                job_name=key.replace("_", " "),
+                name=key.replace("_", " "),
                 spec_path=Path(f"{key}.yaml"),
             )
             for key in job_keys
@@ -196,7 +196,7 @@ def _plan_proofs(
         plan.merged_plates,
         output_dir=output_dir,
         job_id=plan.jobset_id,
-        job_name=plan.jobset_name,
+        name=plan.jobset_name,
         layout=plan.layout,
         allow_rotation=plan.allow_rotation,
         default_plate_clearance=plan.default_plate_clearance,
@@ -209,7 +209,7 @@ def _plan_proofs(
         output_dir,
         plan.jobset_id,
         export,
-        job_name=plan.jobset_name,
+        name=plan.jobset_name,
         provenance=plan.provenance,
     )
     return _proofs(calls)
@@ -246,7 +246,7 @@ class TestPerJobProofs:
         """Titles carry the declared job name and the shared-with caption.
 
         The shop reads the title off the PDF, so it must use the declared
-        ``job_name`` (not the filesystem slug), and must say the sheet is
+        ``name`` (not the filesystem slug), and must say the sheet is
         shared - a per-job view of a merged sheet is not the whole sheet.
         """
         plan = build_jobset_plan(Path("tests_deps/jobset_export_batch.yaml"), job_config=None)

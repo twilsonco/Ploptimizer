@@ -599,7 +599,7 @@ class TestExpandJobSpec:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Test Job\n"
+            "  name: Test Job\n"
             "  width: 2.0\n"
             "  height: 1.0\n"
             "  text_height: 0.3\n"
@@ -639,7 +639,7 @@ class TestExpandJobSpec:
         """Root-level single-label jobs skip expansion entirely."""
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
-            "job:\n  job_name: Root\n  width: 2.0\n  height: 1.0\n  count: 3\n  content:\n    - text: X\n",
+            "job:\n  name: Root\n  width: 2.0\n  height: 1.0\n  count: 3\n  content:\n    - text: X\n",
             encoding="utf-8",
         )
         job = parse_yaml(yaml_path)
@@ -652,14 +652,14 @@ class TestExpandJobSpec:
             "    - id: tmpl\n      replacement_text_file: r.txt\n",
         )
         job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
-        assert job.job_name == "Test Job"
+        assert job.name == "Test Job"
         assert job.text_height == 0.3
 
     def test_missing_file_propagates_error(self, tmp_path: Path) -> None:
         """A template pointing at a missing file aborts job expansion."""
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
-            "job:\n  job_name: J\n  width: 2.0\n  height: 1.0\n  labels:\n"
+            "job:\n  name: J\n  width: 2.0\n  height: 1.0\n  labels:\n"
             "    - id: t\n      replacement_text_file: missing.txt\n",
             encoding="utf-8",
         )
@@ -676,7 +676,7 @@ class TestResolutionAfterExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: R\n"
+            "  name: R\n"
             "  text_height: 0.3\n"
             "  labels:\n"
             "    - id: t\n"
@@ -711,7 +711,7 @@ class TestResolutionAfterExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: R\n"
+            "  name: R\n"
             "  labels:\n"
             "    - id: t\n"
             "      width: 4.0\n"
@@ -734,7 +734,7 @@ class TestJobSpecModelCopy:
         _write(tmp_path / "r.txt", "A\n")
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
-            "job:\n  job_name: J\n  width: 2.0\n  height: 1.0\n  labels:\n    - id: t\n      replacement_text_file: r.txt\n",
+            "job:\n  name: J\n  width: 2.0\n  height: 1.0\n  labels:\n    - id: t\n      replacement_text_file: r.txt\n",
             encoding="utf-8",
         )
         job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
@@ -754,7 +754,7 @@ class TestEndToEndPipeline:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: E2E\n"
+            "  name: E2E\n"
             "  text_height: 0.3\n"
             "  margin: 0.15\n"
             "  plates:\n"
@@ -802,7 +802,7 @@ class TestJobLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Job Repl\n"
+            "  name: Job Repl\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -860,7 +860,7 @@ class TestJobLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: J\n"
+            "  name: J\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -878,7 +878,7 @@ class TestJobLevelReplacementExpansion:
         _write(tmp_path / "data.txt", "# batch header\nALPHA\n\nBRAVO\n# end\n")
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Job Repl\n"
+            "  name: Job Repl\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -898,7 +898,7 @@ class TestJobLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Cascade\n"
+            "  name: Cascade\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -920,7 +920,7 @@ class TestJobLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Cascade\n"
+            "  name: Cascade\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -939,7 +939,7 @@ class TestJobLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: J\n"
+            "  name: J\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -960,7 +960,7 @@ class TestPlateLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Plate Repl\n"
+            "  name: Plate Repl\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -1004,7 +1004,7 @@ class TestPlateLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Plate Cascade\n"
+            "  name: Plate Cascade\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -1053,7 +1053,7 @@ class TestPlateLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Plate Mat\n"
+            "  name: Plate Mat\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -1092,7 +1092,7 @@ class TestPlateLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: J\n"
+            "  name: J\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -1121,7 +1121,7 @@ class TestPlateLevelReplacementExpansion:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: J\n"
+            "  name: J\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -1161,7 +1161,7 @@ class TestJobLevelCascadeAcrossLabelFiles:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Shared Cascade\n"
+            "  name: Shared Cascade\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -1197,7 +1197,7 @@ class TestJobLevelCascadeAcrossLabelFiles:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Override\n"
+            "  name: Override\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -1222,7 +1222,7 @@ class TestJobLevelCascadeAcrossLabelFiles:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Plate Wins\n"
+            "  name: Plate Wins\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -1254,7 +1254,7 @@ class TestJobLevelCascadeAcrossLabelFiles:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Placeholder Cascade\n"
+            "  name: Placeholder Cascade\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -1288,7 +1288,7 @@ class TestJobLevelCascadeAcrossLabelFiles:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: Mixed\n"
+            "  name: Mixed\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"
@@ -1468,7 +1468,7 @@ class TestPlaceholderSubstitution:
         yaml_path = tmp_path / "job.yaml"
         yaml_path.write_text(
             "job:\n"
-            "  job_name: J\n"
+            "  name: J\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.5\n"

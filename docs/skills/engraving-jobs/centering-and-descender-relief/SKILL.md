@@ -77,7 +77,7 @@ More descender room: raise the relief higher, allow deeper scale.
 
 ```yaml
 job:
-  job_name: "Descender demo"
+  name: "Descender demo"
   descending_character_raise: 0.85
   descending_character_v_scale: 0.45
   content:

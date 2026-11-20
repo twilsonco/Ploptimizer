@@ -49,21 +49,21 @@ __all__ = [
 _LOG = logging.getLogger(__name__)
 
 
-def sanitize_job_id(job_name: str) -> str:
+def sanitize_job_id(name: str) -> str:
     """Build the filename-safe id used in per-cutter PLT/PDF names.
 
     Delegates to :func:`plt_optimizer.core.filenames.sanitize_filename_component`:
     CJK (and any other non-ASCII) job names are replaced by ``job`` so a
     Chinese spec never produces an untranscodable filename. The full
-    ``job_name`` stays in the headers and plot titles.
+    ``name`` stays in the headers and plot titles.
 
     Args:
-        job_name: The job's display name.
+        name: The job's display name.
 
     Returns:
         The ASCII filename component.
     """
-    return sanitize_filename_component(job_name, fallback="job")
+    return sanitize_filename_component(name, fallback="job")
 
 
 class JobPreparationError(Exception):
@@ -77,7 +77,7 @@ class JobPreparationError(Exception):
         console_message: The stderr line the standalone CLI prints for
             this shape of failure. Empty for failures that route through
             the generic "Generation FAILED" report path (``resolve``).
-        job_name: The job's display name when the failure happened after
+        name: The job's display name when the failure happened after
             its spec was parsed (``""`` when the file itself could not be
             read), so a jobset run can tag the failure with its member.
     """
@@ -87,7 +87,7 @@ class JobPreparationError(Exception):
         stage: str,
         cause: BaseException,
         console_message: str = "",
-        job_name: str = "",
+        name: str = "",
     ) -> None:
         """Record the stage, the underlying error and its console phrasing.
 
@@ -96,13 +96,13 @@ class JobPreparationError(Exception):
             cause: The underlying exception.
             console_message: The standalone CLI's stderr line (empty when
                 the generic failure line applies).
-            job_name: The job's display name when it is already known.
+            name: The job's display name when it is already known.
         """
         super().__init__(str(cause))
         self.stage = stage
         self.cause = cause
         self.console_message = console_message
-        self.job_name = job_name
+        self.name = name
 
 
 @dataclass
@@ -112,7 +112,7 @@ class PreparedJob:
     Attributes:
         spec_path: The job spec file the data came from.
         job: The parsed, expanded (placement-flattened) job spec.
-        job_name: The job's display name.
+        name: The job's display name.
         job_id: The filename-safe job id (``sanitize_job_id``).
         plate_count: Plates the job declared (0 when unbounded).
         unique_labels: Labels the job declared, post-expansion.
@@ -124,7 +124,7 @@ class PreparedJob:
 
     spec_path: Path
     job: JobSpec
-    job_name: str
+    name: str
     job_id: str
     plate_count: int
     unique_labels: int
@@ -171,13 +171,13 @@ def prepare_job(
         JobPreparationError: The spec failed to parse, expand, validate or
             resolve; the error carries the stage name.
     """
-    parsed_job_name = ""
+    parsed_name = ""
     try:
         from plt_optimizer.utils.stage_timing import stage_timer
 
         with stage_timer("parse", _LOG, timings=stage_timings):
             job = parse_yaml(spec_path, job_config_path=job_config_path)
-            parsed_job_name = job.job_name
+            parsed_name = job.name
             # Flatten replacement-driven labels (EngraveLab "badge"/multiples)
             # into static LabelSpecs before resolution, per the schema contract.
             job = expand_job_spec(job, spec_path)
@@ -188,23 +188,23 @@ def prepare_job(
             "expand",
             exc,
             console_message=f"Error expanding replacement text file: {exc}",
-            job_name=parsed_job_name,
+            name=parsed_name,
         ) from exc
     except Exception as exc:  # noqa: BLE001 - every parse failure is one report shape
         raise JobPreparationError(
             "parse",
             exc,
             console_message=f"Error parsing specification: {exc}",
-            job_name=parsed_job_name,
+            name=parsed_name,
         ) from exc
 
     plate_count = len(job.plates) if job.plates is not None else 0
     unique_labels = len(job.labels) if job.labels is not None else 0
-    job_name = job.job_name
-    job_id = sanitize_job_id(job.job_name)
+    name = job.name
+    job_id = sanitize_job_id(job.name)
     _LOG.info(
         "Loaded %s: %d plates, %d unique labels. Output will be written to: <caller>",
-        job_name,
+        name,
         plate_count,
         unique_labels,
     )
@@ -240,12 +240,12 @@ def prepare_job(
                 extents_probe=memoize_extents_probe(measure_line_vertical_extents),
             )
     except CutterSizeError as exc:
-        raise JobPreparationError("resolve", exc, job_name=job_name) from exc
+        raise JobPreparationError("resolve", exc, name=name) from exc
 
     return PreparedJob(
         spec_path=spec_path,
         job=job,
-        job_name=job_name,
+        name=name,
         job_id=job_id,
         plate_count=plate_count,
         unique_labels=unique_labels,

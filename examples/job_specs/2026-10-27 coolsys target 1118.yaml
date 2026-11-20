@@ -1,5 +1,5 @@
 job:
-  job_name: Coolsys Target 1118
+  name: Coolsys Target 1118
   material: kw
   width: 3
   height: 2

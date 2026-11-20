@@ -172,7 +172,7 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
     # every subparser's ``-h`` action as a side effect and hijack ``--help``).
 
 
-def _sanitize_job_id(job_name: str) -> str:
+def _sanitize_job_id(name: str) -> str:
     """Derive a filesystem-safe job identifier from a job name.
 
     Delegates to :func:`plt_optimizer.core.filenames.sanitize_filename_component`:
@@ -183,12 +183,12 @@ def _sanitize_job_id(job_name: str) -> str:
     falls back to ``"job"``.
 
     Args:
-        job_name: The raw ``job_name`` from the YAML specification.
+        name: The raw ``name`` from the YAML specification.
 
     Returns:
         A safe identifier for use in output file names.
     """
-    return sanitize_job_id(job_name)
+    return sanitize_job_id(name)
 
 
 # The per-job front half of the pipeline (config load, parse + expand,
@@ -343,7 +343,7 @@ def _load_cutter_inventory(
 def _write_failure_report(
     report_dir: Path,
     *,
-    job_name: str,
+    name: str,
     job_id: str,
     spec_path: Path,
     output_dir: Path,
@@ -367,7 +367,7 @@ def _write_failure_report(
 
     Args:
         report_dir: The report directory to write into.
-        job_name: The job's name.
+        name: The job's name.
         job_id: The sanitized job id.
         spec_path: The job specification path.
         output_dir: The output directory.
@@ -384,7 +384,7 @@ def _write_failure_report(
         timings: The explicit per-stage timing collector.
     """
     report = build_report(
-        job_name=job_name,
+        name=name,
         job_id=job_id,
         spec_path=spec_path,
         output_dir=output_dir,
@@ -533,8 +533,8 @@ def _run_generate(args: argparse.Namespace) -> int:
 
     started_at = utc_now_iso()
     start = time.perf_counter()
-    job_name = spec_path.stem
-    job_id = _sanitize_job_id(job_name)
+    name = spec_path.stem
+    job_id = _sanitize_job_id(name)
     plate_count = 0
     tools: Optional[Dict[str, Any]] = None
     options: Dict[str, Any] = {
@@ -558,7 +558,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         capture.close()
         _write_failure_report(
             report_dir,
-            job_name=job_name,
+            name=name,
             job_id=job_id,
             spec_path=spec_path,
             output_dir=output_dir,
@@ -621,7 +621,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         print(e.console_message, file=sys.stderr)
         _write_failure_report(
             report_dir,
-            job_name=job_name,
+            name=name,
             job_id=job_id,
             spec_path=spec_path,
             output_dir=output_dir,
@@ -652,7 +652,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         return _handle_prep_failure(e)
 
     job = prepared.job
-    job_name = prepared.job_name
+    name = prepared.name
     job_id = prepared.job_id
     plate_count = prepared.plate_count
 
@@ -670,7 +670,7 @@ def _run_generate(args: argparse.Namespace) -> int:
                 job.plates,
                 output_dir=output_dir,
                 job_id=job_id,
-                job_name=job.job_name,
+                name=job.name,
                 optimize=True,
                 plots=not args.no_plots,
                 default_plots=args.default_plots,
@@ -726,7 +726,7 @@ def _run_generate(args: argparse.Namespace) -> int:
     # only the one-line summary. The full layout report is the one verbose
     # affordance, printed to stdout under -v.
     report = build_report(
-        job_name=job.job_name,
+        name=job.name,
         job_id=job_id,
         spec_path=spec_path,
         output_dir=output_dir,
@@ -768,7 +768,7 @@ def _run_generate(args: argparse.Namespace) -> int:
 
     pdf_count = len(export_result.pdf_paths)
     print(
-        f"Generated '{job.job_name}': {len(exported_paths)} PLT file(s), "
+        f"Generated '{job.name}': {len(exported_paths)} PLT file(s), "
         f"{pdf_count} PDF(s) in {output_dir} "
         f"(report: {report_dir / REPORT_JSON_NAME})"
     )
@@ -824,8 +824,8 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
 
     output_dir = args.output if args.output is not None else jobset_path.parent
     report_dir = report_dir_for(output_dir)
-    job_name = jobset_path.stem
-    job_id = _sanitize_job_id(job_name)
+    name = jobset_path.stem
+    job_id = _sanitize_job_id(name)
     tools: Optional[Dict[str, Any]] = None
     options: Dict[str, Any] = {
         "no_plots": bool(args.no_plots),
@@ -856,7 +856,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
         capture.close()
         _write_failure_report(
             report_dir,
-            job_name=job_name,
+            name=name,
             job_id=job_id,
             spec_path=jobset_path,
             output_dir=output_dir,
@@ -882,7 +882,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
     with stage_timer("parse", _LOG, timings=stage_timings):
         try:
             set_spec = parse_jobset_yaml(jobset_path)
-            job_name = set_spec.name or jobset_path.stem
+            name = set_spec.name or jobset_path.stem
         except (JobSetError, ValueError, OSError) as e:
             print(f"Error parsing jobset specification: {e}", file=sys.stderr)
             capture.close()
@@ -917,7 +917,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
         except (JobSetError, JobPreparationError, ValueError, OSError) as e:
             return _fail(e, "resolve")
 
-    job_name = plan.jobset_name
+    name = plan.jobset_name
     job_id = plan.jobset_id
     for warning in plan.warnings:
         _LOG.warning("Jobset gate: %s", warning)
@@ -929,7 +929,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
     # per-segment cascade stays per job.
     batch_spec = plan.contexts[0].spec.model_copy(
         update={
-            "job_name": plan.jobset_name,
+            "name": plan.jobset_name,
             "plates": plan.merged_plates,
             "labels": plan.merged_labels,
         }
@@ -942,7 +942,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
                 plan.merged_plates,
                 output_dir=output_dir,
                 job_id=job_id,
-                job_name=job_id,
+                name=job_id,
                 optimize=True,
                 plots=not args.no_plots,
                 default_plots=args.default_plots,
@@ -1015,7 +1015,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
     write_manifest(plan, export_result, reports, output_dir=output_dir, root_usage=usage)
 
     report = build_report(
-        job_name=job_name,
+        name=name,
         job_id=job_id,
         spec_path=jobset_path,
         output_dir=output_dir,
@@ -1047,7 +1047,7 @@ def _run_generate_jobset(args: argparse.Namespace) -> int:
 
     label_count = sum(len(c.resolved_labels) for c in plan.contexts)
     print(
-        f"Generated jobset '{job_name}': {len(plan.contexts)} job(s), "
+        f"Generated jobset '{name}': {len(plan.contexts)} job(s), "
         f"{label_count} label(s), {len(export_result.plt_paths)} PLT file(s), "
         f"{len(export_result.pdf_paths)} PDF(s) in {output_dir} "
         f"(reports: {reports.manifest_path.parent})"

@@ -1,5 +1,5 @@
 job:
-  job_name: Coolsys Safeway 1504
+  name: Coolsys Safeway 1504
   material: kw
   width: 3
   height: 1

@@ -6,7 +6,7 @@
 # `main` collides with jobset_exp_b.yaml on purpose. Label geometry is copied
 # from jobset_a.yaml, which is known to clear the corner holes.
 job:
-  job_name: Export Alpha
+  name: Export Alpha
   layout: columns
   plates:
     - id: plate1

@@ -120,7 +120,7 @@ def _minimal_job(**overrides: Any) -> dict[str, Any]:
         A mutable raw job mapping (labels form, one label with content).
     """
     job: dict[str, Any] = {
-        "job_name": "Config Test",
+        "name": "Config Test",
         "labels": [{"id": "l1", "content": [{"text": "Hello"}]}],
     }
     job.update(overrides)
@@ -227,7 +227,7 @@ class TestJobDefaultsModel:
         path = _write_config(tmp_path, {"material_weight_per_square_inch": 0.01})
         config = load_job_config(path)
         assert config is not None
-        filled = apply_job_config_defaults({"job_name": "J", "width": 2.0, "height": 1.0}, config)
+        filled = apply_job_config_defaults({"name": "J", "width": 2.0, "height": 1.0}, config)
         assert filled["material_weight_per_square_inch"] == pytest.approx(0.01)
 
     def test_a_spec_density_wins_over_the_config(self, tmp_path: Path) -> None:
@@ -236,7 +236,7 @@ class TestJobDefaultsModel:
         config = load_job_config(path)
         assert config is not None
         filled = apply_job_config_defaults(
-            {"job_name": "J", "width": 2.0, "height": 1.0, "material_weight_per_square_inch": 0.5},
+            {"name": "J", "width": 2.0, "height": 1.0, "material_weight_per_square_inch": 0.5},
             config,
         )
         assert filled["material_weight_per_square_inch"] == pytest.approx(0.5)
@@ -1149,7 +1149,7 @@ class TestApplyJobConfigDefaults:
         spec_path = tmp_path / "spec.yaml"
         spec_path.write_text(
             "job:\n"
-            "  job_name: Config Holes Job\n"
+            "  name: Config Holes Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1247,7 +1247,7 @@ class TestApplyJobConfigDefaults:
         spec_path = tmp_path / "spec.yaml"
         spec_path.write_text(
             "job:\n"
-            "  job_name: Config Font Job\n"
+            "  name: Config Font Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1313,7 +1313,7 @@ class TestAssertRequiredFields:
         """A field declared on every label also satisfies the contract."""
         config = load_job_config(_write_config(tmp_path, {"plate_width": 24, "plate_height": 16}))
         job = {
-            "job_name": "Per label",
+            "name": "Per label",
             "labels": [
                 {
                     "id": "a",
@@ -1339,7 +1339,7 @@ class TestAssertRequiredFields:
         """A field declared on only some labels does not satisfy the contract."""
         config = load_job_config(_write_config(tmp_path, {"plate_width": 24, "plate_height": 16}))
         job = {
-            "job_name": "Partial",
+            "name": "Partial",
             "labels": [
                 {"id": "a", "content": [{"text": "A"}], "hole_margin": 0.1},
                 {"id": "b", "content": [{"text": "B"}]},
@@ -1364,7 +1364,7 @@ class TestAssertRequiredFields:
     def test_root_content_form_checked(self, tmp_path: Path) -> None:
         """Root-level content jobs are checked at the job layer too."""
         config = load_job_config(_write_config(tmp_path, {"plate_width": 24, "plate_height": 16}))
-        job = {"job_name": "Root", "content": [{"text": "Hello"}]}
+        job = {"name": "Root", "content": [{"text": "Hello"}]}
         with pytest.raises(JobConfigError):
             assert_required_fields(job, config)
 
@@ -1450,7 +1450,7 @@ class TestConfigCommentMarkerInjection:
             _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_file_comment_string": "//"})
         )
         job = {
-            "job_name": "Config Test",
+            "name": "Config Test",
             "labels": [{"id": "l1", "replacement_text_file": "d.txt"}],
         }
         filled = apply_job_config_defaults(job, config)
@@ -1504,7 +1504,7 @@ class TestConfigDelimiterInjection:
             _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
         )
         job = {
-            "job_name": "Config Test",
+            "name": "Config Test",
             "labels": [{"id": "l1", "replacement_text_file": "d.txt"}],
         }
         filled = apply_job_config_defaults(job, config)
@@ -1516,7 +1516,7 @@ class TestConfigDelimiterInjection:
             _write_config(tmp_path, {**_FULL_CONFIG, "replacement_text_delimiter": ","})
         )
         job = {
-            "job_name": "Config Test",
+            "name": "Config Test",
             "plates": [
                 {"id": "p1", "width": 24.0, "height": 16.0, "replacement_text_file": "d.txt"}
             ],
@@ -1560,7 +1560,7 @@ class TestConfigDelimiterInjection:
         spec = tmp_path / "job.yaml"
         spec.write_text(
             "job:\n"
-            "  job_name: J\n"
+            "  name: J\n"
             "  width: 3.0\n"
             "  height: 1.0\n"
             "  text_height: 0.75\n"
@@ -1652,7 +1652,7 @@ class TestParseYamlWithJobConfig:
         spec_path = tmp_path / "spec.yaml"
         spec_path.write_text(
             "job:\n"
-            "  job_name: Plate Default Job\n"
+            "  name: Plate Default Job\n"
             "  max_h_compress: 0.5\n"
             "  hole_margin: 0.1\n"
             "  min_hole_margin: 0.05\n"
@@ -1678,7 +1678,7 @@ class TestParseYamlWithJobConfig:
         spec_path = tmp_path / "spec.yaml"
         spec_path.write_text(
             "job:\n"
-            "  job_name: Bare Job\n"
+            "  name: Bare Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -1697,12 +1697,7 @@ class TestParseYamlWithJobConfig:
         """An opted-in config path that does not exist enforces the contract."""
         spec_path = tmp_path / "spec.yaml"
         spec_path.write_text(
-            "job:\n"
-            "  job_name: Bare Job\n"
-            "  labels:\n"
-            "    - id: l1\n"
-            "      content:\n"
-            "        - text: Hi\n",
+            "job:\n  name: Bare Job\n  labels:\n    - id: l1\n      content:\n        - text: Hi\n",
             encoding="utf-8",
         )
         with pytest.raises(JobConfigError):
@@ -1779,7 +1774,7 @@ class TestListDefaults:
         )
         config = load_job_config(path)
         assert config is not None
-        job_data: dict = {"job_name": "J", "width": 2.0, "height": 1.0}
+        job_data: dict = {"name": "J", "width": 2.0, "height": 1.0}
         filled = apply_job_config_defaults(job_data, config)
         assert filled["bullet_string"] == "*"
         assert filled["counter_style"] == "lower-alpha"
@@ -1797,7 +1792,7 @@ class TestListDefaults:
         path = _write_config(tmp_path, {"bullet_string": "a\nb"})
         config = load_job_config(path)
         assert config is not None
-        job_data: dict = {"job_name": "J", "width": 2.0, "height": 1.0}
+        job_data: dict = {"name": "J", "width": 2.0, "height": 1.0}
         filled = apply_job_config_defaults(job_data, config)
         with pytest.raises(ValidationError, match="newline"):
             JobSpec(**filled)
@@ -2116,7 +2111,7 @@ class TestReliefEngravingConfigFields:
         path.write_text(json.dumps(config), encoding="utf-8")
         spec = tmp_path / "job.yaml"
         spec.write_text(
-            "job:\n  job_name: R\n  width: 2.0\n  height: 1.0\n  content:\n    - text: X\n",
+            "job:\n  name: R\n  width: 2.0\n  height: 1.0\n  content:\n    - text: X\n",
             encoding="utf-8",
         )
         job = parse_yaml(spec, job_config_path=path)
@@ -2137,7 +2132,7 @@ class TestReliefEngravingConfigFields:
         path.write_text(json.dumps(config), encoding="utf-8")
         spec = tmp_path / "job.yaml"
         spec.write_text(
-            "job:\n  job_name: R\n  width: 2.0\n  height: 1.0\n  content:\n    - text: X\n",
+            "job:\n  name: R\n  width: 2.0\n  height: 1.0\n  content:\n    - text: X\n",
             encoding="utf-8",
         )
         job = parse_yaml(spec, job_config_path=path)

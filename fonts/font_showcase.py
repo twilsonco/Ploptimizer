@@ -263,7 +263,7 @@ def build_showcase_job(font_name: str, width: float = LABEL_WIDTH) -> JobSpec:
         A root-level single-label :class:`JobSpec`.
     """
     return JobSpec(
-        job_name=f"Font Showcase {font_name}",
+        name=f"Font Showcase {font_name}",
         font=font_name,
         width=width,
         height=LABEL_HEIGHT,

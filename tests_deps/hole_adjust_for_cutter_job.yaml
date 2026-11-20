@@ -20,7 +20,7 @@
 # The export test passes `boundary_hole_cutter_size=0.015` explicitly, so the
 # pinned diameters never drift with the shop's tools.json.
 job:
-  job_name: Hole Adjust For Cutter Demo
+  name: Hole Adjust For Cutter Demo
 
   width: 3.0
   height: 1.5

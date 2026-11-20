@@ -676,7 +676,7 @@ class TestPlateSpaceExport:
         spec_file = tmp_path / "spec.yaml"
         spec_file.write_text(
             "job:\n"
-            "  job_name: Plate Space Job\n"
+            "  name: Plate Space Job\n"
             "  plates:\n"
             "    - id: p1\n"
             "      width: 24.0\n"
@@ -796,8 +796,8 @@ class TestPlateSpaceExport:
             spec_file = tmp_path / f"spec_{mode}.yaml"
             spec_file.write_text(
                 spec_text.replace(
-                    "job_name: Plate Space Job",
-                    f"job_name: Plate Space Job\n  text_chunk_mode: {mode}",
+                    "name: Plate Space Job",
+                    f"name: Plate Space Job\n  text_chunk_mode: {mode}",
                 ),
                 encoding="utf-8",
             )

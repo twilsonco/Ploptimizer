@@ -48,11 +48,15 @@ if TYPE_CHECKING:
 
 #: Version of the ``report.json`` document shape. Bump when a consumer
 #: contract changes; consumers should check this before relying on a field.
-#: Version 1 has grown by whole additive keys only (``usage``, the measured
+#: Version 1 grew by whole additive keys only (``usage``, the measured
 #: production-usage block, joined the top level), so a v1 reader must treat any
 #: block as optional: ``usage`` is ``null`` on a failed run and on reports
 #: written before it existed.
-REPORT_SCHEMA_VERSION: int = 1
+#: Version 2 is one breaking rename: the ``job`` block's ``job_name`` key is now
+#: ``name``, mirroring the job-spec field of the same name (see
+#: ``docs/CHANGELOG.md``). Readers pinned to v1 must read ``job.name``; nothing
+#: else in the document moved.
+REPORT_SCHEMA_VERSION: int = 2
 
 #: Name of the report directory created next to the ``plt/`` and ``pdf/``
 #: output directories.
@@ -605,7 +609,7 @@ def _plate_entries(packed_plates: Sequence[PackedPlate]) -> List[Dict[str, Any]]
 
 def build_report(
     *,
-    job_name: str,
+    name: str,
     job_id: str,
     spec_path: Path,
     output_dir: Path,
@@ -634,7 +638,7 @@ def build_report(
     """Build the JSON-ready generation report.
 
     Args:
-        job_name: The job's name (from the YAML spec).
+        name: The job's name (from the YAML spec).
         job_id: The sanitized job id used in the output file names.
         spec_path: The job specification path.
         output_dir: The output directory (``plt/`` and ``pdf/`` live inside).
@@ -717,7 +721,7 @@ def build_report(
     return {
         "schema_version": REPORT_SCHEMA_VERSION,
         "job": {
-            "job_name": job_name,
+            "name": name,
             "job_id": job_id,
             "status": status,
             "error": error,
@@ -838,7 +842,7 @@ def format_summary(report: Dict[str, Any]) -> str:
     job = report.get("job", {})
     summary = report.get("summary", {})
     lines: List[str] = []
-    lines.append(f"Generation report: {job.get('job_name', '')}")
+    lines.append(f"Generation report: {job.get('name', '')}")
     lines.append(f"  status:    {job.get('status', 'unknown')}")
     if job.get("error"):
         error = job["error"]
@@ -885,7 +889,7 @@ def format_summary(report: Dict[str, Any]) -> str:
         lines.append(f"Jobs ({len(job_lines)}):")
         for entry in job_lines:
             lines.append(
-                f"  - {entry.get('job_name') or entry.get('job_id', '')} "
+                f"  - {entry.get('name') or entry.get('job_id', '')} "
                 f"({entry.get('job_id', '')}): "
                 f"distance {_summary_number(entry.get('distance_total'))} in, "
                 f"time {_summary_number(entry.get('time_total'))} s, "

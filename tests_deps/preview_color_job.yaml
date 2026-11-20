@@ -14,7 +14,7 @@
 #
 # Run with: python scripts/run_integration_test.py tests_deps/preview_color_job.yaml
 job:
-  job_name: Preview Color Demo
+  name: Preview Color Demo
 
   width: 4.0
   height: 2.0

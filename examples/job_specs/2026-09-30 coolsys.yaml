@@ -2,7 +2,7 @@
 # Coolsys Walmart 1238
 # 0.5in white text on black
 job:
-  job_name: Coolsys Walmart 1238
+  name: Coolsys Walmart 1238
   text_height: 0.5
   font: dino
   holes:

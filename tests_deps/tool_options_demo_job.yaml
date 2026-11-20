@@ -1,5 +1,5 @@
 job:
-  job_name: "Tool Options Demo"
+  name: "Tool Options Demo"
   width: 3.0
   height: 1.0
   text_height: 0.5

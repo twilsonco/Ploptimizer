@@ -11,7 +11,7 @@ job specifications used by the generate pipeline. It handles:
 
 Example:
     >>> job = parse_yaml("tests_deps/sample_spec.yaml")
-    >>> print(job.job_name)
+    >>> print(job.name)
     'Control Panel Tags - Batch 01'
 """
 
@@ -2846,9 +2846,22 @@ class JobSpec(LabelAttributes):
     The label source forms (1-3) are mutually exclusive; exactly one must
     be provided. The `width` and `height` cascade from label to job;
     they are no longer auto-sized from rendered content.
+
+    Attributes:
+        name: Human-readable job display name. It feeds the reports, the logs
+            and the plot titles, and `_sanitize_job_id` derives the
+            filesystem-safe `job_id` that names every generated file. Distinct
+            from :attr:`JobSetSpec.name`, the batch's own display name.
     """
 
-    job_name: str = Field(description="Human-readable name for this job.")
+    name: str = Field(
+        description=(
+            "Human-readable name for this job. Reports, logs and plot titles "
+            "print it verbatim, and `_sanitize_job_id` derives the "
+            "filesystem-safe `job_id` from it that names every generated file. "
+            "Distinct from `JobSetSpec.name`, the batch's own display name."
+        )
+    )
     plates: Optional[list[PlateSpec]] = Field(
         default=None,
         description=(
@@ -3724,7 +3737,7 @@ def parse_yaml(
 
     Example:
         >>> job = parse_yaml("tests_deps/sample_spec.yaml")
-        >>> print(f"Loaded {job.job_name}")
+        >>> print(f"Loaded {job.name}")
     """
     # Imported lazily: job_config imports schema, so a module-level import
     # would be circular.

@@ -7,7 +7,7 @@ corner-holes:
   # Four corner holes, 0.125in, 0.2in from the edges.
   yaml: |
     job:
-      job_name: "Holes demo"
+      name: "Holes demo"
       width: 4.0
       height: 2.0
       hole_margin: 0.2
@@ -20,7 +20,7 @@ edge-aligned-clearance:
   # Left-aligned text under a left hole: it slides off its anchored margin, and its sibling matches so the left edges stay flush; if the line switches to center, the sibling flushes onto its final edge.
   yaml: |
     job:
-      job_name: "Edge-aligned collision demo"
+      name: "Edge-aligned collision demo"
       width: 4.0
       height: 1.0
       margin: 0.1

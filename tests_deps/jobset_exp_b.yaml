@@ -3,7 +3,7 @@
 # cutter and colour - so a shared sheet yields one text file per
 # (job, cutter, colour) layer, not one merged file.
 job:
-  job_name: Export Beta
+  name: Export Beta
   layout: columns
   plates:
     - id: plate1

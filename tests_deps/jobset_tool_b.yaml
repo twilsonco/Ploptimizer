@@ -1,7 +1,7 @@
 # Jobset tool-option fixture B: same plate geometry, a different cutter speed
 # (2.5 in/s) - the batch must not write A's VS header onto B's strokes.
 job:
-  job_name: Tool Beta
+  name: Tool Beta
   layout: columns
   plates:
     - id: plate1

@@ -17,7 +17,7 @@
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
 # cutter plus one bh file.
 job:
-  job_name: Descender Reciprocal Demo
+  name: Descender Reciprocal Demo
 
   width: 6.0
   height: 4.0

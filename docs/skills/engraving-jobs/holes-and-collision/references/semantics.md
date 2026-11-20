@@ -87,7 +87,7 @@ the free space (see the centering skill).
 
 ```yaml
 job:
-  job_name: "Panel tag"
+  name: "Panel tag"
   width: 5.0
   height: 1.5
   hole_margin: 0.25

@@ -1,5 +1,5 @@
 job:
-  job_name: "2026-11-17 CES SFW3525"
+  name: "2026-11-17 CES SFW3525"
   font: helv1
   material: kw
   height: 2

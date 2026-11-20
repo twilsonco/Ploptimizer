@@ -7,7 +7,7 @@ custom-speeds:
   # Faster cut and higher spindle, at the job level.
   yaml: |
     job:
-      job_name: "Custom Speeds"
+      name: "Custom Speeds"
       tool_options:
         cutting_velocity: 1.5
         spindle_speed: 15000

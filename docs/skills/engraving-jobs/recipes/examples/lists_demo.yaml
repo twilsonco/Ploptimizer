@@ -12,7 +12,7 @@
 # job-config.json, so a shop default lives in job-config.json and a label (or
 # a single item) overrides it.
 job:
-  job_name: List Showcase
+  name: List Showcase
   width: 7
   height: 5
   margin: 0.25

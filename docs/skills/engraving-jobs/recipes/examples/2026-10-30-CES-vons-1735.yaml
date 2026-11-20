@@ -1,5 +1,5 @@
 job:
-  job_name: CES vons 1735
+  name: CES vons 1735
   material: kw
   font: helv1
 

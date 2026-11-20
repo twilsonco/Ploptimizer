@@ -2,7 +2,7 @@
 # shared-plate export can prove that each segment carries the header block of
 # the job that owns those strokes (cutting_velocity 0.5 in/s).
 job:
-  job_name: Tool Alpha
+  name: Tool Alpha
   layout: columns
   plates:
     - id: plate1

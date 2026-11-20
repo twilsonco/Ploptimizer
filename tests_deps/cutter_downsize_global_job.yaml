@@ -13,7 +13,7 @@
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
 # cutter plus one bh file.
 job:
-  job_name: Cutter Downsize Global Demo
+  name: Cutter Downsize Global Demo
 
   width: 3.0
   height: 1.2

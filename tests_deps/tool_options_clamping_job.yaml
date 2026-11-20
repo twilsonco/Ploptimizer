@@ -1,5 +1,5 @@
 job:
-  job_name: "Tool Options Clamping Test"
+  name: "Tool Options Clamping Test"
   width: 3.0
   height: 1.0
   text_height: 0.5

@@ -1,5 +1,5 @@
 job:
-  job_name: "2026-11-18 air controls"
+  name: "2026-11-18 air controls"
   material: kw
   height: 4
   width: 6

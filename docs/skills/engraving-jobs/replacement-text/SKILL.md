@@ -40,7 +40,7 @@ Form 3: per-label file; each data line is one label copy.
 
 ```yaml
 job:
-  job_name: "Batch 02"
+  name: "Batch 02"
   labels:
     - id: badge
       replacement_text_file: data.txt

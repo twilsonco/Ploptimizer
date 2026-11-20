@@ -2509,7 +2509,7 @@ def _markup_job(*lines: Tuple[str, Dict[str, Any]], **job_kwargs: Any) -> JobSpe
     entries: List[Any] = [TextLine(text=text, **kw) for text, kw in lines]
 
     return JobSpec(
-        job_name="M",
+        name="M",
         width=6.0,
         height=1.0,
         text_height=0.5,

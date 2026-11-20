@@ -1,5 +1,5 @@
 job:
-    job_name: coolsys walmart 3620 1827
+    name: coolsys walmart 3620 1827
     font: helv1
     labels:
         - id: round walmart 1827

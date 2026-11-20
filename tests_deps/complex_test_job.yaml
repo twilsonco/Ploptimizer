@@ -31,7 +31,7 @@
 #
 # Run with: python run_integration_test.py tests_deps/complex_test_job.yaml
 job:
-  job_name: "Complex Plant Signage - Batch 42"
+  name: "Complex Plant Signage - Batch 42"
 
   # ---------------------------------------------------------------------
   # Job-level defaults (cascade down to every label / text line unless

@@ -15,7 +15,7 @@
 #
 # Run with: python scripts/run_integration_test.py tests_deps/material_demo_job.yaml
 job:
-  job_name: Material Demo - Mixed Stock Batch
+  name: Material Demo - Mixed Stock Batch
   layout: rows
   width: 3.0
   height: 1.0

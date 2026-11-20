@@ -7,7 +7,7 @@ explicit-cutter:
   # Force a 0.040in cutter on one line only.
   yaml: |
     job:
-      job_name: "Cutter demo"
+      name: "Cutter demo"
       content:
         - text: "Fine detail"
           cutter_size: 0.040
@@ -16,7 +16,7 @@ kerf-buffer:
   # Widen the engraved stroke estimate for deep cuts.
   yaml: |
     job:
-      job_name: "Kerf buffer demo"
+      name: "Kerf buffer demo"
       cutter_buffer_text: 0.008
       cutter_buffer_routing: 0.045
       content:

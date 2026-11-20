@@ -11,7 +11,7 @@
 # names carry no plate/material prefix: [<cutter>]_txt_<job>.plt per distinct
 # cutter plus one bh file.
 job:
-  job_name: H Compress Global Demo
+  name: H Compress Global Demo
 
   width: 3.0
   height: 1.2

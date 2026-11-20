@@ -240,7 +240,7 @@ def _job_identity(job: JobSpec | None, job_yaml: Path) -> tuple[str, str, int]:
         job_yaml: The job spec path being processed.
 
     Returns:
-        Tuple of (job_name, filesystem-safe job_id, declared plate count).
+        Tuple of (name, filesystem-safe job_id, declared plate count).
     """
     from plt_optimizer.cli.generate import _sanitize_job_id
 
@@ -248,7 +248,7 @@ def _job_identity(job: JobSpec | None, job_yaml: Path) -> tuple[str, str, int]:
         name = job_yaml.stem
         return name, _sanitize_job_id(name), 0
     plate_count = len(job.plates) if job.plates is not None else 0
-    return job.job_name, _sanitize_job_id(job.job_name), plate_count
+    return job.name, _sanitize_job_id(job.name), plate_count
 
 
 # ============================================================================
@@ -336,7 +336,7 @@ def phase_2_resolution_and_layout(
 
     Returns:
         Tuple of (resolved_labels, packed_plates, provided_plates, job_id,
-        job_name, allow_rotation, layout, default_plate_size,
+        name, allow_rotation, layout, default_plate_size,
         default_plate_clearance, job, job_config).
     """
     print_separator("PHASE 2: PIPELINE EXECUTION")
@@ -354,7 +354,7 @@ def phase_2_resolution_and_layout(
     logger.info("Step 1: Parsing JobSpec from YAML...")
     with stage_timer("parse", logger, timings=stage_timings):
         job = expand_job_spec(parse_yaml(job_yaml, job_config_path=job_config_path), job_yaml)
-    logger.info(f"Parsed job: {job.job_name}")
+    logger.info(f"Parsed job: {job.name}")
     logger.info(f"Job-level text_height: {job.text_height}")
     logger.info(f"Job-level margin: {job.margin}")
 
@@ -428,14 +428,14 @@ def phase_2_resolution_and_layout(
     # the generate CLI's sanitization).
     from plt_optimizer.cli.generate import _sanitize_job_id
 
-    job_id = _sanitize_job_id(job.job_name)
+    job_id = _sanitize_job_id(job.name)
 
     return (
         resolved_labels,
         packed_plates,
         job.plates,
         job_id,
-        job.job_name,
+        job.name,
         job.allow_rotation,
         job.layout,
         default_plate_size,
@@ -707,7 +707,7 @@ def phase_5j_jobset_report(
     )
 
     report = build_report(
-        job_name=plan.jobset_name,
+        name=plan.jobset_name,
         job_id=plan.jobset_id,
         spec_path=jobset_yaml,
         output_dir=export_result.output_dir,
@@ -784,7 +784,7 @@ def phase_3_vectorization_and_export(
     provided_plates: list[PlateSpec] | None = None,
     output_dir: Path | None = None,
     job_id: str = "job",
-    job_name: str = "",
+    name: str = "",
     allow_rotation: bool = True,
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: tuple[float, float] | None = None,
@@ -834,7 +834,7 @@ def phase_3_vectorization_and_export(
         output_dir: Optional output directory. Defaults to
             ``test_output/integration_test``.
         job_id: Filesystem-safe job identifier used as the file-name prefix.
-        job_name: Human-readable job name for plot titles (optional).
+        name: Human-readable job name for plot titles (optional).
         allow_rotation: If True (the default), the bin packer may rotate
             labels 90 degrees for tighter layouts (job-level flag).
         layout: Preferential plate fill order (job-level value; a plate may
@@ -906,7 +906,7 @@ def phase_3_vectorization_and_export(
         provided_plates,
         output_dir=output_dir,
         job_id=job_id,
-        job_name=job_name,
+        name=name,
         optimize=True,
         plots=plots,
         allow_rotation=allow_rotation,
@@ -1034,7 +1034,7 @@ def phase_3_6_layout_report(
 # ============================================================================
 # PHASE 4: VISUALIZATION (Optional)
 # ============================================================================
-def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") -> list[Path]:
+def phase_4_visualization(export_result: PerCutterExport, name: str = "") -> list[Path]:
     """Phase 4: Generate color-coded PDF previews using the plotter.
 
     The simple-outline previews (one per per-cutter PLT plus one combined
@@ -1057,7 +1057,7 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
     Args:
         export_result: The per-cutter export whose PLTs and combined
             content drive the plots.
-        job_name: Human-readable job name for plot titles (optional).
+        name: Human-readable job name for plot titles (optional).
 
     Returns:
         The ``*_default.pdf`` paths that were written (empty when the phase
@@ -1081,7 +1081,7 @@ def phase_4_visualization(export_result: PerCutterExport, job_name: str = "") ->
             export_result.output_dir,
             export_result.job_id,
             export_result,
-            job_name=job_name,
+            name=name,
             include_combined=False,
         )
         for pdf_path in pdf_paths:
@@ -1150,7 +1150,7 @@ def phase_5_generation_report(
     """
     print_separator("PHASE 5: GENERATION REPORT")
 
-    job_name, job_id, plate_count = _job_identity(job, job_yaml)
+    name, job_id, plate_count = _job_identity(job, job_yaml)
     report_dir = report_dir_for(export_result.output_dir)
     # Same accounting the CLI attaches, measured from the PLT files Phase 3
     # wrote; a measurement failure never fails a run that engraved fine. The
@@ -1173,7 +1173,7 @@ def phase_5_generation_report(
         print(f"\u26a0 Usage accounting failed (report carries no usage block): {exc}")
         usage = None
     report = build_report(
-        job_name=job_name,
+        name=name,
         job_id=job_id,
         spec_path=job_yaml,
         output_dir=export_result.output_dir,
@@ -1258,7 +1258,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             packed_plates,
             provided_plates,
             job_id,
-            job_name,
+            name,
             allow_rotation,
             layout,
             default_plate_size,
@@ -1283,7 +1283,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
             provided_plates,
             output_dir,
             job_id,
-            job_name,
+            name,
             allow_rotation,
             layout,
             default_plate_size,
@@ -1306,7 +1306,7 @@ def _run_single_spec(spec_override: Path | None) -> int:
 
         # Phase 4: Visualization (optional)
         stage = "plots"
-        default_pdf_paths = phase_4_visualization(export_result, job_name=job_name)
+        default_pdf_paths = phase_4_visualization(export_result, name=name)
 
         # Phase 5: the generation report (report.json + summary.txt) -- the
         # same artifacts the `generate` CLI writes, from the same builder.
@@ -1432,10 +1432,10 @@ def _write_failure_report_for_run(
         started_at: The run's start timestamp (ISO 8601).
         duration_seconds: The run's wall-clock duration so far.
     """
-    job_name, job_id, plate_count = _job_identity(job, job_yaml)
+    name, job_id, plate_count = _job_identity(job, job_yaml)
     report_dir = report_dir_for(output_dir)
     report = build_report(
-        job_name=job_name,
+        name=name,
         job_id=job_id,
         spec_path=job_yaml,
         output_dir=output_dir,
@@ -1558,7 +1558,7 @@ def _run_single_jobset(jobset_yaml: Path) -> int:
         # specs reach the per-file headers through ``layer_specs``.
         batch_spec = plan.contexts[0].spec.model_copy(
             update={
-                "job_name": plan.jobset_name,
+                "name": plan.jobset_name,
                 "plates": plan.merged_plates,
                 "labels": plan.merged_labels,
             }
@@ -1594,7 +1594,7 @@ def _run_single_jobset(jobset_yaml: Path) -> int:
 
         # Phase 4: Visualization (optional)
         stage = "plots"
-        default_pdf_paths = phase_4_visualization(export_result, job_name=plan.jobset_name)
+        default_pdf_paths = phase_4_visualization(export_result, name=plan.jobset_name)
 
         # Phase 5J: per-job reports + the batch manifest + the batch report.
         stage = "report"

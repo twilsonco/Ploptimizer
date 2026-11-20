@@ -7,7 +7,7 @@ bolder-strokes:
   # Heavier engraved strokes for a bold PLT font.
   yaml: |
     job:
-      job_name: "Bold demo"
+      name: "Bold demo"
       font: "Claret4"
       target_boldness_factor: 0.18
       content:

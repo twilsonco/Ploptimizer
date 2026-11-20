@@ -75,7 +75,7 @@ A numbered block and a bullet block in one label.
 
 ```yaml
 job:
-  job_name: "Lists demo"
+  name: "Lists demo"
   content:
     - text: "MAINTENANCE SCHEDULE"
     - enumerate:

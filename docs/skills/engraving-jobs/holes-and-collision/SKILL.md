@@ -108,7 +108,7 @@ Four corner holes, 0.125in, 0.2in from the edges.
 
 ```yaml
 job:
-  job_name: "Holes demo"
+  name: "Holes demo"
   width: 4.0
   height: 2.0
   hole_margin: 0.2

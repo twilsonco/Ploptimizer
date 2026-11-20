@@ -30,7 +30,7 @@
 # No plate declares a material and the job packs onto one sheet, so emitted
 # names carry no plate/material prefix.
 job:
-  job_name: Original Cutter Demo
+  name: Original Cutter Demo
 
   width: 3.0
   height: 1.0

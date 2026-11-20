@@ -85,7 +85,7 @@ Registry order: `i, u, b, scale, sup, sub, s, sc, f, c, oc, vc, tc, cb, space`.
 
 ```yaml
 job:
-  job_name: "Markup"
+  name: "Markup"
   content:
     - text: "Nom <i>240</i> V / <b>50</b> A"
     - text: "Area 12<sup>2</sup> ft"

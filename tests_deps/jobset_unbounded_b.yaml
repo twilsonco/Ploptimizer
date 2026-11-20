@@ -1,7 +1,7 @@
 # Jobset member fixture: the second unbounded member (same layout, so the
 # gate passes and both jobs share the auto-allocated sheets).
 job:
-  job_name: Jobset Unbounded B
+  name: Jobset Unbounded B
   layout: columns
   labels:
     - id: unbounded-b

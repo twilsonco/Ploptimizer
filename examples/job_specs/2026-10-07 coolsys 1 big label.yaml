@@ -1,7 +1,7 @@
 # 2026-09-28
 # Coolsys Walmart 5168
 job:
-  job_name: Coolsys Walmart 5168
+  name: Coolsys Walmart 5168
   material: wk
   width: 24
   height: 16

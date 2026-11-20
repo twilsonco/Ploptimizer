@@ -5,7 +5,7 @@
 # and B, sheet B carries B alone - the mix a shop sees when a batch's last job
 # runs over. Root for TestPerJobProofs::test_a_solo_sheet_is_proved_once.
 job:
-  job_name: Solo Alpha
+  name: Solo Alpha
   layout: columns
   plates:
     - id: plateA

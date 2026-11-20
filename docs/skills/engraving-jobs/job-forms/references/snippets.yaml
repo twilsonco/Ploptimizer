@@ -7,7 +7,7 @@ labels-list:
   # Form 1: explicit labels list, each with its own content lines.
   yaml: |
     job:
-      job_name: "Batch 01"
+      name: "Batch 01"
       text_height: 0.5
       labels:
         - id: label_1
@@ -19,7 +19,7 @@ single-label:
   # Form 2: root-level single label, repeated with count.
   yaml: |
     job:
-      job_name: "Simple Labels"
+      name: "Simple Labels"
       count: 20
       content:
         - text: "Single repeating label"

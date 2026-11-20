@@ -1,7 +1,7 @@
 # 2026-10-15
 # Coolsys Target 910 and Walmart 5168
 job:
-  job_name: Coolsys Target 910 and Walmart 5168
+  name: Coolsys Target 910 and Walmart 5168
   type: round
   width: 2
   text_height: 0.2

@@ -498,7 +498,7 @@ def build_manifest(
         {
             "job_key": context.record.key,
             "job_id": context.record.job_id,
-            "job_name": context.record.job_name,
+            "name": context.record.name,
             "source_file": context.record.spec_path.name,
             "spec": _relative(context.record.spec_path, output_dir),
             "labels": len(context.record.label_ids),
@@ -620,7 +620,7 @@ def write_job_reports(
         usage_by_job[record.key] = usage
         report_dir = output_dir / record.job_id / "generation_report"
         document = build_report(
-            job_name=record.job_name,
+            name=record.name,
             job_id=record.job_id,
             spec_path=record.spec_path,
             output_dir=output_dir,
@@ -682,7 +682,7 @@ def build_jobset_block(
             {
                 "job_key": context.record.key,
                 "job_id": context.record.job_id,
-                "job_name": context.record.job_name,
+                "name": context.record.name,
                 "report": _relative(reports.job_reports.get(context.record.key), output_dir),
                 **_job_usage_totals(reports.usage_by_job.get(context.record.key)),
             }

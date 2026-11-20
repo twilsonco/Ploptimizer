@@ -1,6 +1,6 @@
 # Jobset fixture: a single-job spec fed to the jobset parser (rejected).
 job:
-  job_name: Not A Jobset
+  name: Not A Jobset
   labels:
     - id: solo
       width: 3.0

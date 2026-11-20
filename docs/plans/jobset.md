@@ -141,7 +141,7 @@ The batch writes three things over the run:
 
 - `OUT/generation_report/report.json` — the normal generation report, plus a
   `jobset` block: the set identity, one entry per member (`job_key`, `job_id`,
-  `job_name`, `report`, `distance_total`, `time_total`, `weight_total`,
+  `name`, `report`, `distance_total`, `time_total`, `weight_total`,
   `unattributed`) and the
   `cross_job` measure of what sharing saved. `usage.distance.by_job` and
   `usage.time.by_job` split the run per member (`by_operation` seconds, `total`,

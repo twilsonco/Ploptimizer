@@ -25,7 +25,7 @@
 # kerns by 0.1 * 0.44 = 0.044in per marker at the default width fraction.
 # No job-config is in play, so the markers are declared at the job level.
 job:
-  job_name: Kern Demo
+  name: Kern Demo
 
   width: 3.0
   height: 1.0

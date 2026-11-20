@@ -7,7 +7,7 @@
 #       docs/plans/fixtures/balanced-centering-coolsys-top.yaml -o /tmp/sweep -v \
 #       | grep -E 'balance: shift|PARTIAL'
 job:
-    job_name: gap-balance fixture (coolsys content, lone top hole)
+    name: gap-balance fixture (coolsys content, lone top hole)
     font: helv1
     material: kw
     labels:

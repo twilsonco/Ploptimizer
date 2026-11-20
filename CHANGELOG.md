@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+* **generate:** the job spec's `job_name` is now **`name`** (`JobSpec.name`). The field is unchanged in
+  every other respect — the human-readable job display name that flows into the reports, the logs, the
+  plot titles and (sanitized by `_sanitize_job_id`) the `job_id` that names every generated file — and
+  `JobSetSpec.name`, the batch's own display name, keeps its existing meaning alongside it.
+  - **Existing YAML/JSON must be migrated**: `job_name` is now an unknown field, and the spec root is
+    `extra="forbid"`, so an unmigrated file fails to validate with the `Extra inputs are not permitted`
+    the gate prints as a one-line `Error parsing specification: …`, exit 3 — it never engraves a partial job
+  - `report.json` follows the field: the `job` block's `job_name` key is `name`, so the document shape
+    changes and `generation_report.REPORT_SCHEMA_VERSION` bumps **1 → 2** (v1 grew by additive keys only;
+    this is the first breaking rename, and nothing else in the document moved)
+  - The sanitized `job_id`, every filename, `summary.txt` and the layout/usage blocks are byte-identical
+    — the rename touches the key, not a single byte of the emitted toolpath
+  - Pins: `tests_deps/*.yaml` and the schema/report suites (`test_schema.py`, `test_job_config.py`,
+    `test_generation_report.py`, the jobset/phase3/run-integration suites); the regenerated
+    `JOB_SPEC.md` + `job_spec.schema.json` are the user-facing contract
+
 ### Features
 
 * **generate:** text-hole collision avoidance gained a **line-spacing spread** for

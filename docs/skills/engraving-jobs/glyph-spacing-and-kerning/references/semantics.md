@@ -53,7 +53,7 @@ back for the negative.
 
 ```yaml
 job:
-  job_name: "Hand-kerned"
+  name: "Hand-kerned"
   kern_pos_string: "<->"
   kern_neg_string: "<-<"
   kern_width_fraction: 0.08
