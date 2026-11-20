@@ -4,6 +4,52 @@
 
 ### Features
 
+* **generate:** text-hole collision avoidance gained a **line-spacing spread** for
+  the case the vertical ladder cannot serve. A `left`/`right` (side) hole sits at
+  MID-HEIGHT, so it clips the lines nearest the block's centre — and it spans the
+  whole Y band, so the slide is gated off and the `hole_margin` sweep is a no-op
+  (the holes already sit at `min_hole_margin`): the label had no escape that did
+  not spend margin, slide room, or glyph width. For an **even** number of text
+  lines the block's pivot sits exactly BETWEEN the middle two lines, so growing
+  every gap by ONE factor steps that pair off the hole band and a gap takes the
+  holes. **Phase 1b** (`collision.detection.resolve_via_spacing_spread` ->
+  `ResolvedLabel.collision_spacing_scale` above 1.0, the mirror of Phase 2c)
+  sweeps that factor UP from 1.0, capped by the content-band slack, and runs
+  BEFORE the margin sweep because it is the only phase that removes the collision
+  outright — every line then worries about the margins alone. Which escape a label
+  is offered is now one pure function, the new `collision/spacing_policy.py`
+  (`select_spacing_policy()` -> `SpacingPolicy(spread_first, pack, line_count)`):
+  spread for an even-count side-hole stack, packing for any stack with a vertical
+  escape, and an ODD-count side-hole stack declines (one line is centred ON
+  mid-height, so spreading only carries it further in — the slide/margin/compress
+  ladder is its path). A spread that clears nothing is **reverted untouched**: the
+  phase writes no state on failure, so the ladder continues from the original line
+  spacing (there is no reason to widen gaps that bought no clearance).
+  `min_line_spacing` is a LOWER bound in both directions — it floors gaps, it
+  never caps a spread; the label's vertical margins (the renderer's margin-fit
+  clamp) are what cap one.
+  - **Corner / top-bottom multi-line labels keep their behaviour**: at HEAD packing
+    already ran for them (a corner hole unlocks both escape axes), so "decrease
+    line spacing first" is served by the existing sweep -> slide -> packing order,
+    which this change deliberately does NOT reorder — a corner hole often needs the
+    slide as an intermediate step, and packing first would spend the gaps before
+    the free slide is tried.
+  - The unresolvable-collision report gains the matching lines
+    (`- Inter-line spread: …` beside the packing line, plus a
+    `- Line-spacing strategy: …` line naming which escape the label was offered,
+    from `spacing_strategy_summary()`), and a spread that saturates at the box no
+    longer logs the render-time `line_spacing reduced` clamp warning — an expected
+    outcome of a declined spread, not a typography change to report.
+  - Files: `plt_optimizer/generate/collision/spacing_policy.py` (new),
+    `plt_optimizer/generate/collision/detection.py`,
+    `plt_optimizer/generate/collision/__init__.py`,
+    `plt_optimizer/generate/label_renderer.py` (the Phase 1b call site and the
+    now two-directional spacing application), `plt_optimizer/generate/resolution.py`
+    (the `collision_spacing_scale` contract), `plt_optimizer/generate/schema.py`
+    (the `min_line_spacing` description).
+  - Pins: `TestSpacingPolicy`, `TestSpacingSpread`, `TestSpreadInLadder`,
+    `TestSpreadUnresolvableDiagnostics`; `TestVerticalUnresolvableDiagnostics`
+    keeps the side-hole advice set pinned against the new report lines.
 * **generate:** the report now estimates the **weight of the engraved labels**.
   `usage.weight` (a new key of the `usage` block, mirrored by a "weight" section in
   `summary.txt`'s "Job usage:") multiplies each label instance's nominal area

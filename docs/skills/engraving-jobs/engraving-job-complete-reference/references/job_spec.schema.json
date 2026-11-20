@@ -80,7 +80,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. The floor is a LOWER bound in both directions: the side-hole spread phase GROWS the gaps to move the middle lines off mid-height holes and this value never caps that \u2014 the label's vertical margins do. Inert on a single-line label (no gap to pack).",
           "title": "Min Line Spacing"
         },
         "max_h_compress": {
@@ -862,7 +862,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. The floor is a LOWER bound in both directions: the side-hole spread phase GROWS the gaps to move the middle lines off mid-height holes and this value never caps that \u2014 the label's vertical margins do. Inert on a single-line label (no gap to pack).",
           "title": "Min Line Spacing"
         },
         "max_h_compress": {
@@ -1634,7 +1634,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. The floor is a LOWER bound in both directions: the side-hole spread phase GROWS the gaps to move the middle lines off mid-height holes and this value never caps that \u2014 the label's vertical margins do. Inert on a single-line label (no gap to pack).",
           "title": "Min Line Spacing"
         },
         "max_h_compress": {
@@ -2376,7 +2376,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. The floor is a LOWER bound in both directions: the side-hole spread phase GROWS the gaps to move the middle lines off mid-height holes and this value never caps that \u2014 the label's vertical margins do. Inert on a single-line label (no gap to pack).",
           "title": "Min Line Spacing"
         },
         "max_h_compress": {
@@ -4754,7 +4754,7 @@
             }
           ],
           "default": null,
-          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+          "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. The floor is a LOWER bound in both directions: the side-hole spread phase GROWS the gaps to move the middle lines off mid-height holes and this value never caps that \u2014 the label's vertical margins do. Inert on a single-line label (no gap to pack).",
           "title": "Min Line Spacing"
         },
         "max_h_compress": {
@@ -5495,7 +5495,7 @@
         }
       ],
       "default": null,
-      "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. Inert on a single-line label (no gap to pack).",
+      "description": "Minimum inter-line spacing in inches; text-hole collision avoidance will not shrink a gap below this value when it packs a label's text block vertically to clear a top/bottom drill hole. Cascades line -> label -> job -> `job-config.json`; unset (`null`, the default) allows a gap to close all the way to `0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; only `null` means unset. The floor is a LOWER bound in both directions: the side-hole spread phase GROWS the gaps to move the middle lines off mid-height holes and this value never caps that \u2014 the label's vertical margins do. Inert on a single-line label (no gap to pack).",
       "title": "Min Line Spacing"
     },
     "max_h_compress": {

@@ -63,6 +63,7 @@ from plt_optimizer.generate.collision.detection import (
     resolve_via_edge_margin,
     resolve_via_margin_adjustment,
     resolve_via_spacing_reduction,
+    resolve_via_spacing_spread,
     resolve_via_vertical_shift,
     switch_edge_aligned_to_center,
 )
@@ -71,6 +72,7 @@ from plt_optimizer.generate.collision.shapes import (
     rounded_rect_corner,
     uses_ellipse_boundary,
 )
+from plt_optimizer.generate.collision.spacing_policy import select_spacing_policy
 from plt_optimizer.generate.descender_adjust import (
     DescenderFix,
     GlyphBox,
@@ -627,6 +629,15 @@ def render_label_to_plt(
        every drill hole; each collision is recorded on the returned
        :attr:`RenderedLabel.collision_detected` (and
        :attr:`RenderedLabel.has_collisions` when unresolved).
+    1b. **Inter-line spread** (gated on side holes ONLY and an even line
+       count, no budget knob): the same label-level factor
+       (``collision_spacing_scale``, here above 1.0) GROWS every inter-line gap
+       so the middle two lines step off mid-height and a GAP takes the hole
+       band -- the parity that lets a side-hole label be cleared vertically at
+       all. Tried ahead of every phase below and capped by the room inside the
+       content band (the block never enters a margin). Reverted whole when no
+       spread clears the collisions, so a label the spread cannot help keeps the
+       spacing it asked for and the ladder below runs on the untouched label.
     2. **Hole-margin reduction** (opt-in via ``min_hole_margin``): holes
        are moved toward the label edge (margin reduced toward the floor)
        until the text clears them. Works on both axes -- a top hole's margin
@@ -643,7 +654,10 @@ def render_label_to_plt(
        (``collision_spacing_scale``) shrinks every inter-line gap toward the
        cascaded ``min_line_spacing`` floor until the collisions clear. The last
        vertical knob, tried when the holes are at their floor and the block is
-       pinned by the band and the far-side holes.
+       pinned by the band and the far-side holes. The direction the same factor
+       takes for a side-hole label is Phase 1b above; which of the two a label
+       is offered is decided by
+       :func:`plt_optimizer.generate.collision.spacing_policy.select_spacing_policy`.
     3. **Edge-margin slide** (opt-in via ``max_h_compress``, and only when a
        left/right/corner hole exists): a
        ``left``/``right``-aligned line colliding with a hole on its
@@ -805,6 +819,45 @@ def render_label_to_plt(
     detected_collisions = collisions
     base_label: ResolvedLabel = label
     line_desc = collision_line_desc(collisions)
+
+    # ---- Phase 1b: spread the inter-line gaps off the side holes ----
+    # The first line of defense for a label whose holes sit on the left/right
+    # edges ONLY and whose line count is even: growing every gap proportionally
+    # steps the middle two lines off mid-height, where those holes sit, so a
+    # GAP takes the hole band and every line is then free to mind only the label
+    # margins. Nothing else about the typography moves -- no hole margin is
+    # spent, no glyph is squeezed, no line is slid. Gated on the holes AND the
+    # parity (an odd line count always leaves a line on the band, so spreading
+    # cannot help it), and capped by the room inside the content band, so text
+    # never leaves the margins. A spread that cannot clear the holes on its own
+    # is REVERTED: the ladder below runs on the label as specified, because
+    # there is no reason to widen the gaps if widening them does not avoid the
+    # holes.
+    if select_spacing_policy(label).spread_first:
+        spread_label = resolve_via_spacing_spread(
+            label,
+            render=lambda sweep_label: _render_text_local_with_bounds(
+                sweep_label, line_block_cache=line_block_cache
+            ),
+            band_center_offset_inches=band_offset,
+            line_desc=line_desc,
+        )
+        if spread_label is not None:
+            # Verify the spread in the full render (the sweep measures the text
+            # renderer's bounds, the export emits the real ones).
+            spread_rendered, spread_entries = _render_label_once(
+                spread_label,
+                pen_map=pen_map,
+                check_glyph_coverage=check_glyph_coverage,
+                line_block_cache=line_block_cache,
+            )
+            if not detect_text_hole_collisions(
+                spread_label, spread_entries, spread_rendered.band_center_offset_inches
+            ):
+                log_collisions(label, detected_collisions, level=logging.WARNING)
+                flushed = _apply_edge_flush(spread_label, spread_rendered, spread_entries)
+                return flushed or replace(spread_rendered, collision_detected=True)
+            # Cleared in the sweep, not in the full render: revert (see above).
 
     # ---- Phase 2: reduce hole_margin toward min_hole_margin ----
     if label.min_hole_margin is not None:
@@ -6958,16 +7011,22 @@ def _render_positioned_lines(
     # precedence: if the measured block (line heights + requested spacing)
     # overflows the inner area, shrink the spacing so margins win.
     spacings = [rendered.line_spacing for rendered in rendered_lines[:-1]]
-    # Collision-avoidance packing (Phase 2c): one label-level factor shrinks
-    # every gap toward the cascaded min_line_spacing floor. Applied BEFORE the
-    # margin clamp so the two compose (margins keep precedence, exactly as they
-    # keep it over the requested spacing), and as a pure shrink -- a gap at or
-    # below the floor is left alone, never grown. Inert at the 1.0 default, so
-    # every label without a vertical collision renders bit-identically.
-    collision_scale = min(1.0, max(0.0, label.collision_spacing_scale))
+    # Collision-avoidance spacing: ONE label-level factor moves every gap in
+    # one direction. Below 1.0 it packs (Phase 2c shrinks every gap toward the
+    # cascaded min_line_spacing floor, a pure shrink -- a gap at or below the
+    # floor is left alone, never grown); above 1.0 it spreads (Phase 1b grows
+    # every gap so a gap takes the side holes' band, where min_line_spacing is
+    # a lower bound and must never cap the growth). Applied BEFORE the margin
+    # clamp so the two compose (margins keep precedence, exactly as they keep it
+    # over the requested spacing), which is also what bounds a spread: the block
+    # can grow only into the room between the vertical margins. Inert at the 1.0
+    # default, so every label without a collision renders bit-identically.
+    collision_scale = max(0.0, label.collision_spacing_scale)
+    spacing_floor = max(0.0, label.min_line_spacing or 0.0)
     if collision_scale < 1.0:
-        spacing_floor = max(0.0, label.min_line_spacing or 0.0)
         spacings = [min(s, max(spacing_floor, s * collision_scale)) for s in spacings]
+    elif collision_scale > 1.0:
+        spacings = [max(spacing_floor, s * collision_scale) for s in spacings]
     # Vertical margin applies as-is; no cutter compensation needed since the
     # margin is user-specified and text already accounts for per-line cutter diameter
     # via horizontal compensation.
@@ -7003,7 +7062,12 @@ def _render_positioned_lines(
             spacings,
             available_height,
         )
-    if adjusted_spacings != spacings:
+    if adjusted_spacings != spacings and collision_scale <= 1.0:
+        # While a spread is active this clamp IS the phase's own ceiling: every
+        # probe at the top of the sweep saturates it, and the phase already
+        # reported the spread it chose, so repeating it once per sweep step
+        # would flood a headless watch run with warnings about a layout the
+        # collision ladder chose on purpose (see AGENTS.md Silent Execution).
         logger.warning(
             "Label %s: line_spacing reduced at render time from %s to %s "
             "to preserve v_margin %.3fin.",

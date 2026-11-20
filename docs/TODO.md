@@ -135,7 +135,7 @@
   - For example, `examples/job_specs/2026-11-18 air controls.yaml` contains two 4x6 labels (wider than tall) that could be rotated to better fit the column layout.
   - For row layout, the opposite applies; we should be rotating labels where label H ≠ W if doing so fills more width and takes less height of the plate.
   - the `allow_rotation` parameter continues to apply as is does currently.
-- [ ] Let's improve two more particular cases for text-hole collision avoidance: a) side holes with an even number of lines of text, and b) corner holes with 2+ lines of text.
+- [x] Let's improve two more particular cases for text-hole collision avoidance: a) side holes with an even number of lines of text, and b) corner holes with 2+ lines of text. (Shipped — see CHANGELOG: the new Phase 1b inter-line spread in `collision/detection.py` + the `collision/spacing_policy.py` policy module; corner/top-bottom multi-line labels already packed as rung three of the vertical ladder and keep that order.)
   - For the case of labels with `- location: side` holes and an even number of lines of text:
     - In this case, we can often increase line spacing in order to shift the middle two lines of text above/below the side holes, removing the issue of text/hole collisions entirely and letting all lines only worry about margins instead.
     - Increasing line spacing would be the first line of defense for avoiding text-hole collisions. Once exhausted, then we resort to the existing collision avoidance strategies.

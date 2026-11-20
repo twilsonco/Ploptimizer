@@ -13,9 +13,14 @@ The whole collision system lives here:
   the native four-arc HPGL emission.
 - :mod:`plt_optimizer.generate.collision.detection` - the stroke-aware
   threshold, detection, the opt-in avoidance phases (hole-margin
-  reduction, edge-margin slide, alignment switch + horizontal compression),
+  reduction, the vertical block slide, the inter-line packing and its
+  side-hole twin the inter-line spread, the edge-margin slide, the
+  alignment switch + horizontal compression),
   diagnostics, and the job-level
   :func:`assert_no_collisions` gate.
+- :mod:`plt_optimizer.generate.collision.spacing_policy` - the pure decision of
+  which inter-line spacing escape a label gets (spread the gaps vs pack them),
+  keyed on the hole axes and the line count's parity.
 
 The contract is ``AGENTS.md`` beside this file. The renderer
 (:mod:`plt_optimizer.generate.label_renderer`) orchestrates the phases and
@@ -36,6 +41,9 @@ from plt_optimizer.generate.collision.detection import (
     resolve_via_compression,
     resolve_via_edge_margin,
     resolve_via_margin_adjustment,
+    resolve_via_spacing_reduction,
+    resolve_via_spacing_spread,
+    resolve_via_vertical_shift,
 )
 from plt_optimizer.generate.collision.geometry import (
     CollisionResult,
@@ -58,12 +66,18 @@ from plt_optimizer.generate.collision.shapes import (
     rounded_rect_full_ellipse,
     uses_ellipse_boundary,
 )
+from plt_optimizer.generate.collision.spacing_policy import (
+    SpacingPolicy,
+    select_spacing_policy,
+    spacing_strategy_summary,
+)
 
 __all__ = [
     "CollisionResult",
     "HoleCenter",
     "LabelRenderError",
     "LineBoundsRender",
+    "SpacingPolicy",
     "assert_no_collisions",
     "circle_aabb_gap",
     "circle_ellipse_aabb_gap",
@@ -81,8 +95,13 @@ __all__ = [
     "resolve_via_compression",
     "resolve_via_edge_margin",
     "resolve_via_margin_adjustment",
+    "resolve_via_spacing_reduction",
+    "resolve_via_spacing_spread",
+    "resolve_via_vertical_shift",
     "rounded_rect_corner",
     "rounded_rect_corner_hole",
     "rounded_rect_full_ellipse",
+    "select_spacing_policy",
+    "spacing_strategy_summary",
     "uses_ellipse_boundary",
 ]

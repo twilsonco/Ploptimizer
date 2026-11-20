@@ -5,12 +5,15 @@ circle-vs-AABB gap, the circle-vs-ellipse primitives, `CollisionResult`),
 `shapes.py` (the label-shape predicates shared by renderer + holes + checks),
 `holes.py` (drill-hole circle placement in the label frame + the native
 four-arc `AA` emission), `detection.py` (the stroke-aware threshold,
-detection, the opt-in avoidance phases (hole-margin reduction, edge-margin
-slide, alignment switch + compression), diagnostics, and the
-`assert_no_collisions` job gate). The renderer
+detection, the opt-in avoidance phases (inter-line spread, hole-margin
+reduction, edge-margin slide, alignment switch + compression), diagnostics, and
+the `assert_no_collisions` job gate), `spacing_policy.py` (the pure policy that
+picks WHICH line-spacing escape a label is offered — spread or pack — plus the
+one-line strategy summary the diagnostics print). The renderer
 (`../label_renderer.py`) orchestrates the phases inside `render_label_to_plt`
-and injects its text renderer into the compression sweep (the `render`
-callback), so this package has zero runtime imports from `label_renderer`.
+and injects its text renderer into the sweeps that must re-render (the `render`
+callback: spread, packing, compression), so this package has zero runtime
+imports from `label_renderer`.
 `../resolution.py` keeps `hole_engraved_radius` (the cutter-compensation
 chokepoint). Parent contracts:
 [`../../../AGENTS.md`](../../../AGENTS.md), [`../AGENTS.md`](../AGENTS.md).
@@ -45,6 +48,29 @@ intersection-invariant.
   WARNING when an avoidance phase resolves them, at ERROR when they remain
   unresolved. Detection runs inside `render_label_to_plt` (and the
   collision-avoidance sweeps re-check via `detect_text_hole_collisions()`).
+- **Phase 1b (no knob): the inter-line spread.** A `left`/`right` hole sits at
+  MID-HEIGHT (`holes._hole_center` uses `y = height / 2`), so the lines nearest
+  the block's centre are the ones it clips — and the vertical knobs cannot help:
+  the slide is gated off (`axes.vertical`) and the margin sweep is a no-op, the
+  holes already sitting at `min_hole_margin`. For an EVEN-count stack the block's
+  pivot sits exactly BETWEEN the middle two lines, so growing every gap by ONE
+  factor steps that pair off the hole band and a GAP takes the holes:
+  `resolve_via_spacing_spread()` sweeps `collision_spacing_scale` UP from 1.0
+  (the mirror of Phase 2c), capped by the content-band slack (`_content_band`),
+  and is tried FIRST because it is the only phase that removes the collision
+  outright — every line then worries about the margins alone — instead of
+  trading margin, slide, or glyph width for clearance. It is offered exactly when
+  `select_spacing_policy(label).spread_first` (at least two lines,
+  `axes.horizontal and not axes.vertical`, even line count): an ODD-count stack
+  has a line centred ON mid-height, which spreading only carries further into the
+  hole, and a top/bottom hole is cleared by packing — both report the policy and
+  decline. A failed spread rewrites NOTHING on the label (there is no reason to
+  widen gaps that bought no clearance) and the ladder continues from the
+  unmodified label; a successful one re-renders the spread clone. Because the
+  renderer's margin-fit clamp is a floor and never a cap in this direction, a
+  spread the box cannot hold saturates at the box, the band slack reports 0.0,
+  and the phase declines — the box bounds the spread, `min_line_spacing` does not
+  (it floors each gap in both directions, it never caps one).
 - **Phase 2 (opt-in via `min_hole_margin`):** sweep `hole_margin` toward the
   floor (analytical — hole positions are pure functions of `hole_margin`);
   on success re-render from the adjusted label clone and log WARNING with
@@ -107,6 +133,10 @@ intersection-invariant.
   collision-avoidance floor, not typography — a LOWER value gives the phase more
   room. The `line_spacing >= 1.5 * cutter` multi-stroke floor is untouched: that
   floor keeps a bold pass set overlapping, this knob is a separate ladder.
+  Packing is offered exactly when `select_spacing_policy(label).pack` (at least
+  two lines and a vertical escape), the same function that gates the Phase 1b
+  spread, so a label is never offered both escapes; `spacing_strategy_summary()`
+  is the single source of that sentence for `format_unresolvable_collision`.
 - **Phase 3 (opt-in via `max_h_compress`): the edge-margin slide.**
   Horizontal compression cannot free a `left`/`right`-aligned line from a
   hole on its *anchored* side: the anchored edge stays pinned at the margin,

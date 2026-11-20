@@ -621,8 +621,11 @@ class TextAttributes(BaseModel):
             "hole. Cascades line -> label -> job -> `job-config.json`; unset "
             "(`null`, the default) allows a gap to close all the way to "
             "`0.0` (adjacent lines' ink touch). Explicit `0.0` is honored; "
-            "only `null` means unset. Inert on a single-line label (no gap "
-            "to pack)."
+            "only `null` means unset. The floor is a LOWER bound in both "
+            "directions: the side-hole spread phase GROWS the gaps to move the "
+            "middle lines off mid-height holes and this value never caps that "
+            "— the label's vertical margins do. Inert on a single-line label "
+            "(no gap to pack)."
         ),
     )
     max_h_compress: Optional[float] = Field(

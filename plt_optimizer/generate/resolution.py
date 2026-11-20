@@ -2487,12 +2487,17 @@ class ResolvedLabel:
             compound a collision shift folded into it. `0.0` (the default)
             means no collision slide. Set by the renderer via
             `dataclasses.replace`; never sourced from the YAML schema.
-        collision_spacing_scale: Multiplier in `(0.0, 1.0]` applied to every
-            inter-line gap when text-hole collision avoidance had to pack the
-            text block vertically (Phase 2c), floored per gap by
-            :attr:`min_line_spacing`. `1.0` (the default) means
-            no collision-driven packing. Set by the renderer via
-            `dataclasses.replace`; never sourced from the YAML schema.
+        collision_spacing_scale: Multiplier applied to every inter-line gap
+            when text-hole collision avoidance had to move the text block
+            vertically: `(0.0, 1.0)` packs the block (Phase 2c -- the gaps
+            shrink toward the :attr:`min_line_spacing` floor, which is what
+            clears a top/bottom/corner hole), `(1.0, ∞)` spreads it (Phase 1b --
+            the gaps grow into the room inside the content band, which is what
+            clears a side-hole label whose line count is even). The floor applies
+            in both directions: it is a lower bound on a gap, never a cap on a
+            spread. `1.0` (the default) means no collision-driven spacing
+            change. Set by the renderer via `dataclasses.replace`; never sourced
+            from the YAML schema.
         align_margin_adjust_global: Whether the collision-avoidance edge-margin
             increase (see :attr:`collision_edge_margin_by_line`) is matched by
             every other line of the label sharing the colliding line's exact

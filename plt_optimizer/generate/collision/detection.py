@@ -11,7 +11,11 @@ unresolvable-collision diagnostics, and the job-level
 
 Which ladder runs is decided by :func:`collision.holes.hole_escape_axes`: the
 edges the label's holes sit on are the ONLY axes a clearance can be bought on,
-so a label with nothing but top/bottom holes never squeezes glyph widths.
+so a label with nothing but top/bottom holes never squeezes glyph widths. Which
+direction the inter-line gaps move in - packed (top/bottom/corner holes) or
+spread (side holes on an even-line block) - is decided by
+:mod:`collision.spacing_policy`, so the two directions are never offered where
+they would push lines into the holes.
 
 The compression sweep must re-render text to measure the compressed
 bounds; the renderer lives in
@@ -34,6 +38,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional,
 from plt_optimizer.generate.collision.geometry import CollisionResult, circle_aabb_gap
 from plt_optimizer.generate.collision.holes import hole_circles_local, hole_escape_axes
 from plt_optimizer.generate.collision.shapes import rounded_rect_corner
+from plt_optimizer.generate.collision.spacing_policy import spacing_strategy_summary
 from plt_optimizer.generate.resolution import (
     ResolvedLabel,
     rounded_rect_content_inset,
@@ -671,6 +676,99 @@ def resolve_via_spacing_reduction(
                 ", ".join(f"{gap:.4f}in" for gap in gaps),
                 ", ".join(f"{min(gap, max(floor, gap * scale)):.4f}in" for gap in gaps),
                 floor,
+                line_desc or "colliding text",
+            )
+            return candidate_label
+    return None
+
+
+def resolve_via_spacing_spread(
+    label: ResolvedLabel,
+    *,
+    render: LineBoundsRender,
+    band_center_offset_inches: float = 0.0,
+    line_desc: str = "",
+) -> Optional[ResolvedLabel]:
+    """Spread the text block by growing every inter-line gap.
+
+    The vertical twin of :func:`resolve_via_spacing_reduction`, and the first
+    line of defense for a label whose holes sit on the left/right edges with an
+    EVEN number of lines: growing every gap proportionally moves the middle two
+    lines off mid-height, where side holes sit, so a gap takes their place and
+    every line is left free to mind only the label margins. Sweeps one
+    label-level factor (``collision_spacing_scale``, here above 1.0) from its
+    current value up to the value that fills the space between the vertical
+    margins, and returns the least spread that clears every collision. Glyph
+    widths do not move.
+
+    The spread is capped by the room the block already has INSIDE its own
+    content band (the Y mirror of the caps in :func:`resolve_via_vertical_shift`
+    and :func:`resolve_via_edge_margin`: the block's own extremes stay inside
+    ``[v_margin, height - v_margin]``), so this phase can never push text into a
+    margin: a block that already fills its band has no room and the phase is
+    inert, exactly as packing is inert for a block whose gaps sit at the
+    ``min_line_spacing`` floor. The renderer's margin clamp stays the hard
+    backstop.
+
+    Args:
+        label: The label whose collision should be resolved.
+        render: Callback re-rendering a label's text and reporting the per-line
+            bounds records (the injected
+            ``label_renderer._render_text_local_with_bounds``).
+        band_center_offset_inches: The band-center offset of the current bounds.
+        line_desc: Optional description of the offending lines for the
+            resolution WARNING.
+
+    Returns:
+        A clone of ``label`` with a grown ``collision_spacing_scale`` when one
+        clears all collisions, otherwise ``None`` - and the caller keeps the
+        label it passed in, so a spread that cannot clear the holes costs
+        nothing (there is no reason to spread the block if it will not help).
+    """
+    gaps = [line.line_spacing for line in label.content[:-1]]
+    if not gaps:
+        return None  # A single line has no gap to spread.
+    requested_gaps = sum(gaps)
+    if requested_gaps <= _SHIFT_EPSILON_IN:
+        return None  # Every gap is closed; there is nothing to scale.
+
+    _base_lc, base_entries = render(label)
+    if not base_entries:
+        return None
+    shift_y = _frame_shift_y(label, band_center_offset_inches)
+    block_bottom = min(entry.bounds[1] for entry in base_entries) + shift_y
+    block_top = max(entry.bounds[3] for entry in base_entries) + shift_y
+    bottom_edge, top_edge = _content_band(label)
+    # The gaps grow proportionally about the block's centre, so the block's
+    # height may grow by TWICE the slack on its tighter side; a block anchored
+    # to one edge gets the conservative half of that, and the renderer's margin
+    # clamp is the backstop for any overshoot the sweep probes.
+    room = 2.0 * min(block_bottom - bottom_edge, top_edge - block_top)
+    base = max(1.0, label.collision_spacing_scale)
+    # The scale at which the grown block fills the band: past it the margin
+    # clamp pins the block, so sweeping further changes nothing.
+    ceiling = base + max(0.0, room) / requested_gaps
+    if ceiling <= base + _SHIFT_EPSILON_IN:
+        return None  # The block already fills its band; no room to spread.
+
+    steps = max(1, _SPACING_RESOLVE_STEPS)
+    for i in range(1, steps + 1):
+        scale = base + (ceiling - base) * i / steps
+        candidate_label = replace(label, collision_spacing_scale=scale)
+        _candidate_lc, candidate_entries = render(candidate_label)
+        if not detect_text_hole_collisions(
+            candidate_label, candidate_entries, band_center_offset_inches
+        ):
+            logger.warning(
+                "Label %s: spread the text block to %.1f%% of its inter-line "
+                "spacing (%s -> %s gaps, %.4fin of %.4fin room) to avoid text-hole "
+                "collision on %s.",
+                label.id,
+                scale * 100.0,
+                ", ".join(f"{gap:.4f}in" for gap in gaps),
+                ", ".join(f"{gap * scale:.4f}in" for gap in gaps),
+                (scale - base) * requested_gaps,
+                room,
                 line_desc or "colliding text",
             )
             return candidate_label
@@ -1383,6 +1481,7 @@ def format_unresolvable_collision(
     """
     axes = hole_escape_axes(label)
     budget = min((line.max_h_compress for line in label.content), default=0.0)
+    bottom_edge, top_edge = _content_band(label)
     if attempted_scale is not None:
         scale_text = f"{attempted_scale:.3f}"
     elif label.collision_compress_by_line:
@@ -1439,13 +1538,22 @@ def format_unresolvable_collision(
         if abs(label.collision_vertical_shift_inches) > 1e-12
         else ""
     )
-    spacing_text = (
+    packing_text = (
         f"\n- Inter-line packing: {label.collision_spacing_scale * 100.0:.1f}% of the "
         f"requested gaps (min_line_spacing floor "
         f"{max(0.0, label.min_line_spacing or 0.0):.4f}in)"
         if label.collision_spacing_scale < 1.0 - 1e-12
         else ""
     )
+    spread_text = (
+        f"\n- Inter-line spread: {label.collision_spacing_scale * 100.0:.1f}% of the "
+        f"requested gaps (the spread is capped by the content band: "
+        f"{top_edge - bottom_edge:.4f}in of band)"
+        if label.collision_spacing_scale > 1.0 + 1e-12
+        else ""
+    )
+    strategy = spacing_strategy_summary(label)
+    strategy_text = f"\n- Line-spacing strategy: {strategy}" if strategy else ""
     if axes.horizontal:
         compression_text = (
             f"- Compression: max_h_compress={budget:.2f} applied, still insufficient "
@@ -1461,7 +1569,8 @@ def format_unresolvable_collision(
         f"- Collisions: {details}\n"
         f"- Hole margin: {label.hole_margin:.4f}in "
         f"(min: {label.min_hole_margin if label.min_hole_margin is not None else 'unset'})"
-        f"{edge_text}{center_text}{shift_text}{spacing_text}\n"
+        f"{edge_text}{center_text}{shift_text}{packing_text}{spread_text}"
+        f"{strategy_text}\n"
         f"{compression_text}"
         f"- Worst clearance shortfall: {worst_shortfall:.4f}in\n"
         f"- Recommendations: {advice}"

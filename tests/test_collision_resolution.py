@@ -42,9 +42,15 @@ from plt_optimizer.generate.collision.detection import (
     resolve_via_edge_margin,
     resolve_via_margin_adjustment,
     resolve_via_spacing_reduction,
+    resolve_via_spacing_spread,
     resolve_via_vertical_shift,
 )
 from plt_optimizer.generate.collision.holes import EscapeAxes, hole_escape_axes
+from plt_optimizer.generate.collision.spacing_policy import (
+    SpacingPolicy,
+    select_spacing_policy,
+    spacing_strategy_summary,
+)
 from plt_optimizer.generate.label_renderer import (
     _render_text_local_with_bounds,
     render_label_to_plt,
@@ -2013,3 +2019,303 @@ class TestVerticalUnresolvableDiagnostics:
 
         assert "max_h_compress" in message
         assert "hole_margin" in message
+
+
+class TestSpacingPolicy:
+    """The per-label spacing question: spread, pack, or neither.
+
+    The policy is the single place that decides which way the inter-line gaps
+    move for a label's holes, so the behaviour docs/TODO.md:138-147 asks for
+    (spread for side holes with an even line count, pack for
+    top/bottom/corner holes) is pinned here as a pure function before any of it
+    reaches the ladder.
+    """
+
+    @staticmethod
+    def _stack(count: int, holes: list[ResolvedHoleSpec]) -> ResolvedLabel:
+        texts = ("ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT")[:count]
+        return ResolvedLabel(
+            id="policy_label",
+            count=1,
+            width=3.0,
+            height=4.0,
+            margin=0.125,
+            h_margin=0.125,
+            v_margin=0.125,
+            hole_margin=0.1875,
+            holes=holes,
+            content=[_make_line(text) for text in texts],
+        )
+
+    @pytest.mark.parametrize(
+        ("count", "spread_first"), [(2, True), (3, False), (4, True), (5, False)]
+    )
+    def test_side_holes_spread_only_on_an_even_line_count(
+        self, count: int, spread_first: bool
+    ) -> None:
+        """A side-hole label can step its MIDDLE TWO lines off the hole band only when the line count is even.
+
+        An odd count always leaves one line sitting on the middle line, so a
+        spread can never free a side hole (it just spends room the margin sweep
+        needs) and the label is left the existing strategies.
+        """
+        policy = select_spacing_policy(self._stack(count, SIDE_HOLES))
+
+        assert policy.spread_first is spread_first
+        assert policy.line_count == count
+
+    @pytest.mark.parametrize("holes", [TOP_HOLE, BOTTOM_HOLE, TOP_LEFT_CORNER])
+    def test_vertical_holes_pack_and_never_spread(self, holes: list[ResolvedHoleSpec]) -> None:
+        """Top/bottom/corner holes keep the historical pack-first answer."""
+        policy = select_spacing_policy(self._stack(4, holes))
+
+        assert policy.pack is True
+        assert policy.spread_first is False
+
+    def test_a_single_line_has_no_gap_to_move(self) -> None:
+        """One line has no inter-line gap, so neither escape exists."""
+        policy = select_spacing_policy(self._stack(1, SIDE_HOLES))
+
+        assert policy == SpacingPolicy(spread_first=False, pack=False, line_count=1)
+
+    def test_summary_names_the_escape_the_label_was_offered(self) -> None:
+        """The unresolvable report says which knob ran AND what knob remains."""
+        spread = spacing_strategy_summary(self._stack(4, SIDE_HOLES))
+        packed = spacing_strategy_summary(self._stack(4, TOP_LEFT_CORNER))
+        inert = spacing_strategy_summary(self._stack(1, SIDE_HOLES))
+
+        assert spread.startswith("spread first (4 lines, side holes only)")
+        assert "capped by the vertical margins" in spread
+        assert packed.startswith("pack to the floor (4 lines, top/bottom/corner holes)")
+        assert "min_line_spacing" in packed
+        assert inert == ""
+
+
+class TestSpacingSpread:
+    """Phase 1b: spread the inter-line gaps onto the side holes' band.
+
+    Fixture geometry (the bundled ReliefSingleLine font, 0.5in lines = 0.47in
+    toolpath, 0.25in holes at the default 0.1875in hole margin): side holes sit
+    on the label's LEFT/RIGHT edges at mid-height, so the lines nearest the
+    middle of the block collide with them. A tall label leaves the block room
+    inside the content band; a short one pins it.
+    """
+
+    @staticmethod
+    def _stack(
+        texts: tuple[str, ...] = ("ALPHA", "BRAVO", "CHARLIE", "DELTA"),
+        spacing: float = 0.2,
+        **overrides: object,
+    ) -> ResolvedLabel:
+        kwargs: dict[str, object] = {
+            "id": "spread_label",
+            "count": 1,
+            "width": 3.0,
+            "height": 4.0,
+            "margin": 0.125,
+            "h_margin": 0.125,
+            "v_margin": 0.125,
+            "hole_margin": 0.1875,
+            "holes": SIDE_HOLES,
+            "content": [replace(_make_line(text), line_spacing=spacing) for text in texts],
+            "min_line_spacing": 0.0,
+            "hole_text_collision_distance": 0.0,
+            "hole_cutter_diameter": 0.0,
+        }
+        kwargs.update(overrides)
+        return ResolvedLabel(**kwargs)  # type: ignore[arg-type]
+
+    def test_spread_clears_the_collision_the_gates_cannot(self) -> None:
+        """Stepping the middle two lines off mid-height is the only escape here.
+
+        The margin sweep cannot help (the circles stay inside the text box at
+        any hole margin) and neither can the block slide (a side hole leaves the
+        Y axis free, but a slide moves EVERY line, so the block's centre stays
+        on the hole band with an even line count).
+        """
+        label = self._stack()
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert detect_text_hole_collisions(label, entries)  # the fixture collides
+        assert resolve_via_margin_adjustment(label, entries) is None
+
+        spread = resolve_via_spacing_spread(label, render=_render_text_local_with_bounds)
+
+        assert spread is not None
+        assert spread.collision_spacing_scale > 1.0
+        # The factor is label-level: the per-line cascade value stays untouched.
+        assert all(line.line_spacing == 0.2 for line in spread.content)
+        _lc, spread_entries = _render_text_local_with_bounds(spread)
+        assert detect_text_hole_collisions(spread, spread_entries) == []
+
+    def test_spread_is_capped_by_the_slack_inside_the_band(self) -> None:
+        """A block that already fills its box has no room to spread into."""
+        label = self._stack(height=2.6)
+        _lc, entries = _render_text_local_with_bounds(label)
+        assert detect_text_hole_collisions(label, entries)
+
+        assert resolve_via_spacing_spread(label, render=_render_text_local_with_bounds) is None
+
+    def test_spread_stops_at_the_first_scale_that_clears(self) -> None:
+        """The spread is a budget: the smallest clearing scale, not the ceiling."""
+        label = self._stack()
+
+        spread = resolve_via_spacing_spread(label, render=_render_text_local_with_bounds)
+
+        assert spread is not None
+        scale = spread.collision_spacing_scale
+        # Proportionate: well short of doubling the block.
+        assert 1.0 < scale < 2.0
+        # Halfway to the clearing scale the holes still collide, so the sweep
+        # reported the first scale that cleared rather than the room it probed.
+        halfway = replace(label, collision_spacing_scale=1.0 + (scale - 1.0) / 2.0)
+        _lc, entries = _render_text_local_with_bounds(halfway)
+        assert detect_text_hole_collisions(halfway, entries)
+
+    def test_min_line_spacing_floors_a_spread_gap(self) -> None:
+        """The floor is a lower bound on a gap, never a cap on a spread."""
+        label = self._stack(min_line_spacing=0.3)
+        label = replace(label, collision_spacing_scale=1.5)
+        _lc, entries = _render_text_local_with_bounds(label)
+        ys = sorted((e.bounds[1] + e.bounds[3]) / 2.0 for e in entries)
+        heights = [line.toolpath_text_height for line in label.content]
+        gaps = [ys[i + 1] - ys[i] - (heights[i] + heights[i + 1]) / 2.0 for i in range(3)]
+
+        # 0.2 * 1.5 = 0.3, exactly at the floor; the floor never shrinks it.
+        assert all(gap == pytest.approx(0.3, abs=1e-3) for gap in gaps)
+
+    def test_single_line_is_inert(self) -> None:
+        """One line has no gap to spread."""
+        label = self._stack(texts=("CHARLIE",))
+
+        assert resolve_via_spacing_spread(label, render=_render_text_local_with_bounds) is None
+
+    def test_spread_logs_the_scale_and_the_room_it_spent(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A spread is a layout change an operator must be able to see."""
+        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
+            resolve_via_spacing_spread(
+                self._stack(), render=_render_text_local_with_bounds, line_desc="line 2"
+            )
+
+        message = "\n".join(record.message for record in caplog.records)
+        assert "spread the text block to" in message
+        assert "% of its inter-line spacing" in message
+        assert "room" in message
+
+
+class TestSpreadInLadder:
+    """Phase 1b runs FIRST: exhausted, the label reverts and the ladder proceeds."""
+
+    @staticmethod
+    def _stack(
+        height: float,
+        *,
+        min_hole_margin: float | None = 0.0,
+        max_h_compress: float = 0.0,
+        texts: tuple[str, ...] = ("ALPHA", "BRAVO", "CHARLIE", "DELTA"),
+        **overrides: object,
+    ) -> ResolvedLabel:
+        kwargs: dict[str, object] = {
+            "id": "spread_ladder",
+            "count": 1,
+            "width": 3.0,
+            "height": height,
+            "margin": 0.125,
+            "h_margin": 0.125,
+            "v_margin": 0.125,
+            "hole_margin": 0.1875,
+            "holes": SIDE_HOLES,
+            "content": [
+                replace(_make_line(text, max_h_compress=max_h_compress), line_spacing=0.2)
+                for text in texts
+            ],
+            "min_line_spacing": 0.0,
+            "min_hole_margin": min_hole_margin,
+            "hole_text_collision_distance": 0.0,
+            "hole_cutter_diameter": 0.0,
+        }
+        kwargs.update(overrides)
+        return ResolvedLabel(**kwargs)  # type: ignore[arg-type]
+
+    def test_spread_resolves_before_any_margin_is_spent(self) -> None:
+        """The spread is the first line of defense, so nothing else has to move."""
+        rendered = render_label_to_plt(self._stack(4.0))
+
+        assert rendered.has_collisions is False
+        assert rendered.collision_detected is True
+        adjusted = rendered.source_label
+        assert adjusted.collision_spacing_scale > 1.0
+        # Every later knob stayed untouched: all four lines are left minding
+        # only the label margins (docs/TODO.md:141).
+        assert adjusted.hole_margin == pytest.approx(0.1875)
+        assert adjusted.collision_compress_by_line == {}
+        assert adjusted.collision_edge_margin_by_line == {}
+        assert adjusted.collision_center_by_line == frozenset()
+        assert adjusted.collision_vertical_shift_inches == pytest.approx(0.0)
+
+    def test_a_spread_that_cannot_clear_the_holes_is_reverted(self) -> None:
+        """No room to spread -> the label keeps the spacing it asked for.
+
+        There is no reason to widen the gaps when widening them buys no
+        clearance (docs/TODO.md:142), so the ladder starts from the untouched
+        label; here it then runs out of knobs and the label reports the
+        collision, with the requested spacing intact.
+        """
+        rendered = render_label_to_plt(self._stack(2.6, min_hole_margin=None))
+
+        assert rendered.has_collisions is True
+        assert rendered.source_label.collision_spacing_scale == pytest.approx(1.0)
+        assert all(line.line_spacing == 0.2 for line in rendered.source_label.content)
+
+    def test_odd_line_count_is_never_offered_the_spread(self) -> None:
+        """A 5-line side-hole label keeps the historical horizontal-only answer."""
+        label = self._stack(6.0, texts=("A", "B", "C", "D", "E"), min_hole_margin=None)
+
+        rendered = render_label_to_plt(label)
+
+        # The spread phase is gated off by the parity rule, so the factor never
+        # moves above 1.0 even when the label has the room a spread would want.
+        assert rendered.has_collisions is False
+        assert rendered.source_label.collision_spacing_scale == pytest.approx(1.0)
+
+
+class TestSpreadUnresolvableDiagnostics:
+    """The ERROR for a spread label reports the spread and the ladder's policy."""
+
+    def test_report_names_the_spread_and_the_remaining_budget(self) -> None:
+        """An operator sees the spread they got and the knob that would widen it."""
+        label = ResolvedLabel(
+            id="spread_diag",
+            count=1,
+            width=3.0,
+            height=2.6,
+            margin=0.125,
+            h_margin=0.125,
+            v_margin=0.125,
+            hole_margin=0.1875,
+            holes=SIDE_HOLES,
+            content=[
+                replace(_make_line(text), line_spacing=0.2)
+                for text in ("ALPHA", "BRAVO", "CHARLIE", "DELTA")
+            ],
+            min_line_spacing=0.0,
+            hole_text_collision_distance=0.0,
+            hole_cutter_diameter=0.0,
+            collision_spacing_scale=1.4,
+        )
+        _lc, entries = _render_text_local_with_bounds(label)
+        message = format_unresolvable_collision(label, detect_text_hole_collisions(label, entries))
+
+        assert "Inter-line spread: 140.0% of the requested gaps" in message
+        assert "Inter-line packing" not in message
+        assert "Line-spacing strategy: spread first (4 lines, side holes only)" in message
+
+    def test_a_rigid_label_reports_neither_spacing_knob(self) -> None:
+        """The spread/pack lines stay out of a label that ran neither."""
+        label = _label(text="HELLO", holes=BOTTOM_HOLE)
+        _lc, entries = _render_text_local_with_bounds(label)
+        message = format_unresolvable_collision(label, detect_text_hole_collisions(label, entries))
+
+        assert "Inter-line spread" not in message
+        assert "Inter-line packing" not in message
