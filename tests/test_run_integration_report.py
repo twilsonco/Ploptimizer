@@ -29,6 +29,7 @@ from plt_optimizer.generate.generation_report import (
     build_report,
     report_dir_for,
 )
+from plt_optimizer.generate.job_config import JobConfig, apply_job_config_defaults, load_job_config
 from plt_optimizer.generate.packing.layout import PackedLabel, PackedPlate
 from plt_optimizer.generate.resolution import ResolvedLabel, ResolvedTextLine
 from plt_optimizer.generate.schema import ContentEntry, JobSpec, LabelSpec, PlateSpec
@@ -286,6 +287,84 @@ class TestPhase5GenerationReport:
         default_pdf.write_bytes(b"%PDF-1.4\n")
         payload = self._run(script, tmp_path, default_pdf_paths=[default_pdf])
         assert payload["outputs"]["default_pdf_files"] == [str(default_pdf)]
+
+
+class TestPhase5UsageWeight:
+    """The single-job report weighs labels the way the CLI's report does.
+
+    ``usage.weight`` is an estimated block: it reads each plate's density from
+    the ``job_spec`` the caller passes, and a shop default reaches that spec the
+    same way it reaches a real run - ``apply_job_config_defaults`` injects the
+    configured job-level density onto every plate before layout. A phase that
+    measures usage without the spec therefore reports "not estimated" for a job
+    whose shop defaults do configure a density, which reads as a product bug (a
+    16x24 label "weighs" nothing). The CLI passes the real pair
+    (``cli/generate.py``); phase 5 must not be the caller that drops it.
+
+    The density is derived from ``job-config.json``, never pinned (tests/
+    AGENTS.md).
+    """
+
+    @staticmethod
+    def _config() -> JobConfig:
+        """The shop's real ``job-config.json`` (the config layer under test)."""
+        config = load_job_config(REPO_ROOT / "job-config.json")
+        assert config is not None
+        assert config.defaults.material_weight_per_square_inch is not None, (
+            "job-config.json is expected to configure a density"
+        )
+        return config
+
+    def _configured_job(self, config: JobConfig) -> JobSpec:
+        """The fixture job, with the shop's job-level defaults injected on it."""
+        filled = apply_job_config_defaults(_job().model_dump(mode="json"), config)
+        return JobSpec.model_validate(filled)
+
+    def test_a_job_with_a_configured_density_is_weighed(self, script: Any, tmp_path: Path) -> None:
+        """A shop default (which cascades onto every plate) yields a real weight."""
+        config = self._config()
+        density = float(config.defaults.material_weight_per_square_inch or 0.0)
+        payload = self._phase5(
+            script, tmp_path, job=self._configured_job(config), job_config=config
+        )
+
+        weight = payload["usage"]["weight"]
+        assert weight["available"] is True
+        # One 4.0 x 2.0 in label on the only plate, at the configured density.
+        assert weight["total"]["label_instances"] == 1
+        assert weight["total"]["label_sq_in"] == pytest.approx(8.0)
+        assert weight["total"]["lb"] == pytest.approx(8.0 * density, abs=1e-6)
+
+    def test_an_unconfigured_job_reports_the_estimate_as_unavailable(
+        self, script: Any, tmp_path: Path
+    ) -> None:
+        """Nothing configured is "not estimated", never a 0 lb job."""
+        payload = self._phase5(script, tmp_path, job=_job(), job_config=None)
+
+        weight = payload["usage"]["weight"]
+        assert weight["available"] is False
+        assert weight["total"] is None
+        assert "material_weight_per_square_inch" in str(weight["note"])
+
+    def _phase5(self, script: Any, tmp_path: Path, **overrides: Any) -> dict[str, Any]:
+        """Run phase 5 against a minimal job and return the JSON document."""
+        job = overrides.pop("job", _job())
+        kwargs: dict[str, Any] = {
+            "job": job,
+            "job_yaml": tmp_path / "job.yaml",
+            "export_result": _export(tmp_path, job),
+            "resolved_labels": [_label()],
+            "inventory": [0.06],
+            "boundary_hole_cutter": 0.015,
+            "job_config": None,
+            "capture": ReportCapture(),
+            "stage_timings": StageTimings(),
+            "started_at": "2026-11-16T00:00:00+00:00",
+            "duration_seconds": 3.5,
+        }
+        kwargs.update(overrides)
+        script.phase_5_generation_report(**kwargs)
+        return _read_report(tmp_path)
 
 
 class TestFailureReport:

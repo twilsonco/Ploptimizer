@@ -271,6 +271,7 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "plate_height",
         "left_clearance",
         "top_clearance",
+        "material_weight_per_square_inch",
     ),
     "tool-options": ("tool_options", "rapid_velocity"),
 }

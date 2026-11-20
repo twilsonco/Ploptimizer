@@ -1158,12 +1158,25 @@ def _weight_usage(
     numbered from the batch), so a member's rows fall back to its job-level
     density.
 
+    Caller contract: a shop default set in ``job-config.json`` weighs the whole
+    job, because ``JobDefaults.apply`` injects the job-level density onto every
+    plate before layout - so a spec built through the config layers already
+    carries it, and this resolver deliberately does not re-apply the config
+    layer to an arbitrary spec (the plate cascade has already run; re-applying
+    it after the fact could not reach per-plate values). The consequence: a
+    caller that wants a job weighed must pass the SAME ``job_spec`` /
+    ``job_config`` pair it laid the job out with. A bare spec with no config
+    means nothing is configured, and the block reports "not estimated" - 0 lb
+    would claim the labels are weightless.
+
     Args:
         packed_plates: The packed plates, in packing order.
         material_by_plate: Stock material name per 1-based plate number (the
             counting pool's material names, for the row labels).
         job_spec: The resolved job spec, used to resolve each plate's density.
-            ``None`` (a spec-less API call) disables the estimate.
+            ``None`` (a spec-less API call) disables the estimate. Must be the
+            spec the job was actually laid out with (config layers applied) for
+            a configured job to read as weighed.
 
     Returns:
         The ``usage.weight`` block, in pounds (with ``oz`` alongside every

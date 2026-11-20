@@ -193,6 +193,7 @@ the docs byte-pin; everything above is derived purely from the model.
 | `plate_height` | float \| null | null (unset) | >=0 | Default usable plate height in inches (same layer rules as `plate_width`). |
 | `left_clearance` | float \| null | null (unset) | >=0 | Default plate left-edge clearance in inches (job layer; cascades onto plates that omit it). |
 | `top_clearance` | float \| null | null (unset) | >=0 | Default plate top-edge clearance in inches (same cascade as `left_clearance`). |
+| `material_weight_per_square_inch` | float \| null | null (unset) | >=0 | Default material weight per square inch in pounds (lb/in2; job layer, cascades onto plates that omit it, never label-level). Used only to estimate the weight of engraved labels in the usage report; unset disables the estimate. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb per sheet). |
 
 ### Tool Options
 
@@ -439,7 +440,7 @@ excluded from the docs byte-pin.
 | `plate_height` | float \| null | `16.0` | **set** | plates-layout-and-packing |
 | `left_clearance` | float \| null | — | **set** | plates-layout-and-packing |
 | `top_clearance` | float \| null | — | **set** | plates-layout-and-packing |
-| `material_weight_per_square_inch` | float \| null | — | **set** | — |
+| `material_weight_per_square_inch` | float \| null | — | **set** | plates-layout-and-packing |
 | `auto_line_spacing_interline_to_top_bottom_ratio` | float \| null | — | **set** | line-stacking-and-reflow |
 | `tool_options` | dict \| null | — | **set** | tool-options |
 | `rapid_velocity` | float \| null | — | unset | tool-options |

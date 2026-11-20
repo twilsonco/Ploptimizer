@@ -1153,7 +1153,12 @@ def phase_5_generation_report(
     job_name, job_id, plate_count = _job_identity(job, job_yaml)
     report_dir = report_dir_for(export_result.output_dir)
     # Same accounting the CLI attaches, measured from the PLT files Phase 3
-    # wrote; a measurement failure never fails a run that engraved fine.
+    # wrote; a measurement failure never fails a run that engraved fine. The
+    # spec/config pair rides along for the same reason it does on the CLI and
+    # the batch path: the estimated blocks read their configuration from them
+    # (the ``material_weight_per_square_inch`` cascade for ``weight``, the
+    # cutter registry for ``time``), so omitting them here would report
+    # "not estimated" for a job that does configure them.
     try:
         usage: dict[str, Any] | None = build_usage_stats(
             resolved_labels=resolved_labels,
@@ -1161,6 +1166,8 @@ def phase_5_generation_report(
             combined_by_plate=export_result.combined_by_plate,
             plt_files=export_result.plt_paths,
             material_by_plate=export_result.material_by_plate,
+            job_spec=job,
+            job_config=job_config,
         )
     except Exception as exc:  # noqa: BLE001 - reporting must not fail a good run
         print(f"\u26a0 Usage accounting failed (report carries no usage block): {exc}")

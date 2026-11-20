@@ -13,22 +13,22 @@
   — weight belongs to the stock a label was cut from, not to the label). It is
   reporting-only: no geometry, packing decision, or PLT byte depends on it.
   - **Grains** mirror `material`: `total`, `by_label` (per spec on one plate — the
-    smallest grain that has a density), `by_plate` (label area plus the sheet's
-    `plate_sq_in` and the unused `remaining_sq_in`), `by_material`, and
+    smallest grain that has a density), `by_plate`, `by_material`, and
     `unconfigured`. Every grain reconciles with the total, and each row carries the
     `material_weight_per_square_inch` it was computed with, so the estimate is
     auditable. `oz` is `lb × 16`. Weight is reported for labels only — sheet weight
     is the same formula under a different numerator, already readable as
-    `usage.material.plates[].area × the density`.
+    `usage.material.by_material[].sq_in` (the sheet area) `× the density`.
   - **Opt-in, and "not estimated" is never 0**: the field defaults to `null` in the
     schema, so a job that configures nothing gets `available: false` + a `note` and
-    null weights. A plate with no density still contributes its labels' *area* (and
-    its `remaining_sq_in`) with `lb: null` — a mixed job reports what it can and
-    names what it skipped (`unconfigured.label_instances`). `job-config.json`'s
-    `material` block carries `0.00260417` (the shop's 16×24 sheet ≈ 1 lb).
+    `total: null`. A plate with no density is a row with
+    `material_weight_per_square_inch: null` / `lb: null` and its labels counted in
+    `unconfigured` — a mixed job reports what it can and names what it skipped
+    (`note`). `job-config.json` carries `0.00260417` at the top level (the shop's
+    16×24 sheet ≈ 1 lb), where the other job-layer defaults live.
   - **Sheet vs label**: the estimate covers the labels only, per the request. Sheet
     weight is the same formula under a different numerator and is already readable:
-    `usage.material.<grain>.area` × the density.
+    `usage.material.by_material[].sq_in` (the sheet area) × the density.
   - **Text rendering**: pounds with an ounce part — `1 lb 4 oz (1.250 lb)` — the
     exact decimal in parentheses, because a shop weighing labels thinks in lb + oz.
     Sub-pound weights drop the pound part (`0.67 oz (0.042 lb)`).
@@ -430,6 +430,24 @@
     config) and the report key tests (`test_generation_report.py`).
 
 ### Fixes
+
+* **generate:** the integration runner's **single-job** report now estimates label
+  weight. `usage.weight` reads each plate's density from the `job_spec` it is
+  handed, and a shop default reaches that spec through `apply_job_config_defaults`
+  (the job-level density is injected onto every plate before layout), so a caller
+  that measures usage without the spec reports "not estimated" for a job whose
+  `job-config.json` *does* configure a density. Phase 5
+  (`scripts/run_integration_test.py`) passed only the five measurement arguments —
+  the pair was added for `weight`/`time` on the CLI, the jobset batch, and the
+  jobset member path, and this one caller was missed — so every
+  `test_output/integration_test/<job>/generation_report/summary.txt` rendered
+  `weight: Not estimated: No material_weight_per_square_inch is configured` while
+  the `generate` CLI measured the same job normally (a 145-label ADK run: 1.828 lb
+  across 4 plates, `kw`/`rw`/`bw` split, sheet 1 exactly 1.000 lb).
+  - Pins: `tests/test_run_integration_report.py`
+    (`TestPhase5UsageWeight`: a job built through the real `job-config.json`
+    config layer is weighed at `width × height × density`, and a job with nothing
+    configured is `available: false` + `total: null`, never 0 lb).
 
 * **generate:** a **top/bottom-only** drill-hole layout no longer buys clearance by
   squeezing glyph widths. Every collision-avoidance phase now asks which axis can

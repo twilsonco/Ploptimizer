@@ -145,6 +145,21 @@ from the batch spec, so a batch whose YAML declares no density reports
 into a sum as 0, and the batch total is never recomputed from member rows
 (same rule as `total_files`, which counts PLT files, not per-job `files`).
 
+## Caller contract
+
+`_weight_usage` resolves densities from the **spec** only. A shop default set in
+`job-config.json` weighs the whole job because `apply_job_config_defaults` injects
+the job-level density onto every plate **before layout** — so the spec that reaches
+the reporter already carries it. The resolver deliberately does not re-apply the
+config layer to an arbitrary spec (the plate cascade has already run; re-applying it
+after the fact could not reach per-plate values). Consequence: **every caller that
+measures usage must pass the same `job_spec` / `job_config` pair the job was laid
+out with.** A bare spec with no config means nothing is configured, and the block
+reports "not estimated" — 0 lb would claim the labels are weightless. This is what
+phase 5 of `scripts/run_integration_test.py` got wrong when the block shipped; the
+CLI (`cli/generate.py`), the jobset batch root, and the jobset member reports
+(`jobset_report.build_job_usage`) all pass the pair.
+
 ## Boundaries
 
 `usage_stats.py` measures; it never emits toolpaths. PLT and PDF bytes are
@@ -156,7 +171,9 @@ which every caller wraps in `try/except`, so reporting cannot fail a job.
 - `ruff check . && ruff format --check .`, `.venv/bin/python -m mypy plt_optimizer`.
 - `.venv/bin/python -m pytest -q --no-cov` (full suite).
 - `.venv/bin/python scripts/run_integration_test.py --no-plots` — every
-  `summary.txt` shows a `weight:` section whose total equals Σ per-plate.
+  `summary.txt` shows a `weight:` section whose total equals Σ per-plate (the
+  single-job phase 5 path is the one that regressed; `tests/test_run_integration_report.py::TestPhase5UsageWeight`
+  pins it).
 - `main.py generate --jobset …` — `jobset.json` job rows carry `weight_total`
   and `jobset.total_weight_lb` equals the sum of the members' rows.
 - Manual: a single 16×24 label at the shop default density reads
