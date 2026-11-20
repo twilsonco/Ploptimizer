@@ -47,6 +47,7 @@ from plt_optimizer.generate.usage_stats import (
     UNKNOWN_CUTTER,
     Z_CLEARANCE_KEY,
     Z_UP_VELOCITY_KEY,
+    _fmt_hms,
     _fmt_lb,
     build_usage_stats,
     format_usage_lines,
@@ -1991,6 +1992,25 @@ class TestTimeSummaryLines:
         text = "\n".join(format_usage_lines(time_stats(tmp_path)))
         assert "Estimated from tool_options" in text
         assert "excludes tool changes, setup, and loading" in text
+
+    def test_the_plate_lines_add_a_readable_duration(self, tmp_path: Path) -> None:
+        # The seconds stay authoritative; the compact duration is the readable
+        # companion, inside the same parentheses as the share.
+        text = "\n".join(format_usage_lines(time_stats(tmp_path)))
+        assert "    by plate: 2 11.382 s (11s; 81.1%)  1 2.650 s (3s; 18.9%)" in text
+
+    def test_the_readable_duration_drops_zero_leading_units(self) -> None:
+        assert _fmt_hms(3857.321) == "1h4m17s"
+        assert _fmt_hms(1347.340) == "22m27s"
+        assert _fmt_hms(350.4) == "5m50s"
+        assert _fmt_hms(45.2) == "45s"
+        assert _fmt_hms(0.0) == "0s"
+        # An interior zero is NOT a leading zero: it keeps its place value.
+        assert _fmt_hms(60.0) == "1m0s"
+        assert _fmt_hms(3599.0) == "59m59s"
+        assert _fmt_hms(3600.0) == "1h0m0s"
+        assert _fmt_hms(90061.5) == "25h1m2s"
+        assert _fmt_hms(None) == "n/a"
 
     def test_an_unestimable_job_says_so_instead_of_zero(self, tmp_path: Path) -> None:
         text = "\n".join(format_usage_lines(stats_for(**make_job(tmp_path))))

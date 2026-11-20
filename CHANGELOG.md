@@ -475,6 +475,19 @@
     `cutter_buffer_*` job-config key tests (`test_job_config.py`, adaptive to the shop
     config) and the report key tests (`test_generation_report.py`).
 
+* **generate:** `summary.txt`'s run-time **`by plate:`** line now carries a
+  human-readable duration beside the authoritative seconds -
+  `1 3857.321 s (1h4m17s; 56.8%)` instead of `1 3857.321 s (56.8%)` - so reading
+  the sheet-level estimate off a console line does not require dividing by 3600
+  in your head. Rendered by the new `usage_stats._fmt_hms(seconds)`, which drops
+  **leading** zero units (`1347.340 -> 22m27s`, `45.2 -> 45s`, `0 -> 0s`) and
+  keeps an interior zero so the place values stay readable
+  (`3600 -> 1h0m0s`); it rounds to whole seconds exactly like the total line's
+  existing `total_hms`, so a plate's readable duration never disagrees with the
+  total's. Seconds stay the reported value and `report.json` is unchanged (the
+  JSON block is machine-readable and already carries the number), so no schema
+  version moves.
+
 ### Fixes
 
 * **generate:** the integration runner's **single-job** report now estimates label

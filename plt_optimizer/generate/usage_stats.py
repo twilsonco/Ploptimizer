@@ -3316,6 +3316,31 @@ def _fmt_time(value: Any) -> str:
     return MISSING_TEXT if value is None else f"{_fmt3(value)} s"
 
 
+def _fmt_hms(value: Any) -> str:
+    """Render seconds as a compact, human-readable duration.
+
+    Leading zero units are dropped so a shop can read the number at a glance
+    (3857.321 -> ``1h4m17s``, 1347.340 -> ``22m27s``, 45.2 -> ``45s``); an
+    interior zero stays (3600 -> ``1h0m0s``) and the seconds field is always
+    present. Whole seconds are rounded, like :func:`_hms`.
+
+    Args:
+        value: The seconds, or ``None``.
+
+    Returns:
+        The duration as ``XXhYYmZZs`` with the zero units omitted, or
+        :data:`MISSING_TEXT` when absent.
+    """
+    if value is None:
+        return MISSING_TEXT
+    hours, rest = divmod(int(round(float(value))), 3600)
+    minutes, seconds = divmod(rest, 60)
+    text = f"{hours}h" if hours else ""
+    if minutes or hours:
+        text += f"{minutes}m"
+    return f"{text}{seconds}s"
+
+
 def _time_lines(usage: Mapping[str, Any]) -> List[str]:
     """Render the ``usage.time`` block.
 
@@ -3368,7 +3393,8 @@ def _time_lines(usage: Mapping[str, Any]) -> List[str]:
         "    by plate: "
         + _join(
             [
-                f"{row.get('plate')} {_fmt_time(row.get('total'))} ({row.get('share')}%)"
+                f"{row.get('plate')} {_fmt_time(row.get('total'))} "
+                f"({_fmt_hms(row.get('total'))}; {row.get('share')}%)"
                 for row in _rows(usage, "time", "by_plate")
             ]
         )
