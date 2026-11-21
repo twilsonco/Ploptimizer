@@ -1,0 +1,3 @@
+761 RACK-01-01;M/N AS;S/N 139990-1;500 lbs. R-744;First Charge 10/2025;Advanced Refrigeration & Air
+764 RACK-01-01;M/N AS;S/N 144266-1;950 lbs. R-744;First Charge 11/2025;Kalos Service
+765 RACK-01-01;M/N AS;S/N 144166-1;500 lbs. R-744;First Charge 04/2026;Kalos Service
