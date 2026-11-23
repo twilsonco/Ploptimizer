@@ -22,6 +22,27 @@
 
 ### Features
 
+* **generate:** every run with plots on now also writes one **composite proof sheet** —
+  `<output_dir>/<job_id>_proof.jpeg`, the whole-sheet `all_*` previews tiled into a single contact
+  sheet (two plates per row, a wider sheet top-ups to two columns and then wraps; gutters, a grey
+  frame and each plate's own title keep the plates separable on a lossy sheet).
+  - **Named after the job, not the plate**: `<job.name>` sanitized by the same `_sanitize_job_id` that
+    names every other artifact. It is a proof artifact like `all_*.pdf` — it never reaches the plotter
+    controller, so it is deliberately outside the 39-character filename cap and keeps the full job id
+  - **Reported where reports live**: `PerCutterExport.proof_jpeg`, `report.json` `outputs.proof_jpeg`,
+    and a `Proof:` line in `summary.txt`, so the file a human signs off is the file the reports name
+  - **No new flag**: `plots=True` (the default) makes PLTs *and* proofs, and `--no-plots` writes no
+    sheet because there is nothing to tile. A raster/encode hiccup is WARNING-logged and the run
+    completes without the sheet — a proof-rendering problem never loses the PLTs already written
+  - Files: `plt_optimizer/generate/proof_composite.py` (new),
+    `plt_optimizer/diagnostics/plotter.py` (`figure_to_image` rasterizes a figure in memory,
+    `close_figure` releases the per-plate figures pyplot keeps alive),
+    `plt_optimizer/generate/vectorize.py`, `plt_optimizer/generate/generation_report.py`,
+    `plt_optimizer/cli/generate.py` (both the single-job and `--jobset` report paths)
+  - Pins: `tests/test_proof_composite.py`, `tests/test_phase3_export.py::TestCompositeProofSheet`,
+    `tests/test_generation_report.py::TestFormatSummary::test_summary_names_the_proof_sheet`,
+    `tests/test_cli.py::TestGenerationReportSurface::test_pdf_and_default_plot_paths_are_reported`
+
 * **generate:** text-hole collision avoidance gained a **line-spacing spread** for
   the case the vertical ladder cannot serve. A `left`/`right` (side) hole sits at
   MID-HEIGHT, so it clips the lines nearest the block's centre — and it spans the

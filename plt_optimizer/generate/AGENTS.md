@@ -1176,6 +1176,40 @@ section. The pipeline-level rules this package owns:
   batch `distance.total`; the sharing saving is the `by_label` -> `by_job` gap (`cross_job.distance_saved`),
   not a distance discrepancy. `REPORT_SCHEMA_VERSION` stays 1: the jobset keys are additive.
 
+### Composite Proof Sheet (`proof_composite`)
+
+Module docstring: `proof_composite.py` (Pillow-only, Python 3.8-safe — Pillow is a hard dependency,
+unlike matplotlib, so this sits on the headless export path). Every run with plots on (the default on
+every `generate`/`--jobset` run) tiles the whole-sheet `all_*` proofs into ONE contact sheet,
+`<output_dir>/<job_id>_proof.jpeg` (`proof_image_name`), named from the sanitized `job_id` that every
+other artifact carries. It is reported on `PerCutterExport.proof_jpeg`, in `report.json`
+`outputs.proof_jpeg`, and as the `Proof:` line of `summary.txt`.
+
+- **Panels are rasterized offscreen** while each proof is written:
+  `plotter.figure_to_image(fig, dpi=PROOF_PANEL_DPI)` renders the figure into memory (Agg `buffer_rgba`;
+  the PDF-only canvas through a `savefig("png")` round-trip), and `_write_simple_plots` closes every
+  plate figure it is done with (`plotter.close_figure`) so a jobset's worth of proofs does not pile up
+  in pyplot's figure manager.
+- **Layout** (`compose_proof_sheet`): two plates fit on one row, a wider sheet top-ups to
+  `PROOF_PANEL_COLUMNS` (2) columns and then wraps — a contact sheet, not a mosaic. Heights are uniform
+  per row (the row's tallest panel), widths per column (its widest panel), and a narrow sheet is
+  centred in its column so the grid reads as a grid. Gutters/frame:
+  `PROOF_PANEL_GUTTER_PX` / `PROOF_SHEET_MARGIN_PX` of `PROOF_SHEET_FRAME_COLOR` — the sheet is a
+  lossy JPEG (text antialiasing bleeds into the neighbouring background), so the frame is what keeps
+  plates separable by eye.
+- **Scope**: the WHOLE-SHEET proofs only. The per-job jobset proofs
+  (`[<material>_]p<plate>_<job>_all_*.pdf`) and the mirrored per-cutter previews are not panels.
+  Like `all_*.pdf` this is a proof artifact that never reaches the controller, so it is OUTSIDE the
+  39-character filename cap (see "PLT Identity & Writing" in
+  [`../core/AGENTS.md`](../core/AGENTS.md)) and keeps the full job id.
+- **Never fatal**: the sheet is a reporting artifact like the usage block — a raster/encode hiccup is
+  WARNING-logged and `proof_jpeg` stays `None` (a plate whose figure cannot rasterize is skipped), so a
+  proof-rendering problem never loses the PLTs already written.
+- Pins: `tests/test_proof_composite.py` (naming, layout, JPEG bytes checked after a reopen, real-fonts
+  end-to-end sheet) and `tests/test_phase3_export.py::TestCompositeProofSheet` (grid geometry,
+  `plots=False` writes none, failure isolation),
+  `tests/test_generation_report.py::TestFormatSummary::test_summary_names_the_proof_sheet`.
+
 ### Colored Combined PDF Previews (`preview_colors`)
 
 Module docstring: `preview_colors.py` (pure string handling, matplotlib-free, Python 3.8-safe - it sits

@@ -6,6 +6,7 @@ including color-coded path visualization based on cumulative distance traveled.
 
 from __future__ import annotations
 
+import io
 import math
 import sys
 from collections.abc import Sequence
@@ -15,6 +16,7 @@ from typing import Any, List, Optional, Protocol, Tuple, cast
 
 import matplotlib
 import matplotlib.path as matplotlib_path
+from PIL import Image
 
 # Use 'Agg' (non-interactive) backend by default to avoid Tcl/Tk initialization issues
 # in headless environments (e.g., PyInstaller frozen executables on Windows).
@@ -117,6 +119,10 @@ SIMPLE_ALPHA = 1.0
 # semi-transparent underlay look of simple mode's structural strokes so they
 # stay visually distinct from the text ink drawn at full opacity.
 PHYSICAL_STRUCTURAL_ALPHA = SIMPLE_STRUCTURAL_ALPHA
+
+# Default raster resolution of :func:`figure_to_image` (dots per inch), the
+# screen figure's dpi ignored. 150 matches ``save_figure``'s PNG export.
+RASTER_DPI = 150
 
 
 def _polygon_exterior_bounds(
@@ -926,6 +932,76 @@ def save_figure(fig: Figure, path: Path) -> None:
 
     except Exception as e:
         raise PlotterError(f"Failed to save figure: {e}") from e
+
+
+def figure_to_image(fig: Figure, dpi: int = RASTER_DPI) -> Image.Image:
+    """Rasterize a figure into an in-memory RGBA PIL image.
+
+    The figure is drawn on **its own** canvas whenever that canvas can produce
+    pixels: every interactive backend matplotlib ships (``macosx``, ``TkAgg``,
+    ``QtAgg``, ``WXAgg``, the inline backends) derives from ``Agg`` and
+    therefore carries the ``buffer_rgba`` raster API, so the headless render
+    path works on a developer's GUI machine exactly as it does on the Windows
+    plotter PC (where the module forces ``Agg``). Attaching a *second* canvas
+    is deliberately avoided: replacing the canvas of a live GUI figure
+    aborts the process on the Cocoa backend. A canvas with no pixel buffer (a
+    vector-only backend such as ``pdf``/``svg``) falls back to an in-memory
+    PNG round-trip, which every backend can write.
+
+    The raster is rendered at the export ``dpi``, independent of the figure's
+    screen dpi; the figure's own dpi is restored afterwards, so the caller's
+    on-screen size is untouched. This is the rasterizer behind the generate
+    pipeline's composite proof sheet (see
+    :mod:`plt_optimizer.generate.proof_composite`).
+
+    Args:
+        fig: The figure to rasterize.
+        dpi: Raster resolution in dots per inch, so the image measures
+            ``fig.get_size_inches() * dpi`` pixels.
+
+    Returns:
+        The rendered image in RGBA mode.
+
+    Raises:
+        PlotterError: If rasterizing fails.
+    """
+    try:
+        # matplotlib ships no signatures for the canvas raster API, so the
+        # strict-mode `no-untyped-call` gate rejects a typed binding; calling
+        # through Any keeps the gate quiet (root §1).
+        canvas: Any = fig.canvas
+        if hasattr(canvas, "buffer_rgba"):
+            screen_dpi = fig.get_dpi()
+            fig.set_dpi(dpi)
+            try:
+                canvas.draw()
+                width, height = canvas.get_width_height()
+                return Image.frombytes("RGBA", (width, height), bytes(canvas.buffer_rgba()))
+            finally:
+                fig.set_dpi(screen_dpi)
+
+        # Vector-only canvas: rasterize through an in-memory PNG.
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png", dpi=dpi)
+        buffer.seek(0)
+        return Image.open(buffer).convert("RGBA")
+    except Exception as e:
+        raise PlotterError(f"Rasterizing figure failed: {e}") from e
+
+
+def close_figure(fig: Figure) -> None:
+    """Release a figure the caller is finished with.
+
+    The generate pipeline renders one proof per plate (and, for a jobset, one
+    per plate per job) inside a single process, and the pyplot state machine
+    keeps every figure it created alive, so a proof loop that never closes its
+    figures holds a whole jobset's worth of renders in RAM.
+
+    Args:
+        fig: The figure to dispose of. A figure pyplot no longer knows about is
+            ignored.
+    """
+    plt.close(fig)
 
 
 def create_path_diagram(

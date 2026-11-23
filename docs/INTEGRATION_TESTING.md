@@ -284,7 +284,10 @@ plate spans 19304 units and a 2in-tall one spans 2032.
 ### Phase 4 — Visualization (Optional, opt-in)
 
 The simple-outline PDF previews (one per per-cutter PLT plus one combined
-`[<material>_][p<plate>_]all_<job_id>.pdf` per plate) are already written by Phase 3.
+`[<material>_][p<plate>_]all_<job_id>.pdf` per plate) are already written by Phase 3;
+Phase 3 also tiles those whole-sheet proofs into the composite
+`<output_dir>/<job_id>_proof.jpeg` proof sheet (one panel per plate — no flag gates
+it, and `--no-plots` writes none because there is nothing to tile).
 The combined preview is a colored proof: the page background is the configured
 `preview_background_color` (default `#D3D3D3` grey), text ink in its resolved color
 (`text_color` / `<tc:color>` pen tag, then the material core, then black) over the
@@ -495,6 +498,9 @@ After a run:
       `40_k_txt_`)
 - [ ] `pdf/` contains a matching simple-outline PDF per PLT plus one
       `[<material>_][p<plate>_]all_<job>.pdf` combined preview per plate
+- [ ] the run root contains `<job_id>_proof.jpeg`, the composite proof sheet
+      tiling those whole-sheet proofs (one panel per plate; `--no-plots` writes
+      none — there is nothing to tile)
 - [ ] `generation_report/` contains `report.json` and `summary.txt`, and the
       summary's cutter list / plate count / output counts match the files
       actually written (a failed run writes the pair too, with

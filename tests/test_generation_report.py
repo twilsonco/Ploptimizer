@@ -648,6 +648,42 @@ class TestFormatSummary:
         assert "compressed lines=1" in text
         assert "60_txt_job.plt" in text
 
+    def test_summary_names_the_proof_sheet(self, tmp_path: Path) -> None:
+        """The composite proof sheet rides in the report and the summary.
+
+        It is the one rendered file a human signs off, so the summary prints
+        its path; with no sheet (``plots=False``) both the key and the line are
+        null/absent, so a summary never points at a file the run did not write.
+        """
+        resolved, rendered = _label("l1", [_line("A")])
+        proof = tmp_path / "Job_proof.jpeg"
+        report = build_report(
+            name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+            proof_jpeg=proof,
+        )
+
+        assert report["outputs"]["proof_jpeg"] == str(proof)
+        assert f"Proof: {proof}" in format_summary(report)
+
+        plain = build_report(
+            name="Job",
+            job_id="Job",
+            spec_path=tmp_path / "spec.yaml",
+            output_dir=tmp_path,
+            report_dir=report_dir_for(tmp_path),
+            resolved_labels=[resolved],
+            rendered_by_id={"l1": rendered},
+        )
+
+        assert plain["outputs"]["proof_jpeg"] is None
+        assert "Proof:" not in format_summary(plain)
+
     def test_summary_names_the_failure(self, tmp_path: Path) -> None:
         """A failed job's summary states the error and its stage."""
         report = build_report(

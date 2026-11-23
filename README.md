@@ -78,6 +78,7 @@ out/plt/30_txt_<job_id>.plt          # one file per text cutter
 out/plt/15_bh_<job_id>.plt           # borders + drill holes together
 out/pdf/30_txt_<job_id>.pdf          # simple-outline previews (--no-plots skips)
 out/pdf/01_all_<job_id>.pdf          # combined preview per plate
+out/<job_id>_proof.jpeg              # every plate proof tiled into one sheet
 ```
 
 File names read `[<material>_][p<plate>_]<cutter>[_<color>]_<kind>_<job_id>`:

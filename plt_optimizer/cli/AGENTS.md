@@ -40,7 +40,11 @@ the required-when-unconfigured gate, see
 [`../generate/AGENTS.md`](../generate/AGENTS.md)), `--fast-mode` (plate-space
 routing via `NearestNeighbor2Opt` instead of the default `ParallelEnsemble`). File names:
 `[<material>_][p<2-digit plate>_]<cutter>[_<color>]_{txt|bh}_<job_id>.<plt|pdf>`
-plus combined `[<material>_][p<2-digit plate>_]all_<job_id>.pdf`. The material
+plus combined `[<material>_][p<2-digit plate>_]all_<job_id>.pdf`. Plots on also
+tiles those whole-sheet proofs into one composite proof sheet
+`<output_dir>/<job_id>_proof.jpeg` (`PerCutterExport.proof_jpeg`, reported as
+`outputs.proof_jpeg` and the summary's `Proof:` line; see
+[`../generate/AGENTS.md`](../generate/AGENTS.md) "Composite Proof Sheet"). The material
 tag leads (so every sheet of one stock sorts together) and appears only for
 material-declared output; the plate number follows it, marked with a `p` so it
 cannot read as a second number beside the integer-mils cutter, and appears only

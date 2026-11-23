@@ -1919,12 +1919,14 @@ class TestGenerateRun:
         plt_path = tmp_path / "plt" / "01_txt_0.060_job.plt"
         pdf_path = tmp_path / "pdf" / "01_txt_0.060_job.pdf"
         default_pdf = tmp_path / "pdf" / "01_all_job_default.pdf"
+        proof_jpeg = tmp_path / "job_proof.jpeg"
 
         def _fake_export(*args: Any, **kwargs: Any) -> PerCutterExport:
             return PerCutterExport(
                 plt_paths=[plt_path],
                 pdf_paths=[pdf_path],
                 default_pdf_paths=[default_pdf],
+                proof_jpeg=proof_jpeg,
             )
 
         monkeypatch.setattr("plt_optimizer.generate.vectorize.export_per_cutter_plts", _fake_export)
@@ -1941,6 +1943,10 @@ class TestGenerateRun:
         assert report["outputs"]["plt_files"] == [str(plt_path)]
         assert report["outputs"]["pdf_files"] == [str(pdf_path)]
         assert report["outputs"]["default_pdf_files"] == [str(default_pdf)]
+        # The composite proof sheet is reported by path, machine-readable.
+        assert report["outputs"]["proof_jpeg"] == str(proof_jpeg)
+        summary = (tmp_path / "generation_report" / "summary.txt").read_text(encoding="utf-8")
+        assert f"Proof: {proof_jpeg}" in summary
 
     # ------------------------------------------------------------------
     # run(): LAYOUT REPORT (compression + line spacing)

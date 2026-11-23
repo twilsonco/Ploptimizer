@@ -31,7 +31,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence, Tuple
 
+# Pillow is a hard dependency (unlike matplotlib), so the composite proof
+# sheet's panel type is nameable at module scope on every runtime, Windows 7
+# included.
+from PIL import Image
+
 if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
     from plt_optimizer.generate.job_config import JobConfig
     from plt_optimizer.generate.jobset import JobProvenance
     from plt_optimizer.generate.schema import JobSpec
@@ -63,6 +70,11 @@ from plt_optimizer.generate.plate_optimizer import (
     segment_width_key,
 )
 from plt_optimizer.generate.preview_colors import DEFAULT_PREVIEW_BACKGROUND_COLOR
+from plt_optimizer.generate.proof_composite import (
+    PROOF_PANEL_DPI,
+    compose_proof_sheet,
+    proof_image_name,
+)
 from plt_optimizer.generate.resolution import (
     DEFAULT_BOUNDARY_HOLE_CUTTER,
     ResolvedLabel,
@@ -482,6 +494,13 @@ class PerCutterExport:
             ``all_*`` proof PDFs a batch writes beside the whole-sheet proof,
             so each job can be approved on its own. Empty for a single-job run
             (whose whole-sheet proof already IS that job).
+        proof_jpeg: The composite proof sheet (``<output_dir>/<job_id>_proof.
+            jpeg``) tiling every whole-sheet ``all_*`` proof into one contact
+            sheet (see :mod:`plt_optimizer.generate.proof_composite`), written
+            on every plotting run. ``None`` when plotting was disabled (there
+            are then no proofs to tile) or when the sheet could not be
+            rendered (logged, never fatal: a proof-rendering hiccup must not
+            fail a job whose PLTs and PDFs are fine).
     """
 
     plt_paths: list[Path] = field(default_factory=list)
@@ -496,6 +515,7 @@ class PerCutterExport:
     plate_jobs: dict[int, tuple[str, ...]] = field(default_factory=dict)
     file_jobs: dict[Path, tuple[str, ...]] = field(default_factory=dict)
     combined_by_plate_and_job: dict[int, dict[str, str]] = field(default_factory=dict)
+    proof_jpeg: Optional[Path] = None
 
 
 def _format_cutter(cutter_diameter: float) -> str:
@@ -1337,7 +1357,10 @@ def export_per_cutter_plts(
         name: Human-readable job name for plot titles (optional).
         optimize: If True, run the PLT optimizer on each written file.
         plots: If True, write simple-outline PDF previews for every
-            written PLT plus a combined ``*_all_*`` PDF per plate.
+            written PLT plus a combined ``*_all_*`` PDF per plate, and tile
+            those combined proofs into the composite
+            ``<output_dir>/<job_id>_proof.jpeg`` contact sheet (see
+            :mod:`plt_optimizer.generate.proof_composite`).
         default_plots: If True, additionally write color-coded
             ``*_default.pdf`` diagnostic plots (rapid-travel view) for
             every written PLT and a combined ``*_all_*_default.pdf`` per
@@ -1932,6 +1955,14 @@ def _write_simple_plots(
     (``simple_mode=True``) render for stems whose cutter cannot be parsed
     and for synthetic exports without ``pen_widths``.
 
+    Every whole-sheet proof is rasterized as it is written and the rasters are
+    tiled into the composite ``<output_dir>/<job_id>_proof.jpeg`` proof sheet
+    (see :mod:`plt_optimizer.generate.proof_composite`), recorded on
+    :attr:`PerCutterExport.proof_jpeg`. The per-job jobset proofs are not
+    panels of that sheet: it shows the sheets the machine runs. Composing it
+    is reporting-only, so a raster/encode failure is logged and leaves the
+    export (and its PDFs) intact.
+
     matplotlib is imported lazily through the plotter module so headless
     optimizer-only environments never pay the import cost.
 
@@ -1995,6 +2026,7 @@ def _write_simple_plots(
         JobOverlayBoxLike,
         PhysicalFillLayer,
         PhysicalStrokeLayer,
+        figure_to_image,
         plot_physical_strokes,
         plot_plt_document,
     )
@@ -2210,7 +2242,7 @@ def _write_simple_plots(
         pdf_path: Path,
         title: str,
         overlay_boxes: Sequence[JobOverlayBoxLike],
-    ) -> None:
+    ) -> Figure:
         """Render one combined (all-pens) plate proof and record it.
 
         Args:
@@ -2225,6 +2257,11 @@ def _write_simple_plots(
                 label on a jobset sheet carries one, solo sheets included.
                 Empty for the per-job proofs, which show one job's labels
                 only and need no key.
+
+        Returns:
+            The rendered figure, so a whole-sheet caller can rasterize it into
+            the composite proof sheet (see
+            :mod:`plt_optimizer.generate.proof_composite`).
         """
         parsed_material = parse_material_colors(result.material_by_plate.get(plate_no))
         # Material-agnostic (or unrecognized-name) plates proof as "wk"
@@ -2299,7 +2336,7 @@ def _write_simple_plots(
                             )
                         )
         if layers:
-            plot_physical_strokes(
+            figure = plot_physical_strokes(
                 layers,
                 output_path=pdf_path,
                 title=title,
@@ -2313,7 +2350,7 @@ def _write_simple_plots(
             # No pen widths (synthetic export) or no per-pen geometry:
             # historical thin centerline preview.
             document = parser.parse_string(content)
-            plot_plt_document(
+            figure = plot_plt_document(
                 document,
                 output_path=pdf_path,
                 title=title,
@@ -2322,15 +2359,35 @@ def _write_simple_plots(
                 gridlines=False,
             )
         pdf_paths.append(pdf_path)
+        return figure
 
-    for plate_no, combined in result.combined_by_plate.items():
-        _combined_proof(
+    # Composite proof sheet: the whole-sheet proofs, rasterized offscreen as
+    # they are written (plate order), then tiled into one contact sheet. A
+    # plate whose figure cannot be rasterized is skipped (the PDF is already on
+    # disk), so a plotting stub in tests - or a headless-rendering hiccup -
+    # never fails the run.
+    panels: List[Image.Image] = []
+    for plate_no, combined in sorted(result.combined_by_plate.items()):
+        plate_figure = _combined_proof(
             plate_no,
             combined,
             pdf_dir / f"{_plate_prefix(plate_no)}all_{job_id}.pdf",
             f"{name} (plate {plate_no})" if name else "PLT Toolpath Visualization",
             overlays.get(plate_no, ()),
         )
+        try:
+            panels.append(figure_to_image(plate_figure, dpi=PROOF_PANEL_DPI))
+        except Exception as exc:  # noqa: BLE001 - a proof sheet must not fail a job
+            _LOG.warning("Plate %s proof could not be rasterized: %s", plate_no, exc)
+
+    if panels:
+        # Reporting artifact, like the usage block: a raster/encode hiccup is
+        # logged, never fatal, because the PLTs and the per-plate PDFs are
+        # already on disk.
+        try:
+            result.proof_jpeg = compose_proof_sheet(panels, output_dir / proof_image_name(job_id))
+        except Exception as exc:  # noqa: BLE001 - a proof sheet must not fail a job
+            _LOG.warning("Could not compose the composite proof sheet: %s", exc)
 
     # Per-job proofs of the SHARED sheets: every contributing job gets an
     # all-pens view of its own labels on the plate it shares, so a job can be

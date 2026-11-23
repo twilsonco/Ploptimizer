@@ -628,6 +628,7 @@ def build_report(
     plt_files: Sequence[Path] = (),
     pdf_files: Sequence[Path] = (),
     default_pdf_files: Sequence[Path] = (),
+    proof_jpeg: Optional[Path] = None,
     records: Sequence[logging.LogRecord] = (),
     stage_records: Sequence[logging.LogRecord] = (),
     timings: Optional[StageTimings] = None,
@@ -658,6 +659,12 @@ def build_report(
         plt_files: The written per-cutter PLT files.
         pdf_files: The written PDF previews.
         default_pdf_files: The written color-coded default plots.
+        proof_jpeg: The composite proof sheet tiling every whole-sheet
+            ``all_*`` preview into one JPEG (see
+            :mod:`plt_optimizer.generate.proof_composite`). ``None`` when no
+            sheet was written (plotting disabled, or a report written for a run
+            that never reached the plots stage), which the ``outputs`` block
+            records as a null key.
         records: The captured log records (the ``ReportCapture`` contents).
         stage_records: The captured stage timing records.
         timings: The explicit per-stage timing collector. Preferred over
@@ -752,6 +759,7 @@ def build_report(
             "plt_files": [str(path) for path in plt_files],
             "pdf_files": [str(path) for path in pdf_files],
             "default_pdf_files": [str(path) for path in default_pdf_files],
+            "proof_jpeg": str(proof_jpeg) if proof_jpeg is not None else None,
             "plates": _plate_entries(packed_plates),
         },
         "labels": labels,
@@ -881,6 +889,13 @@ def format_summary(report: Dict[str, Any]) -> str:
     )
     for path in plt_files:
         lines.append(f"  {path}")
+
+    # The composite proof sheet is the one file a human signs off, so it is
+    # named in full right after the file listing (omitted on the runs that
+    # wrote none: plotting disabled / a failed job).
+    proof_jpeg = outputs.get("proof_jpeg")
+    if proof_jpeg:
+        lines.append(f"Proof: {proof_jpeg}")
 
     jobset = report.get("jobset") or {}
     job_lines = jobset.get("jobs") or []

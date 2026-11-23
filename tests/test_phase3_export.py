@@ -8,8 +8,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
+from PIL import Image
 
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
+from plt_optimizer.generate import vectorize
+from plt_optimizer.generate.proof_composite import (
+    PROOF_PANEL_COLUMNS,
+    PROOF_PANEL_GUTTER_PX,
+    PROOF_SHEET_MARGIN_PX,
+)
 from plt_optimizer.generate.resolution import (
     LineContentConfigError,
     ResolvedLabel,
@@ -140,6 +147,36 @@ class TestExportAndOptimizePhase3:
         # Combined content is exposed in memory, never written as PLT.
         assert result.combined_by_plate
         assert not any("_all_" in p.stem for p in result.plt_paths)
+
+    def test_export_per_cutter_writes_the_composite_proof_sheet(self, tmp_path: Path) -> None:
+        """plots=True also tiles the whole-sheet proofs into one JPEG sheet.
+
+        The proof sheet is the file the shop signs off, so it lands in the run
+        root (not ``pdf/``) named ``<job_id>_proof.jpeg``, and it is a raster
+        sheet, never a member of the PDF list.
+        """
+        job = parse_yaml("tests_deps/test123_spec.yaml")
+        resolved_labels = resolve_job_spec(job)
+
+        result = export_per_cutter_plts(
+            resolved_labels,
+            output_dir=tmp_path,
+            job_id="proofjob",
+            optimize=False,
+            plots=True,
+        )
+
+        assert result.proof_jpeg == tmp_path / "proofjob_proof.jpeg"
+        assert result.proof_jpeg is not None and result.proof_jpeg.exists()
+        assert result.proof_jpeg not in result.pdf_paths
+        # One whole-sheet proof per plate; this fixture packs onto one plate,
+        # so the sheet is a single panel plus its frame.
+        assert len(result.combined_by_plate) == 1
+        with Image.open(result.proof_jpeg) as sheet:
+            assert sheet.format == "JPEG"
+            assert sheet.mode == "RGB"
+            assert sheet.size[0] > 2 * PROOF_SHEET_MARGIN_PX
+            assert sheet.size[1] > 2 * PROOF_SHEET_MARGIN_PX
 
     def test_export_exposes_rendered_labels(self, tmp_path: Path) -> None:
         """The export exposes the render cache keyed by label ID.
@@ -8578,3 +8615,110 @@ class TestTopBottomHoleCollisionDemo:
         # text key - and the escaped layout is what reaches both.
         assert any("_bh_" in name for name in names), names
         assert any("_txt_" in name for name in names), names
+
+
+class TestCompositeProofSheet:
+    """``plots=True`` also tiles the whole-sheet proofs into one JPEG sheet.
+
+    The sheet is the file the shop signs off: one panel per plate, plate 1
+    first, named ``<output_dir>/<job_id>_proof.jpeg``. Composing it is a
+    reporting artifact, so a raster/encode hiccup is logged, never fatal.
+    """
+
+    @staticmethod
+    def _export(tmp_path: Path, job_id: str, count: int) -> PerCutterExport:
+        """Export ``count`` copies of the 3x1in test label onto 12x8in plates."""
+        return export_per_cutter_plts(
+            [_label(count=count)],
+            output_dir=tmp_path,
+            job_id=job_id,
+            optimize=False,
+            plots=True,
+            layout=LayoutMode.ROWS,
+            default_plate_size=(12.0, 8.0),
+        )
+
+    @staticmethod
+    def _sheet(path: Path) -> Tuple[str, str, Tuple[int, int]]:
+        """Open a proof sheet and report its (format, mode, size)."""
+        with Image.open(path) as sheet:
+            return str(sheet.format), str(sheet.mode), sheet.size
+
+    def test_plots_write_the_proof_sheet(self, tmp_path: Path) -> None:
+        """A single-plate run writes ``<job_id>_proof.jpeg`` in the run root."""
+        result = self._export(tmp_path, "proof", 1)
+
+        assert result.proof_jpeg == tmp_path / "proof_proof.jpeg"
+        assert result.proof_jpeg is not None and result.proof_jpeg.exists()
+        # The sheet is a raster, so it is not part of the PDF preview list.
+        assert result.proof_jpeg not in result.pdf_paths
+        # One panel (one plate) plus its frame, encoded as an RGB JPEG.
+        assert len(result.combined_by_plate) == 1
+        fmt, mode, size = self._sheet(result.proof_jpeg)
+        assert (fmt, mode) == ("JPEG", "RGB")
+        assert min(size) > 2 * PROOF_SHEET_MARGIN_PX
+
+    def test_plotting_disabled_writes_no_proof_sheet(self, tmp_path: Path) -> None:
+        """``plots=False`` writes no sheet (and reports no path for it)."""
+        result = export_per_cutter_plts(
+            [_label(count=1)],
+            output_dir=tmp_path,
+            job_id="noplot",
+            optimize=False,
+            plots=False,
+        )
+
+        assert result.proof_jpeg is None
+        assert not list(tmp_path.glob("*_proof.jpeg"))
+
+    def test_multi_plate_run_tiles_one_panel_per_plate(self, tmp_path: Path) -> None:
+        """A sheet per plate: two columns, rows filling top to bottom.
+
+        The panel size is read off a single-plate sheet (panel plus frame), so
+        the multi-plate geometry is pinned end to end, not relative to itself.
+        """
+        single = self._export(tmp_path / "single", "one", 1)
+        # 40 labels of 3x1 do not fit one 12x8 sheet (see the plate-overflow
+        # tests above), so this run is genuinely multi-plate.
+        multi = self._export(tmp_path / "multi", "many", 40)
+
+        assert single.proof_jpeg is not None and multi.proof_jpeg is not None
+        plates = len(multi.combined_by_plate)
+        assert plates > 1
+
+        panel = self._sheet(single.proof_jpeg)[2]
+        panel_size = (panel[0] - 2 * PROOF_SHEET_MARGIN_PX, panel[1] - 2 * PROOF_SHEET_MARGIN_PX)
+        columns = min(PROOF_PANEL_COLUMNS, plates)
+        rows = -(-plates // PROOF_PANEL_COLUMNS)
+        expected = (
+            columns * panel_size[0]
+            + (columns - 1) * PROOF_PANEL_GUTTER_PX
+            + 2 * PROOF_SHEET_MARGIN_PX,
+            rows * panel_size[1] + (rows - 1) * PROOF_PANEL_GUTTER_PX + 2 * PROOF_SHEET_MARGIN_PX,
+        )
+
+        assert self._sheet(multi.proof_jpeg)[2] == expected
+
+    def test_compose_failure_is_logged_not_fatal(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A proof-sheet failure costs the sheet, never the job."""
+
+        def _boom(*args: object, **kwargs: object) -> Path:
+            raise RuntimeError("rasterizer exploded")
+
+        monkeypatch.setattr(vectorize, "compose_proof_sheet", _boom)
+
+        result = self._export(tmp_path, "boom", 1)
+
+        assert result.proof_jpeg is None
+        assert not list(tmp_path.glob("*_proof.jpeg"))
+        # The per-plate PDF proofs are the signed artifact: they are on disk.
+        assert result.pdf_paths
+        assert any(
+            record.levelname == "WARNING" and "proof sheet" in record.getMessage()
+            for record in caplog.records
+        )
