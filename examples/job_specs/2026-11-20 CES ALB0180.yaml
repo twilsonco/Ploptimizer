@@ -1,0 +1,13 @@
+job:
+  name: "CES ALB0180"
+  material: kw(uv)
+  font: helv1
+
+  labels:
+    - id: "aci labels"
+      width: 7
+      height: 7
+      text_height: 1
+      holes:
+        - location: sides
+      replacement_text_file: 2026-11-20 CES ALB0180 7x7.txt
