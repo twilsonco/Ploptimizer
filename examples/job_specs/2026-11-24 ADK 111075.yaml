@@ -1,0 +1,15 @@
+job:
+  name: "2026-11-24 ADK CPR 111075"
+  font: helv1
+  material: wk
+  height: 1.5
+  width: 3
+  text_height: 0.125
+  replacement_text_file: "2026-11-24 ADK 111075 wk 4-line.txt"
+  cutter_size: 0.01
+  left_clearance: 3
+  content:
+    - text: "top line"
+      text_height: 0.25
+      placeholder: true
+      font: helv3

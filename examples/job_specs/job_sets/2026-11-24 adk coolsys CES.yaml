@@ -1,0 +1,7 @@
+jobset:
+  name: "2026-11-24 ADK coolsys CES"
+  jobs:
+    - job: "/Users/haiiro/NoSync/PLT-Optimizer/examples/job_specs/2026-11-24 ADK 111075.yaml"
+    - job: "/Users/haiiro/NoSync/PLT-Optimizer/examples/job_specs/2026-11-24 coolsys T1870.yaml"
+    - job: "/Users/haiiro/NoSync/PLT-Optimizer/examples/job_specs/2026-11-24 coolsys WM3850.yaml"
+    - job: "/Users/haiiro/NoSync/PLT-Optimizer/examples/job_specs/2026-11-23 CES vons 1897.yaml"

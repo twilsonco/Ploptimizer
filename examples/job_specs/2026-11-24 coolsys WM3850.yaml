@@ -1,0 +1,10 @@
+job:
+  name: "2026-11-24 coolsys WM3850"
+  material: kw
+  height: 2
+  width: 3
+  text_height: 0.5
+  font: helv1
+  holes:
+    - location: sides
+  replacement_text_file: "2026-11-24 coolsys WM3850.txt"
