@@ -124,12 +124,6 @@ PHYSICAL_STRUCTURAL_ALPHA = SIMPLE_STRUCTURAL_ALPHA
 # screen figure's dpi ignored. 150 matches ``save_figure``'s PNG export.
 RASTER_DPI = 150
 
-# Long side in inches of a figure built by :func:`proof_figure_size`. A proof
-# panel is drawn at the PLATE's aspect, so a 24 x 16 in plate gets a 24 x 16 in
-# figure and its equal-aspect axes fill the canvas edge to edge (a fixed 16:9
-# frame letterboxes a 3:2 plate and wastes the panel on background).
-PROOF_PANEL_FIGURE_LONG_SIDE_IN = 16.0
-
 #: Long side (inches) of a composite-proof panel figure, i.e. the size
 #: :func:`proof_figure_size` keeps while it adjusts the short side so the drawn
 #: toolpath lands at its own aspect ratio. Matches :data:`DEFAULT_FIGURE_SIZE`'s
@@ -667,8 +661,6 @@ def plot_physical_strokes(
     fills: Sequence[PhysicalFillLayer] = (),
     background_color: Optional[str] = None,
     overlay_boxes: Sequence[JobOverlayBoxLike] = (),
-    plate_rect_in: Optional[Tuple[float, float, float, float]] = None,
-    usable_rect_in: Optional[Tuple[float, float, float, float]] = None,
 ) -> Figure:
     """Plot toolpath strokes at their true engraved (cutter) widths.
 
@@ -714,18 +706,6 @@ def plot_physical_strokes(
             job, and the legend collapses to one row per job). ``()`` (the
             default) draws nothing and adds no legend - single-job proofs are
             unchanged.
-        plate_rect_in: ``(x, y, width, height)`` of the plate MATERIAL in the
-            emitted plate frame (inches), framing the plot as a PLATE proof:
-            the axes are then the plate plus the same 10 % padding, and the
-            material outline is drawn, so the plate fills the panel at its own
-            aspect and every label reads at its true position on the stock.
-            ``None`` (the default) keeps the historical ink-envelope framing.
-            Required for anything tiled into the composite proof sheet - see
-            :func:`proof_figure_size`.
-        usable_rect_in: ``(x, y, width, height)`` of the USABLE area inside
-            ``plate_rect_in``, drawn as a dashed inset (the clearance strips).
-            Only meaningful with ``plate_rect_in``; skipped when it matches the
-            material rect (no clearances).
 
     Returns:
         The matplotlib Figure object.
@@ -826,13 +806,6 @@ def plot_physical_strokes(
         for box in overlay_boxes:
             all_x.extend([box.x, box.x + box.width])
             all_y.extend([box.y, box.y + box.height])
-        # A plate proof is framed by the PLATE, not by its ink: labels packed
-        # into one column of a 24 x 16 in sheet would otherwise crop to a
-        # portrait slice of a landscape sheet (see proof_figure_size).
-        if plate_rect_in is not None:
-            plate_x, plate_y, plate_w, plate_h = plate_rect_in
-            all_x.extend([plate_x, plate_x + plate_w])
-            all_y.extend([plate_y, plate_y + plate_h])
         x_min, x_max = min(all_x), max(all_x)
         y_min, y_max = min(all_y), max(all_y)
         padding_x = _safe_range(x_min, x_max) * 0.1
@@ -856,43 +829,6 @@ def plot_physical_strokes(
             ax.grid(which="minor", alpha=0.15)
 
         ax.set_aspect("equal", adjustable="box")
-
-        # Plate outline (and the usable-area inset when clearances exist),
-        # drawn over the ink so the panel reads as a sheet of stock.
-        if plate_rect_in is not None:
-            plate_x, plate_y, plate_w, plate_h = plate_rect_in
-            ax.add_patch(
-                Rectangle(
-                    (plate_x, plate_y),
-                    plate_w,
-                    plate_h,
-                    fill=False,
-                    linestyle="-",
-                    edgecolor="black",
-                    linewidth=1.2,
-                    zorder=5,
-                )
-            )
-            if usable_rect_in is not None:
-                use_x, use_y, use_w, use_h = usable_rect_in
-                if not (
-                    math.isclose(use_x, plate_x, abs_tol=1e-6)
-                    and math.isclose(use_y, plate_y, abs_tol=1e-6)
-                    and math.isclose(use_w, plate_w, abs_tol=1e-6)
-                    and math.isclose(use_h, plate_h, abs_tol=1e-6)
-                ):
-                    ax.add_patch(
-                        Rectangle(
-                            (use_x, use_y),
-                            use_w,
-                            use_h,
-                            fill=False,
-                            linestyle="--",
-                            edgecolor="black",
-                            linewidth=0.8,
-                            zorder=5,
-                        )
-                    )
 
         # Per-job provenance overlay: a dashed coloured rectangle per LABEL
         # (boxes repeat a job's colour across its own labels), above the ink,

@@ -1184,7 +1184,7 @@ JPEG, `<output_dir>/<job_id>_proof.jpeg` (`proof_image_name`), named from the sa
 every other artifact carries. Every run with plots on (the default on every `generate`/`--jobset` run)
 writes it; it is reported on `PerCutterExport.proof_jpeg`, in `report.json` `outputs.proof_jpeg`, and as
 the `Proof:` line of `summary.txt`. Each panel is captioned under the plate with
-`panel_caption(plate_number, plate_size_in(packed_plates, n), material)` → `Plate 1 — 24.0 x 16.0 in — kw` (the
+`panel_caption(plate_number, width_in, height_in, material)` → `Plate 1 — 23.0 x 16.0 in — ACM` (the
 plate number the PLT names carry, the usable stock size, the stock name).
 
 - **Layout is the engine's, not ours**: `compose_proof_sheet` rasterizes each panel, then calls the
@@ -1200,8 +1200,7 @@ plate number the PLT names carry, the usable stock size, the stock name).
   sheet is the pipeline's last stage. Upstream's CLI surface lives in
   `plt_optimizer/vendor/pyphotocollage.py`'s `make_arg_parser`.
 - **Panels carry the plate's shape**: `_write_simple_plots` builds every whole-sheet figure at the
-  plate's aspect (`plotter.plot_physical_strokes(..., plate_rect_in=proof_composite.plate_rect_in(
-  packed_plates, n), figure_size=plotter.proof_figure_size(plate_aspect, title=...))`, long side
+  plate's aspect (`plotter.proof_figure_size(width_in, height_in)`, long side
   `PROOF_PANEL_FIGURE_LONG_SIDE_IN` = 16in) and `plotter.figure_to_image(fig, dpi, crop_aspect=
   plotter.plot_data_aspect(fig))` crops the raster to the figure's tight bounding box expanded to that
   aspect, so the engine lays out plate shapes, not matplotlib's margins. The tight box is in FIGURE

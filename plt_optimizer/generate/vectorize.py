@@ -29,7 +29,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -69,7 +69,6 @@ from plt_optimizer.generate.proof_composite import (
     PROOF_PANEL_DPI,
     compose_proof_sheet,
     panel_caption,
-    plate_rect_in,
     plate_size_in,
     proof_image_name,
 )
@@ -2035,7 +2034,6 @@ def _write_simple_plots(
         PhysicalStrokeLayer,
         plot_physical_strokes,
         plot_plt_document,
-        proof_figure_size,
     )
     from plt_optimizer.diagnostics.stroke_geometry import closed_path_polygons
     from plt_optimizer.generate.jobset import job_overlay_boxes
@@ -2343,20 +2341,6 @@ def _write_simple_plots(
                             )
                         )
         if layers:
-            # A panel that will be tiled into the proof sheet is drawn at the
-            # PLATE's aspect (axes = plate + the usual 10 % padding, plate
-            # outline included) so the collage lays the plate out, not a 16:9
-            # figure's margins: a 24 x 16 sheet in a fixed 16:9 frame loses its
-            # engraving to letterboxing and the collage scales that whitespace
-            # with it. Plate 0 / a stubbed layout keeps the historic framing.
-            plate_rect = plate_rect_in(result.packed_plates, plate_no)
-            plot_kwargs: dict[str, Any] = {}
-            if plate_rect is not None and plate_rect[3] > 0.0:
-                plot_kwargs["plate_rect_in"] = plate_rect
-                plot_kwargs["figure_size"] = proof_figure_size(
-                    plate_rect[2] / plate_rect[3],
-                    title=title,
-                )
             figure = plot_physical_strokes(
                 layers,
                 output_path=pdf_path,
@@ -2366,7 +2350,6 @@ def _write_simple_plots(
                 fills=fills,
                 background_color=preview_background,
                 overlay_boxes=overlay_boxes,
-                **plot_kwargs,
             )
         else:
             # No pen widths (synthetic export) or no per-pen geometry:
@@ -2409,6 +2392,7 @@ def _write_simple_plots(
                 plate_figure,
             )
         )
+
     if panels:
         # Reporting artifact, like the usage block: a raster/encode hiccup is
         # logged, never fatal, because the PLTs and the per-plate PDFs are
