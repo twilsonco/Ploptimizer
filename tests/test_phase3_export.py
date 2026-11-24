@@ -13,9 +13,8 @@ from PIL import Image
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate import vectorize
 from plt_optimizer.generate.proof_composite import (
-    PROOF_PANEL_COLUMNS,
-    PROOF_PANEL_GUTTER_PX,
-    PROOF_SHEET_MARGIN_PX,
+    _make_collage,
+    proof_image_name,
 )
 from plt_optimizer.generate.resolution import (
     LineContentConfigError,
@@ -149,7 +148,7 @@ class TestExportAndOptimizePhase3:
         assert not any("_all_" in p.stem for p in result.plt_paths)
 
     def test_export_per_cutter_writes_the_composite_proof_sheet(self, tmp_path: Path) -> None:
-        """plots=True also tiles the whole-sheet proofs into one JPEG sheet.
+        """plots=True also collages the whole-sheet proofs into one JPEG.
 
         The proof sheet is the file the shop signs off, so it lands in the run
         root (not ``pdf/``) named ``<job_id>_proof.jpeg``, and it is a raster
@@ -166,17 +165,21 @@ class TestExportAndOptimizePhase3:
             plots=True,
         )
 
-        assert result.proof_jpeg == tmp_path / "proofjob_proof.jpeg"
+        assert result.proof_jpeg == tmp_path / proof_image_name("proofjob")
         assert result.proof_jpeg is not None and result.proof_jpeg.exists()
         assert result.proof_jpeg not in result.pdf_paths
         # One whole-sheet proof per plate; this fixture packs onto one plate,
-        # so the sheet is a single panel plus its frame.
+        # so the sheet *is* that plate's tight preview: a legible raster with
+        # drawn ink in it, not a blank frame.
         assert len(result.combined_by_plate) == 1
         with Image.open(result.proof_jpeg) as sheet:
             assert sheet.format == "JPEG"
             assert sheet.mode == "RGB"
-            assert sheet.size[0] > 2 * PROOF_SHEET_MARGIN_PX
-            assert sheet.size[1] > 2 * PROOF_SHEET_MARGIN_PX
+            assert min(sheet.size) > 200
+            ink = sheet.convert("L").getdata()
+            assert sum(1 for v in ink if v < 128) > 100
+        # The panel JPEGs handed to the collage engine are scratch: gone.
+        assert not (tmp_path / "proof_panels").exists()
 
     def test_export_exposes_rendered_labels(self, tmp_path: Path) -> None:
         """The export exposes the render cache keyed by label ID.
@@ -8618,7 +8621,7 @@ class TestTopBottomHoleCollisionDemo:
 
 
 class TestCompositeProofSheet:
-    """``plots=True`` also tiles the whole-sheet proofs into one JPEG sheet.
+    """``plots=True`` also collages the whole-sheet proofs into one JPEG.
 
     The sheet is the file the shop signs off: one panel per plate, plate 1
     first, named ``<output_dir>/<job_id>_proof.jpeg``. Composing it is a
@@ -8648,15 +8651,19 @@ class TestCompositeProofSheet:
         """A single-plate run writes ``<job_id>_proof.jpeg`` in the run root."""
         result = self._export(tmp_path, "proof", 1)
 
-        assert result.proof_jpeg == tmp_path / "proof_proof.jpeg"
+        assert result.proof_jpeg == tmp_path / proof_image_name("proof")
         assert result.proof_jpeg is not None and result.proof_jpeg.exists()
         # The sheet is a raster, so it is not part of the PDF preview list.
         assert result.proof_jpeg not in result.pdf_paths
-        # One panel (one plate) plus its frame, encoded as an RGB JPEG.
+        # One panel (one plate): the engine needs 3+ images, so a single-plate
+        # run's sheet IS that plate's tight preview, as an RGB JPEG with ink.
         assert len(result.combined_by_plate) == 1
         fmt, mode, size = self._sheet(result.proof_jpeg)
         assert (fmt, mode) == ("JPEG", "RGB")
-        assert min(size) > 2 * PROOF_SHEET_MARGIN_PX
+        assert min(size) > 200
+        # The panel JPEGs are scratch: the run root holds the sheet, not the
+        # images that were fed to the engine.
+        assert not (tmp_path / "proof_panels").exists()
 
     def test_plotting_disabled_writes_no_proof_sheet(self, tmp_path: Path) -> None:
         """``plots=False`` writes no sheet (and reports no path for it)."""
@@ -8671,12 +8678,16 @@ class TestCompositeProofSheet:
         assert result.proof_jpeg is None
         assert not list(tmp_path.glob("*_proof.jpeg"))
 
-    def test_multi_plate_run_tiles_one_panel_per_plate(self, tmp_path: Path) -> None:
-        """A sheet per plate: two columns, rows filling top to bottom.
+    def test_multi_plate_run_collages_one_panel_per_plate(self, tmp_path: Path) -> None:
+        """A multi-plate run hands the engine one panel per plate, plate 1 first.
 
-        The panel size is read off a single-plate sheet (panel plus frame), so
-        the multi-plate geometry is pinned end to end, not relative to itself.
+        The sheet's exact pixels are PyPhotoCollage's (pinned in
+        ``tests/test_proof_composite.py``); what the export owns is the panel
+        *set*: one tight preview per plate, in plate order, each cropped to its
+        drawn content so its aspect ratio is the plate's toolpath aspect.
         """
+        from unittest.mock import patch
+
         single = self._export(tmp_path / "single", "one", 1)
         # 40 labels of 3x1 do not fit one 12x8 sheet (see the plate-overflow
         # tests above), so this run is genuinely multi-plate.
@@ -8686,18 +8697,25 @@ class TestCompositeProofSheet:
         plates = len(multi.combined_by_plate)
         assert plates > 1
 
-        panel = self._sheet(single.proof_jpeg)[2]
-        panel_size = (panel[0] - 2 * PROOF_SHEET_MARGIN_PX, panel[1] - 2 * PROOF_SHEET_MARGIN_PX)
-        columns = min(PROOF_PANEL_COLUMNS, plates)
-        rows = -(-plates // PROOF_PANEL_COLUMNS)
-        expected = (
-            columns * panel_size[0]
-            + (columns - 1) * PROOF_PANEL_GUTTER_PX
-            + 2 * PROOF_SHEET_MARGIN_PX,
-            rows * panel_size[1] + (rows - 1) * PROOF_PANEL_GUTTER_PX + 2 * PROOF_SHEET_MARGIN_PX,
-        )
+        seen: List[List[Tuple[int, int]]] = []
 
-        assert self._sheet(multi.proof_jpeg)[2] == expected
+        def spy(images: List[Image.Image], *args: object, **kwargs: object) -> Image.Image:
+            seen.append([(img.width, img.height) for img in images])
+            return _make_collage(images, *args, **kwargs)
+
+        with patch("plt_optimizer.generate.proof_composite._make_collage", spy):
+            collaged = self._export(tmp_path / "spy", "spy", 40)
+
+        assert collaged.proof_jpeg is not None and collaged.proof_jpeg.exists()
+        assert len(seen) == 1
+        panels = seen[0]
+        assert len(panels) == plates
+        # Every panel is a real raster of its plate, and the panels differ: they
+        # are the plates' own toolpath aspects, not one tiled template.
+        assert all(w > 100 and h > 100 for w, h in panels)
+        assert len(set(panels)) > 1
+        assert self._sheet(collaged.proof_jpeg)[:2] == ("JPEG", "RGB")
+        assert not (tmp_path / "spy" / "proof_panels").exists()
 
     def test_compose_failure_is_logged_not_fatal(
         self,

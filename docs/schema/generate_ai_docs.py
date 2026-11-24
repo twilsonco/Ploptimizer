@@ -147,6 +147,10 @@ _CONFIG_EXTRA_GROUPS = {
     "plate_height": "plates-layout-and-packing",
     "preview_background_color": "cascade-and-config",
     # Config-only (no theme owns it, no job spec can declare it), documented
+    # beside the preview knob it sits next to: both tune the previews, not the
+    # engraved toolpath.
+    "proof_collage_args": "cascade-and-config",
+    # Config-only (no theme owns it, no job spec can declare it), documented
     # beside the registry its values are read from.
     "rapid_velocity": "tool-options",
 }
@@ -171,7 +175,7 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
         "replacement_text_file_comment_string",
         "replacement_text_file_allow_blank_lines",
     ),
-    "cascade-and-config": ("preview_background_color",),
+    "cascade-and-config": ("preview_background_color", "proof_collage_args"),
     "label-geometry": (
         "margin",
         "h_margin",

@@ -25,6 +25,7 @@ if getattr(sys, "frozen", False) or sys.platform == "win32":
     matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib import transforms
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
@@ -934,7 +935,66 @@ def save_figure(fig: Figure, path: Path) -> None:
         raise PlotterError(f"Failed to save figure: {e}") from e
 
 
-def figure_to_image(fig: Figure, dpi: int = RASTER_DPI) -> Image.Image:
+def tight_content_box(
+    fig: Figure,
+    dpi: int = RASTER_DPI,
+    *,
+    pad_px: int = 8,
+) -> Optional[transforms.BboxBase]:
+    """Return the pixels of the figure's drawn content, at export ``dpi``.
+
+    Matplotlib returns the tight bounding box (title, axis labels, ticks, legend,
+    ink -- never a pixel of drawn content is left out) in **figure units** on
+    3.8+, wrapped in a ``TransformedBbox``: treating the raw numbers as display
+    pixels yields a box 100x too small, which collapses a cropped panel to a ~30
+    px thumbnail. The figure's own unit->inch transform is therefore applied
+    explicitly, then scaled by ``dpi / fig.dpi`` because the canvas is at the
+    figure's screen dpi when measured and the box crops a raster drawn at the
+    export dpi. The box is inflated 1 % and by ``pad_px`` so sub-pixel rounding
+    at the export dpi can never clip drawn content.
+
+    A canvas-less figure (built with ``Figure()`` directly) and a vector-only
+    backend (``pdf``, ``svg``) have no raster renderer to measure with, so an Agg
+    canvas is attached for the measurement: the warning against replacing a
+    canvas is about live GUI figures (Cocoa aborts), and every interactive
+    backend matplotlib ships derives from Agg and never reaches this path.
+
+    Args:
+        fig: The rendered figure.
+        dpi: Dots per inch of the raster the box will crop.
+        pad_px: Pixels of margin added on every side of the tight box.
+
+    Returns:
+        The content box in the raster's pixel space (bottom-up origin), or
+        ``None`` when the figure has no drawable content (a plotting stub).
+
+    Raises:
+        PlotterError: If measuring fails.
+    """
+    try:
+        canvas: Any = fig.canvas
+        if not hasattr(canvas, "get_renderer"):
+            from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+            canvas = FigureCanvasAgg(fig)
+        canvas.draw()
+        renderer = canvas.get_renderer()
+        tight_inches = fig.get_tightbbox(renderer).transformed(fig.dpi_scale_trans)
+        scale = float(dpi) / max(1.0, float(fig.get_dpi()))
+        x0 = float(tight_inches.x0) * scale
+        y0 = float(tight_inches.y0) * scale
+        x1 = float(tight_inches.x1) * scale
+        y1 = float(tight_inches.y1) * scale
+        if x1 <= x0 or y1 <= y0:
+            return None
+        grow_x = (x1 - x0) * 0.01 + max(0, pad_px)
+        grow_y = (y1 - y0) * 0.01 + max(0, pad_px)
+        return transforms.Bbox([[x0 - grow_x, y0 - grow_y], [x1 + grow_x, y1 + grow_y]])
+    except Exception as e:
+        raise PlotterError(f"Measuring the figure's content box failed: {e}") from e
+
+
+def figure_to_image(fig: Figure, dpi: int = RASTER_DPI, *, crop_tight: bool = False) -> Image.Image:
     """Rasterize a figure into an in-memory RGBA PIL image.
 
     The figure is drawn on **its own** canvas whenever that canvas can produce
@@ -952,12 +1012,18 @@ def figure_to_image(fig: Figure, dpi: int = RASTER_DPI) -> Image.Image:
     screen dpi; the figure's own dpi is restored afterwards, so the caller's
     on-screen size is untouched. This is the rasterizer behind the generate
     pipeline's composite proof sheet (see
-    :mod:`plt_optimizer.generate.proof_composite`).
+    :mod:`plt_optimizer.generate.proof_composite`), which crops with
+    ``crop_tight=True`` so a panel's aspect ratio is the plate's, not the
+    16:9 canvas the proofs are drawn on.
 
     Args:
         fig: The figure to rasterize.
         dpi: Raster resolution in dots per inch, so the image measures
             ``fig.get_size_inches() * dpi`` pixels.
+        crop_tight: Crop the raster to :func:`tight_content_box`, i.e. to the
+            drawn content, so the image's aspect ratio is the aspect ratio of
+            what was drawn instead of the figure's canvas. A figure with no
+            drawn content is returned uncropped.
 
     Returns:
         The rendered image in RGBA mode.
@@ -976,17 +1042,46 @@ def figure_to_image(fig: Figure, dpi: int = RASTER_DPI) -> Image.Image:
             try:
                 canvas.draw()
                 width, height = canvas.get_width_height()
-                return Image.frombytes("RGBA", (width, height), bytes(canvas.buffer_rgba()))
+                image = Image.frombytes("RGBA", (width, height), bytes(canvas.buffer_rgba()))
             finally:
                 fig.set_dpi(screen_dpi)
+            return _crop_to_content(fig, image, dpi=dpi) if crop_tight else image
 
         # Vector-only canvas: rasterize through an in-memory PNG.
         buffer = io.BytesIO()
         fig.savefig(buffer, format="png", dpi=dpi)
         buffer.seek(0)
-        return Image.open(buffer).convert("RGBA")
+        image = Image.open(buffer).convert("RGBA")
+        return _crop_to_content(fig, image, dpi=dpi) if crop_tight else image
     except Exception as e:
         raise PlotterError(f"Rasterizing figure failed: {e}") from e
+
+
+def _crop_to_content(fig: Figure, image: Image.Image, *, dpi: int) -> Image.Image:
+    """Crop ``image`` to the figure's drawn content box.
+
+    Args:
+        fig: The figure ``image`` was rasterized from.
+        image: The full-canvas raster.
+        dpi: The dpi ``image`` was rendered at (the dpi the content box is
+            measured at, so pixels and box agree).
+
+    Returns:
+        The cropped image, or ``image`` itself when the figure has no content
+        box or the box is degenerate.
+    """
+    box = tight_content_box(fig, dpi)
+    if box is None:
+        return image
+    # Display coordinates have their origin at the canvas' BOTTOM left; PIL
+    # boxes measure from the top, so the y edges swap (and the box is flipped).
+    left = max(0, int(math.floor(box.x0)))
+    right = min(image.width, int(math.ceil(box.x1)))
+    bottom = max(0, int(math.floor(box.y0)))
+    top = min(image.height, int(math.ceil(box.y1)))
+    if right - left < 2 or top - bottom < 2:
+        return image
+    return image.crop((left, image.height - top, right, image.height - bottom))
 
 
 def close_figure(fig: Figure) -> None:

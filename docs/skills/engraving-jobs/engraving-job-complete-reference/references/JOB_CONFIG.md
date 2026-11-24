@@ -49,6 +49,7 @@ the docs byte-pin; everything above is derived purely from the model.
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `preview_background_color` | str \| null | null (unset) | — | Page/plot background color of the combined 'all_*.pdf' proof previews, as a #RGB or #RRGGBB hex string (drill holes punch this same color). Unset falls back to '#D3D3D3' (light grey). |
+| `proof_collage_args` | str \| null | null (unset) | — | PyPhotoCollage command-line arguments for the composite proof sheet (the job's '_proof.jpeg' in the run root), e.g. '-t nested -g 24' (collage type, gutter between panels). Flags given here override the sheet's own defaults ('-t rows -O input_order -S 5000 -i 2400 -g 12 -b 255,255,255'); anything unset keeps them, so naming one flag is enough. The target aspect ratio '-r' is left unset on purpose: it is computed from the plates' own aspect ratios, because a fixed value makes the engine resample the panels (shrunken gutters, panels running into each other). Unset uses the defaults. Not a cascading default (job specs cannot declare it). |
 
 ### Label Size, Margins and Shape
 
@@ -445,6 +446,7 @@ excluded from the docs byte-pin.
 | `tool_options` | dict \| null | — | **set** | tool-options |
 | `rapid_velocity` | float \| null | — | unset | tool-options |
 | `preview_background_color` | str \| null | — | **set** | cascade-and-config |
+| `proof_collage_args` | str \| null | — | unset | cascade-and-config |
 
 ## Available Tool Options
 

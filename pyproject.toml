@@ -77,6 +77,7 @@ pythonpath = ["."]
 [tool.coverage.run]
 source = ["plt_optimizer"]
 branch = true
+exclude = ["*/plt_optimizer/vendor/*"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -103,6 +104,13 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+# Vendored third-party source is typed to upstream's bar, not ours (strict mode
+# on untyped PIL-centric code would be pure noise). The adapter that calls it is
+# typed; this file is checked by ruff-not-mypy, exactly like a site-packages dep.
+[[tool.mypy.overrides]]
+module = ["plt_optimizer.vendor.pyphotocollage"]
+ignore_errors = true
+
 # Ignore missing stubs for optional third-party libraries (they don't ship type stubs)
 [[tool.mypy.overrides]]
 module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype", "shapely.*"]
@@ -111,6 +119,9 @@ ignore_missing_imports = true
 [tool.ruff]
 target-version = "py38"
 line-length = 100
+# Vendored third-party source (see plt_optimizer/vendor/CHANGES.md): linting and
+# formatting upstream code would churn the file and make every resync a merge.
+extend-exclude = ["plt_optimizer/vendor/pyphotocollage.py"]
 lint.select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings

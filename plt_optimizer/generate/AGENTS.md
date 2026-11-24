@@ -1186,17 +1186,55 @@ other artifact carries. It is reported on `PerCutterExport.proof_jpeg`, in `repo
 `outputs.proof_jpeg`, and as the `Proof:` line of `summary.txt`.
 
 - **Panels are rasterized offscreen** while each proof is written:
-  `plotter.figure_to_image(fig, dpi=PROOF_PANEL_DPI)` renders the figure into memory (Agg `buffer_rgba`;
-  the PDF-only canvas through a `savefig("png")` round-trip), and `_write_simple_plots` closes every
-  plate figure it is done with (`plotter.close_figure`) so a jobset's worth of proofs does not pile up
-  in pyplot's figure manager.
-- **Layout** (`compose_proof_sheet`): two plates fit on one row, a wider sheet top-ups to
-  `PROOF_PANEL_COLUMNS` (2) columns and then wraps — a contact sheet, not a mosaic. Heights are uniform
-  per row (the row's tallest panel), widths per column (its widest panel), and a narrow sheet is
-  centred in its column so the grid reads as a grid. Gutters/frame:
-  `PROOF_PANEL_GUTTER_PX` / `PROOF_SHEET_MARGIN_PX` of `PROOF_SHEET_FRAME_COLOR` — the sheet is a
-  lossy JPEG (text antialiasing bleeds into the neighbouring background), so the frame is what keeps
-  plates separable by eye.
+  `plotter.figure_to_image(fig, dpi=PROOF_PANEL_DPI, crop_tight=True)` renders the figure into memory
+  (Agg `buffer_rgba`; the PDF-only canvas through a `savefig("png")` round-trip) and crops it to its
+  **drawn content**, `_write_simple_plots` closes every plate figure it is done with
+  (`plotter.close_figure`) so a jobset's worth of proofs does not pile up in pyplot's figure manager,
+  and the panels are written as JPEGs into `<output_dir>/proof_panels/` (`panel_jpeg_dir`) because the
+  engine reads its images from disk — that directory is scratch: the `plate*.jpeg` files are deleted on
+  the way out (the directory itself only when this call created it).
+- **No captions, no title band** (`m02021`): the sheet is the tight-cropped previews themselves. Nothing
+  is drawn on a panel, so a panel's aspect ratio is exactly its plate's drawn content, which is what the
+  layout math below is computed from. `panel_caption()` survives as the panel's *log* label (and the
+  `-O filename` sort key) — nothing renders it.
+- **Layout** (`collage_layout` is the contract; upstream's `rows` layout is the trap): upstream picks a
+  row count from a target row width of `(avg_h + avg_w)/2 * sqrt(n * -r)`, resizes the panels to a
+  common height (`min(H, -S / rows, -S / cols / aspect)`), resamples **every row to the width of the
+  narrowest row**, stacks the rows, and the CLI finally resizes the sheet to `-S`. Every one of those
+  steps can shrink a panel and its gutter: the first cut shipped a pinned `-r 1.375` with upstream's
+  `-i 1000`, which landed a 12 px gutter at 3 px on the 3-plate CES job — panels touching, the resample
+  bleeding neighbours' edges together. That collapse is why `collage_layout` replays upstream's
+  arithmetic instead of guessing at it:
+  - `-r` is the **row-forcing** value `row_forcing_aspect(mean_aspect, n) = (2*ar/(ar+1))**2 * n**2`,
+    the value that makes upstream's row count come out at **one row**, so no row is ever resampled to
+    another's width. It is deliberately absent from `PROOF_COLLAGE_DEFAULT_ARGS`; a shop that writes
+    `-r` in `proof_collage_args` wins, and the adapter detects the pin with `aspect_provided()` on the
+    raw string (the parsed namespace carries upstream's `1.0` default, indistinguishable from a shop
+    asking for a square sheet) and passes it as `collage_layout(..., pinned_aspect=...)`;
+  - `-S` is **sized to the sheet that layout produces** (`PROOF_SHEET_SIZE_MARGIN` × the sheet's longest
+    edge at full panel size, clamped to `PROOF_SHEET_MIN_SIZE_PX`..`PROOF_SHEET_MAX_SIZE_PX`) so the
+    final resize to `-S` is a no-op and panels reach the sheet at scale 1.0. Note the sheet's longest
+    edge for a 1-row layout is its **height**, not its width, and `-S` also caps the panels' common
+    height — the reason a first cut with upstream's `-i 1000` measured a 1000x1009 sheet; a shop-pinned
+    `-S` is
+    honoured exactly, floor included (`max_size_provided()` detects it) and its squeeze is priced below;
+  - `-g` is requested `1 / (landing scale × batch factor)` larger (capped at 160 px, solved as a
+    fixpoint because a wider gutter widens the row it lands in) so the gutter **lands** at the width the
+    shop asked for. The batch factor is 0.5 for a `nested` job that recurses (≥ 10 panels, several rows)
+    because upstream composites its 3-panel batches at half scale;
+  - the defaults are `-S 5000 -i 2400`, not upstream's `-S 5000`/`-i 1000`: `-i` resizes every panel to
+    fit 1000 px **before** layout, which caps the whole sheet near 1000 px (measured: a 3-plate sheet of
+    1000x1009 — a 3-plate 24x16 job wants ~4000x2500).
+  Measured end-to-end on the 3-plate CES vons 1897 job (real pipeline run): sheet 1686x5000, gutters
+  43-55 px on the sheet, panels carrying the three plates' toolpath shapes — the 24x16 landscape plate as
+  a 526x381 block, the two narrow plates as 220x379 and 178x376 (the row runs along the sheet's long
+  side, so the engine rotates it 90° and each panel's own w/h is the toolpath's 1.385 / 0.588 / 0.476).
+- **Argument handling** (`parse_collage_args`): the defaults are prepended to the shop's string, which is
+  parsed by upstream's own `make_arg_parser` so every feature upstream exposes stays reachable. The
+  adapter then fixes two upstream papercuts: `-O input` (what upstream's own `--help` says) is rewritten
+  to `-O input_order` (`ORDER_INPUT_ALIASES`) because upstream raises `ValueError` on the documented
+  spelling, and `oldest_first`/`newest_first` fall back to plate order (`UNSUPPORTED_ORDER_MODES`) since
+  in-memory panels have no mtimes.
 - **Scope**: the WHOLE-SHEET proofs only. The per-job jobset proofs
   (`[<material>_]p<plate>_<job>_all_*.pdf`) and the mirrored per-cutter previews are not panels.
   Like `all_*.pdf` this is a proof artifact that never reaches the controller, so it is OUTSIDE the
@@ -1205,8 +1243,9 @@ other artifact carries. It is reported on `PerCutterExport.proof_jpeg`, in `repo
 - **Never fatal**: the sheet is a reporting artifact like the usage block — a raster/encode hiccup is
   WARNING-logged and `proof_jpeg` stays `None` (a plate whose figure cannot rasterize is skipped), so a
   proof-rendering problem never loses the PLTs already written.
-- Pins: `tests/test_proof_composite.py` (naming, layout, JPEG bytes checked after a reopen, real-fonts
-  end-to-end sheet) and `tests/test_phase3_export.py::TestCompositeProofSheet` (grid geometry,
+- Pins: `tests/test_proof_composite.py` (naming, the collapse contract: gutters measured out of the
+  rendered sheet, panel tight-crop, scratch JPEG lifecycle, no title band, JPEG bytes checked after a
+  reopen) and `tests/test_phase3_export.py::TestCompositeProofSheet` (end-to-end from a real export,
   `plots=False` writes none, failure isolation),
   `tests/test_generation_report.py::TestFormatSummary::test_summary_names_the_proof_sheet`.
 
