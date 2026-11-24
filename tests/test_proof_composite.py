@@ -299,6 +299,66 @@ class TestPanelGeometry:
         )
         assert captioned.height == image.height + proof_composite.PROOF_PANEL_LABEL_PX
 
+    def test_plate_proof_figure_is_drawn_at_the_plate_aspect(self) -> None:
+        """A plate-framed figure's data aspect IS the plate's, not the frame's.
+
+        The bug this pins: panels built in the fixed 16:9 frame made a 24 x 16
+        plate a 1.78 panel (a fifth of it side margins) and a corner-packed
+        plate an island of engraving in a sea of background, which the collage
+        then laid out. `plot_data_aspect` is what the crop is driven by, so the
+        panel is guaranteed to carry the plate's shape.
+        """
+        from plt_optimizer.core.models import Coordinate, StrokeSegment
+        from plt_optimizer.diagnostics.plotter import (
+            PhysicalStrokeLayer,
+            close_figure,
+            plot_data_aspect,
+            plot_physical_strokes,
+            proof_figure_size,
+        )
+
+        plate = (0.0, 0.0, 24.0, 16.0)
+        figure_size = proof_figure_size(plate[2] / plate[3], title="Plate 1")
+        fig = plot_physical_strokes(
+            [
+                PhysicalStrokeLayer(
+                    # Ink in one corner only: the framing must come from the
+                    # plate, so the aspect cannot follow the ink envelope.
+                    segments=[
+                        StrokeSegment(
+                            start=Coordinate(x=1.0, y=1.0),
+                            end=Coordinate(x=5.0, y=1.0),
+                            is_cutting=True,
+                        )
+                    ],
+                    width_inches=0.125,
+                    label="text",
+                )
+            ],
+            title="Plate 1",
+            show_plot=False,
+            plate_rect_in=plate,
+            figure_size=figure_size,
+        )
+        try:
+            # The crop is driven by plot_data_aspect, so the panel the collage
+            # scales carries the plate's shape - the exact thing the fixed
+            # 16:9 frame got wrong for a 24 x 16 plate (1.78, plus margins).
+            # Tolerances: coordinates round through plotter units (1016/inch),
+            # so the padded spans are 1.5 to ~0.2 %.
+            assert plot_data_aspect(fig) == pytest.approx(24.0 / 16.0, rel=0.01)
+            # The AXES box is what `proof_figure_size` targets, so the figure
+            # itself is a bit squarer than the plate (chrome on all sides) and
+            # nowhere near the old 1.78 frame.
+            assert figure_size[0] / figure_size[1] < 1.5
+            axes = fig.axes[0]
+            x_min, x_max = axes.get_xlim()
+            y_max, y_min = axes.get_ylim()  # the plate frame inverts y
+            assert (x_min, x_max) == pytest.approx((-2.4, 26.4), abs=0.1)
+            assert (y_min, y_max) == pytest.approx((-1.6, 17.6), abs=0.1)
+        finally:
+            close_figure(fig)
+
 
 class TestDeterminism:
     """Identical input produces byte-identical sheets (AGENTS.md invariant)."""

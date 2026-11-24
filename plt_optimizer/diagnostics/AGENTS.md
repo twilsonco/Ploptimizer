@@ -100,10 +100,24 @@ per-cutter PLT file name in the same view quotes the nominal tool. See
 - `plot_physical_strokes(..., background_color=None)` - optional figure +
   axes facecolor for the proof page (the combined previews pass the
   configured `preview_background_color`); `None` keeps matplotlib's white.
-- `figure_to_image(fig, dpi=...)` rasterizes a figure to an in-memory
-  `PIL.Image.Image` - Agg's `buffer_rgba` when the canvas can rasterize, a
-  `savefig("png")` round-trip for the PDF-only canvas. The generate pipeline's
-  composite proof sheet builds its panels with it (see
+- `plot_physical_strokes(..., background_color=None)` - optional figure +
+  axes facecolor for the proof page (the combined previews pass the
+  configured `preview_background_color`); `None` keeps matplotlib's white.
+- `plot_physical_strokes(..., plate_rect_in=..., usable_rect_in=...)` frames the
+  axes on the PLATE (material rect + the usual 10 % pad) instead of the ink
+  envelope, and draws the material outline plus the dashed usable-area inset.
+  The composite proof sheet's panels need this: their aspect must be the
+  plate's, and a plate whose labels pack into one corner must still read as a
+  sheet of stock. Pair with `proof_figure_size(data_aspect, title=...)`, which
+  sizes the figure so its AXES box carries that aspect, and read the result
+  back with `plot_data_aspect(fig)`.
+- `figure_to_image(fig, dpi=..., crop_aspect=None)` rasterizes a figure to an
+  in-memory `PIL.Image.Image` - Agg's `buffer_rgba` when the canvas can
+  rasterize, a `savefig("png")` round-trip for the PDF-only canvas.
+  `crop_aspect` crops the content bounding box at a chosen width/height ratio
+  (widening the shorter axis, never shrinking content, and never eating the
+  caption strip a caller adds below). The generate pipeline's composite proof
+  sheet builds its panels with it (see
   [`../generate/AGENTS.md`](../generate/AGENTS.md) "Composite Proof Sheet").
   `close_figure(fig)` disposes of a figure pyplot would otherwise keep alive
   for the life of the process - a loop rendering one figure per plate must

@@ -155,6 +155,37 @@ def proof_image_name(job_id: str) -> str:
     return f"{job_id}_proof{PROOF_IMAGE_SUFFIX}"
 
 
+def plate_rect_in(
+    packed_plates: Sequence[Any],
+    plate_number: int,
+) -> Optional[Tuple[float, float, float, float]]:
+    """Plate MATERIAL rectangle ``(x, y, width, height)`` in inches, plate frame.
+
+    A proof panel must be drawn at the plate's aspect so the collage lays the
+    plate out, not a figure's margins. The packing layout records the **usable**
+    area plus the edge clearances, and the emitted plate frame has its origin at
+    the material's top-left with ``+y`` downward, so the material rect is the
+    usable rect widened by ``left_clearance`` on the left and ``top_clearance``
+    on top, anchored at ``(0, 0)``.
+
+    Args:
+        packed_plates: The layout's plates, in packing order.
+        plate_number: 1-based plate index.
+
+    Returns:
+        ``(0.0, 0.0, material_width, material_height)``, the usable rect when the
+        plate carries no clearances, or ``None`` when the plate is not in the
+        list (a stubbed layout, e.g. in tests).
+    """
+    index = plate_number - 1
+    if not 0 <= index < len(packed_plates):
+        return None
+    plate = packed_plates[index]
+    left = float(getattr(plate, "left_clearance", 0.0) or 0.0)
+    top = float(getattr(plate, "top_clearance", 0.0) or 0.0)
+    return (0.0, 0.0, float(plate.width) + left, float(plate.height) + top)
+
+
 def panel_caption(
     plate_number: int,
     size_in: Optional[Tuple[float, float]] = None,
