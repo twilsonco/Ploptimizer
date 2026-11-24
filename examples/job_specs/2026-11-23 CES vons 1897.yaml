@@ -6,28 +6,28 @@ job:
   allow_rotation: false
   
   labels:
-    - id: case tags
+    - id: a case tags
       width: 3
       height: 1
       text_height: 0.75
       replacement_text_file: 2026-11-23 CES vons 1897 1x3.txt
       holes:
         - location: sides
-    - id: alarm placard
-      width: 10
-      height: 2
-      text_height: 0.5
-      content:
-        - text: "REFRIGERATION ALARM"
-        - text: "CONTACT STORE MANAGER"
-    - id: "2x4"
+    - id: "b 2x4"
       width: 4
       height: 2
       text_height: 1.25
       holes:
         - location: sides
       replacement_text_file: 2026-11-23 CES vons 1897 2x4.txt
-    - id: 7x5.33 placards
+    - id: c alarm placard
+      width: 10
+      height: 2
+      text_height: 0.5
+      content:
+        - text: "REFRIGERATION ALARM"
+        - text: "CONTACT STORE MANAGER"
+    - id: d 7x5.33 placards
       material: kw(uv)
       width: 7
       height: 5.33
