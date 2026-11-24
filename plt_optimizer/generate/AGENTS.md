@@ -1178,25 +1178,39 @@ section. The pipeline-level rules this package owns:
 
 ### Composite Proof Sheet (`proof_composite`)
 
-Module docstring: `proof_composite.py` (Pillow-only, Python 3.8-safe — Pillow is a hard dependency,
-unlike matplotlib, so this sits on the headless export path). Every run with plots on (the default on
-every `generate`/`--jobset` run) tiles the whole-sheet `all_*` proofs into ONE contact sheet,
-`<output_dir>/<job_id>_proof.jpeg` (`proof_image_name`), named from the sanitized `job_id` that every
-other artifact carries. It is reported on `PerCutterExport.proof_jpeg`, in `report.json`
-`outputs.proof_jpeg`, and as the `Proof:` line of `summary.txt`.
+Module docstring: `proof_composite.py` — the adapter that lays the whole-sheet `all_*` proofs out with
+the vendored **PyPhotoCollage** engine ([`../vendor/CHANGES.md`](../vendor/CHANGES.md)) and encodes one
+JPEG, `<output_dir>/<job_id>_proof.jpeg` (`proof_image_name`), named from the sanitized `job_id` that
+every other artifact carries. Every run with plots on (the default on every `generate`/`--jobset` run)
+writes it; it is reported on `PerCutterExport.proof_jpeg`, in `report.json` `outputs.proof_jpeg`, and as
+the `Proof:` line of `summary.txt`. Each panel is captioned under the plate with
+`panel_caption(plate_number, width_in, height_in, material)` → `Plate 1 — 23.0 x 16.0 in — ACM` (the
+plate number the PLT names carry, the usable stock size, the stock name).
 
-- **Panels are rasterized offscreen** while each proof is written:
-  `plotter.figure_to_image(fig, dpi=PROOF_PANEL_DPI)` renders the figure into memory (Agg `buffer_rgba`;
-  the PDF-only canvas through a `savefig("png")` round-trip), and `_write_simple_plots` closes every
-  plate figure it is done with (`plotter.close_figure`) so a jobset's worth of proofs does not pile up
-  in pyplot's figure manager.
-- **Layout** (`compose_proof_sheet`): two plates fit on one row, a wider sheet top-ups to
-  `PROOF_PANEL_COLUMNS` (2) columns and then wraps — a contact sheet, not a mosaic. Heights are uniform
-  per row (the row's tallest panel), widths per column (its widest panel), and a narrow sheet is
-  centred in its column so the grid reads as a grid. Gutters/frame:
-  `PROOF_PANEL_GUTTER_PX` / `PROOF_SHEET_MARGIN_PX` of `PROOF_SHEET_FRAME_COLOR` — the sheet is a
-  lossy JPEG (text antialiasing bleeds into the neighbouring background), so the frame is what keeps
-  plates separable by eye.
+- **Layout is the engine's, not ours**: `compose_proof_sheet` rasterizes each panel, then calls the
+  vendored `makeCollage` — `-t rows` (default), `-t columns`, or `-t nested` (the recursive
+  space-filling packer, which uses the global `random` module). Panel order is `-O input` (plate order,
+  the default), `filename`, `random`, `oldest_first`/`newest_first` (no timestamps exist on a proof
+  panel: WARNING-logged, plate order kept). Do not re-implement collage geometry here.
+- **`proof_collage_args` is the shop's tuning knob** (`job-config.json` defaults, `--proof-collage-args`
+  overrides; `parse_collage_args` merges them over `PROOF_COLLAGE_DEFAULT_ARGS`
+  (`-t rows -O input -S 4096 -r 1.375 -g 12 -b 255,255,255`) with the vendored parser, so user flags win
+  by last-occurrence and the accepted set is exactly upstream's). Both `JobDefaults`' validator and
+  `_bootstrap_run` parse the string at load/startup, so a typo fails before any PLT is written — the
+  sheet is the pipeline's last stage. Upstream's CLI surface lives in
+  `plt_optimizer/vendor/pyphotocollage.py`'s `make_arg_parser`.
+- **Panels carry the plate's shape**: `_write_simple_plots` builds every whole-sheet figure at the
+  plate's aspect (`plotter.proof_figure_size(width_in, height_in)`, long side
+  `PROOF_PANEL_FIGURE_LONG_SIDE_IN` = 16in) and `plotter.figure_to_image(fig, dpi, crop_aspect=
+  plotter.plot_data_aspect(fig))` crops the raster to the figure's tight bounding box expanded to that
+  aspect, so the engine lays out plate shapes, not matplotlib's margins. The tight box is in FIGURE
+  UNITS on Matplotlib 3.8+ — `transformed(fig.dpi_scale_trans)` is mandatory (dividing the raw numbers
+  by dpi collapses a panel to a ~30 px thumbnail; see `_tight_bbox_pixels`). `PROOF_PANEL_DPI` = 100 is
+  the raster DPI: 100 px/in of sheet, so a full 4096 px sheet renders 12pt titles at ~17 px.
+  `_write_simple_plots` closes every plate figure it is done with (`plotter.close_figure`) so a
+  jobset's worth of proofs does not pile up in pyplot's figure manager.
+- **Determinism**: `PROOF_DETERMINISM_SEED` seeds `random` before ordering and again before layout
+  (`nested` and `-d` draw from the global generator), so the same job yields byte-identical sheets.
 - **Scope**: the WHOLE-SHEET proofs only. The per-job jobset proofs
   (`[<material>_]p<plate>_<job>_all_*.pdf`) and the mirrored per-cutter previews are not panels.
   Like `all_*.pdf` this is a proof artifact that never reaches the controller, so it is OUTSIDE the
@@ -1205,9 +1219,10 @@ other artifact carries. It is reported on `PerCutterExport.proof_jpeg`, in `repo
 - **Never fatal**: the sheet is a reporting artifact like the usage block — a raster/encode hiccup is
   WARNING-logged and `proof_jpeg` stays `None` (a plate whose figure cannot rasterize is skipped), so a
   proof-rendering problem never loses the PLTs already written.
-- Pins: `tests/test_proof_composite.py` (naming, layout, JPEG bytes checked after a reopen, real-fonts
-  end-to-end sheet) and `tests/test_phase3_export.py::TestCompositeProofSheet` (grid geometry,
-  `plots=False` writes none, failure isolation),
+- Pins: `tests/test_proof_composite.py` (caption form, arg parsing/override, ordering, crop maths,
+  JPEG bytes checked after a reopen, real-fonts end-to-end sheet, `vendor/CHANGES.md` hash == on-disk
+  hash) and `tests/test_phase3_export.py::TestCompositeProofSheet` (`plots=False` writes none, failure
+  isolation, real end-to-end sheet),
   `tests/test_generation_report.py::TestFormatSummary::test_summary_names_the_proof_sheet`.
 
 ### Colored Combined PDF Previews (`preview_colors`)

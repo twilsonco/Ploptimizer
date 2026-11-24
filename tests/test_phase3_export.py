@@ -13,9 +13,8 @@ from PIL import Image
 from plt_optimizer.core.units import HPGL_UNITS_PER_INCH
 from plt_optimizer.generate import vectorize
 from plt_optimizer.generate.proof_composite import (
-    PROOF_PANEL_COLUMNS,
-    PROOF_PANEL_GUTTER_PX,
     PROOF_SHEET_MARGIN_PX,
+    parse_collage_args,
 )
 from plt_optimizer.generate.resolution import (
     LineContentConfigError,
@@ -8671,11 +8670,13 @@ class TestCompositeProofSheet:
         assert result.proof_jpeg is None
         assert not list(tmp_path.glob("*_proof.jpeg"))
 
-    def test_multi_plate_run_tiles_one_panel_per_plate(self, tmp_path: Path) -> None:
-        """A sheet per plate: two columns, rows filling top to bottom.
+    def test_multi_plate_run_collages_every_plate(self, tmp_path: Path) -> None:
+        """One sheet for the run, and adding plates grows it.
 
-        The panel size is read off a single-plate sheet (panel plus frame), so
-        the multi-plate geometry is pinned end to end, not relative to itself.
+        The collage's geometry is the vendored engine's (pinned in
+        ``tests/test_proof_composite.py``), so what the pipeline owns and this
+        pins is the panel SET: one sheet per run, every plate in it, and a
+        reproducible layout.
         """
         single = self._export(tmp_path / "single", "one", 1)
         # 40 labels of 3x1 do not fit one 12x8 sheet (see the plate-overflow
@@ -8686,18 +8687,22 @@ class TestCompositeProofSheet:
         plates = len(multi.combined_by_plate)
         assert plates > 1
 
-        panel = self._sheet(single.proof_jpeg)[2]
-        panel_size = (panel[0] - 2 * PROOF_SHEET_MARGIN_PX, panel[1] - 2 * PROOF_SHEET_MARGIN_PX)
-        columns = min(PROOF_PANEL_COLUMNS, plates)
-        rows = -(-plates // PROOF_PANEL_COLUMNS)
-        expected = (
-            columns * panel_size[0]
-            + (columns - 1) * PROOF_PANEL_GUTTER_PX
-            + 2 * PROOF_SHEET_MARGIN_PX,
-            rows * panel_size[1] + (rows - 1) * PROOF_PANEL_GUTTER_PX + 2 * PROOF_SHEET_MARGIN_PX,
-        )
+        single_area = single.proof_jpeg.stat().st_size
+        multi_area = multi.proof_jpeg.stat().st_size
+        assert multi_area > single_area, "every plate must land in the sheet"
+        sheet = self._sheet(multi.proof_jpeg)
+        assert sheet[0:2] == ("JPEG", "RGB")
+        # The sheet's edge cap is the collage's own `-S` default, read from the
+        # parsed defaults rather than restated here.
+        assert max(sheet[2]) <= int(parse_collage_args().max_size)
 
-        assert self._sheet(multi.proof_jpeg)[2] == expected
+    def test_sheet_is_reproducible(self, tmp_path: Path) -> None:
+        """The same job twice writes byte-identical sheets (the collage is seeded)."""
+        first = self._export(tmp_path / "a", "same", 6)
+        second = self._export(tmp_path / "b", "same", 6)
+
+        assert first.proof_jpeg is not None and second.proof_jpeg is not None
+        assert first.proof_jpeg.read_bytes() == second.proof_jpeg.read_bytes()
 
     def test_compose_failure_is_logged_not_fatal(
         self,

@@ -81,6 +81,7 @@ one of them inherits the standards above):
 | `plt_optimizer/diagnostics/` | matplotlib path-visualization plots (import-guarded; never on the Win7 import path) | [`plt_optimizer/diagnostics/AGENTS.md`](plt_optimizer/diagnostics/AGENTS.md) |
 | `plt_optimizer/ui/` | System-tray app + Tkinter settings (Windows 10+ only; Win7 runs the headless CLI) | [`plt_optimizer/ui/AGENTS.md`](plt_optimizer/ui/AGENTS.md) |
 | `plt_optimizer/utils/` | Config loading, distance geometry, dual text/CSV logging, Windows startup shortcuts | [`plt_optimizer/utils/AGENTS.md`](plt_optimizer/utils/AGENTS.md) |
+| `plt_optimizer/vendor/` | Vendored third-party source (`pyphotocollage.py`, MIT — the composite proof sheet's layout engine, imported only by `generate/proof_composite.py`); unmodified, gate-excluded, provenance-hashed | [`plt_optimizer/vendor/CHANGES.md`](plt_optimizer/vendor/CHANGES.md) |
 | `fonts/` | PLT font extraction from engraved sample sheets, derived Unicode glyphs, the v2 catalog the renderer loads | [`fonts/AGENTS.md`](fonts/AGENTS.md) |
 | `tests/` + `tests_deps/` | pytest suite + frozen fixtures (config-value-adaptive tests, conftest mocks) | [`tests/AGENTS.md`](tests/AGENTS.md) |
 | `docs/` + `docs/schema/` + `docs/skills/` | Developer docs + the production-agent Hermes skill tree under `docs/skills/engraving-jobs/` (generated `JOB_SPEC.md`/JSON schemas live in its `engraving-job-complete-reference/references/`; regenerate via `generate_ai_docs.py` then `generate_skills.py`, drift-pinned) | [`docs/AGENTS.md`](docs/AGENTS.md) |

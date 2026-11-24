@@ -74,6 +74,7 @@ from plt_optimizer.generate.font_registry import (
     normalize_font_name,
 )
 from plt_optimizer.generate.preview_colors import normalize_preview_background_color
+from plt_optimizer.generate.proof_composite import parse_collage_args
 from plt_optimizer.generate.schema import (
     BalancedCenteringHoleTextMode,
     CounterStyle,
@@ -1178,6 +1179,19 @@ class JobDefaults(BaseModel):
             "this same color). Unset falls back to '#D3D3D3' (light grey)."
         ),
     )
+    proof_collage_args: Optional[str] = Field(
+        default=None,
+        description=(
+            "Extra PyPhotoCollage command-line arguments for the composite "
+            "proof sheet (the job's '_proof.jpeg' in the run root), e.g. "
+            "'-t nested -r 1.2 -g 24' "
+            "(collage type, target aspect ratio, gutter between panels). Flags "
+            "given here override the sheet's own defaults ('-t rows -O input "
+            "-S 4096 -r 1.375 -g 12 -b 255,255,255'); anything unset keeps them, "
+            "so naming one flag is enough. Unset uses the defaults. Not a "
+            "cascading default (job specs cannot declare it)."
+        ),
+    )
 
     @field_validator("font")
     @classmethod
@@ -1236,6 +1250,36 @@ class JobDefaults(BaseModel):
             ValueError: If the value is not a #RGB/#RRGGBB hex color.
         """
         return normalize_preview_background_color(value)
+
+    @field_validator("proof_collage_args")
+    @classmethod
+    def _validate_proof_collage_args(cls, value: Optional[str]) -> Optional[str]:
+        """Validate the composite proof sheet's collage argument string.
+
+        The string is handed to the vendored PyPhotoCollage argument parser, so
+        it is parsed here with that same parser: a typo fails at config load
+        (attributed to the config file) instead of mid-run, when the PLTs are
+        already written and the proof sheet is the pipeline's last stage.
+
+        Args:
+            value: The configured argument string, or ``None`` (unset).
+
+        Returns:
+            The stripped string, or ``None`` when unset or blank.
+
+        Raises:
+            ValueError: If the string is not valid for the collage's parser.
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            parse_collage_args(stripped)
+        except SystemExit as exc:  # argparse reports on stderr, then exits
+            raise ValueError(f"not a valid proof-sheet collage argument string: {value!r}") from exc
+        return stripped
 
     @field_validator("replacement_text_delimiter")
     @classmethod

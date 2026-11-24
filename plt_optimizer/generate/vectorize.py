@@ -31,11 +31,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Mapping, Optional, Sequence, Tuple
 
-# Pillow is a hard dependency (unlike matplotlib), so the composite proof
-# sheet's panel type is nameable at module scope on every runtime, Windows 7
-# included.
-from PIL import Image
-
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
@@ -73,6 +68,8 @@ from plt_optimizer.generate.preview_colors import DEFAULT_PREVIEW_BACKGROUND_COL
 from plt_optimizer.generate.proof_composite import (
     PROOF_PANEL_DPI,
     compose_proof_sheet,
+    panel_caption,
+    plate_size_in,
     proof_image_name,
 )
 from plt_optimizer.generate.resolution import (
@@ -1876,6 +1873,9 @@ def export_per_cutter_plts(
     preview_background = (
         job_config.defaults.preview_background_color if job_config is not None else None
     ) or DEFAULT_PREVIEW_BACKGROUND_COLOR
+    proof_collage_args = (
+        job_config.defaults.proof_collage_args if job_config is not None else None
+    ) or ""
     if plots:
         with stage_timer("plots", _LOG, timings=stage_timings):
             result.pdf_paths = _write_simple_plots(
@@ -1891,6 +1891,7 @@ def export_per_cutter_plts(
                 file_stroke_widths=file_stroke_widths,
                 plate_stroke_widths=plate_stroke_widths,
                 provenance=provenance,
+                proof_collage_args=proof_collage_args,
             )
     if default_plots:
         with stage_timer("default_plots", _LOG, timings=stage_timings):
@@ -1910,6 +1911,7 @@ def _write_simple_plots(
     pen_widths: Optional[Mapping[int, float]] = None,
     pen_colors: Optional[Mapping[int, str]] = None,
     preview_background: str = DEFAULT_PREVIEW_BACKGROUND_COLOR,
+    proof_collage_args: str = "",
     file_widths: Optional[Mapping[Path, float]] = None,
     file_stroke_widths: Optional[Mapping[Path, Mapping[WidthKey, float]]] = None,
     plate_stroke_widths: Optional[Mapping[int, Mapping[WidthKey, float]]] = None,
@@ -1990,6 +1992,10 @@ def _write_simple_plots(
             :data:`~plt_optimizer.generate.preview_colors.DEFAULT_PREVIEW_BACKGROUND_COLOR`).
             Drill holes punch this same color ("see-through" discs); their
             outlines share the label border's contrast color.
+        proof_collage_args: Extra PyPhotoCollage arguments for the composite
+            proof sheet (``job-config.json`` ``proof_collage_args``, empty for
+            the sheet's own defaults). Passed straight to
+            :func:`~plt_optimizer.generate.proof_composite.compose_proof_sheet`.
         file_widths: Engraved stroke width (inches) per written PLT path (the
             physical cutter token in its name plus that layer's kerf buffer).
             Overrides the width parsed from the file name for the mirrored
@@ -2026,7 +2032,6 @@ def _write_simple_plots(
         JobOverlayBoxLike,
         PhysicalFillLayer,
         PhysicalStrokeLayer,
-        figure_to_image,
         plot_physical_strokes,
         plot_plt_document,
     )
@@ -2361,12 +2366,12 @@ def _write_simple_plots(
         pdf_paths.append(pdf_path)
         return figure
 
-    # Composite proof sheet: the whole-sheet proofs, rasterized offscreen as
-    # they are written (plate order), then tiled into one contact sheet. A
-    # plate whose figure cannot be rasterized is skipped (the PDF is already on
-    # disk), so a plotting stub in tests - or a headless-rendering hiccup -
-    # never fails the run.
-    panels: List[Image.Image] = []
+    # Composite proof sheet: one captioned panel per plate (the whole-sheet
+    # proof, rasterized offscreen and cropped to its content), laid out by the
+    # vendored PyPhotoCollage engine. A plate whose figure cannot be rasterized
+    # is skipped (its PDF is already on disk), so a plotting stub in tests - or
+    # a headless-rendering hiccup - never fails the run.
+    panels: List[Tuple[str, Figure]] = []
     for plate_no, combined in sorted(result.combined_by_plate.items()):
         plate_figure = _combined_proof(
             plate_no,
@@ -2375,17 +2380,31 @@ def _write_simple_plots(
             f"{name} (plate {plate_no})" if name else "PLT Toolpath Visualization",
             overlays.get(plate_no, ()),
         )
-        try:
-            panels.append(figure_to_image(plate_figure, dpi=PROOF_PANEL_DPI))
-        except Exception as exc:  # noqa: BLE001 - a proof sheet must not fail a job
-            _LOG.warning("Plate %s proof could not be rasterized: %s", plate_no, exc)
+        if plate_figure is None:
+            continue
+        panels.append(
+            (
+                panel_caption(
+                    plate_no,
+                    plate_size_in(result.packed_plates, plate_no),
+                    result.material_by_plate.get(plate_no),
+                ),
+                plate_figure,
+            )
+        )
 
     if panels:
         # Reporting artifact, like the usage block: a raster/encode hiccup is
         # logged, never fatal, because the PLTs and the per-plate PDFs are
         # already on disk.
         try:
-            result.proof_jpeg = compose_proof_sheet(panels, output_dir / proof_image_name(job_id))
+            result.proof_jpeg = compose_proof_sheet(
+                panels,
+                output_dir / proof_image_name(job_id),
+                args=proof_collage_args,
+                dpi=PROOF_PANEL_DPI,
+                title=f"{job_id} \u2014 {len(panels)} plate(s)",
+            )
         except Exception as exc:  # noqa: BLE001 - a proof sheet must not fail a job
             _LOG.warning("Could not compose the composite proof sheet: %s", exc)
 

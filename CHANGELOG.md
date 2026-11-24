@@ -23,21 +23,41 @@
 ### Features
 
 * **generate:** every run with plots on now also writes one **composite proof sheet** —
-  `<output_dir>/<job_id>_proof.jpeg`, the whole-sheet `all_*` previews tiled into a single contact
-  sheet (two plates per row, a wider sheet top-ups to two columns and then wraps; gutters, a grey
-  frame and each plate's own title keep the plates separable on a lossy sheet).
+  `<output_dir>/<job_id>_proof.jpeg`, the whole-sheet `all_*` previews collaged into a single image,
+  each panel captioned with its plate number, stock size and material (`Plate 1 — 23.0 x 16.0 in —
+  ACM`), so a multi-plate job is approved from one file instead of a folder of PDFs.
   - **Named after the job, not the plate**: `<job.name>` sanitized by the same `_sanitize_job_id` that
     names every other artifact. It is a proof artifact like `all_*.pdf` — it never reaches the plotter
     controller, so it is deliberately outside the 39-character filename cap and keeps the full job id
+  - **Layout engine**: [PyPhotoCollage](https://github.com/tawphoto/PyPhotoCollage) (MIT, © Tim
+    Wilson), vendored unmodified at `plt_optimizer/vendor/pyphotocollage.py` — its package metadata
+    asks for newer Python than the plotter PC runs, and the copy is a normal import, so the PyInstaller
+    build and the Windows 7 floor are untouched. `plt_optimizer/vendor/CHANGES.md` records the
+    provenance hash, the (zero) source deviations, and the resync checklist
+  - **Tunable by the shop**: `proof_collage_args` in `job-config.json`, overridable with
+    `--proof-collage-args`, takes one string of the collage's own CLI arguments — `-t rows|columns|
+    nested`, `-O input|filename|random`, `-r <aspect>`, `-g <gutter>`, `-S <max sheet px>`, `-b r,g,b`,
+    `-c <panels>`, `-i/-N/-s`, `-a`, and the corner/rotation knobs `-m -M -d`. Flags given win by
+    last-occurrence, anything unset keeps the shipped defaults (`-t rows -O input -S 4096 -r 1.375
+    -g 12 -b 255,255,255`), and a malformed string fails at config load / CLI startup — the sheet is
+    the pipeline's last stage, so a typo must not surface after the PLTs are written
+  - **Panels keep the plate's shape**: each whole-sheet proof is drawn at its plate's aspect and
+    rasterized cropped to its content box (`plotter.figure_to_image(..., crop_aspect=...)`), so the
+    collage arranges plate shapes instead of matplotlib's margins and a 9in sheet does not carry a
+    23in sheet's empty sidebands
+  - **Reproducible**: the sheet's layout is seeded, so a re-run of a job writes the same bytes
+    (`nested` and panel rotation draw on the global RNG upstream)
   - **Reported where reports live**: `PerCutterExport.proof_jpeg`, `report.json` `outputs.proof_jpeg`,
     and a `Proof:` line in `summary.txt`, so the file a human signs off is the file the reports name
   - **No new flag**: `plots=True` (the default) makes PLTs *and* proofs, and `--no-plots` writes no
-    sheet because there is nothing to tile. A raster/encode hiccup is WARNING-logged and the run
+    sheet because there is nothing to collage. A raster/encode hiccup is WARNING-logged and the run
     completes without the sheet — a proof-rendering problem never loses the PLTs already written
-  - Files: `plt_optimizer/generate/proof_composite.py` (new),
-    `plt_optimizer/diagnostics/plotter.py` (`figure_to_image` rasterizes a figure in memory,
-    `close_figure` releases the per-plate figures pyplot keeps alive),
-    `plt_optimizer/generate/vectorize.py`, `plt_optimizer/generate/generation_report.py`,
+  - Files: `plt_optimizer/generate/proof_composite.py` (adapter: captions, argument parsing, panel
+    ordering, determinism, JPEG encode), `plt_optimizer/vendor/` (vendored engine + license + CHANGES),
+    `plt_optimizer/diagnostics/plotter.py` (`figure_to_image` rasterizes a figure in memory, cropped to
+    an aspect; `proof_figure_size`/`plot_data_aspect` carry the plate aspect; `close_figure` releases
+    the per-plate figures pyplot keeps alive), `plt_optimizer/generate/vectorize.py`,
+    `plt_optimizer/generate/job_config.py`, `plt_optimizer/generate/generation_report.py`,
     `plt_optimizer/cli/generate.py` (both the single-job and `--jobset` report paths)
   - Pins: `tests/test_proof_composite.py`, `tests/test_phase3_export.py::TestCompositeProofSheet`,
     `tests/test_generation_report.py::TestFormatSummary::test_summary_names_the_proof_sheet`,
