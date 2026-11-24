@@ -79,9 +79,6 @@ source = ["plt_optimizer"]
 branch = true
 
 [tool.coverage.report]
-# The vendored PyPhotoCollage kernel is third-party code exercised through the
-# adapter; our coverage bar is over our own logic (see tests/AGENTS.md).
-omit = ["plt_optimizer/vendor/*"]
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
@@ -111,20 +108,9 @@ warn_unused_configs = true
 module = ["pystray.*", "infi.systray", "matplotlib.*", "winshell", "win32com.client", "rectpack", "vpype", "shapely.*"]
 ignore_missing_imports = true
 
-# Vendored third-party source is typed to upstream's bar, not ours (strict mode
-# on untyped PIL-centric code would be pure noise). The adapter that calls it is
-# typed; this file is checked by ruff-not-mypy, exactly like a site-packages dep.
-[[tool.mypy.overrides]]
-module = ["plt_optimizer.vendor.pyphotocollage"]
-ignore_errors = true
-
 [tool.ruff]
 target-version = "py38"
 line-length = 100
-# Vendored third-party source (see plt_optimizer/vendor/CHANGES.md): linting and
-# formatting upstream code would churn the file and make every resync a merge.
-# The two behaviour-preserving edits we do carry are recorded there.
-extend-exclude = ["plt_optimizer/vendor/pyphotocollage.py"]
 lint.select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings

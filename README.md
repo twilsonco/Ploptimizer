@@ -78,7 +78,7 @@ out/plt/30_txt_<job_id>.plt          # one file per text cutter
 out/plt/15_bh_<job_id>.plt           # borders + drill holes together
 out/pdf/30_txt_<job_id>.pdf          # simple-outline previews (--no-plots skips)
 out/pdf/01_all_<job_id>.pdf          # combined preview per plate
-out/<job_id>_proof.jpeg              # every plate proof collaged into one sheet
+out/<job_id>_proof.jpeg              # every plate proof tiled into one sheet
 ```
 
 File names read `[<material>_][p<plate>_]<cutter>[_<color>]_<kind>_<job_id>`:
@@ -192,20 +192,6 @@ here" would force you to infer ownership from the absence of a key. A normal
 single-job `generate` run draws no overlay at all (it has one
 job, so there is nothing to key), and a one-job sheet inside a batch gets no
 second proof file, because that whole-sheet proof already is that job's proof.
-
-Every plotted run also writes **one contact sheet of every plate**,
-`out/<job_id>_proof.jpeg`: the whole-sheet `all_*.pdf` proofs rasterized and
-collaged into a single image, each panel captioned with its plate number, stock
-size and material (`Plate 1 - 23.0 x 16.0 in - ACM`). It is the file to approve
-a job from - one image for a multi-plate job instead of a folder of PDFs - and
-it is a proof, never plotter input. The layout is tunable in
-`job-config.json`'s `proof_collage_args` or `--proof-collage-args`, which take
-one string of [PyPhotoCollage](https://github.com/twilsonco/PyPhotoCollage)
-arguments (`-t nested` for the space-filling collage instead of rows, `-r 1.6`
-for a wider sheet, `-g 24` for fatter gutters, `-b 255,255,255` for the
-background, `-d 3` to rotate panels, `-m 5` for rounded corners, ...); anything
-you leave out keeps the shipped default, so naming one flag is enough. A
-malformed string fails at config load, not mid-run.
 
 Before the batch packs, a gate checks that the members can be packed together.
 It **fails** the run (listing every problem at once) when members declare

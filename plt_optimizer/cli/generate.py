@@ -47,7 +47,6 @@ import json
 import logging
 import sys
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
@@ -65,11 +64,7 @@ from plt_optimizer.generate.generation_report import (
     utc_now_iso,
     write_report,
 )
-from plt_optimizer.generate.job_config import (
-    JobConfig,
-    JobConfigError,
-    load_job_config,
-)
+from plt_optimizer.generate.job_config import load_job_config
 from plt_optimizer.generate.job_prep import (
     JobPreparationError,
     default_plate_clearance,
@@ -78,7 +73,6 @@ from plt_optimizer.generate.job_prep import (
     sanitize_job_id,
 )
 from plt_optimizer.generate.layout_report import format_layout_report
-from plt_optimizer.generate.proof_composite import parse_collage_args
 from plt_optimizer.utils.logging import apply_log_levels, publish_log_policy, setup_logging
 from plt_optimizer.utils.stage_timing import StageTimings, stage_timer
 
@@ -139,18 +133,6 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
         help=(
             "Also write color-coded *_default.pdf diagnostic plots "
             "(rapid-travel view). Off by default."
-        ),
-    )
-    parser.add_argument(
-        "--proof-collage-args",
-        type=str,
-        default=None,
-        metavar="ARGS",
-        help=(
-            "Override job-config.json's proof_collage_args: extra PyPhotoCollage "
-            'arguments for the composite proof sheet, e.g. "-t nested -r 1.2 '
-            "-g 24\". Flags named here override the sheet's defaults (-t rows -O "
-            "input -S 4096 -r 1.375 -g 12 -b 255,255,255); unset flags keep them."
         ),
     )
     parser.add_argument(
@@ -239,50 +221,6 @@ class _RunBootstrap(NamedTuple):
     job_config: Any
 
 
-def _apply_cli_overrides(
-    job_config: Optional[JobConfig],
-    args: argparse.Namespace,
-) -> Optional[JobConfig]:
-    """Apply the ``generate`` CLI's config overrides to a loaded shop config.
-
-    ``job-config.json`` carries the shop defaults; a CLI flag replaces one of
-    them for this run only. ``model_copy`` would skip pydantic validators, so
-    the value is checked here with the same parser the field's own validator
-    uses: a bad ``--proof-collage-args`` string fails at startup (argparse
-    writes the complaint to stderr) instead of surfacing at the end of the run,
-    after every PLT is written.
-
-    Args:
-        job_config: The loaded shop-level config (``None`` = the run has no
-            config layer, only code fallbacks).
-        args: Parsed ``generate`` arguments.
-
-    Returns:
-        A config with the overrides applied; the input is never mutated.
-
-    Raises:
-        JobConfigError: If ``--proof-collage-args`` is not a valid PyPhotoCollage
-            argument string, or is given for a run with no config layer (shop
-            defaults are the only place the sheet's arguments live).
-    """
-    proof_collage_args = getattr(args, "proof_collage_args", None)
-    if not proof_collage_args:
-        return job_config
-    if job_config is None:
-        raise JobConfigError(
-            "--proof-collage-args needs a job-config.json layer "
-            "(this run was started with --job-config none)"
-        )
-    try:
-        parse_collage_args(proof_collage_args)
-    except SystemExit as exc:  # argparse reports on stderr, then exits
-        raise JobConfigError(f"--proof-collage-args is not valid: {proof_collage_args!r}") from exc
-    return replace(
-        job_config,
-        defaults=job_config.defaults.model_copy(update={"proof_collage_args": proof_collage_args}),
-    )
-
-
 def _bootstrap_run(
     args: argparse.Namespace,
 ) -> _RunBootstrap:
@@ -355,7 +293,7 @@ def _bootstrap_run(
     # fallback when it is missing) - always resolve it to an absolute path
     # first so the file is found no matter where the command is invoked
     # from (Windows Task Scheduler starts watch-daemon jobs at System32).
-    job_config = _apply_cli_overrides(load_job_config(args.job_config), args)
+    job_config = load_job_config(args.job_config)
 
     return _RunBootstrap(
         text_logger=text_logger,
@@ -644,7 +582,7 @@ def _run_generate(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        job_config = _apply_cli_overrides(load_job_config(args.job_config), args)
+        job_config = load_job_config(args.job_config)
     except Exception as e:
         print(f"Error parsing specification: {e}", file=sys.stderr)
         return 1

@@ -1,153 +1,74 @@
-"""Composite contact sheet: every plate's proof, laid out by PyPhotoCollage.
+"""Composite proof sheet: every plate's combined preview on one JPEG.
 
-The generation pipeline renders one whole-sheet proof (``all_plate<N>.pdf``) per
-plate — ink, holes, relief regions, and the plate rectangle. This module turns
-those plates into a single contact sheet, ``<output_dir>/<job_id>_proof.jpeg``,
-so an operator can approve a whole job — every plate, every label, each caption
-with its plate number, material size and material — from one JPEG.
+The generate pipeline renders one combined ``all_*`` proof per plate (see
+:func:`plt_optimizer.generate.vectorize.export_per_cutter_plts`) and writes
+each as its own PDF in ``pdf/``. A multi-plate job therefore means opening
+several files to sign a job off, which is exactly what the shop's proof
+approval is not. This module stitches those renders into a **single contact
+sheet**: the :class:`PIL.Image.Image` of every whole-sheet proof, tiled into a
+grid of at most :data:`PROOF_PANEL_COLUMNS` panels per row, flattened onto
+white and written as ``<output_dir>/<job_id>_proof.jpeg``.
 
-The layout engine is the vendored **PyPhotoCollage** (MIT, © Tim Wilson; see
-:mod:`plt_optimizer.vendor`), called as a library: each plate proof is
-rasterized with matplotlib, cropped to its drawn content, captioned, and handed
-to ``pyphotocollage.makeCollage``. The shop tunes the collage with
-:data:`PROOF_COLLAGE_DEFAULT_ARGS`-plus-a-string — the same argument string the
-standalone tool takes (``-t rows -r 1.375 -g 12 …``), parsed by upstream's own
-``make_arg_parser``, so every feature upstream exposes is reachable from
-``job-config.json``'s ``proof_collage_args`` or ``--proof-collage-args``
-without this module knowing about it.
+The module is deliberately matplotlib-free (PIL only, which is a hard
+dependency) so the geometry is unit-testable headless and the code stays
+importable on the Python 3.8 / Windows 7 target (root §5). The rasterization
+of a matplotlib figure into the panels this module consumes lives in
+:func:`plt_optimizer.diagnostics.plotter.figure_to_image` (matplotlib side,
+import-guarded) and the two meet in
+:func:`plt_optimizer.generate.vectorize._write_simple_plots`.
 
-Panels are cropped to their drawn content (the plotter module measures the
-figure's tight bounding box; see
-:func:`plt_optimizer.diagnostics.plotter.figure_to_image`), so a 48x24 plate is
-not 4.6x the canvas of a 10x10 plate mostly filled with empty material.
-
-Determinism is a product requirement (identical input must engrave identical
-output, root ``AGENTS.md``), and upstream's ``nested`` collage type, ``random``
-ordering, and ``--rotate-images-max-deg`` all draw from the global ``random``
-module. :func:`compose_proof_sheet` therefore seeds the generator with
-:data:`PROOF_DETERMINISM_SEED` before every call, and the default argument
-string selects the deterministic ``rows`` layout in plate order.
-
-Like every preview in this package the sheet is **non-critical**: a panel that
-fails to rasterize is skipped with a warning, and the run is never failed.
-matplotlib is import-guarded because it is skipped on Windows 7, where the
-headless CLI produces no previews at all (see
-:mod:`plt_optimizer.generate.vectorize`).
+Panels keep their own figure titles (``"<job> (plate 2)"``), so the sheet is
+self-describing and needs no captions of its own.
 """
 
 from __future__ import annotations
 
-import argparse
-import logging
-import random
-import shlex
+import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
-# Upstream is untyped (mypy: ignore_errors for that module; see
-# plt_optimizer/vendor/CHANGES.md), so these three entry points are reached
-# through module-level aliases that carry the signatures this module relies on.
-# That keeps the seam typed and keeps every upstream call checked, instead of
-# scattering ``# type: ignore`` over the call site below.
-from plt_optimizer.vendor import pyphotocollage as _pyphotocollage
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from matplotlib.figure import Figure
-
-    _make_arg_parser: Callable[[], argparse.ArgumentParser]
-    _make_collage: Callable[..., Image.Image]
-    _resize_to_max: Callable[..., Image.Image]
-else:
-    _make_arg_parser = _pyphotocollage.make_arg_parser
-    _make_collage = _pyphotocollage.makeCollage
-    _resize_to_max = _pyphotocollage.resize_img_to_max_size
-
-logger = logging.getLogger(__name__)
-
-try:  # pragma: no cover - import-guarded: matplotlib is skipped on Windows 7
-    from plt_optimizer.diagnostics.plotter import (
-        PlotterError,
-        figure_to_image,
-        plot_data_aspect,
-    )
-
-    PLOTTER_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    PlotterError = Exception  # type: ignore[assignment,misc,unused-ignore]
-    figure_to_image = None  # type: ignore[assignment]
-    plot_data_aspect = None  # type: ignore[assignment]
-    PLOTTER_AVAILABLE = False
-
-# ---------------------------------------------------------------------------
-# Sheet constants (pinned by tests/test_proof_composite.py)
-# ---------------------------------------------------------------------------
-
-#: Suffix of the contact sheet, appended to the job id.
+#: Extension of the composite proof sheet (JPEG, per the proof contract).
 PROOF_IMAGE_SUFFIX = ".jpeg"
 
-#: The collage's own command-line defaults, in the standalone tool's syntax.
-#:
-#: These come first in the argument list, so anything the shop writes in
-#: ``proof_collage_args`` (or ``--proof-collage-args``) wins: ``argparse`` keeps
-#: the last occurrence of a flag, which is exactly override semantics.
-#:
-#: * ``-t rows`` — rows of equal-height panels, the deterministic layout (the
-#:   ``nested`` type is available and reproducible, just seeded).
-#: * ``-O input`` — plate order, so the sheet reads plate 1, 2, 3 …
-#: * ``-S 4096`` — cap the sheet's longest edge (upstream's own default is 5000).
-#: * ``-r 1.375`` — a slightly landscape sheet, which suits landscape plates.
-#: * ``-g 12`` — a visible gutter between panels.
-#: * ``-b 255,255,255`` — white gutters, not upstream's black default: a proof
-#:   is printed and photocopied. (Upstream's colour syntax is bare
-#:   ``r,g,b`` — parentheses are rejected by its own parser.)
-PROOF_COLLAGE_DEFAULT_ARGS = "-t rows -O input -S 4096 -r 1.375 -g 12 -b 255,255,255"
+#: Panels per row. Two-up keeps a plate proof readable while keeping a
+#: multi-sheet jobset a few rows tall instead of one unreadably wide strip.
+PROOF_PANEL_COLUMNS = 2
 
-#: Seed for the global generator before every layout call.
-#:
-#: A fixed constant, not a per-run value: the sheet has to be byte-identical
-#: across runs of the same job, including for the collage types that randomize.
-PROOF_DETERMINISM_SEED = 20261123
-
-#: Raster resolution of the panels, dots per inch of *material*.
-#:
-#: A panel of a 23x16 in plate at 100 dpi is 2300 px wide, so glyph strokes
-#: engraved at 0.125 in (127 plotter units) land on ~12 px — comfortably
-#: legible. Lower values make the proof unreadable; higher values cost file size
-#: and memory, not information (the sheet's long edge is capped by the ``-S``
-#: argument), and the composite is delivered as JPEG, where the encoder's chroma
-#: smoothing, not the sample grid, is what softens thin strokes.
+#: Raster resolution each proof figure is rendered at (dots per inch) so the
+#: sheet stays a quick-look proof; the per-plate PDFs stay the zoomable,
+#: vector-quality artifact.
 PROOF_PANEL_DPI = 100
 
-#: White frame around the finished sheet, in sheet pixels.
+#: White space (pixels) between neighbouring panels.
+PROOF_PANEL_GUTTER_PX = 12
+
+#: White space (pixels) framing the whole sheet.
 PROOF_SHEET_MARGIN_PX = 12
 
-#: Height of the caption strip drawn under each panel, in sheet pixels.
-PROOF_PANEL_LABEL_PX = 26
-
-#: Font height of the per-plate caption, in sheet pixels.
-PROOF_LABEL_FONT_SIZE_PX = 18
-
-#: RGB colour of the caption text.
-PROOF_LABEL_RGB: Tuple[int, int, int] = (70, 70, 70)
-
-#: JPEG quality for the contact sheet.
+#: JPEG quality, matching :func:`plt_optimizer.diagnostics.plotter.save_figure`.
 PROOF_JPEG_QUALITY = 92
 
-#: Ordering modes that need per-image metadata in-memory panels do not have.
-#:
-#: ``oldest_first`` / ``newest_first`` sort by file modification time and
-#: ``filename`` by path; panels come off the renderer with neither, so
-#: :func:`_order_panels` logs once and keeps plate order.
-UNSUPPORTED_ORDER_MODES = ("oldest_first", "newest_first")
+#: Sheet background. JPEG carries no alpha, and the panels' own page colour is
+#: the configured proof background, so the frame is plain white.
+PROOF_SHEET_BACKGROUND = (255, 255, 255)
+
+#: Long-side cap of the finished sheet, in pixels. Panels are rasterized at
+#: :data:`PROOF_PANEL_DPI`, so a jobset of 48x24in plates would otherwise tile
+#: into a ~9600x4900 pixel (47 MP) JPEG: appropriate for a plate, absurd for a
+#: quick-look proof. The panel grid is scaled down (aspect preserved) until it
+#: fits inside ``max_long_side_px`` minus the frame, so the sheet's long side
+#: never exceeds the cap. ``0`` disables the cap.
+PROOF_SHEET_MAX_LONG_SIDE_PX = 4096
 
 
 def proof_image_name(job_id: str) -> str:
-    """File name of the composite contact sheet for a job.
+    """Name of a job's composite proof sheet.
 
     Args:
-        job_id: Identifier of the job being generated.
+        job_id: The sanitized job id (``job.name`` for a single-job run, the
+            batch id for a jobset) used in every generated file name.
 
     Returns:
         ``"<job_id>_proof.jpeg"``.
@@ -155,314 +76,152 @@ def proof_image_name(job_id: str) -> str:
     return f"{job_id}_proof{PROOF_IMAGE_SUFFIX}"
 
 
-def panel_caption(
-    plate_number: int,
-    size_in: Optional[Tuple[float, float]] = None,
-    material: Optional[str] = None,
-) -> str:
-    """Caption drawn under one plate's panel.
+def proof_sheet_layout(
+    panel_count: int, columns: int = PROOF_PANEL_COLUMNS
+) -> List[Tuple[int, int]]:
+    """Grid cell (row, column) of every panel, in plate order.
 
-    Reads ``"Plate 1 — 23.0 x 16.0 in — ACM"``: plate number, usable material
-    size, and the stock name. The plate number leads so an operator scanning the
-    sheet matches panels to plates (and to the ``p01``-tagged PLT folders)
-    without reading the rest. Parts that are unknown are dropped, so a stubbed
-    layout still captions as ``"Plate 1"``.
+    Panels flow left to right, top to bottom, so a 3-panel run fills
+    ``(0,0) (0,1) (1,0)``: a partly filled last row stays left-aligned in its
+    columns instead of being centred, which keeps every column on one vertical
+    line.
 
     Args:
-        plate_number: 1-based plate index (packing order).
-        size_in: ``(width, height)`` usable plate size in inches, or ``None``
-            when the layout is unavailable.
-        material: The plate's stock material name, or ``None``.
+        panel_count: Number of panels on the sheet (must be positive).
+        columns: Panels per row (must be positive).
 
     Returns:
-        The caption text.
-    """
-    parts = [f"Plate {plate_number}"]
-    if size_in is not None:
-        parts.append(f"{size_in[0]:.1f} x {size_in[1]:.1f} in")
-    if material:
-        parts.append(material)
-    return " \u2014 ".join(parts)
-
-
-def plate_size_in(
-    packed_plates: Sequence[Any],
-    plate_number: int,
-) -> Optional[Tuple[float, float]]:
-    """Usable ``(width, height)`` in inches of one packed plate.
-
-    Args:
-        packed_plates: The layout's plates, in packing order (``plate_number``
-            is 1-based over this list).
-        plate_number: 1-based plate index.
-
-    Returns:
-        The plate's usable size, or ``None`` when the plate is not in the list
-        (a stubbed layout, e.g. in tests).
-    """
-    index = plate_number - 1
-    if 0 <= index < len(packed_plates):
-        plate = packed_plates[index]
-        return (float(plate.width), float(plate.height))
-    return None
-
-
-def parse_collage_args(args: str = "") -> argparse.Namespace:
-    """Parse the shop's collage argument string with upstream's own parser.
-
-    :data:`PROOF_COLLAGE_DEFAULT_ARGS` is prepended, so the shop's string only
-    has to name what it changes (``argparse`` keeps the last occurrence of a
-    flag).
-
-    Args:
-        args: Extra command-line arguments for the collage, in the standalone
-            tool's syntax (``"-t nested -r 1.2 -m 8"``). Empty string, or
-            ``None`` passed by a caller that resolved an absent config field,
-            means "defaults only".
-
-    Returns:
-        The parsed options, ready to hand to ``pyphotocollage.makeCollage``.
+        One ``(row, column)`` pair per panel, in input order.
 
     Raises:
-        SystemExit: The string is not valid for upstream's parser (argparse's
-            contract). The caller presents it as a configuration error, exactly
-            as an invalid command line is presented.
+        ValueError: If ``panel_count`` or ``columns`` is not positive.
     """
-    tokens = shlex.split(PROOF_COLLAGE_DEFAULT_ARGS)
-    if args:
-        tokens.extend(shlex.split(args))
-    return _make_arg_parser().parse_args(tokens)
+    if panel_count <= 0:
+        raise ValueError(f"panel_count must be positive, got {panel_count}")
+    if columns <= 0:
+        raise ValueError(f"columns must be positive, got {columns}")
+    return [(index // columns, index % columns) for index in range(panel_count)]
 
 
-def _load_font(size_px: int) -> Any:
-    """Load a TrueType font sized for the sheet, falling back to PIL's bitmap.
-
-    ``ImageFont.truetype`` returns a ``FreeTypeFont`` and
-    ``ImageFont.load_default`` an ``ImageFont``; both are accepted by
-    ``ImageDraw.text``, which is the only consumer.
+def _fit_size(panel: Image.Image, column_width: int) -> Tuple[int, int]:
+    """Size at which ``panel`` is drawn inside a ``column_width`` column.
 
     Args:
-        size_px: Requested font height in sheet pixels.
+        panel: The rendered proof image.
+        column_width: The column width every panel is fitted to.
 
     Returns:
-        A Pillow font usable by :class:`PIL.ImageDraw.ImageDraw`.
+        The ``(width, height)`` to draw the panel at. Panels are only ever
+        scaled *down* to the column width: upscaling a raster turns a
+        quick-look proof to mush.
     """
-    from matplotlib import font_manager  # local import: lazy, like vectorize
-
-    try:
-        return ImageFont.truetype(font_manager.findfont("DejaVu Sans"), size_px)
-    except OSError:  # pragma: no cover - corrupt or absent system font
-        return ImageFont.load_default()
+    if panel.width <= column_width:
+        return panel.width, panel.height
+    return column_width, max(1, round(panel.height * column_width / panel.width))
 
 
-def _add_caption(panel: Image.Image, caption: str, *, strip_px: int, font: Any) -> Image.Image:
-    """Return ``panel`` with a caption strip pasted under it.
+def _row_heights(sizes: Sequence[Tuple[int, int]], cells: Sequence[Tuple[int, int]]) -> List[int]:
+    """Tallest drawn panel per grid row (panels are centred in their cell).
 
     Args:
-        panel: The rasterized plate proof.
-        caption: Text to draw (plate number, material size and material).
-        strip_px: Height of the strip under the panel.
-        font: Pillow font for the caption.
+        sizes: The drawn size of every panel, in panel order.
+        cells: The grid cell of every panel, in panel order.
 
     Returns:
-        A new RGBA image ``(panel.width, panel.height + strip_px)``.
+        One row height per grid row.
     """
-    out = Image.new("RGBA", (panel.width, panel.height + strip_px), (255, 255, 255, 255))
-    out.paste(panel.convert("RGBA"), (0, 0))
-    ImageDraw.Draw(out).text(
-        (4, panel.height + 2), caption, font=font, fill=PROOF_LABEL_RGB + (255,)
-    )
-    return out
-
-
-def _add_title(
-    sheet: Image.Image, title: str, *, strip_px: int, font: Any, margin_px: int
-) -> Image.Image:
-    """Return ``sheet`` with a job title band pasted above it.
-
-    Args:
-        sheet: The assembled collage.
-        title: Text for the band (job id and plate count).
-        strip_px: Height of the band.
-        font: Pillow font for the title.
-        margin_px: Left padding of the text.
-
-    Returns:
-        A new RGBA image ``(sheet.width, sheet.height + strip_px)``.
-    """
-    band = Image.new("RGBA", (sheet.width, strip_px), (255, 255, 255, 255))
-    ImageDraw.Draw(band).text((margin_px, 2), title, font=font, fill=(20, 20, 20, 255))
-    out = Image.new("RGBA", (sheet.width, sheet.height + strip_px), (255, 255, 255, 255))
-    out.paste(band, (0, 0))
-    out.paste(sheet, (0, strip_px))
-    return out
-
-
-def _framed(sheet: Image.Image, margin_px: int) -> Image.Image:
-    """Return ``sheet`` surrounded by a white margin.
-
-    Args:
-        sheet: The assembled collage.
-        margin_px: Width of the frame on every side.
-
-    Returns:
-        A new RGBA image ``(w + 2*margin_px, h + 2*margin_px)``, or ``sheet``
-        itself when there is no frame.
-    """
-    if margin_px <= 0:
-        return sheet
-    out = Image.new(
-        "RGBA", (sheet.width + 2 * margin_px, sheet.height + 2 * margin_px), (255, 255, 255, 255)
-    )
-    out.paste(sheet, (margin_px, margin_px))
-    return out
-
-
-def _order_panels(
-    panels: Sequence[Tuple[str, Image.Image]], order: str
-) -> List[Tuple[str, Image.Image]]:
-    """Apply upstream's ``--order`` to captioned panels.
-
-    ``input`` (the default, and what a proof sheet wants) keeps plate order;
-    ``filename`` sorts by caption, which is the closest analogue of sorting by
-    file name when the panels were never files; ``random`` shuffles under the
-    determinism seed; ``oldest_first`` / ``newest_first`` need file
-    modification times that in-memory panels do not have, so they log once and
-    keep plate order.
-
-    Args:
-        panels: ``(caption, image)`` per plate, in plate order.
-        order: The parsed ``--order`` value.
-
-    Returns:
-        The panels in the order they are handed to the layout engine.
-    """
-    ordered = list(panels)
-    if order == "filename":
-        return sorted(ordered, key=lambda entry: entry[0])
-    if order == "random":
-        random.shuffle(ordered)
-        return ordered
-    if order in UNSUPPORTED_ORDER_MODES:
-        logger.warning(
-            "Collage order %r needs file timestamps; keeping plate order for the proof sheet", order
-        )
-    return ordered
+    rows = max(row for row, _ in cells) + 1
+    heights = [0] * rows
+    for (row, _), (_, height) in zip(cells, sizes):
+        heights[row] = max(heights[row], height)
+    return heights
 
 
 def compose_proof_sheet(
-    panels: Sequence[Tuple[str, Figure]],
+    panels: Sequence[Image.Image],
     output_path: Path,
-    *,
-    args: str = "",
-    dpi: int = PROOF_PANEL_DPI,
+    columns: int = PROOF_PANEL_COLUMNS,
+    gutter_px: int = PROOF_PANEL_GUTTER_PX,
     margin_px: int = PROOF_SHEET_MARGIN_PX,
-    label_strip_px: int = PROOF_PANEL_LABEL_PX,
-    label_font_size_px: int = PROOF_LABEL_FONT_SIZE_PX,
-    title: str = "",
-) -> Optional[Path]:
-    """Collage the whole-sheet plate proofs into one contact-sheet JPEG.
+    quality: int = PROOF_JPEG_QUALITY,
+    background: Tuple[int, int, int] = PROOF_SHEET_BACKGROUND,
+    max_long_side_px: int = PROOF_SHEET_MAX_LONG_SIDE_PX,
+) -> Path:
+    """Tile rendered plate proofs into one JPEG proof sheet.
 
-    Each panel is rasterized from ``fig`` cropped to the figure's drawn content,
-    captioned, laid out by the vendored PyPhotoCollage engine under the parsed
-    ``args``, framed, and written as an RGB JPEG at ``output_path``. Panels that
-    fail to rasterize are skipped with a warning; a panel is never cropped,
-    stretched, or reordered away from plate order under the default arguments.
+    Every panel is scaled down (aspect preserved) to the width of the narrowest
+    panel, so mixed plate formats line up on one column grid, then centred in
+    its cell. Nothing is upscaled: a sheet of small renders stays small rather
+    than turning into mush. A run of fewer panels than ``columns`` uses only
+    the columns it needs, so the usual single-plate sheet is exactly one panel
+    wide.
 
     Args:
-        panels: ``(caption, figure)`` per plate, in plate order — the caption
-            is drawn under the panel.
-        output_path: Where to write the JPEG (parent directories are created).
-        args: Extra PyPhotoCollage command-line arguments (``"-t nested -r
-            1.2"``), applied on top of :data:`PROOF_COLLAGE_DEFAULT_ARGS`.
-        dpi: Raster resolution of the panels, dots per inch of material.
-        margin_px: White frame around the finished sheet.
-        label_strip_px: Height of each panel's caption strip.
-        label_font_size_px: Caption font height in sheet pixels.
-        title: Optional job title band drawn across the top of the sheet.
+        panels: The rendered proof images, in plate order (one per combined
+            ``all_*`` preview). Must not be empty.
+        output_path: Where to write the sheet (``.jpeg`` by convention; the
+            encoder is forced to JPEG, so the extension names the file and does
+            not select the format). Parent directories are created.
+        columns: Panels per row.
+        gutter_px: White pixels between neighbouring panels.
+        margin_px: White pixels framing the sheet.
+        quality: JPEG encoder quality.
+        background: Sheet background colour (RGB).
+        max_long_side_px: Long-side cap of the finished sheet in pixels (the
+            panel grid is scaled to fit inside it); ``0`` writes the sheet at
+            native panel size.
 
     Returns:
-        The path written, or ``None`` when there was nothing to compose — no
-        panels, every panel failed, or matplotlib is unavailable.
+        ``output_path`` (the written sheet).
 
     Raises:
-        OSError: The JPEG could not be written (the caller degrades).
-        SystemExit: ``args`` is not valid for the collage's argument parser.
+        ValueError: If ``panels`` is empty.
+        OSError: If the sheet cannot be written (unwritable path). The caller
+            logs and continues: a proof sheet is a reporting artifact and must
+            never fail a good job.
     """
-    if not PLOTTER_AVAILABLE or figure_to_image is None or plot_data_aspect is None:
-        logger.warning("matplotlib is unavailable; skipping the composite proof sheet")
-        return None
     if not panels:
-        logger.warning("No plate proofs to compose; skipping the composite proof sheet")
-        return None
+        raise ValueError("Cannot compose a proof sheet from zero panels")
 
-    opts = parse_collage_args(args)
-    font = _load_font(label_font_size_px)
-    captioned: List[Tuple[str, Image.Image]] = []
-    for caption, fig in panels:
-        try:
-            raster = figure_to_image(fig, dpi=dpi, crop_aspect=plot_data_aspect(fig))
-        except (PlotterError, RuntimeError, OSError, ValueError) as exc:
-            logger.warning("Skipping uncapturable proof panel %s: %s", caption, exc)
-            continue
-        captioned.append(
-            (caption, _add_caption(raster, caption, strip_px=label_strip_px, font=font))
-        )
-    if not captioned:
-        logger.warning("No proof panels could be rasterized; skipping the composite proof sheet")
-        return None
+    # A 1-panel run is the normal case (a single-plate job): it must not pay
+    # for an empty second column.
+    used_columns = min(columns, len(panels))
+    cells = proof_sheet_layout(len(panels), used_columns)
+    tiles = [panel.convert("RGBA") for panel in panels]
+    guttered = (used_columns - 1) * gutter_px
 
-    # Upstream's CLI honours `-c` by truncating the image list (and only when
-    # more than two images are requested - its own semantics, kept verbatim),
-    # then orders; seed first because `--order random` draws from the generator.
-    if opts.count > 2:
-        captioned = captioned[: opts.count]
-    random.seed(PROOF_DETERMINISM_SEED)
-    captioned = _order_panels(captioned, opts.order)
-    if opts.init_size > 0:
-        captioned = [
-            (caption, _resize_to_max(image, opts.init_size, no_antialias=not opts.noantialias))
-            for caption, image in captioned
-        ]
+    column_width = min(panel.width for panel in tiles)
+    sizes = [_fit_size(panel, column_width) for panel in tiles]
+    row_heights = _row_heights(sizes, cells)
+    grid_width = used_columns * column_width + guttered
+    grid_height = sum(row_heights) + (len(row_heights) - 1) * gutter_px
 
-    images = [image for _caption, image in captioned]
-    # Seeded again: `nested`, and `--rotate-images-max-deg`, draw from the global
-    # generator during layout, and the sheet must be reproducible.
-    random.seed(PROOF_DETERMINISM_SEED)
-    sheet = _make_collage(
-        images,
-        collage_type=opts.collage_type,
-        max_recursion_depth=opts.max_recursion_depth,
-        spacing=int(opts.imagegap),
-        no_antialias=not opts.noantialias,
-        background=tuple(int(c) for c in opts.background),
-        target_aspect_ratio=float(opts.target_aspect_ratio),
-        max_collage_size=int(opts.max_size),
-        round_image_corners_perc=float(opts.round_image_corners_perc),
-        round_collage_corners_perc=float(opts.round_collage_corners_perc),
-        rotate_images_max_deg=int(opts.rotate_images_max_deg),
-        show_recursion_depth=bool(opts.show_recursion_depth),
-    )
+    if max_long_side_px > 0:
+        # The frame is added on top of the grid, so the grid gets what is left
+        # of the budget after the margins.
+        available = max_long_side_px - 2 * margin_px
+        grid_long_side = max(grid_width, grid_height)
+        if available > 0 and grid_long_side > available:
+            column_width = max(
+                1,
+                math.floor((available - guttered) * column_width / grid_long_side),
+            )
+            sizes = [_fit_size(panel, column_width) for panel in tiles]
+            row_heights = _row_heights(sizes, cells)
+            grid_width = used_columns * column_width + guttered
+            grid_height = sum(row_heights) + (len(row_heights) - 1) * gutter_px
 
-    if title:
-        sheet = _add_title(
-            sheet,
-            title,
-            strip_px=label_strip_px + 6,
-            font=_load_font(int(label_font_size_px * 1.25)),
-            margin_px=margin_px,
-        )
-    sheet = _framed(sheet, margin_px)
+    sheet = Image.new("RGB", (grid_width + 2 * margin_px, grid_height + 2 * margin_px), background)
 
-    output_path = Path(output_path)
+    for (row, column), panel, (width, height) in zip(cells, tiles, sizes):
+        if (panel.width, panel.height) != (width, height):
+            panel = panel.resize((width, height), Image.Resampling.LANCZOS)
+        x = margin_px + column * (column_width + gutter_px) + (column_width - width) // 2
+        y = margin_px + sum(row_heights[:row]) + row * gutter_px + (row_heights[row] - height) // 2
+        # The panel's own alpha is the mask, so transparent page margins read
+        # as the sheet background instead of black.
+        sheet.paste(panel, (x, y), panel)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    sheet.convert("RGB").save(output_path, "JPEG", quality=PROOF_JPEG_QUALITY, optimize=True)
-    logger.info(
-        "Wrote composite proof sheet %s (%dx%d px, %d plates, collage type %s)",
-        output_path,
-        sheet.width,
-        sheet.height,
-        len(images),
-        opts.collage_type,
-    )
+    sheet.save(output_path, format="JPEG", quality=quality)
     return output_path

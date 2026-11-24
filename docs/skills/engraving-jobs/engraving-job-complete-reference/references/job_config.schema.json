@@ -1357,19 +1357,6 @@
       "default": null,
       "description": "Page/plot background color of the combined 'all_*.pdf' proof previews, as a #RGB or #RRGGBB hex string (drill holes punch this same color). Unset falls back to '#D3D3D3' (light grey).",
       "title": "Preview Background Color"
-    },
-    "proof_collage_args": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Extra PyPhotoCollage command-line arguments for the composite proof sheet (the job's '_proof.jpeg' in the run root), e.g. '-t nested -r 1.2 -g 24' (collage type, target aspect ratio, gutter between panels). Flags given here override the sheet's own defaults ('-t rows -O input -S 4096 -r 1.375 -g 12 -b 255,255,255'); anything unset keeps them, so naming one flag is enough. Unset uses the defaults. Not a cascading default (job specs cannot declare it).",
-      "title": "Proof Collage Args"
     }
   },
   "title": "JobDefaults",

@@ -124,12 +124,6 @@ PHYSICAL_STRUCTURAL_ALPHA = SIMPLE_STRUCTURAL_ALPHA
 # screen figure's dpi ignored. 150 matches ``save_figure``'s PNG export.
 RASTER_DPI = 150
 
-#: Long side (inches) of a composite-proof panel figure, i.e. the size
-#: :func:`proof_figure_size` keeps while it adjusts the short side so the drawn
-#: toolpath lands at its own aspect ratio. Matches :data:`DEFAULT_FIGURE_SIZE`'s
-#: long side, so a panel is no coarser than the proof PDFs beside it.
-PROOF_PANEL_FIGURE_LONG_SIDE_IN = 16.0
-
 
 def _polygon_exterior_bounds(
     polygons: Sequence[StrokePolygon],
@@ -940,255 +934,7 @@ def save_figure(fig: Figure, path: Path) -> None:
         raise PlotterError(f"Failed to save figure: {e}") from e
 
 
-def plot_data_aspect(fig: Figure) -> Optional[float]:
-    """Aspect ratio (width / height) of the data a plot frames.
-
-    Both plotters set the axis limits to the ink envelope plus 10 % padding on
-    *each* side (see :func:`plot_physical_strokes`, :func:`plot_plt_document`),
-    so the data view is the ink box scaled by 1.2 on both axes and the ratio of
-    the two data spans **is** the aspect ratio of the drawn toolpath -- no
-    geometry re-measurement needed. Because the axes draw at ``equal`` aspect,
-    that ratio is what a proof panel must have to show the plate as the machine
-    runs it, instead of the fixed :data:`DEFAULT_FIGURE_SIZE` frame (a 16:9
-    figure turns a 7 x 16 in plate into a mostly-empty 1.78 panel).
-
-    Args:
-        fig: A rendered figure whose first axes carries the plot.
-
-    Returns:
-        ``data_width / data_height``, or ``None`` when the figure has no axes
-        with a usable, non-degenerate data box (an empty/mock figure, a
-        diagram with no geometry), so the caller keeps its default framing.
-    """
-    axes = getattr(fig, "axes", None)
-    if not axes:
-        return None
-    try:
-        x_min, x_max = axes[0].get_xlim()
-        y_min, y_max = axes[0].get_ylim()
-    except Exception:  # noqa: BLE001 - a stubbed figure has no real limits
-        return None
-    span_x = abs(float(x_max) - float(x_min))
-    span_y = abs(float(y_max) - float(y_min))
-    if not (math.isfinite(span_x) and math.isfinite(span_y)):
-        return None
-    if span_x <= 0.0 or span_y <= 0.0:
-        return None
-    return span_x / span_y
-
-
-def proof_figure_size(
-    data_aspect: float,
-    *,
-    title: str = "",
-    show_axes: bool = True,
-    long_side_inches: float = PROOF_PANEL_FIGURE_LONG_SIDE_IN,
-) -> Tuple[float, float]:
-    """Figure size (inches) that draws a ``data_aspect`` toolpath at its own shape.
-
-    The proof panels of the composite plate proof are tiled by a collage, which
-    lays images out by their aspect ratio: a panel carrying the empty margins of
-    a fixed 16:9 figure makes the collage lay out those margins, not the plate.
-    This sizes a figure so the **axes box** (the box the ink fills, after
-    :func:`matplotlib.pyplot.tight_layout`) has exactly ``data_aspect``, with
-    the plate's long side kept at ``long_side_inches``.
-
-    The figure's chrome (title, inch tick labels, axis labels) is measured by
-    laying out a square probe figure at the same aspect with the same chrome and
-    comparing the tight bounding box with the axes box; font metrics are
-    absolute (points), so the insets in inches do not depend on the figure size.
-
-    Args:
-        data_aspect: Desired axes (data) aspect ratio, width / height. Must be
-            positive; clamped to ``[1/6, 6]`` so an extreme sliver still leaves
-            the chrome room to render.
-        title: The title the real plot draws (its height is chrome).
-        show_axes: Whether the real plot draws axis chrome (ticks, tick labels,
-            axis labels).
-        long_side_inches: Length of the figure's long side.
-
-    Returns:
-        ``(width, height)`` in inches for ``figure_size``.
-    """
-    aspect = float(data_aspect)
-    if not math.isfinite(aspect) or aspect <= 0.0:
-        aspect = 1.0
-    aspect = min(max(aspect, 1.0 / 6.0), 6.0)
-    long_side = max(1.0, float(long_side_inches))
-
-    left, bottom, right, top = _proof_chrome_inches(
-        aspect, title=title, show_axes=show_axes, long_side_inches=long_side
-    )
-    inner_width = max(1e-3, long_side - left - right)
-    inner_height = max(1e-3, long_side - bottom - top)
-    if aspect >= 1.0:
-        # Landscape: the width is the long side, the height buys the aspect.
-        return (long_side, inner_width / aspect + bottom + top)
-    return (inner_height * aspect + left + right, long_side)
-
-
-def _proof_chrome_inches(
-    data_aspect: float,
-    *,
-    title: str,
-    show_axes: bool,
-    long_side_inches: float,
-) -> Tuple[float, float, float, float]:
-    """Chrome insets (inches, left/bottom/right/top) around a proof figure's axes.
-
-    Args:
-        data_aspect: Data aspect ratio to lay the probe out at (so the tick
-            label widths match the real plate).
-        title: Title text drawn above the axes.
-        show_axes: Draw axis labels and the inch tick layout.
-        long_side_inches: Side of the square probe figure.
-
-    Returns:
-        ``(left, bottom, right, top)`` insets from the figure edge to the axes
-        box, each clamped at 0 (a tight layout can pin the axes to the edge).
-    """
-    side = max(1.0, float(long_side_inches))
-    fig, ax = plt.subplots(figsize=(side, side))
-    try:
-        width = max(data_aspect, 1.0)
-        height = max(1.0 / data_aspect, 1.0)
-        ax.set_xlim(0.0, width)
-        # y inverted exactly like the plotters (device convention, +y down).
-        ax.set_ylim(height, 0.0)
-        ax.set_aspect("equal", adjustable="box")
-        if show_axes:
-            ax.set_xlabel("Width (inches)")
-            ax.set_ylabel("Height (inches)")
-            _apply_inch_tick_layout(ax)
-        else:
-            ax.get_xaxis().set_visible(False)
-            ax.get_yaxis().set_visible(False)
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-        if title:
-            ax.set_title(title)
-        plt.tight_layout()
-        # matplotlib ships no signatures for the canvas/renderer raster API, so
-        # the strict-mode `no-untyped-call` gate rejects a typed binding; going
-        # through Any keeps the gate quiet (root §1).
-        canvas: Any = fig.canvas
-        canvas.draw()
-        renderer = canvas.get_renderer()
-        tight = fig.get_tightbbox(renderer)
-        # Both boxes in display pixels at the figure's dpi: the tight bounding
-        # box of everything drawn, and the axes box the ink fills.
-        axes_box = ax.get_window_extent(renderer)
-        dpi = float(fig.dpi)
-        return (
-            max(0.0, (axes_box.x0 - tight.x0) / dpi),
-            max(0.0, (axes_box.y0 - tight.y0) / dpi),
-            max(0.0, (tight.x1 - axes_box.x1) / dpi),
-            max(0.0, (tight.y1 - axes_box.y1) / dpi),
-        )
-    finally:
-        plt.close(fig)
-
-
-def _tight_crop_box(
-    image_size: Tuple[int, int],
-    tight_box: Tuple[int, int, int, int],
-    crop_aspect: float,
-) -> Tuple[int, int, int, int]:
-    """PIL crop box (left, upper, right, lower) holding ``tight_box`` at ``crop_aspect``.
-
-    Args:
-        image_size: The full raster ``(width, height)``.
-        tight_box: The content box the crop must keep whole.
-        crop_aspect: Required width / height of the crop.
-
-    Returns:
-        The crop box, at (integer) ``crop_aspect``, containing ``tight_box`` and
-        inside the raster: the box grows the short side about the content centre
-        (so the plate stays centred), then slides inside the raster, then shrinks
-        to fit a raster smaller than the content plus its aspect.
-    """
-    width, height = image_size
-    left, upper, right, lower = tight_box
-    box_width = max(1, right - left)
-    box_height = max(1, lower - upper)
-    # The smallest box at the target aspect that still holds the content.
-    target_width = box_width
-    target_height = max(1, int(round(target_width / crop_aspect)))
-    if target_height < box_height:
-        target_height = box_height
-        target_width = max(1, int(round(target_height * crop_aspect)))
-    center_x = (left + right) / 2.0
-    center_y = (upper + lower) / 2.0
-    # Shrink to fit a raster that cannot host the box, preserving the aspect.
-    scale = min(1.0, width / max(1, target_width), height / max(1, target_height))
-    target_width = max(1, int(target_width * scale))
-    target_height = max(1, int(target_height * scale))
-    crop_left = int(round(center_x - target_width / 2.0))
-    crop_upper = int(round(center_y - target_height / 2.0))
-    crop_left = min(max(0, crop_left), max(0, width - target_width))
-    crop_upper = min(max(0, crop_upper), max(0, height - target_height))
-    return (crop_left, crop_upper, crop_left + target_width, crop_upper + target_height)
-
-
-def _tight_bbox_pixels(fig: Figure, dpi: int) -> Tuple[float, float, float, float]:
-    """Figure tight bounding box in pixels of a raster rendered at ``dpi``.
-
-    Matplotlib returns the tight bounding box in **figure units** (0..1 of the
-    canvas, wrapped in a ``TransformedBbox``) -- treating the raw numbers as
-    display pixels, as the docstring invites you to, yields a box 100x too small
-    on Matplotlib 3.8+, which collapsed every cropped panel to a ~30 px
-    thumbnail. The figure's own unit->inch transform is therefore applied
-    explicitly, then scaled by ``dpi / fig.dpi`` because the canvas is at the
-    figure's screen dpi when measured and the box crops a raster drawn at the
-    export dpi. The box is inflated 1 % so sub-pixel rounding at the export dpi
-    can never clip drawn content.
-
-    Args:
-        fig: The rendered figure.
-        dpi: Dots per inch of the raster the box will crop.
-
-    Returns:
-        ``(x0, y0, x1, y1)`` in the raster's pixel space (bottom-up origin).
-
-    Raises:
-        PlotterError: If the measured box is degenerate, so the caller reports
-            "no panel" instead of writing a broken one.
-    """
-    canvas: Any = fig.canvas
-    if not hasattr(canvas, "get_renderer"):
-        # A canvas-less figure (built with ``Figure()`` directly) or a
-        # vector-only backend (``pdf``, ``svg``) has no raster renderer to
-        # measure with. Attaching an Agg canvas is safe *here*: the warning
-        # against replacing a canvas is about live GUI figures (Cocoa aborts),
-        # and every interactive backend matplotlib ships derives from Agg, so
-        # those take the fast path above and never reach this line.
-        from matplotlib.backends.backend_agg import FigureCanvasAgg
-
-        canvas = FigureCanvasAgg(fig)
-    canvas.draw()
-    try:
-        renderer = canvas.get_renderer()
-        tight_inches = fig.get_tightbbox(renderer).transformed(fig.dpi_scale_trans)
-    except Exception as e:  # noqa: BLE001 - defensive against exotic backends
-        raise PlotterError(f"Cannot measure the figure's content box: {e}") from e
-    scale = float(dpi) / max(1.0, float(fig.get_dpi()))
-    x0 = float(tight_inches.x0) * scale
-    y0 = float(tight_inches.y0) * scale
-    x1 = float(tight_inches.x1) * scale
-    y1 = float(tight_inches.y1) * scale
-    if x1 <= x0 or y1 <= y0:
-        raise PlotterError(f"Figure content box is degenerate: {tight_inches!r}")
-    grow_x = (x1 - x0) * 0.01
-    grow_y = (y1 - y0) * 0.01
-    return (x0 - grow_x, y0 - grow_y, x1 + grow_x, y1 + grow_y)
-
-
-def figure_to_image(
-    fig: Figure,
-    dpi: int = RASTER_DPI,
-    crop_aspect: Optional[float] = None,
-    crop_pad_px: int = 8,
-) -> Image.Image:
+def figure_to_image(fig: Figure, dpi: int = RASTER_DPI) -> Image.Image:
     """Rasterize a figure into an in-memory RGBA PIL image.
 
     The figure is drawn on **its own** canvas whenever that canvas can produce
@@ -1212,71 +958,33 @@ def figure_to_image(
         fig: The figure to rasterize.
         dpi: Raster resolution in dots per inch, so the image measures
             ``fig.get_size_inches() * dpi`` pixels.
-        crop_aspect: When set, crop the raster to the figure's **tight
-            bounding box** (title, axis labels, ticks, legend, ink -- never a
-            pixel of drawn content is cut) expanded about its centre to this
-            width / height ratio. This is how a proof panel is made to carry the
-            shape of the plate it shows instead of the figure's margins (see
-            :func:`plot_data_aspect`, :func:`proof_figure_size`). ``None`` (the
-            default) returns the whole figure, pixel-identical to before.
-        crop_pad_px: Pixels of margin kept around the tight box when cropping,
-            so antialiased edges and the outermost tick labels are never flush
-            against the crop.
 
     Returns:
         The rendered image in RGBA mode.
 
     Raises:
-        PlotterError: If rasterizing fails, or a ``crop_aspect`` is requested of
-            a figure whose tight bounding box cannot be measured (a stubbed
-            figure). The generate pipeline treats that as "this plate has no
-            panel", never as a failed job.
+        PlotterError: If rasterizing fails.
     """
     try:
         # matplotlib ships no signatures for the canvas raster API, so the
         # strict-mode `no-untyped-call` gate rejects a typed binding; calling
         # through Any keeps the gate quiet (root §1).
         canvas: Any = fig.canvas
-        image: Optional[Image.Image] = None
         if hasattr(canvas, "buffer_rgba"):
             screen_dpi = fig.get_dpi()
             fig.set_dpi(dpi)
             try:
                 canvas.draw()
                 width, height = canvas.get_width_height()
-                image = Image.frombytes("RGBA", (width, height), bytes(canvas.buffer_rgba()))
+                return Image.frombytes("RGBA", (width, height), bytes(canvas.buffer_rgba()))
             finally:
                 fig.set_dpi(screen_dpi)
 
-        if image is None:
-            # Vector-only canvas: rasterize through an in-memory PNG.
-            buffer = io.BytesIO()
-            fig.savefig(buffer, format="png", dpi=dpi)
-            buffer.seek(0)
-            image = Image.open(buffer).convert("RGBA")
-
-        if crop_aspect is None:
-            return image
-
-        # The tight box is measured in display pixels of the raster just drawn
-        # (the figure is at the export dpi on both rasterization paths above).
-        x0, y0, x1, y1 = _tight_bbox_pixels(fig, dpi)
-        left = int(math.floor(x0)) - int(crop_pad_px)
-        bottom = int(math.floor(y0)) - int(crop_pad_px)
-        right = int(math.ceil(x1)) + int(crop_pad_px)
-        top = int(math.ceil(y1)) + int(crop_pad_px)
-        # Display coordinates are bottom-up; PIL boxes are top-down.
-        tight_box = (
-            max(0, left),
-            max(0, image.height - top),
-            min(image.width, right),
-            min(image.height, image.height - bottom),
-        )
-        if tight_box[2] <= tight_box[0] or tight_box[3] <= tight_box[1]:
-            raise PlotterError(f"Figure has no drawable content to crop (got {tight_box})")
-        return image.crop(_tight_crop_box((image.width, image.height), tight_box, crop_aspect))
-    except PlotterError:
-        raise
+        # Vector-only canvas: rasterize through an in-memory PNG.
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png", dpi=dpi)
+        buffer.seek(0)
+        return Image.open(buffer).convert("RGBA")
     except Exception as e:
         raise PlotterError(f"Rasterizing figure failed: {e}") from e
 
