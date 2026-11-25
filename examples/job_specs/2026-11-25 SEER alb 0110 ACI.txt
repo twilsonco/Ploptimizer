@@ -1,6 +1,6 @@
-Rack A;Mfg. 07/1999;1100lbs. R-448A
-Rack B;Mfg. 07/1999;900lbs. R-448A
-Rack C;Mfg. 07/1999;950lbs. R-448A
-RTU1 Mfg. 2009;44lbs. R-410A
-RTU2 Mfg. 2009;44lbs. R-410A
-RTU3 Mfg. 2009;15lbs. R-410A
+Rack A;Mfg. 07/1999;1100lbs.;R-448A
+Rack B;Mfg. 07/1999;900lbs.;R-448A
+Rack C;Mfg. 07/1999;950lbs.;R-448A
+RTU1;Mfg. 2009;44lbs.;R-410A
+RTU2;Mfg. 2009;44lbs.;R-410A
+RTU3;Mfg. 2009;15lbs.;R-410A

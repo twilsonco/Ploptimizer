@@ -1,5 +1,6 @@
 RTU1
 RTU2
 RTU3
-Evap Cond
+Evap
+Cond
 UH1
