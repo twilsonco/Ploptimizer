@@ -732,9 +732,18 @@ class TestManifestHelperEdgeCases:
             "distance_total": None,
             "time_total": None,
             "weight_total": None,
+            # No usage block means no layout was measured - absent, not zero.
+            "plates": None,
+            "rotated_labels": None,
             "unattributed": 0.0,
         }
         assert _job_usage_totals(batch["usage"])["distance_total"] is not None
+        # The layout row the manifest carries per job (U3): the member's own
+        # ``usage.layout`` totals, copied through unchanged.
+        layout_total = batch["usage"]["layout"]["total"]
+        assert layout_total["plates"] >= 1
+        assert _job_usage_totals(batch["usage"])["plates"] == layout_total["plates"]
+        assert _job_usage_totals(batch["usage"])["rotated_labels"] == layout_total["rotated_labels"]
         # The batch fixture's specs declare no density (they are parsed without
         # the shop config), so the weight is not estimated - the same "absent is
         # not zero" contract as ``time_total``.

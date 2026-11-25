@@ -208,11 +208,98 @@ integration-test call sites, passed as a keyword into
 `vectorize.export_per_cutter_plts` → `layout.generate_layout*` → `_pack_best`);
 it is a global packing concern and never enters `ResolvedLabel`.
 
+### Rotation Ranking Preference (`rotation_preference`)
+`JobSpec.rotation_preference` (str-Enum `RotationPreference`, default
+`fill_axis`) decides what breaks the tie between packings that **fit**.
+`_fill_rank_key` leads with used plate material in both settings, so a label
+is never rotated to buy material — the preference only reorders the terms
+*behind* footprint:
+
+- `fill_axis` (historical, bit-identical): `(footprint, -fill_axis, cross_axis,
+  rotations)` — the fill order of `layout` wins, rotation is a tool of it.
+- `minimize`: `(footprint, rotations, -fill_axis, cross_axis)` — the fewest
+  rotated labels wins at equal material, so a job engraves upright whenever
+  that is free. The fill-order ratios stay on the tail of the key, so the
+  anti-fragmentation preference (a plate filled to the bottom beats two
+  half-filled plates) still separates equally-rotated layouts.
+
+Cascades job → plate → layout plan exactly like `layout`
+(`PlateSpec.rotation_preference`, `None` = inherit; a plate pool whose plates
+disagree falls back to the job value via `_group_rotation_preference`, because
+one packing pass ranks by exactly one policy). Explicit
+`rotation_preference: fill_axis` is **rejected** on a `*-simple` layout (the
+grid fill never rotates, so it asks for the impossible); `minimize` is not,
+because it is what the grid fill already does — which is what lets a
+shop-level default of `minimize` inject cleanly into a simple-layout job. The
+knob is inert for round (ellipse-packed) labels, which never rotate.
+
+Measured on the 78 real specs in `examples/job_specs/` (U1 gate): the ensemble
+widening plus this knob change **no** plate count, fill, rotation count, or
+per-plate bbox anywhere, and every emitted PLT is byte-identical under
+`fill_axis`. rectpack's own tie-breaking dominates these small rect sets, so
+ranking changes are invisible on today's jobs; the knob exists to make the
+ranking expressible (and `minimize` is the shop default in `job-config.json`).
+
+### Plate Fill Ranking (`plate_fill`)
+`JobSpec.plate_fill` (str-Enum `PlateFill`, default `plate_major`) decides
+which layout wins among plans that cost the **same plate material**. Both
+policies rank sheet area first, so a saturated plate 1 never buys an extra
+sheet — the disagreement is the tie behind material:
+
+- `global` (the historical ranking, bit-identical): `_fill_rank_key` ranks the
+  layout as one whole, `(footprint, -fill_axis, cross_axis, rotations)`, where
+  `fill_axis` is the **least-filled** plate's ratio — a max-min that lifts the
+  weakest plate, so it will accept a 99 % plate 1 with a 7-label tail when the
+  tail lets the last sheet pack tighter.
+- `plate_major` (default): `_plate_fill_rank_key(metrics, rotation_preference)`
+  = `(sheet_area, -fill_bands…, bbox, rotations)` — the per-plate fill vector
+  walked plate by plate, so the plan whose **first** plate is fullest wins and
+  plate 2 is only consulted on a plate-1 tie. `rotation_preference: minimize`
+  promotes the rotation count (mirroring `_fill_rank_key`): `(sheet,
+  rotations, fills, bbox)`.
+
+Both keys are built from one measurement pair so the two kinds of plan compare
+on identical terms: `_plan_metrics_from_packer` (a `rectpack` result, bins in
+declaration order) and `_plan_metrics_from_plates` (a produced plate list, the
+flush-grid path). Per-plate used area is banded to
+`PLATE_FILL_BAND_SQ_IN` so sub-band differences tie and keep the incumbent
+(the ranking must not churn on noise, and the shop re-engraves identical
+files). `_pack_best` measures every full-fit candidate under `plate_major`;
+`global` skips that measurement and is the only mode that reproduces the
+pre-knob search exactly.
+
+Under `plate_major`, `_pack_group` additionally admits the **matching flush
+grid** (`columns` → `columns-simple`, `rows` → `rows-simple`, via
+`pack_simple_grid`) as a whole-plan candidate. Content order that tiles a plate
+exactly — a leading run of same-size labels — is optimal by construction, and
+`rectpack`'s fragmentation can miss it (`docs/plans/packing-quality.md`
+Measurement 5: 121 of 128 3x1 tags on a 24x16 sheet). A grid plan that leaves
+any label unpacked is dropped, and ties go to `rectpack`, so a job whose content
+order does not tile a plate keeps its historical layout. The knob is inert on
+the `*-simple` layouts (they already grid-fill) and on the ellipse (round-label)
+path.
+
+Measured (U2 gate): a 62-spec sweep of `examples/job_specs/`, `plate_major`
+against `--set plate_fill=global`, changes **nothing** — identical plate counts,
+per-plate coverage, rotations and total sheet area on all 62 runs. Today's jobs
+already saturate plate 1 under both rankings; the mechanism shows up on mixed
+rect sets, where `plate_major` takes a 3-sheet plan (front sheets 99.7 % full)
+over the historical 4-sheet plan that keeps plate 1 at exactly 100 %
+(`tests/test_plate_fill.py::TestPackGroupPlateFill`). Pin `global` to reproduce
+an older plate map.
+
 - `rectpack` cannot be *sorted* into column-major: for identical rectangles
   every `SORT_*` is a stable no-op and the emergent fill order is purely the
   placement heuristics' tie-breaking. `PACK_CONFIGS` (Guillotine/MaxRects)
   fill the plate's **long axis** first regardless of frame, so transposing
   alone leaves the real-space order unchanged (verified empirically).
+- **The ensemble is widened, and that is not a licence to widen it further
+  casually.** `PACK_CONFIGS` carries 13 candidates and
+  `PACK_CONFIGS_COLUMNS` 5 (see `PACK_CONFIGS` in `layout.py` for the pinned
+  list); `test_ensemble_size_is_pinned` fails on any change. Every added
+  candidate is measured over all `examples/job_specs/` for fill, plate count,
+  rotations and emitted-PLT geometry before it lands, and the runtime is
+  O(configs × search) — the list is the packing pass's budget.
 - `columns` therefore packs in a **transposed frame** (bins `(W,H)→(H,W)`,
   rects `(w,h)→(h,w)` via `_transpose_entries`) paired with
   `PACK_CONFIGS_COLUMNS` = `SkylineBl`, whose bottom-row fitness always fills
@@ -295,6 +382,20 @@ leftover → `LayoutFitError` paths are all reused untouched.
   is already the reader's fill order in the device frame — the
   `_reorder_ids_for_reader_order` pass (transposed rectpack only) never
   applies.
+- **Declared placement rank (`label.order`):** `pack_simple_grid` sorts its
+  entries through `_placement_rank` before the first placement, returning
+  `(0, order, seq)` for a label that declares `order` and `(1, 0, seq)` for
+  one that omits it — so declared ranks fill the plate first (ascending),
+  undeclared labels follow in content order, rank ties keep content order,
+  and a label's own `count` / replacement instances stay contiguous in
+  expansion order (`seq` is the pre-pack content index). A job that declares
+  no rank is byte-identical to before. The rank is read **only** here:
+  `JobSpec._reject_label_order_with_bin_packing_layout` rejects `order`
+  unless every layout in play (job value, defaulting to `columns`, plus each
+  plate override) is a `*-simple` mode, because `rectpack` ranks plans by used
+  material and discards a placement sequence. Pinned by
+  `tests/test_layout.py::TestSimpleLayoutOrder` and
+  `tests/test_schema.py::TestLabelOrderValidation`.
 - Example fixture: `tests_deps/simple_layout_job.yaml` (pinned by
   `tests/test_layout.py::TestSimpleLayout::test_simple_fixture_job_pins_the_mixed_size_grid`)
   — 10 3x1 + 10 4x1 labels on a 24x16 sheet: column 1 stacks 16 labels

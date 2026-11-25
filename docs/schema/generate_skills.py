@@ -1193,30 +1193,37 @@ THEMES: Tuple[Theme, ...] = (
             "declaring plates and materials",
             "pinning labels to one plate",
             "choosing rows vs columns layout",
+            "getting a fully saturated first plate",
         ),
         keywords=(
             "plates",
             "layout",
             "packing",
             "rotation",
+            "rotation_preference",
+            "plate_fill",
             "material",
             "material_weight_per_square_inch",
             "clearance",
             "plate_id",
+            "order",
             "text_chunk_mode",
         ),
         fields=(
             "plates",
             "plate_id",
+            "order",
             "layout",
             "allow_rotation",
+            "rotation_preference",
+            "plate_fill",
             "left_clearance",
             "top_clearance",
             "material",
             "material_weight_per_square_inch",
             "text_chunk_mode",
         ),
-        enums=("LayoutMode",),
+        enums=("LayoutMode", "RotationPreference", "PlateFill"),
         pitfalls=(
             "With no `plates` declared, plates are auto-allocated at the configured size "
             "(default 24x16); declared plates are used exactly, so labels that do not fit "
@@ -1225,10 +1232,30 @@ THEMES: Tuple[Theme, ...] = (
             "accepts ONLY its pinned labels.",
             "`layout: columns` (default) packs column-first, `rows` packs row-first; "
             "`allow_rotation: false` keeps labels upright and uses more plate space.",
+            "`rotation_preference: fill_axis` (default) lets a rotation that improves "
+            "plate utilisation win; `minimize` treats rotation as a last resort, keeping "
+            "labels upright wherever a plan without it matches the fill. Reads as "
+            "engraved: every rotation is a hand setup change on the plotter.",
+            "`plate_fill: plate_major` (default) saturates plate 1, then plate 2, among "
+            "layouts that cost the same plate material, so a run of same-size labels fills "
+            "whole sheets; `global` ranks the whole layout at once (the historical "
+            "behaviour, and the way to reproduce an older plate map). Plate material is "
+            "ranked first in both, so a full plate 1 never costs an extra sheet.",
             "`text_chunk_mode: word` routes each word as its own rapid-travel node (better "
             "travel, more chunk boundaries); `line` (default) is one node per line.",
             "`left_clearance` / `top_clearance` are per-plate keep-out strips (e.g. a "
             "clamped edge), not margins around each label.",
+            "`order` decides which label is placed first, and it is honoured by the "
+            "`*-simple` grid fills only: the lowest rank takes the head of plate 1, "
+            "labels that omit it keep declaration order and place last, and a label's "
+            "own `count` instances stay together. Bin packing (`columns` / `rows`) "
+            "ranks layouts by used material and has no placement sequence, so "
+            "declaring `order` there is rejected rather than ignored. It is also a "
+            "rank, not an id: a jobset merges the ranks of every member's labels into "
+            "one batch-wide sequence (ties fall back to merged declaration order), so "
+            "a rank is a preference within the batch — unlike `plate_id`, which is "
+            "namespaced per member and dropped by the jobset's pin normalization "
+            "when its plate is absent.",
         ),
         see_also=(
             "replacement-text",

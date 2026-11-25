@@ -788,6 +788,140 @@ WK_HOLE_IN = 4 * WK_HOLE_SIDE_IN
 WK_BH_RAPID_IN = math.hypot(0.375, 0.625)
 
 
+class TestLayoutUsage:
+    """``usage.layout``: per-plate utilisation, rotations and the job totals."""
+
+    def test_per_plate_numbers(self) -> None:
+        """Coverage is engraved/sheet and empty is the sheet outside the envelope."""
+        first = label("first", width=4.0, height=2.0)
+        second = label("second", width=4.0, height=2.0)
+        usage = stats_for(
+            resolved_labels=[first, second],
+            packed_plates=[
+                plate(
+                    width=12.0,
+                    height=8.0,
+                    labels=[
+                        placement(first, x=0.0, y=0.0),
+                        # A rotated slot reserves height x width, which is what
+                        # the packer hands back.
+                        placement(second, x=6.0, y=0.0, width=2.0, height=4.0, rotated=True),
+                    ],
+                )
+            ],
+            material_by_plate={1: "acryl"},
+        )
+        row = row_by(usage["layout"]["by_plate"], "plate", 1)
+        assert row["sheet_sq_in"] == pytest.approx(96.0)
+        assert row["used_sq_in"] == pytest.approx(16.0)
+        # Envelope: x 0..8, y 0..4 (the 4x2 label turned 90 degrees reserves a
+        # 2-wide x 4-tall slot at x=6, so the box spans x 0..8 and y 0..4).
+        assert row["envelope_sq_in"] == pytest.approx(32.0)
+        assert row["coverage_pct"] == pytest.approx(16.666667, abs=1e-4)
+        assert row["empty_sq_in"] == pytest.approx(64.0)
+        assert row["rotated_labels"] == 1
+        assert row["material"] == "acryl"
+
+    def test_clearances_are_sheet_material(self) -> None:
+        """The left/top clearance strips are bought, so they are sheet area."""
+        first = label("first", width=2.0, height=2.0)
+        usage = stats_for(
+            resolved_labels=[first],
+            packed_plates=[
+                plate(
+                    width=10.0,
+                    height=6.0,
+                    left_clearance=1.0,
+                    top_clearance=1.0,
+                    labels=[placement(first)],
+                )
+            ],
+            material_by_plate={1: None},
+        )
+        row = row_by(usage["layout"]["by_plate"], "plate", 1)
+        assert row["sheet_sq_in"] == pytest.approx(77.0)
+
+    def test_totals_reconcile_with_their_parts(self) -> None:
+        """The per-plate empties sum to the job total, and the plate count matches."""
+        first = label("first", width=3.0, height=1.0)
+        second = label("second", width=5.0, height=2.0)
+        usage = stats_for(
+            resolved_labels=[first, second],
+            packed_plates=[
+                plate(plate_id="p1", width=6.0, height=4.0, labels=[placement(first)]),
+                plate(
+                    plate_id="p2",
+                    width=6.0,
+                    height=4.0,
+                    labels=[placement(second, rotated=True)],
+                ),
+            ],
+            material_by_plate={1: "vinyl", 2: "vinyl"},
+        )
+        layout = usage["layout"]
+        assert sum(row["empty_sq_in"] for row in layout["by_plate"]) == pytest.approx(
+            layout["total"]["empty_sq_in"]
+        )
+        assert layout["total"]["plates"] == 2
+        assert layout["total"]["rotated_labels"] == 1
+        assert layout["total"]["coverage_pct"] == pytest.approx(
+            (3.0 + 10.0) / 48.0 * 100.0, abs=1e-4
+        )
+
+    def test_full_plate_never_reports_over_100_percent(self) -> None:
+        """A plate tiled edge to edge reads as 100 % covered and 0 empty."""
+        first = label("first", width=6.0, height=4.0)
+        usage = stats_for(
+            resolved_labels=[first],
+            packed_plates=[plate(width=6.0, height=4.0, labels=[placement(first)])],
+            material_by_plate={1: None},
+        )
+        row = row_by(usage["layout"]["by_plate"], "plate", 1)
+        assert row["coverage_pct"] == pytest.approx(100.0)
+        assert row["empty_sq_in"] == pytest.approx(0.0)
+
+    def test_no_plates_is_zeroed(self) -> None:
+        """A run with no packing reports zeros, not a missing block."""
+        layout = stats_for()["layout"]
+        assert layout["by_plate"] == []
+        assert layout["total"] == {
+            "plates": 0,
+            "rotated_labels": 0,
+            "empty_sq_in": 0.0,
+            "coverage_pct": 0.0,
+        }
+
+    def test_summary_lines(self) -> None:
+        """``summary.txt`` gains a ``layout:`` line plus one line per plate."""
+        first = label("first", width=4.0, height=2.0)
+        usage = stats_for(
+            resolved_labels=[first],
+            packed_plates=[
+                plate(
+                    width=12.0,
+                    height=8.0,
+                    material="acryl",
+                    labels=[placement(first, rotated=True)],
+                )
+            ],
+            material_by_plate={1: "acryl"},
+        )
+        lines = format_usage_lines(usage)
+        header = [line for line in lines if line.startswith("  layout:")]
+        assert len(header) == 1
+        assert "1 plate" in header[0]
+        assert "rotated 1" in header[0]
+        plate_lines = [line for line in lines if line.startswith("    plate 1:")]
+        assert len(plate_lines) == 1
+        assert "acryl" in plate_lines[0]
+
+    def test_summary_lines_tolerate_a_layout_less_block(self) -> None:
+        """A report written before the block existed renders without it."""
+        usage = stats_for()
+        usage.pop("layout")
+        assert not [line for line in format_usage_lines(usage) if line.startswith("  layout:")]
+
+
 def make_job(tmp_path: Path) -> Dict[str, Any]:
     """A two-plate job whose emitted files have known total lengths.
 
@@ -1668,6 +1802,7 @@ class TestTimeEstimate:
             "characters",
             "holes",
             "material",
+            "layout",
             "weight",
             "distance",
             "time",

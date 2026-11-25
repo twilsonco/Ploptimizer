@@ -151,6 +151,10 @@ lint.ignore = [
 # GENERATE_DEFAULT_PLOTS switch sit between the bootstrap and the imports.
 # The order is the point, so E402 is suppressed for this file here.
 "scripts/run_integration_test.py" = ["E402"]
+# packing_benchmark.py bootstraps the repo root onto sys.path the same way
+# (measure any spec from any cwd, with repo-root-relative tools.json /
+# job-config.json defaults), so its pipeline imports follow the bootstrap.
+"scripts/packing_benchmark.py" = ["E402"]
 
 [dependency-groups]
 dev = [

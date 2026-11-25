@@ -81,6 +81,8 @@ from plt_optimizer.generate.schema import (
     HoleSpec,
     LabelShape,
     LayoutMode,
+    PlateFill,
+    RotationPreference,
     TextHAlignment,
     _validate_replacement_delimiter_value,
 )
@@ -988,6 +990,23 @@ class JobDefaults(BaseModel):
     layout: Optional[LayoutMode] = Field(
         default=None, description="Default plate fill order (job layer)."
     )
+    rotation_preference: Optional[RotationPreference] = Field(
+        default=None,
+        description=(
+            "Default rotation ranking (job layer): 'fill_axis' lets the fill "
+            "order rotate labels, 'minimize' takes the fewest rotated labels "
+            "at equal plate material."
+        ),
+    )
+    plate_fill: Optional[PlateFill] = Field(
+        default=None,
+        description=(
+            "Default plate-fill ranking (job layer): 'plate_major' saturates "
+            "the first plate at equal plate material (and lets the matching "
+            "flush grid compete as a layout candidate), 'global' ranks the "
+            "whole layout at once (the historical behaviour)."
+        ),
+    )
     replacement_text_delimiter: Optional[str] = Field(
         default=None,
         description=(
@@ -1395,6 +1414,8 @@ _JOB_LAYER_FIELDS: tuple[str, ...] = (
     "allow_rotation",
     "text_chunk_mode",
     "layout",
+    "rotation_preference",
+    "plate_fill",
     "replacement_text_delimiter",
     "replacement_text_file_comment_string",
     "replacement_text_file_allow_blank_lines",

@@ -796,6 +796,26 @@ def _gate_pool_setting_warnings(contexts: Sequence[ResolvedJobContext]) -> list[
             f"'{first.record.display_name}' ({first.default_plate_clearance}) "
             "wins for auto-allocated sheets"
         )
+    if any(
+        ctx.spec.rotation_preference is not first.spec.rotation_preference for ctx in contexts[1:]
+    ):
+        values = ", ".join(
+            f"{ctx.record.display_name}={ctx.spec.rotation_preference.value}" for ctx in contexts
+        )
+        warnings.append(
+            f"rotation_preference differs across members ({values}); "
+            f"'{first.record.display_name}' ({first.spec.rotation_preference.value}) "
+            "wins for the whole pool"
+        )
+    if any(ctx.spec.plate_fill is not first.spec.plate_fill for ctx in contexts[1:]):
+        values = ", ".join(
+            f"{ctx.record.display_name}={ctx.spec.plate_fill.value}" for ctx in contexts
+        )
+        warnings.append(
+            f"plate_fill differs across members ({values}); "
+            f"'{first.record.display_name}' ({first.spec.plate_fill.value}) "
+            "wins for the whole pool"
+        )
 
     return warnings
 

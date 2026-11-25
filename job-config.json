@@ -74,6 +74,7 @@
   "top_clearance": 0.0,
   "material_weight_per_square_inch": 0.00260417,
   "layout": "columns",
+  "rotation_preference": "minimize",
   "replacement_text_delimiter": ";",
   "replacement_text_file_comment_string": "# ",
   "replacement_text_file_allow_blank_lines": true,

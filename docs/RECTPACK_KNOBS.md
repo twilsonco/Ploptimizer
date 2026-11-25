@@ -35,6 +35,17 @@ All runs use `mode=Offline`, `bin_algo=BFF`, and the `rotation` knob is
 already user-facing as `allow_rotation` (ranked *below* footprint, so labels
 rotate only when rotation strictly improves the used area).
 
+**The ensemble lists have since widened, and the ranking gained a knob.** The
+snapshot above describes the 2024 investigation. Today `PACK_CONFIGS` (rows)
+runs 13 candidates and `PACK_CONFIGS_COLUMNS` runs 5 — the pinned lists are in
+`layout.py` and `test_ensemble_size_is_pinned` fails on any change, so every
+added candidate must be measured over all `examples/job_specs/` (fill, plate
+count, rotations, emitted-PLT geometry) before it lands. The ranking is
+`(footprint, …)` with the tail ordered by `rotation_preference`
+(`fill_axis` = the historical fill-order tail; `minimize` = fewest rotations at
+equal material). See `plt_optimizer/generate/packing/AGENTS.md` → *Rotation
+Ranking Preference* for the contract.
+
 **Consequence for knob design:** the ensemble *is* the automatic quality
 mode. Any exposed knob is a **pin/override** control — it trades guaranteed
 footprint quality for deterministic, user-shaped fill patterns. The default
@@ -198,3 +209,25 @@ global packing concern (user-approved; it never enters `ResolvedLabel`):
    + schema JSONs (`docs/schema/generate_ai_docs.py`), then the skill tree
    (`docs/schema/generate_skills.py`); document in
    `plt_optimizer/generate/packing/AGENTS.md` next to `layout`.
+
+## 7. Knobs shipped since this investigation (turn these today)
+
+The rectpack-internal knobs above are still unexposed. What the pipeline does
+expose, in the order worth trying (all job-level, all cascading job → plate,
+all shop-defaultable in `job-config.json`; contracts in
+`plt_optimizer/generate/packing/AGENTS.md`):
+
+| Knob | Values | What it turns | Measured on the shop corpus |
+|---|---|---|---|
+| `layout` | `rows` / `columns` / `*-simple` | Which plate axis the fill order runs along. The single biggest lever on rotations and on how much of a sheet a run of same-size labels can saturate. | 62-spec sweep (`scripts/packing_benchmark.py --modes all`): rotations swing by hundreds on one job (`ADK CPR 111261`: 131 → 0 rows→columns), fills move by double-digit points. |
+| `plate_fill` | `plate_major` (default) / `global` | Which layout wins at equal plate material: saturate plate 1 then plate 2 (greedy, plate-major fill vector), or rank the whole layout (historical max-min). Under `plate_major` the matching flush grid competes as a whole-plan candidate. | 62-spec sweep: no delta (today's jobs already saturate plate 1 both ways). On mixed rect sets it takes 3 sheets where the historical ranking spends 4. Pin `global` to reproduce an old plate map. |
+| `rotation_preference` | `fill_axis` / `minimize` | The tie between packings that fit: obey the fill order's rotations, or take the fewest at equal material. | No plate/fill/rotation delta on 78 specs (rank-key ties are dominated by rectpack's own tie-breaking); `minimize` is the shop default. |
+| `plate_rotation` | degrees, per plate | Rotates the whole plate's content (90° on a 24x16 sheet swaps the effective grid). | Material-preserving; used for grain/orientation, not fill. |
+| `left_clearance` / `top_clearance` | inches, per plate | The reserved edge strips + inter-label gutter. Directly sets the achievable rows × cols of a flush grid. | Raising clearance drops a row/col on tile-fit jobs; the knob to check when a sheet "should" fit one more label. |
+
+`plate_fill` and `layout` are the pair that answers "plate 1 came out half
+empty": the axis sets what is achievable, the ranking decides which achievable
+plan is taken. Both are measurable per spec with
+`scripts/packing_benchmark.py` (per-plate `n` / coverage / envelope / waste /
+`rot`, plus `--set key=value` sweeps over every spec in `examples/job_specs/`).
+

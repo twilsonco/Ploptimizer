@@ -80,7 +80,9 @@ from plt_optimizer.generate.resolution import (
 from plt_optimizer.generate.schema import (
     DEFAULT_LAYOUT_MODE,
     LayoutMode,
+    PlateFill,
     PlateSpec,
+    RotationPreference,
     TextColor,
     material_key,
 )
@@ -1280,6 +1282,8 @@ def export_per_cutter_plts(
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
     default_plate_clearance: Optional[tuple[float, float]] = None,
+    rotation_preference: Optional[RotationPreference] = None,
+    plate_fill: Optional[PlateFill] = None,
     job_spec: Optional[JobSpec] = None,
     job_config: Optional[JobConfig] = None,
     available_cutters: Optional[list[float]] = None,
@@ -1386,6 +1390,18 @@ def export_per_cutter_plts(
             applied to every auto-allocated unbounded bin (from
             ``job-config.json`` ``left_clearance`` / ``top_clearance``).
             Ignored when plates are given (their own clearances apply).
+        rotation_preference: Ranking preference between packings that fit --
+            the ``layout`` fill order, or the fewest rotated labels (see
+            :func:`plt_optimizer.generate.packing.layout._fill_rank_key`).
+            ``None`` (the default) reads
+            :attr:`JobSpec.rotation_preference` from ``job_spec``, falling
+            back to the historical ``fill_axis`` when no spec is given.
+        plate_fill: Which layout wins between packings of equal material -- the
+            plate-major (greedy) fill vector, or the historical whole-layout
+            ranking (see
+            :func:`plt_optimizer.generate.packing.layout._plate_fill_rank_key`).
+            ``None`` (the default) reads :attr:`JobSpec.plate_fill` from
+            ``job_spec``, falling back to the default when no spec is given.
         job_spec: Optional JobSpec for applying tool option headers to
             generated PLT files. When provided, tool options (engraver
             parameters like cutting velocity, spindle speed, etc.) are
@@ -1561,6 +1577,18 @@ def export_per_cutter_plts(
             layout=layout,
             default_plate_size=default_plate_size,
             default_plate_clearance=default_plate_clearance,
+            rotation_preference=(
+                rotation_preference
+                if rotation_preference is not None
+                else (job_spec.rotation_preference if job_spec is not None else None)
+                or RotationPreference.FILL_AXIS
+            ),
+            plate_fill=(
+                plate_fill
+                if plate_fill is not None
+                else (job_spec.plate_fill if job_spec is not None else None)
+                or PlateFill.PLATE_MAJOR
+            ),
         )
 
     plt_dir = output_dir / "plt"

@@ -451,6 +451,7 @@ def _job_usage_totals(usage: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     distance = block.get("distance") or {}
     time_block = block.get("time") or {}
     weight_block = block.get("weight") or {}
+    layout_total = (block.get("layout") or {}).get("total") or {}
     unattributed = distance.get("unattributed") or {}
     time_total = (time_block.get("total") or {}).get("total")
     weight_total = (weight_block.get("total") or {}).get("lb")
@@ -461,6 +462,11 @@ def _job_usage_totals(usage: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
         # member configures no material_weight_per_square_inch (the same
         # "not estimated is not zero" rule as ``time_total``).
         "weight_total": weight_total if weight_block.get("available") else None,
+        # Sheets the member's labels landed on and how many of its placements
+        # are rotated: the layout quality the batch report is asked to show
+        # per job, straight from that member's ``usage.layout`` totals.
+        "plates": layout_total.get("plates"),
+        "rotated_labels": layout_total.get("rotated_labels"),
         "unattributed": round(
             float(unattributed.get("cutting") or 0.0) + float(unattributed.get("rapid") or 0.0),
             _MANIFEST_DECIMALS,

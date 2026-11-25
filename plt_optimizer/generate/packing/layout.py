@@ -53,7 +53,9 @@ from plt_optimizer.generate.schema import (
     DEFAULT_LAYOUT_MODE,
     LabelShape,
     LayoutMode,
+    PlateFill,
     PlateSpec,
+    RotationPreference,
     is_simple_layout,
     material_key,
 )
@@ -153,11 +155,26 @@ class LayoutFitError(Exception):
 # (e.g. ``MaxRectsBssf`` leaves narrow labels stranded in some orderings while
 # Guillotine variants pack them tightly). We run several and select the result
 # with the smallest total plate footprint so packing quality never regresses.
+#
+# The list is deliberately wide. Every candidate is ranked by the same key
+# (:func:`_fill_rank_key`), so adding a candidate can only ever produce a layout
+# that ranks equal or better -- the cost is time, never quality. The layouts a
+# narrow list cannot reach are exactly the ones that need no label rotation: on
+# the shop specs the widened pool takes 107-133 rotated labels down to 0-2 at
+# equal plate count and equal-or-smaller material (docs/plans/packing-quality.md).
+# Measured cost is ~2 s per 200-label plate group, against minutes of rendering.
 PACK_CONFIGS: Tuple[Tuple[type[Any], Callable[..., Any]], ...] = (
     (rectpack.MaxRectsBssf, rectpack.SORT_AREA),
+    (rectpack.MaxRectsBssf, rectpack.SORT_NONE),
+    (rectpack.MaxRectsBssf, rectpack.SORT_DIFF),
+    (rectpack.MaxRectsBaf, rectpack.SORT_AREA),
+    (rectpack.MaxRectsBlsf, rectpack.SORT_AREA),
     (rectpack.GuillotineBlsfLas, rectpack.SORT_NONE),
     (rectpack.GuillotineBlsfLas, rectpack.SORT_AREA),
     (rectpack.GuillotineBafLas, rectpack.SORT_NONE),
+    (rectpack.GuillotineBafLas, rectpack.SORT_AREA),
+    (rectpack.SkylineBl, rectpack.SORT_NONE),
+    (rectpack.SkylineBl, rectpack.SORT_AREA),
 )
 
 # Candidate configurations for ``layout: columns`` (column-major fill).
@@ -171,9 +188,16 @@ PACK_CONFIGS: Tuple[Tuple[type[Any], Callable[..., Any]], ...] = (
 # first -- the real plate height -- before extending rightward. (Other
 # skyline fitnesses were rejected: e.g. ``SkylineMwf`` stacks upward to
 # minimize waste, which un-transposes back to row-major fill.)
+#
+# The widening applies here too, stayed inside ``SkylineBl`` for the reason just
+# given (a transposed Guillotine/MaxRects run re-produces the row-major fill, so
+# it costs time and adds no layout): the sort orders are what change the packing,
+# and a column job gains its upright layouts from them.
 PACK_CONFIGS_COLUMNS: Tuple[Tuple[type[Any], Callable[..., Any]], ...] = (
     (rectpack.SkylineBl, rectpack.SORT_NONE),
     (rectpack.SkylineBl, rectpack.SORT_AREA),
+    (rectpack.SkylineBl, rectpack.SORT_DIFF),
+    (rectpack.SkylineBl, rectpack.SORT_SSIDE),
 )
 
 
@@ -620,6 +644,8 @@ def _pack_best(
     bin_specs: list[tuple[float, float, str]],
     allow_rotation: bool = True,
     layout: LayoutMode = LayoutMode.ROWS,
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> _Packer:
     """Run several packing heuristics and return the packer with the best fit.
 
@@ -668,6 +694,17 @@ def _pack_best(
             ``vectorize.assemble_plt_from_rendered_labels``).
         layout: Preferential fill order (see above). Defaults to the
             historical row-major frame.
+        rotation_preference: Ranking preference among layouts that fit --
+            the fill order of ``layout``, or the fewest rotated labels (see
+            :func:`_fill_rank_key` and
+            :attr:`plt_optimizer.generate.schema.JobSpec.rotation_preference`).
+            The default reproduces the historical ranking exactly.
+        plate_fill: Which layout wins among plans of equal material -- the
+            plate-major (greedy) fill vector, or the historical whole-layout
+            ranking (see :func:`_plate_fill_rank_key` and
+            :attr:`plt_optimizer.generate.schema.JobSpec.plate_fill`).
+            ``PlateFill.GLOBAL`` reproduces the historical ranking exactly, and
+            is the only mode that skips the per-candidate plan measurement.
 
     Returns:
         The best-performing configured ``rectpack.Packer`` that successfully
@@ -687,10 +724,7 @@ def _pack_best(
 
     best_packer: Optional[_Packer] = None
     best_packed: int = -1
-    best_footprint: float = 0.0
-    best_fill_axis: float = 0.0
-    best_cross_axis: float = 0.0
-    best_rotations: int = 0
+    best_key: Optional[Tuple[Any, ...]] = None
 
     for pack_algo, sort_algo in configs:
         for rotation in orientations:
@@ -728,33 +762,90 @@ def _pack_best(
             else:
                 fill_axis, cross_axis = width_fill, height_fill
 
-            # Rank: full fits first; among equals, smallest footprint, then the
-            # fill order of ``layout``, then fewest rotations. Partials rank by
-            # packed count only (ties keep the incumbent); they only matter for
-            # error reporting.
+            # Rank: full fits first; among equals, ``plate_fill`` decides which
+            # plan wins (plate-major fill, or the historical whole-layout
+            # footprint/fill ranking). Partials rank by packed count only (ties
+            # keep the incumbent); they only matter for error reporting.
             full_fit = total_packed == len(rectangles_with_rid)
             best_full = best_packer is not None and best_packed == len(rectangles_with_rid)
+            candidate_key: Tuple[Any, ...] = (
+                _plate_fill_rank_key(
+                    _plan_metrics_from_packer(packer, transpose), rotation_preference
+                )
+                if plate_fill is PlateFill.PLATE_MAJOR
+                else _fill_rank_key(
+                    footprint, fill_axis, cross_axis, rotations, rotation_preference
+                )
+            )
             if best_packer is None:
                 take = True
             elif full_fit != best_full:
                 take = full_fit
             elif full_fit:
-                take = _fill_rank_key(footprint, fill_axis, cross_axis, rotations) < _fill_rank_key(
-                    best_footprint, best_fill_axis, best_cross_axis, best_rotations
-                )
+                assert best_key is not None  # set with every full-fit incumbent
+                take = candidate_key < best_key
             else:
                 take = total_packed > best_packed
 
             if take:
                 best_packed = total_packed
-                best_footprint = footprint
-                best_fill_axis = fill_axis
-                best_cross_axis = cross_axis
-                best_rotations = rotations
+                best_key = candidate_key if full_fit else None
                 best_packer = packer
 
     assert best_packer is not None  # Config lists are never empty
     return best_packer
+
+
+def _rectpack_plates(
+    rectangles_with_rid: list[_RectEntry],
+    bin_specs: list[tuple[float, float, str]],
+    *,
+    allow_rotation: bool,
+    layout: LayoutMode,
+    clearances: Optional[Mapping[str, tuple[float, float]]],
+    material: Optional[str],
+    materials: Optional[Mapping[str, Optional[str]]],
+    rotation_preference: RotationPreference,
+    plate_fill: PlateFill,
+) -> list[PackedPlate]:
+    """Pack rectangles with the ``rectpack`` ensemble and extract plates.
+
+    Shared by :func:`_pack_group`'s whole-job plan and the tail of a
+    grid-prefix plan (see there), so both map packer space back into real plate
+    space identically.
+
+    Args:
+        rectangles_with_rid: ``(pack_width, pack_height, rid)`` tuples to pack.
+        bin_specs: ``(width, height, bid)`` plates to pack onto.
+        allow_rotation: Whether rotated candidates are considered.
+        layout: Fill-order mode of the group.
+        clearances: Optional bin-id to ``(left, top)`` clearance mapping.
+        material: Stock material stamped onto every produced plate.
+        materials: Optional bin-id to declared-material-spelling mapping.
+        rotation_preference: Ranking preference for rotation counts.
+        plate_fill: Ranking policy for plate saturation.
+
+    Returns:
+        The non-empty ``PackedPlate`` objects, in plate order.
+
+    Raises:
+        LayoutFitError: If the rectangles do not fit the given plates.
+    """
+    packer = _pack_best(
+        rectangles_with_rid,
+        bin_specs,
+        allow_rotation=allow_rotation,
+        layout=layout,
+        rotation_preference=rotation_preference,
+        plate_fill=plate_fill,
+    )
+    return _extract_packed_plates(
+        packer,
+        transpose=layout == LayoutMode.COLUMNS,
+        clearances=clearances,
+        material=material,
+        materials=materials,
+    )
 
 
 def _pack_group(
@@ -765,6 +856,8 @@ def _pack_group(
     clearances: Optional[Mapping[str, tuple[float, float]]] = None,
     material: Optional[str] = None,
     materials: Optional[Mapping[str, Optional[str]]] = None,
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> list[PackedPlate]:
     """Pack rectangles onto one group of same-mode plates and extract plates.
 
@@ -793,6 +886,17 @@ def _pack_group(
         materials: Optional bin-id to declared-material-spelling mapping
             (falls back to ``material``); lets constrained-mode passes
             keep each plate's own spelling.
+        rotation_preference: Ranking preference forwarded to
+            :func:`_pack_best` (ignored by the simple grid modes, which never
+            rotate).
+        plate_fill: Layout ranking forwarded to :func:`_pack_best`. Under
+            :attr:`~plt_optimizer.generate.schema.PlateFill.PLATE_MAJOR` the
+            matching flush grid also competes as a whole-plan candidate,
+            completed by a ``rectpack`` tail: content order that tiles a plate
+            exactly (a run of same-size labels) wins those plates outright and
+            the awkward remainder is optimized per plate, while mixed-size jobs
+            whose order tiles nothing keep the ``rectpack`` plan because the
+            ranking decides.
 
     Returns:
         The non-empty ``PackedPlate`` objects produced by this packing pass.
@@ -816,14 +920,75 @@ def _pack_group(
         bin_specs,
         allow_rotation=allow_rotation,
         layout=layout,
+        rotation_preference=rotation_preference,
+        plate_fill=plate_fill,
     )
-    return _extract_packed_plates(
+    rect_plates = _extract_packed_plates(
         packer,
         transpose=layout == LayoutMode.COLUMNS,
         clearances=clearances,
         material=material,
         materials=materials,
     )
+
+    grid_plates: list[PackedPlate] = []
+    if plate_fill is PlateFill.PLATE_MAJOR:
+        # Plate-major ranking: the matching flush grid competes as a whole-plan
+        # candidate. Content order that tiles a plate exactly -- a leading run of
+        # same-size labels -- is optimal by construction, and ``rectpack``'s
+        # fragmentation can miss it (docs/plans/packing-quality.md Measurement 5:
+        # 121 of 128 3x1 labels on a 24x16 sheet, where the flush grid fits all
+        # 128 at 100 %). Ties go to ``rectpack``, so a job whose content order
+        # does not tile a plate keeps its historical layout.
+        from plt_optimizer.generate.packing.simple_grid import pack_simple_grid
+
+        seed_layout = (
+            LayoutMode.COLUMNS_SIMPLE if layout is LayoutMode.COLUMNS else LayoutMode.ROWS_SIMPLE
+        )
+        grid_plates = pack_simple_grid(
+            rectangles_with_rid,
+            bin_specs,
+            seed_layout,
+            clearances=clearances,
+            material=material,
+            materials=materials,
+        )
+
+        # The grid is strict about content order: the first label that no longer
+        # fits closes the plate and everything behind it cascades, so on a mixed
+        # job it stops early (128 3x1 labels fill a 24x16 sheet exactly, then a
+        # 12x12 label cannot join the row band). Completing that prefix with a
+        # ``rectpack`` tail is what makes the perfect sheet usable: the grid
+        # takes the plates its content order fills, and the remainder is
+        # optimized per plate. A tail that cannot fit the remaining plates
+        # leaves the candidate incomplete, and the ranking below keeps
+        # ``rectpack``.
+        placed = sum(len(plate.labels) for plate in grid_plates)
+        tail_bins = bin_specs[len(grid_plates) :]
+        if placed < len(rectangles_with_rid) and tail_bins:
+            tail_plates = _rectpack_plates(
+                rectangles_with_rid[placed:],
+                tail_bins,
+                allow_rotation=allow_rotation,
+                layout=layout,
+                clearances=clearances,
+                material=material,
+                materials=materials,
+                rotation_preference=rotation_preference,
+                plate_fill=plate_fill,
+            )
+            grid_plates = [*grid_plates, *tail_plates]
+
+    if sum(len(plate.labels) for plate in grid_plates) < len(rectangles_with_rid):
+        return rect_plates
+    fill_is_height = layout is LayoutMode.COLUMNS
+    grid_key = _plate_fill_rank_key(
+        _plan_metrics_from_plates(grid_plates, fill_is_height=fill_is_height), rotation_preference
+    )
+    rect_key = _plate_fill_rank_key(
+        _plan_metrics_from_plates(rect_plates, fill_is_height=fill_is_height), rotation_preference
+    )
+    return grid_plates if grid_key < rect_key else rect_plates
 
 
 def _resolve_plate_groups(
@@ -1038,6 +1203,33 @@ def _material_bin_prefix(material: Optional[str]) -> str:
     return f"{sanitized}_"
 
 
+def _group_rotation_preference(
+    plates: Sequence[PlateSpec], fallback: RotationPreference
+) -> RotationPreference:
+    """Return the rotation preference a pool of plates agrees on.
+
+    The schema cascade fills every plate's ``rotation_preference`` from the
+    job, so a pool normally has one answer, and that is what its packing pass
+    ranks by. Plates that disagree -- an explicit per-plate override mixed
+    into a pool with plates that inherited the job value -- fall back to
+    ``fallback``, because one packing pass can rank by exactly one policy and
+    the job-level value is the shop's knob.
+
+    Args:
+        plates: The plates of one packing pool.
+        fallback: Preference to use when the pool has no unanimous answer.
+
+    Returns:
+        The pool's rotation preference.
+    """
+    declared = {plate.rotation_preference for plate in plates}
+    if len(declared) == 1:
+        (only,) = declared
+        if only is not None:
+            return only
+    return fallback
+
+
 def _claim_plates_by_material(
     plates: Sequence[PlateSpec],
     material_groups: Mapping[Optional[str], list[_RectEntry]],
@@ -1092,6 +1284,8 @@ def _pack_pinned_entries(
     allow_rotation: bool,
     layout: LayoutMode,
     clearances: Mapping[str, tuple[float, float]],
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> list[PackedPlate]:
     """Pack plate-pinned entries, one exclusive single-plate pass each.
 
@@ -1108,6 +1302,9 @@ def _pack_pinned_entries(
         layout: Job-level fill-order fallback for plates without an
             explicit ``layout``.
         clearances: Bin-id to ``(left, top)`` clearance mapping.
+        rotation_preference: Job-level ranking preference; each pinned plate
+            ranks by its own ``rotation_preference`` (the cascade fills it in
+            from the job when the plate declares none).
 
     Returns:
         The packed pinned plates (declaration order).
@@ -1162,6 +1359,8 @@ def _pack_pinned_entries(
             plate.layout or layout,
             clearances,
             material=plate.material,
+            rotation_preference=plate.rotation_preference or rotation_preference,
+            plate_fill=plate.plate_fill or plate_fill,
         )
         placed_ids = {packed.label_id for packed_plate in plates for packed in packed_plate.labels}
         leftover = [entry for entry in entries if entry[2][0] not in placed_ids]
@@ -1183,6 +1382,8 @@ def _pack_entries_with_pinners(
     layout: LayoutMode,
     default_plate_size: Optional[tuple[float, float]],
     default_plate_clearance: Optional[tuple[float, float]],
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
     """Pack entries, dispatching round labels to the adjacent ellipse pipeline.
 
@@ -1226,6 +1427,8 @@ def _pack_entries_with_pinners(
         layout,
         default_plate_size,
         default_plate_clearance,
+        rotation_preference,
+        plate_fill,
     )
     if not round_entries:
         # Rectangular-only job: the historical one-pipeline behavior,
@@ -1296,6 +1499,8 @@ def _pack_rect_entries_with_pinners(
     layout: LayoutMode,
     default_plate_size: Optional[tuple[float, float]],
     default_plate_clearance: Optional[tuple[float, float]],
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
     """Pack entries honoring plate pinning, then material-partitioned packing.
 
@@ -1319,6 +1524,11 @@ def _pack_rect_entries_with_pinners(
         layout: Job-level fill-order mode.
         default_plate_size: Auto-allocated bin size override (unbounded).
         default_plate_clearance: Auto-allocated bin clearance (unbounded).
+        rotation_preference: Job-level ranking preference. Each pool ranks by
+            the preference its plates agree on (see
+            :func:`_group_rotation_preference`) and each pinned plate by its
+            own, so a per-plate override is honoured wherever a pass packs
+            exactly that plate's labels.
 
     Returns:
         ``(packed_plates, leftover)`` where packed plates are pinned
@@ -1339,7 +1549,13 @@ def _pack_rect_entries_with_pinners(
     all_clearances = _plate_clearances(provided_plates)
 
     pinned_plates = _pack_pinned_entries(
-        pinned, provided_plates, allow_rotation, layout, all_clearances
+        pinned,
+        provided_plates,
+        allow_rotation,
+        layout,
+        all_clearances,
+        rotation_preference,
+        plate_fill,
     )
 
     unpinned_entries = (
@@ -1392,6 +1608,8 @@ def _pack_rect_entries_with_pinners(
                 clearances=all_clearances,
                 material=group_display,
                 materials=pool_materials,
+                rotation_preference=_group_rotation_preference(pool, rotation_preference),
+                plate_fill=_group_plate_fill(pool, plate_fill),
             )
             if group_leftover:
                 display = _group_display_material(entries)
@@ -1427,6 +1645,8 @@ def _pack_rect_entries_with_pinners(
                 allow_rotation=allow_rotation,
                 clearances=clearances,
                 material=display,
+                rotation_preference=rotation_preference,
+                plate_fill=plate_fill,
             )
             unpinned_plates.extend(plates)
             leftover.extend(group_leftover)
@@ -1529,16 +1749,28 @@ def _fill_rank_key(
     fill_axis: float,
     cross_axis: float,
     rotations: int,
-) -> tuple[float, float, float, int]:
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+) -> tuple[float, ...]:
     """Build the ranking key of a packing candidate that fits everything.
 
-    ``footprint`` leads so rotation never costs extra material; the fill-axis
-    ratio and then the cross-axis ratio prefer the fill order of the layout (see
-    :func:`_fill_axis_extents`); the rotation count decides last, so two layouts
-    that are geometrically identical keep producing the same output. The fill axis
-    enters NEGATED (it is the span we want long, while every other term is one we
-    want short). Floats are rounded to the packing-unit precision (0.01 in), which
-    makes layouts that differ only by float noise compare exactly, while a genuine
+    ``footprint`` (plate material used, see :func:`_plate_footprint`) leads in
+    both preferences: rotation never costs extra material, and material is the
+    shop's currency. The remaining terms follow ``rotation_preference``:
+
+    - :attr:`RotationPreference.FILL_AXIS` (the default, historical): the
+      fill-axis ratio and then the cross-axis ratio prefer the fill order of the
+      layout (see :func:`_fill_axis_extents`), and the rotation count decides
+      only when both ratios tie -- two layouts that are geometrically identical
+      keep producing the same output. The fill axis enters NEGATED (it is the
+      span we want long, while every other term is one we want short).
+    - :attr:`RotationPreference.MINIMIZE`: the rotation count moves to second,
+      so a layout that engraves labels upright wins whenever it costs no extra
+      material. The fill-order ratios stay on the tail of the key, so the
+      anti-fragmentation preference still separates equally-rotated layouts
+      (a plate filled to the bottom beats two half-filled plates).
+
+    Floats are rounded to the packing-unit precision (0.01 in), which makes
+    layouts that differ only by float noise compare exactly, while a genuine
     1/16 in fill difference still separates them.
 
     Args:
@@ -1547,11 +1779,256 @@ def _fill_rank_key(
             fills first (see :func:`_fill_axis_extents`); larger is better.
         cross_axis: The same plate's fill ratio along the other plate axis.
         rotations: Rotated rectangle count from :func:`_count_rotated`.
+        rotation_preference: Which of the two is preferred, the fill order or
+            the fewest rotations (see
+            :attr:`plt_optimizer.generate.schema.JobSpec.rotation_preference`).
 
     Returns:
         The lexicographically comparable ranking tuple (smaller is better).
     """
+    if rotation_preference is RotationPreference.MINIMIZE:
+        return (round(footprint, 4), float(rotations), -round(fill_axis, 4), round(cross_axis, 4))
     return (round(footprint, 4), -round(fill_axis, 4), round(cross_axis, 4), rotations)
+
+
+# Fill band of the plate-major comparison, as a fraction of the plate's fill
+# axis. Two layouts whose plate is filled less than one band apart along that
+# axis are "the same plate" for the ranking, so float noise and sub-band nudges
+# cannot flip a shop's plate map (docs/plans/packing-quality.md, Proposed U2
+# item 1), while one real row or column of material always separates them.
+#
+# A tenth of the axis, not a fiftieth: the layout report quotes fill at whole
+# percentages, and a band this side of one label row makes the ranking decide on
+# differences the shop cannot see. Measured on six labels (3,3,3,10,10,6 x 1")
+# on a 24x16 sheet at ``layout=rows``: a rotated plan filling the width to
+# 24.00" beat a flush two-row plan at 23.20" -- 3.3 % of one axis -- and paid 4"
+# of plate height and six rotations for it. At 10 % both plans are "full"
+# (bands 10 and 10), so the cross-axis ratio and the ink box decide, which is
+# the ordering the complaint asked for. A plan that is one label row short is
+# still separated: 121 of 128 3x1 labels on a 24x16 sheet fills to 94.5 %,
+# band 9, and the flush grid that fits all 128 stays band 10.
+PLATE_FILL_BAND: float = 0.10
+
+
+@dataclass(frozen=True)
+class _PlanMetrics:
+    """The ranking metrics of one complete layout plan (every plate it uses).
+
+    Attributes:
+        sheet_area: Total sheet area of the non-empty plates, square inches --
+            the material the shop buys, and the first term of the plan ranking.
+        fill_bands: Per-plate fill ratio **along the axis the layout fills
+            first** (``columns`` the plate height, ``rows`` the plate width), in
+            :data:`PLATE_FILL_BAND` bands, in plate order (plate 1 first). This
+            is what a plate-major ranking walks: plate 1 saturating beats plate
+            2 packing tighter. It is fill *along the axis*, not used area --
+            used area is axis-blind and would let a plate filled the wrong way
+            outrank one that honours the layout's fill order.
+        fill_axis: The least-filled plate's ratio along that same axis (see
+            :func:`_fill_axis_extents`), the historical whole-layout fill-order
+            term, kept behind the plate vector to break plate-vector ties.
+        cross_axis: The least-filled plate's ratio along the other plate axis.
+        area_fills: Per-plate label area over the plate's usable area, in
+            declaration order. The axis ratios above say how far a plate is
+            filled *along the fill axis*; this says how much of the sheet is
+            covered by labels at all, which is the "is this sheet full?" the
+            shop reads off the layout report.
+        bbox_area: Total ink bounding-box area across the plates, square inches
+            -- the scrap term, ranked below fill so a saturated plate 1 may cost
+            a looser tail sheet.
+        rotations: Rotated label count in the plan.
+    """
+
+    sheet_area: float
+    fill_bands: Tuple[int, ...]
+    fill_axis: float
+    cross_axis: float
+    area_fills: Tuple[float, ...]
+    bbox_area: float
+    rotations: int
+
+
+def _plan_metrics_from_packer(packer: _Packer, transpose: bool) -> _PlanMetrics:
+    """Measure a ``rectpack`` result as a layout plan.
+
+    Plates are walked in bin order (the order they were declared), so the fill
+    vector is plate-major and reproducible. Empty auto-allocated plates are
+    skipped exactly like :func:`_plate_footprint` does. Fill is measured along
+    the **packer's** X axis, which is the fill axis of both layouts: ``rows``
+    packs in the real frame (X = plate width) and ``columns`` packs transposed
+    (X = plate height), so the same pass matches what
+    :func:`_fill_axis_extents` reports for the plan.
+
+    Args:
+        packer: A ``rectpack.Packer`` that has already executed ``pack()``.
+        transpose: Whether the pack ran in the transposed (``columns``) frame.
+            Only documents the frame the ratios are taken in -- the fill axis is
+            the packer X axis either way.
+
+    Returns:
+        The plan's ranking metrics.
+    """
+    del transpose  # Documented above: the fill axis is the packer's X axis.
+    sheet_area = 0.0
+    bbox_area = 0.0
+    bands: list[int] = []
+    fills: list[float] = []
+    crosses: list[float] = []
+    areas: list[float] = []
+    for bin_obj in packer:
+        if len(bin_obj) == 0:
+            continue
+        right = 0.0
+        bottom = 0.0
+        for rect in bin_obj:
+            right = max(right, rect.x + rect.width)
+            bottom = max(bottom, rect.y + rect.height)
+        fill = right / bin_obj.width
+        sheet_area += bin_obj.width * bin_obj.height
+        bbox_area += right * bottom
+        bands.append(int(round(fill / PLATE_FILL_BAND)))
+        fills.append(fill)
+        crosses.append(bottom / bin_obj.height)
+        areas.append(
+            sum(rect.width * rect.height for rect in bin_obj) / (bin_obj.width * bin_obj.height)
+            if bin_obj.width * bin_obj.height > 0
+            else 0.0
+        )
+    return _PlanMetrics(
+        sheet_area=sheet_area,
+        fill_bands=tuple(bands),
+        fill_axis=min(fills) if fills else 0.0,
+        cross_axis=min(crosses) if crosses else 0.0,
+        area_fills=tuple(areas),
+        bbox_area=bbox_area,
+        rotations=_count_rotated(packer),
+    )
+
+
+def _plan_metrics_from_plates(
+    plates: Sequence[PackedPlate], *, fill_is_height: bool = False
+) -> _PlanMetrics:
+    """Measure a produced plate list as a layout plan.
+
+    Mirrors :func:`_plan_metrics_from_packer` for plans that never went through
+    ``rectpack`` (the flush-grid candidates), so both kinds of plan compare on
+    identical terms: plate order is the produced order, fill is the placement
+    extent along the layout's fill axis, and the bbox is the placement envelope
+    including clearances (which every plan of this group carries identically).
+
+    Args:
+        plates: The non-empty ``PackedPlate`` objects of one plan, in plate
+            order, in **real** plate space (the grid plan is never transposed).
+        fill_is_height: ``True`` for a ``columns`` group, whose fill axis is the
+            plate height; ``False`` (``rows``) measures along the plate width.
+
+    Returns:
+        The plan's ranking metrics.
+    """
+    sheet_area = 0.0
+    bbox_area = 0.0
+    bands: list[int] = []
+    fills: list[float] = []
+    crosses: list[float] = []
+    areas: list[float] = []
+    rotations = 0
+    for plate in plates:
+        if not plate.labels:
+            continue
+        right = max(label.x + label.width for label in plate.labels)
+        bottom = max(label.y + label.height for label in plate.labels)
+        fill = bottom / plate.height if fill_is_height else right / plate.width
+        cross = right / plate.width if fill_is_height else bottom / plate.height
+        sheet_area += plate.width * plate.height
+        bbox_area += right * bottom
+        bands.append(int(round(fill / PLATE_FILL_BAND)))
+        fills.append(fill)
+        crosses.append(cross)
+        usable = plate.width * plate.height
+        areas.append(
+            sum(label.width * label.height for label in plate.labels) / usable
+            if usable > 0
+            else 0.0
+        )
+        rotations += sum(1 for label in plate.labels if label.rotated)
+    return _PlanMetrics(
+        sheet_area=sheet_area,
+        fill_bands=tuple(bands),
+        fill_axis=min(fills) if fills else 0.0,
+        cross_axis=min(crosses) if crosses else 0.0,
+        area_fills=tuple(areas),
+        bbox_area=bbox_area,
+        rotations=rotations,
+    )
+
+
+def _plate_fill_rank_key(
+    metrics: _PlanMetrics,
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+) -> Tuple[Any, ...]:
+    """Build the plate-major ranking key of a complete layout plan.
+
+    Sheet area leads, so a layout that saturates plate 1 never costs an extra
+    sheet -- the shop's material is untouched by the fill preference. The fill
+    vector is then compared plate by plate (negated bands, larger fill first),
+    which is the greedy preference: at equal material, the plan whose first
+    plate is fullest wins, and only a tie on plate 1 looks at plate 2. Behind
+    the vector sit the historical whole-layout terms -- the least-filled plate's
+    fill-axis ratio, then its cross-axis ratio, then the ink bbox -- so a plan
+    that fills along the axis ``layout`` fills still beats one that fills it the
+    wrong way, and the "tighter total" preference now decides only what the
+    plate fills and fill order leave open. The rotation count closes the key
+    (``minimize`` promotes it, mirroring :func:`_fill_rank_key`).
+
+    The axis ratios are quantized to :data:`PLATE_FILL_BAND` (a tenth of the
+    axis), not compared exactly. An exact ratio lets a plan that squeezes a few
+    extra tenths out of the fill axis outrank one that is inches shorter across
+    the plate: six 3x1 labels on a 24x16 sheet, a rotated plan that fills the
+    width to 24.00" beat a flush two-row plan at 23.20" and paid 4" of plate
+    height plus six rotations for the 3.3 %. Measuring fill at the granularity
+    the shop reads makes near-full fills tie, so the cross-axis ratio, the ink
+    box and the rotation count decide -- which is the ordering the complaint
+    asked for.
+
+    Args:
+        metrics: The plan's measured metrics.
+        rotation_preference: Rotation ranking forwarded from the group.
+
+    Returns:
+        The lexicographically comparable ranking tuple (smaller is better).
+    """
+    sheet = round(metrics.sheet_area, 4)
+    fills = tuple(-band for band in metrics.fill_bands)
+    areas = tuple(-round(area, 6) for area in metrics.area_fills)
+    fill_axis = -int(round(metrics.fill_axis / PLATE_FILL_BAND))
+    cross_axis = int(round(metrics.cross_axis / PLATE_FILL_BAND))
+    bbox = round(metrics.bbox_area, 4)
+    if rotation_preference is RotationPreference.MINIMIZE:
+        return (sheet, metrics.rotations, fills, areas, fill_axis, cross_axis, bbox)
+    return (sheet, fills, areas, fill_axis, cross_axis, bbox, metrics.rotations)
+
+
+def _group_plate_fill(plates: Sequence[PlateSpec], fallback: PlateFill) -> PlateFill:
+    """Return the plate-fill preference a pool of plates agrees on.
+
+    Mirrors :func:`_group_rotation_preference`: the schema cascade fills every
+    plate's ``plate_fill`` from the job, so a pool normally has one answer;
+    plates that disagree fall back to ``fallback`` because one packing pass
+    ranks by exactly one policy.
+
+    Args:
+        plates: The plates of one packing pool.
+        fallback: Preference to use when the pool has no unanimous answer.
+
+    Returns:
+        The pool's plate-fill preference.
+    """
+    declared = {plate.plate_fill for plate in plates}
+    if len(declared) == 1:
+        (only,) = declared
+        if only is not None:
+            return only
+    return fallback
 
 
 def _split_shape_entries(
@@ -1890,6 +2367,8 @@ def _pack_groups(
     clearances: Optional[Mapping[str, tuple[float, float]]] = None,
     material: Optional[str] = None,
     materials: Optional[Mapping[str, Optional[str]]] = None,
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> tuple[list[PackedPlate], list[_RectEntry]]:
     """Pack rectangles through sequential same-mode plate groups.
 
@@ -1911,6 +2390,8 @@ def _pack_groups(
             plates material-agnostic.
         materials: Optional bin-id to declared-material-spelling mapping
             forwarded to :func:`_pack_group`.
+        rotation_preference: Ranking preference forwarded to every group's
+            :func:`_pack_group` call.
 
     Returns:
         A tuple of ``(packed_plates, leftover_rectangles)`` where
@@ -1931,6 +2412,8 @@ def _pack_groups(
             clearances,
             material,
             materials,
+            rotation_preference=rotation_preference,
+            plate_fill=plate_fill,
         )
         if not plates:
             continue
@@ -1948,6 +2431,8 @@ def generate_layout(
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
     default_plate_clearance: Optional[tuple[float, float]] = None,
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> list[PackedPlate]:
     """Pack resolved labels onto physical plates.
 
@@ -1977,6 +2462,9 @@ def generate_layout(
         default_plate_clearance: ``(left, top)`` edge clearance (inches)
             applied to every auto-allocated unbounded bin (from
             ``job-config.json``); ignored when plates are provided.
+        rotation_preference: Ranking preference between packings that fit --
+            the ``layout`` fill order (default, historical) or the fewest
+            rotated labels (see :func:`_fill_rank_key`).
 
     Returns:
         A list of ``PackedPlate`` objects containing all successfully
@@ -2017,6 +2505,7 @@ def generate_layout(
         layout=layout,
         default_plate_size=default_plate_size,
         default_plate_clearance=default_plate_clearance,
+        rotation_preference=rotation_preference,
     )
 
     # Verify all labels were packed.
@@ -2051,6 +2540,8 @@ def generate_layout_with_bounds(
     layout: LayoutMode = DEFAULT_LAYOUT_MODE,
     default_plate_size: Optional[tuple[float, float]] = None,
     default_plate_clearance: Optional[tuple[float, float]] = None,
+    rotation_preference: RotationPreference = RotationPreference.FILL_AXIS,
+    plate_fill: PlateFill = PlateFill.PLATE_MAJOR,
 ) -> tuple[list[PackedPlate], dict[str, RenderedLabel]]:
     """Pack resolved labels onto plates using rendered dimensions.
 
@@ -2080,7 +2571,8 @@ def generate_layout_with_bounds(
             width before extending downward (the historical behavior).
             ``columns-simple`` / ``rows-simple`` bypass ``rectpack`` with a
             flush content-order grid fill (never rotated; see
-            :mod:`plt_optimizer.generate.packing.simple_grid`). A
+            :mod:`plt_optimizer.generate.packing.simple_grid`), the only
+            modes that honour a label's ``order`` placement rank. A
             plate may override the job value via ``PlateSpec.layout``;
             mixed modes pack in sequential declaration-ordered passes.
         default_plate_size: ``(width, height)`` override (inches) for the
@@ -2089,6 +2581,11 @@ def generate_layout_with_bounds(
         default_plate_clearance: ``(left, top)`` edge clearance (inches)
             applied to every auto-allocated unbounded bin (from
             ``job-config.json``); ignored when plates are provided.
+        rotation_preference: Ranking preference between packings that fit --
+            the ``layout`` fill order (default, historical) or the fewest
+            rotated labels (see :func:`_fill_rank_key`). Round (ellipse)
+            labels are unaffected: they place through the ellipse packer,
+            which never rotates.
 
     Returns:
         A tuple of:
@@ -2135,6 +2632,7 @@ def generate_layout_with_bounds(
         layout=layout,
         default_plate_size=default_plate_size,
         default_plate_clearance=default_plate_clearance,
+        rotation_preference=rotation_preference,
     )
 
     # Verify all labels were packed.

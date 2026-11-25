@@ -188,6 +188,8 @@ the docs byte-pin; everything above is derived purely from the model.
 | Field | Type | Default | Constraints | Description |
 |---|---|---|---|---|
 | `allow_rotation` | bool \| null | null (unset) | — | Default bin-packing rotation permission (job layer). |
+| `rotation_preference` | RotationPreference \| null | null (unset) | — | Default rotation ranking (job layer): 'fill_axis' lets the fill order rotate labels, 'minimize' takes the fewest rotated labels at equal plate material. |
+| `plate_fill` | PlateFill \| null | null (unset) | — | Default plate-fill ranking (job layer): 'plate_major' saturates the first plate at equal plate material (and lets the matching flush grid compete as a layout candidate), 'global' ranks the whole layout at once (the historical behaviour). |
 | `text_chunk_mode` | `line` \| `word` \| null | null (unset) | — | Default plate-space text optimization granularity. |
 | `layout` | LayoutMode \| null | null (unset) | — | Default plate fill order (job layer). |
 | `plate_width` | float \| null | null (unset) | >=0 | Default usable plate width in inches (plate layer + unbounded auto-allocation; never fills job-level label width). |
@@ -327,6 +329,32 @@ and makes the collision checks measure the ellipse boundary.
 | `rect` | Rectangular label boundary. |
 | `round` | Elliptical (round) label boundary. |
 
+### `PlateFill`
+
+Enumeration of how a multi-plate layout is ranked once material ties.
+
+Both policies rank total plate material first, so no layout is accepted for
+spreading labels over more plates. What they disagree about is the tie
+between layouts that cost the same material:
+
+| Value | Description |
+|---|---|
+| `global` | Rank the layout as one whole -- least-filled plate lifted (max-min), then total ink bounding box. Fragments less material in total, and will accept a 99 % first plate with a 7-label tail when the tail lets the last plate pack tighter. |
+| `plate_major` |  |
+
+### `RotationPreference`
+
+Enumeration of what breaks the tie between packings that fit.
+
+Every packing candidate is ranked by used plate material first, so a label
+is never rotated to buy material. The preference decides the tie between
+candidates that cost the same material:
+
+| Value | Description |
+|---|---|
+| `fill_axis` |  |
+| `minimize` | Take the fewest rotated labels, so a job engraves upright whenever that costs no extra material. The fill order still separates equally-rotated layouts, so plates stay unfragmented. |
+
 ## Required-when-unconfigured (job-config gate)
 
 When a `--job-config` path is in play, these fields must be supplied by
@@ -427,6 +455,8 @@ excluded from the docs byte-pin.
 | `align_margin_adjust_global` | bool \| null | `False` | **set** | holes-and-collision |
 | `text_chunk_mode` | `line` \| `word` \| null | — | unset | plates-layout-and-packing |
 | `layout` | LayoutMode \| null | — | **set** | plates-layout-and-packing |
+| `rotation_preference` | RotationPreference \| null | — | **set** | plates-layout-and-packing |
+| `plate_fill` | PlateFill \| null | — | unset | plates-layout-and-packing |
 | `replacement_text_delimiter` | str \| null | — | **set** | replacement-text |
 | `replacement_text_file_comment_string` | str \| null | — | **set** | replacement-text |
 | `replacement_text_file_allow_blank_lines` | bool \| null | — | **set** | replacement-text |

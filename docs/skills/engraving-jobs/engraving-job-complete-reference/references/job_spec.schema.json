@@ -3520,6 +3520,19 @@
           "default": null,
           "description": "Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion.",
           "title": "Plate Id"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Placement rank on the plate, honoured by the simple grid-fill modes ('columns-simple' / 'rows-simple') only: the lowest value is placed first (the head of the first plate) and the rest follow ascending, so a job decides which label sits at the head of the sheet and the reading/emission order of every label after it. Labels that omit it keep declaration order and place after every declared rank; equal ranks keep declaration order; all instances of a `count` / `replacement_text_file` label keep their own expansion order. Rejected on a job that bin packs ('columns' / 'rows'): that engine ranks layouts by used material, so a declared placement sequence would be silently discarded. Round labels place through the ellipse packer, which packs by adjacency, and ignore it.",
+          "title": "Order"
         }
       },
       "required": [
@@ -3537,6 +3550,15 @@
         "columns-simple"
       ],
       "title": "LayoutMode",
+      "type": "string"
+    },
+    "PlateFill": {
+      "description": "Enumeration of how a multi-plate layout is ranked once material ties.\n\nBoth policies rank total plate material first, so no layout is accepted for\nspreading labels over more plates. What they disagree about is the tie\nbetween layouts that cost the same material:\n\nAttributes:\n    GLOBAL: Rank the layout as one whole -- least-filled plate lifted\n        (max-min), then total ink bounding box. Fragments less material in\n        total, and will accept a 99 % first plate with a 7-label tail when\n        the tail lets the last plate pack tighter.\n    PLATE_MAJOR: Saturate the first plate, then the next (a banded\n        plate-major fill vector). The leading run of same-size labels fills\n        a sheet completely -- 128 3x1 tags on a 24x16 sheet, 100 % -- so one\n        full sheet is engraved and one short sheet is left, which is what the\n        shop runs. Plate material still leads the ranking, so a saturated\n        first plate never buys an extra sheet.",
+      "enum": [
+        "global",
+        "plate_major"
+      ],
+      "title": "PlateFill",
       "type": "string"
     },
     "PlateSpec": {
@@ -4490,6 +4512,30 @@
           "default": null,
           "description": "Per-plate fill-order override (None = inherit the job layout). Simple modes ('columns-simple'/'rows-simple') grid-fill this plate without bin packing and never rotate labels."
         },
+        "rotation_preference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RotationPreference"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-plate rotation-ranking override (None = inherit the job value): 'fill_axis' lets the plate's fill order rotate labels, 'minimize' takes the fewest rotated labels at equal material. See the job-level `rotation_preference`."
+        },
+        "plate_fill": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlateFill"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-plate-group fill-ranking override (None = inherit the job value): 'plate_major' saturates the first plate at equal plate material, 'global' ranks the whole layout (historical). See the job-level `plate_fill`. One packing pass ranks by exactly one policy, so a pool of plates must agree."
+        },
         "material": {
           "anyOf": [
             {
@@ -4653,6 +4699,15 @@
       ],
       "title": "PlateSpec",
       "type": "object"
+    },
+    "RotationPreference": {
+      "description": "Enumeration of what breaks the tie between packings that fit.\n\nEvery packing candidate is ranked by used plate material first, so a label\nis never rotated to buy material. The preference decides the tie between\ncandidates that cost the same material:\n\nAttributes:\n    FILL_AXIS: Follow the `layout` fill order, so rotation is a tool of the\n        fill order (a label stands upright in `columns` and lies along the\n        width in `rows`). The historical behaviour.\n    MINIMIZE: Take the fewest rotated labels, so a job engraves upright\n        whenever that costs no extra material. The fill order still\n        separates equally-rotated layouts, so plates stay unfragmented.",
+      "enum": [
+        "fill_axis",
+        "minimize"
+      ],
+      "title": "RotationPreference",
+      "type": "string"
     },
     "TextColor": {
       "description": "Enumeration of stroke-color layer tags for text lines and labels.\n\nThe color carries no visual meaning in the emitted PLT: it is a layer\ntag that splits otherwise-identical text into separate toolpaths (one\nHPGL `SP` layer and one PLT file per color), so the cutter depth can\nbe changed between runs to expose a different material layer color on\n3-layer stock. This mirrors the EngraveLab/Vision Pro workflow where a\ndifferent stroke color forces a separate toolpath.\n\nValues may be written as the full name (`cyan`) or as the\nsingle-letter abbreviation (`c`); both forms are case-insensitive.\nThe inline `<tc:color>...</tc>` markup accepts exactly the same\nvalues and applies the split per character (the tag wins over the\n`text_color` field inside its span; see\n`plt_optimizer/generate/markup/AGENTS.md`).\n`none` is the implicit default for every line that does not declare\na color and must never be specified explicitly (see the `text_color`\nfield validator): users pick a real color name to force a toolpath\nsplit.\n\nAttributes:\n    CYAN: Cyan color layer. Abbreviation: `c`.\n    MAGENTA: Magenta color layer. Abbreviation: `m`.\n    YELLOW: Yellow color layer. Abbreviation: `y`.\n    BLACK: Black color layer. Abbreviation: `k`.\n    RED: Red color layer. Abbreviation: `r`.\n    GREEN: Green color layer. Abbreviation: `g`.\n    BLUE: Blue color layer. Abbreviation: `b`.\n    VIOLET: Violet color layer. Abbreviation: `v`.\n    ORANGE: Orange color layer. Abbreviation: `o`.\n    PINK: Pink color layer. Abbreviation: `p`.\n    TEAL: Teal color layer. Abbreviation: `t`.\n    NONE: No color layer.",
@@ -6686,6 +6741,16 @@
       "$ref": "#/$defs/LayoutMode",
       "default": "columns",
       "description": "Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. With bin packing the fill order also picks the orientation: at equal used material a label stands upright in 'columns' and lies along the width in 'rows' (see `allow_rotation`). 'columns-simple'/'rows-simple' bypass bin packing with a flush grid fill in content order (no rotation; incompatible with an explicit `allow_rotation: true`)."
+    },
+    "rotation_preference": {
+      "$ref": "#/$defs/RotationPreference",
+      "default": "fill_axis",
+      "description": "Ranking preference between packings that fit: 'fill_axis' (default) follows the `layout` fill order, so rotation is a tool of the fill order (a label stands upright in 'columns' and lies along the width in 'rows'); 'minimize' takes the fewest rotated labels, so the job engraves upright whenever that costs no extra plate material. Both rank used material first, so rotation never buys material. Cascades job -> plate -> layout plan, and is inert on the simple grid layouts (they never rotate)."
+    },
+    "plate_fill": {
+      "$ref": "#/$defs/PlateFill",
+      "default": "plate_major",
+      "description": "Ranking preference between layouts that cost the same plate material: 'plate_major' (default) saturates the first plate, then the next, so the leading run of same-size labels fills a sheet completely and the job engraves whole sheets; 'global' ranks the whole layout at once (lift the least-filled plate, then minimize the total ink bounding box) -- the historical behaviour. Both rank plate material first, so a saturated first plate never costs an extra sheet. Under 'plate_major' the matching flush grid ('columns' -> 'columns-simple', 'rows' -> 'rows-simple') also competes as a layout candidate, which is what turns an exact grid-fit run into a 100 % plate. Cascades job -> plate -> layout plan."
     },
     "left_clearance": {
       "anyOf": [

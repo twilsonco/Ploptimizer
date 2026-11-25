@@ -544,8 +544,9 @@ def _gate_views(spec: Any, members: Sequence[tuple[Path, JobSpec]]) -> list[Reso
     """Build the gate's member views from parsed specs.
 
     The gate reads only ``record.display_name``, ``layout``, ``allow_rotation``,
-    ``default_plate_clearance``, ``plates`` and ``plate_count`` - all of which a
-    parsed :class:`~plt_optimizer.generate.schema.JobSpec` provides. The
+    ``default_plate_clearance``, ``rotation_preference``, ``plates`` and
+    ``plate_count`` - all of which a parsed
+    :class:`~plt_optimizer.generate.schema.JobSpec` provides. The
     remaining context fields (``prepared``, ``resolved_labels``) belong to the
     render pipeline and are empty here: a validator that resolves typography
     would no longer be a pre-flight.

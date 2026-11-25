@@ -386,6 +386,64 @@ def is_simple_layout(layout: LayoutMode) -> bool:
     return layout in SIMPLE_LAYOUT_MODES
 
 
+class RotationPreference(str, Enum):
+    """Enumeration of what breaks the tie between packings that fit.
+
+    Every packing candidate is ranked by used plate material first, so a label
+    is never rotated to buy material. The preference decides the tie between
+    candidates that cost the same material:
+
+    Attributes:
+        FILL_AXIS: Follow the `layout` fill order, so rotation is a tool of the
+            fill order (a label stands upright in `columns` and lies along the
+            width in `rows`). The historical behaviour.
+        MINIMIZE: Take the fewest rotated labels, so a job engraves upright
+            whenever that costs no extra material. The fill order still
+            separates equally-rotated layouts, so plates stay unfragmented.
+    """
+
+    FILL_AXIS = "fill_axis"
+    MINIMIZE = "minimize"
+
+
+# Default rotation ranking: the historical fill-order preference, so a job that
+# declares nothing packs exactly as it always did. Shop-level defaults live in
+# `job-config.json` (see JobConfig.rotation_preference).
+DEFAULT_ROTATION_PREFERENCE: RotationPreference = RotationPreference.FILL_AXIS
+
+
+class PlateFill(str, Enum):
+    """Enumeration of how a multi-plate layout is ranked once material ties.
+
+    Both policies rank total plate material first, so no layout is accepted for
+    spreading labels over more plates. What they disagree about is the tie
+    between layouts that cost the same material:
+
+    Attributes:
+        GLOBAL: Rank the layout as one whole -- least-filled plate lifted
+            (max-min), then total ink bounding box. Fragments less material in
+            total, and will accept a 99 % first plate with a 7-label tail when
+            the tail lets the last plate pack tighter.
+        PLATE_MAJOR: Saturate the first plate, then the next (a banded
+            plate-major fill vector). The leading run of same-size labels fills
+            a sheet completely -- 128 3x1 tags on a 24x16 sheet, 100 % -- so one
+            full sheet is engraved and one short sheet is left, which is what the
+            shop runs. Plate material still leads the ranking, so a saturated
+            first plate never buys an extra sheet.
+    """
+
+    GLOBAL = "global"
+    PLATE_MAJOR = "plate_major"
+
+
+# Default plate ranking: saturate the leading plate. `GLOBAL` reproduces the
+# historical whole-layout ranking; the shop's currency is whole plates, and a
+# layout that fills plate 1 completely engraves one full sheet plus one short
+# one. Shop-level defaults live in `job-config.json` (see
+# JobConfig.plate_fill); pin `global` to reproduce an older plate map.
+DEFAULT_PLATE_FILL: PlateFill = PlateFill.PLATE_MAJOR
+
+
 def normalize_material(value: Optional[str]) -> Optional[str]:
     """Normalize a `material` name (shared by every level declaring it).
 
@@ -1973,6 +2031,24 @@ class LabelSpec(LabelAttributes):
             "onto that plate). Set by plate-level replacement expansion."
         ),
     )
+    order: Optional[int] = Field(
+        default=None,
+        description=(
+            "Placement rank on the plate, honoured by the simple grid-fill "
+            "modes ('columns-simple' / 'rows-simple') only: the lowest value "
+            "is placed first (the head of the first plate) and the rest "
+            "follow ascending, so a job decides which label sits at the head "
+            "of the sheet and the reading/emission order of every label "
+            "after it. Labels that omit it keep declaration order and place "
+            "after every declared rank; equal ranks keep declaration order; "
+            "all instances of a `count` / `replacement_text_file` label keep "
+            "their own expansion order. Rejected on a job that bin packs "
+            "('columns' / 'rows'): that engine ranks layouts by used "
+            "material, so a declared placement sequence would be silently "
+            "discarded. Round labels place through the ellipse packer, which "
+            "packs by adjacency, and ignore it."
+        ),
+    )
 
     @field_validator("replacement_text_delimiter")
     @classmethod
@@ -2540,6 +2616,25 @@ class PlateSpec(BaseModel):
             "plate without bin packing and never rotate labels."
         ),
     )
+    rotation_preference: Optional[RotationPreference] = Field(
+        default=None,
+        description=(
+            "Per-plate rotation-ranking override (None = inherit the job "
+            "value): 'fill_axis' lets the plate's fill order rotate labels, "
+            "'minimize' takes the fewest rotated labels at equal material. "
+            "See the job-level `rotation_preference`."
+        ),
+    )
+    plate_fill: Optional[PlateFill] = Field(
+        default=None,
+        description=(
+            "Per-plate-group fill-ranking override (None = inherit the job "
+            "value): 'plate_major' saturates the first plate at equal plate "
+            "material, 'global' ranks the whole layout (historical). See the "
+            "job-level `plate_fill`. One packing pass ranks by exactly one "
+            "policy, so a pool of plates must agree."
+        ),
+    )
     material: Optional[str] = Field(
         default=None,
         description=(
@@ -2955,6 +3050,36 @@ class JobSpec(LabelAttributes):
             "`allow_rotation: true`)."
         ),
     )
+    rotation_preference: RotationPreference = Field(
+        default=DEFAULT_ROTATION_PREFERENCE,
+        description=(
+            "Ranking preference between packings that fit: 'fill_axis' "
+            "(default) follows the `layout` fill order, so rotation is a tool "
+            "of the fill order (a label stands upright in 'columns' and lies "
+            "along the width in 'rows'); 'minimize' takes the fewest rotated "
+            "labels, so the job engraves upright whenever that costs no extra "
+            "plate material. Both rank used material first, so rotation never "
+            "buys material. Cascades job -> plate -> layout plan, and is inert "
+            "on the simple grid layouts (they never rotate)."
+        ),
+    )
+    plate_fill: PlateFill = Field(
+        default=DEFAULT_PLATE_FILL,
+        description=(
+            "Ranking preference between layouts that cost the same plate "
+            "material: 'plate_major' (default) saturates the first plate, then "
+            "the next, so the leading run of same-size labels fills a sheet "
+            "completely and the job engraves whole sheets; 'global' ranks the "
+            "whole layout at once (lift the least-filled plate, then minimize "
+            "the total ink bounding box) -- the historical behaviour. Both "
+            "rank plate material first, so a saturated first plate never costs "
+            "an extra sheet. Under 'plate_major' the matching flush grid "
+            "('columns' -> 'columns-simple', 'rows' -> 'rows-simple') also "
+            "competes as a layout candidate, which is what turns an exact "
+            "grid-fit run into a 100 % plate. Cascades job -> plate -> layout "
+            "plan."
+        ),
+    )
     left_clearance: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -3171,6 +3296,143 @@ class JobSpec(LabelAttributes):
                 "so it cannot be combined with an explicit `allow_rotation: "
                 "true`. Remove the `allow_rotation` declaration (the simple "
                 "layout keeps every label horizontal) or set it to false."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _apply_job_level_rotation_preference(self) -> JobSpec:
+        """Cascade the job-level rotation preference onto plates that omit it.
+
+        Mirrors :meth:`_apply_job_level_materials`: an explicit plate value
+        always wins (an explicit `null` counts as unset, see
+        :meth:`PlateSpec._drop_null_clearances`); plates that omit
+        `rotation_preference` inherit the job-level value. The job packs one
+        rotation policy per plate, so the packer reads the plate value and
+        never has to look the job value up.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.plates is None or self.rotation_preference is None:
+            return self
+        updated_plates: list[PlateSpec] = []
+        for plate in self.plates:
+            if "rotation_preference" not in plate.model_fields_set:
+                updated_plates.append(
+                    plate.model_copy(update={"rotation_preference": self.rotation_preference})
+                )
+            else:
+                updated_plates.append(plate)
+        self.plates = updated_plates
+        return self
+
+    @model_validator(mode="after")
+    def _apply_job_level_plate_fill(self) -> JobSpec:
+        """Cascade the job-level plate-fill preference onto plates that omit it.
+
+        Mirrors :meth:`_apply_job_level_rotation_preference`: an explicit plate
+        value always wins, plates that omit `plate_fill` inherit the job-level
+        value, so a packing pass reads the plate value and never has to look the
+        job value up.
+
+        Returns:
+            Self for method chaining.
+        """
+        if self.plates is None or self.plate_fill is None:
+            return self
+        updated_plates: list[PlateSpec] = []
+        for plate in self.plates:
+            if "plate_fill" not in plate.model_fields_set:
+                updated_plates.append(plate.model_copy(update={"plate_fill": self.plate_fill}))
+            else:
+                updated_plates.append(plate)
+        self.plates = updated_plates
+        return self
+
+    @model_validator(mode="after")
+    def _reject_fill_axis_preference_with_simple_layout(self) -> JobSpec:
+        """Reject an explicit `rotation_preference: fill_axis` on a simple layout.
+
+        The simple grid-fill modes place every label unrotated by definition,
+        so a fill-order rotation preference asks for a rotation that cannot
+        happen. The rule reads the same way as
+        :meth:`_reject_rotation_with_simple_layout`: only an *explicit* value
+        counts (job layer, incl. a `job-config.json` injection). `minimize` is
+        never rejected -- it is exactly what a simple layout already does
+        (engrave everything upright), which is why a shop default of 'minimize'
+        injects cleanly into a simple-layout job.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If a simple layout (job-level or any plate-level
+                override) is combined with an explicit
+                `rotation_preference: fill_axis`.
+        """
+        declared = [self.layout, *(plate.layout for plate in self.plates or [])]
+        layouts = {mode for mode in declared if mode is not None and mode in SIMPLE_LAYOUT_MODES}
+        if not layouts:
+            return self
+        if (
+            "rotation_preference" in self.model_fields_set
+            and self.rotation_preference is RotationPreference.FILL_AXIS
+        ):
+            simple = ", ".join(sorted(mode.value for mode in layouts))
+            raise ValueError(
+                f"layout '{simple}' never rotates labels (simple grid fill), so a "
+                "fill-order rotation preference does nothing here. Remove the "
+                "`rotation_preference` declaration, or set it to 'minimize' "
+                "(the preference a simple layout already satisfies)."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_label_order_with_bin_packing_layout(self) -> JobSpec:
+        """Reject a label `order` on a job that does not grid-fill every plate.
+
+        `order` is a placement rank, and only the simple grid-fill engine
+        places labels in a declared sequence. ``rectpack`` sorts rectangles by
+        area and ranks the layouts it produces by used material (see
+        :data:`~plt_optimizer.generate.packing.layout.PACK_CONFIGS`), so a rank
+        handed to it is thrown away; the ellipse packer places round labels by
+        adjacency and does the same. Declaring `order` where it cannot be
+        honoured asks for an engraving sequence the packer cannot produce, so
+        it is rejected rather than quietly ignored -- the shop reads `order` as
+        an instruction about which label gets engraved, not as a hint.
+
+        Every layout in play must be a simple mode: the job value (the default
+        `columns` counts when unset) and each plate override, because a mixed
+        job packs one declaration-ordered pass per mode and a rank spanning two
+        engines has no defined meaning.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: If any label declares `order` while the job layout, or
+                any plate override, is not a simple grid-fill mode.
+        """
+        ranked = [
+            label.id
+            for label in self.labels or []
+            if "order" in label.model_fields_set and label.order is not None
+        ]
+        if not ranked:
+            return self
+        declared = [
+            (mode or DEFAULT_LAYOUT_MODE)
+            for mode in (self.layout, *(p.layout for p in self.plates or []))
+        ]
+        bin_packed = sorted({mode.value for mode in declared if mode not in SIMPLE_LAYOUT_MODES})
+        if bin_packed:
+            raise ValueError(
+                f"label(s) {', '.join(ranked)} declare 'order', which only the "
+                "simple grid-fill layouts ('columns-simple' / 'rows-simple') "
+                f"honour: this job packs with {', '.join(bin_packed)}, where "
+                "placement is ranked by used material and a declared order is "
+                "discarded. Set the layout to a '*-simple' mode, or remove "
+                "'order'."
             )
         return self
 

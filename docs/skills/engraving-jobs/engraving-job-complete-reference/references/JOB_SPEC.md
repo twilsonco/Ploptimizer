@@ -141,6 +141,8 @@ they are no longer auto-sized from rendered content.
 | `allow_rotation` | bool | `true` | — | Allow the bin packer to rotate labels 90 degrees (clockwise at assembly) for tighter layouts. Rotation also follows the `layout` fill order: at equal used material a label stands upright in 'columns' and lies along the width in 'rows'. Set false to keep every label horizontal. |
 | `text_chunk_mode` | `line` \| `word` | `"line"` | — | Plate-space text optimization granularity: 'line' routes each text line as one node (default); 'word' routes each whitespace-delimited word separately. |
 | `layout` | LayoutMode | `"columns"` | — | Preferential plate fill order: 'columns' (default) fills the plate height before extending rightward; 'rows' fills width before extending downward. With bin packing the fill order also picks the orientation: at equal used material a label stands upright in 'columns' and lies along the width in 'rows' (see `allow_rotation`). 'columns-simple'/'rows-simple' bypass bin packing with a flush grid fill in content order (no rotation; incompatible with an explicit `allow_rotation: true`). |
+| `rotation_preference` | RotationPreference | `"fill_axis"` | — | Ranking preference between packings that fit: 'fill_axis' (default) follows the `layout` fill order, so rotation is a tool of the fill order (a label stands upright in 'columns' and lies along the width in 'rows'); 'minimize' takes the fewest rotated labels, so the job engraves upright whenever that costs no extra plate material. Both rank used material first, so rotation never buys material. Cascades job -> plate -> layout plan, and is inert on the simple grid layouts (they never rotate). |
+| `plate_fill` | PlateFill | `"plate_major"` | — | Ranking preference between layouts that cost the same plate material: 'plate_major' (default) saturates the first plate, then the next, so the leading run of same-size labels fills a sheet completely and the job engraves whole sheets; 'global' ranks the whole layout at once (lift the least-filled plate, then minimize the total ink bounding box) -- the historical behaviour. Both rank plate material first, so a saturated first plate never costs an extra sheet. Under 'plate_major' the matching flush grid ('columns' -> 'columns-simple', 'rows' -> 'rows-simple') also competes as a layout candidate, which is what turns an exact grid-fit run into a 100 % plate. Cascades job -> plate -> layout plan. |
 | `left_clearance` | float \| null | null (unset) | >=0 | Job-level default plate left-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `top_clearance` | float \| null | null (unset) | >=0 | Job-level default plate top-edge clearance in inches (cascades job -> plate; an explicit plate value, including 0.0, wins). |
 | `material_weight_per_square_inch` | float \| null | null (unset) | >=0 | Job-level default material weight per square inch in pounds (lb/in2), cascades job -> plate (an explicit plate value, including 0.0, wins) and is never label-level. Reports the estimated weight of engraved labels; unset means weight is not estimated. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb). |
@@ -227,6 +229,8 @@ Specification for a plate (material sheet) to cut labels from.
 | `counter_suffix` | str \| null | null (unset) | — | Enumerated-list counter suffix (schema parity; not applied at plate level). |
 | `list_marker_gap_fraction` | float \| null | null (unset) | >=0 | List marker-to-text gap as a fraction of cap height (schema parity; not applied at plate level). |
 | `layout` | LayoutMode \| null | null (unset) | — | Per-plate fill-order override (None = inherit the job layout). Simple modes ('columns-simple'/'rows-simple') grid-fill this plate without bin packing and never rotate labels. |
+| `rotation_preference` | RotationPreference \| null | null (unset) | — | Per-plate rotation-ranking override (None = inherit the job value): 'fill_axis' lets the plate's fill order rotate labels, 'minimize' takes the fewest rotated labels at equal material. See the job-level `rotation_preference`. |
+| `plate_fill` | PlateFill \| null | null (unset) | — | Per-plate-group fill-ranking override (None = inherit the job value): 'plate_major' saturates the first plate at equal plate material, 'global' ranks the whole layout (historical). See the job-level `plate_fill`. One packing pass ranks by exactly one policy, so a pool of plates must agree. |
 | `material` | str \| null | null (unset) | — | Stock material this plate is cut from (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> plate (an explicit plate value wins). A plate carries exactly one material: labels whose material matches pack onto it and no other material shares it. A plate that omits material (`null`) is claimed by one material group. Comparison trims whitespace and ignores case. |
 | `material_weight_per_square_inch` | float \| null | null (unset) | >=0 | Material weight per square inch in pounds (lb/in2), used only to estimate the weight of the labels engraved on this plate; cascades job -> plate (an explicit plate value, including 0.0, wins) and is never label-level. 0.00260417 is the shop's 16x24 sheet (approx. 1 lb per sheet). Unset (`null`) everywhere means weight is not estimated (reported as null, never as 0). |
 | `replacement_text_file` | str \| null | null (unset) | — | Path to an EngraveLab/Vision Pro-style replacement text file. Each line produces one label packed onto this plate only. |
@@ -350,6 +354,7 @@ A label may be defined in one of two ways:
 | `replacement_text_file_comment_string` | str \| null | null (unset) | — | Comment marker for replacement file lines: a line whose whitespace-stripped text starts with this string is dropped (it produces no label copy) and reported in a per-file WARNING. Unset inherits the plate/job cascade (fallback '# '; job-config.json supplies the shop default); an explicit '' disables comment handling (every non-blank line is raw data; blank lines are still dropped). Requires `replacement_text_file`. |
 | `replacement_text_file_allow_blank_lines` | bool \| null | null (unset) | — | Allow whitespace-only lines in a replacement text file to produce blank labels with no drill holes. When enabled (true), such lines produce instances with empty content and no holes (even if the label definition specifies holes). When disabled (false), blank lines are dropped with a warning. Cascades label -> job; unset (`null`) falls back to `job-config.json` then `true`. Requires `replacement_text_file`. |
 | `plate_id` | str \| null | null (unset) | — | Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion. |
+| `order` | int \| null | null (unset) | — | Placement rank on the plate, honoured by the simple grid-fill modes ('columns-simple' / 'rows-simple') only: the lowest value is placed first (the head of the first plate) and the rest follow ascending, so a job decides which label sits at the head of the sheet and the reading/emission order of every label after it. Labels that omit it keep declaration order and place after every declared rank; equal ranks keep declaration order; all instances of a `count` / `replacement_text_file` label keep their own expansion order. Rejected on a job that bin packs ('columns' / 'rows'): that engine ranks layouts by used material, so a declared placement sequence would be silently discarded. Round labels place through the ellipse packer, which packs by adjacency, and ignore it. |
 
 ### `ContentEntry`
 
@@ -788,6 +793,32 @@ and makes the collision checks measure the ellipse boundary.
 |---|---|
 | `rect` | Rectangular label boundary. |
 | `round` | Elliptical (round) label boundary. |
+
+### `PlateFill`
+
+Enumeration of how a multi-plate layout is ranked once material ties.
+
+Both policies rank total plate material first, so no layout is accepted for
+spreading labels over more plates. What they disagree about is the tie
+between layouts that cost the same material:
+
+| Value | Description |
+|---|---|
+| `global` | Rank the layout as one whole -- least-filled plate lifted (max-min), then total ink bounding box. Fragments less material in total, and will accept a 99 % first plate with a 7-label tail when the tail lets the last plate pack tighter. |
+| `plate_major` |  |
+
+### `RotationPreference`
+
+Enumeration of what breaks the tie between packings that fit.
+
+Every packing candidate is ranked by used plate material first, so a label
+is never rotated to buy material. The preference decides the tie between
+candidates that cost the same material:
+
+| Value | Description |
+|---|---|
+| `fill_axis` |  |
+| `minimize` | Take the fewest rotated labels, so a job engraves upright whenever that costs no extra material. The fill order still separates equally-rotated layouts, so plates stay unfragmented. |
 
 ## Resolved fallback defaults
 

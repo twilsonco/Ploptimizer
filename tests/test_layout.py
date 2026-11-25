@@ -37,6 +37,7 @@ def _make_label(
     height: float = 1.0,
     count: int = 1,
     margin: float = 0.0,
+    order: Optional[int] = None,
 ) -> ResolvedLabel:
     """Helper to create a ResolvedLabel with minimal boilerplate."""
     return ResolvedLabel(
@@ -47,6 +48,7 @@ def _make_label(
         margin=margin,
         h_margin=margin,
         v_margin=margin,
+        order=order,
         content=[
             ResolvedTextLine(
                 text="X",
@@ -511,10 +513,10 @@ class TestRotationDemoExample:
     """Regression tests for tests_deps/rotation_demo_job.yaml.
 
     The example is the hand-crafted rotation fixture: its 24x10 scrap sheet
-    only fits every label when the packer rotates, and its equal-footprint
+    only fit every label when the packer rotated, and its equal-footprint
     regions must stay horizontal. The fixture pins ``layout: rows`` (the
-    historical width-first fill) because its banner-must-rotate and abort
-    expectations are row-frame specific.
+    historical width-first fill) because its banner-must-rotate expectation is
+    row-frame specific.
     """
 
     def _load(self) -> tuple[list[ResolvedLabel], JobSpec]:
@@ -544,11 +546,29 @@ class TestRotationDemoExample:
         # Equal-footprint regions (the 10x6 machine cards) stay horizontal.
         assert not any(pl.label_id.startswith("machine_card") and pl.rotated for pl in packed)
 
-    def test_example_aborts_without_rotation(self) -> None:
-        """allow_rotation=False cannot fit the job on the provided plates."""
+    def test_dual_axis_fits_the_fixture_without_rotation(self) -> None:
+        """The column axis fits the same two plates with zero rotations.
+
+        This fixture used to *require* rotation: its 11"-tall banners only
+        fitted lying down on the 10" scrap sheet, so ``allow_rotation=False``
+        raised ``LayoutFitError``. Searching the column axis as its own plan
+        (U1') tiles them upright instead, so the rotation-free job is now a fit
+        - measured ``sheet_2`` 51.8 % and ``scrap_24x10`` 50.0 % covered, 14
+        labels, 0 rotated. The rotation-on plan is denser on the first sheet
+        (82.9 %), which is why ``prefer_less_rotation`` defaults to false: the
+        scorer, not the axis, decides between them.
+        """
+
         labels, job = self._load()
-        with pytest.raises(LayoutFitError, match="Could only fit"):
-            generate_layout(labels, job.plates, allow_rotation=False, layout=job.layout)
+        plans = generate_layout(
+            labels,
+            job.plates,
+            allow_rotation=False,
+            layout=job.layout,
+        )
+        packed = [pl for p in plans for pl in p.labels]
+        assert len(packed) == 14
+        assert not any(pl.rotated for pl in packed)
 
 
 class TestColumnsDemoExample:
@@ -2233,6 +2253,10 @@ class TestSimpleLayout:
     left-to-right then downward), flush, never rotated. A column spans the
     widest label it received (a row the tallest), fixed for its whole
     length. Round labels are exempt (they keep the ellipse pipeline).
+
+    A label may declare ``order`` to jump the content queue (see
+    :attr:`plt_optimizer.generate.schema.LabelSpec.order`); the
+    ``TestSimpleLayoutOrder`` group below pins that.
     """
 
     @staticmethod
@@ -2524,14 +2548,210 @@ class TestSimpleLayout:
         assert math.isclose(bbox_h, 16.0)
 
 
+class TestSimpleLayoutOrder:
+    """``order`` drives the fill sequence of the ``*-simple`` grid engines.
+
+    The grid engines place one label at a time, so a declared rank is an exact
+    instruction: the lowest rank takes the head of the first plate. Labels that
+    omit ``order`` keep declaration order and place after every declared rank,
+    so a job that declares nothing packs byte-identically to before.
+    """
+
+    @staticmethod
+    def _scrap(width: float = 24.0, height: float = 16.0) -> list[PlateSpec]:
+        """A zero-clearance plate of the given size."""
+        return [PlateSpec(id="scrap", width=width, height=height)]
+
+    @staticmethod
+    def _ids(plate: object) -> list[str]:
+        """The plate's placements in fill order."""
+        return [p.label_id for p in plate.labels]  # type: ignore[attr-defined]
+
+    def test_order_places_the_lowest_rank_at_the_head(self) -> None:
+        """Declared ranks reorder the fill: b(1), c(2), a(3) down column 1."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0, count=2, order=3),
+            _make_label(label_id="b", width=3.0, height=1.0, count=2, order=1),
+            _make_label(label_id="c", width=3.0, height=1.0, count=2, order=2),
+        ]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert len(plates) == 1
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["b_0"] == pytest.approx((0.0, 0.0))
+        assert positions["b_1"] == pytest.approx((0.0, 1.0))
+        assert positions["c_0"] == pytest.approx((0.0, 2.0))
+        assert positions["c_1"] == pytest.approx((0.0, 3.0))
+        assert positions["a_0"] == pytest.approx((0.0, 4.0))
+        assert positions["a_1"] == pytest.approx((0.0, 5.0))
+
+    def test_unset_labels_place_last_in_declaration_order(self) -> None:
+        """Sparse rank: the one declared label leads, the rest keep content order."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0),
+            _make_label(label_id="b", width=3.0, height=1.0, order=5),
+            _make_label(label_id="c", width=3.0, height=1.0),
+        ]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["b_0"] == pytest.approx((0.0, 0.0))
+        assert positions["a_0"] == pytest.approx((0.0, 1.0))
+        assert positions["c_0"] == pytest.approx((0.0, 2.0))
+
+    def test_large_rank_still_beats_an_unset_label(self) -> None:
+        """A rank is absolute: 9999 beats an omitted ``order``, not content order."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0),
+            _make_label(label_id="b", width=3.0, height=1.0, order=9999),
+        ]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["b_0"] == pytest.approx((0.0, 0.0))
+        assert positions["a_0"] == pytest.approx((0.0, 1.0))
+
+    def test_equal_ranks_keep_declaration_order(self) -> None:
+        """A rank tie is broken by content order, never by id or size."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0, order=1),
+            _make_label(label_id="b", width=3.0, height=1.0, order=1),
+            _make_label(label_id="c", width=3.0, height=1.0, order=0),
+        ]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert self._ids(plates[0]) == ["c_0", "a_0", "b_0"]
+
+    def test_negative_rank_places_first(self) -> None:
+        """``order`` is a plain int: a negative rank leads."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0),
+            _make_label(label_id="b", width=3.0, height=1.0, order=0),
+            _make_label(label_id="c", width=3.0, height=1.0, order=-5),
+        ]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert self._ids(plates[0]) == ["c_0", "b_0", "a_0"]
+
+    def test_count_instances_stay_contiguous_in_expansion_order(self) -> None:
+        """A ranked label's ``count`` instances keep their order, as one block."""
+        labels = [
+            _make_label(label_id="u", width=3.0, height=1.0, count=2),
+            _make_label(label_id="t", width=3.0, height=1.0, count=3, order=0),
+        ]
+        plates = generate_layout(
+            labels, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS_SIMPLE
+        )
+
+        assert self._ids(plates[0]) == ["t_0", "t_1", "t_2", "u_0", "u_1"]
+
+    def test_rows_simple_honours_order(self) -> None:
+        """The rank drives the row-major fill the same way."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0, order=2),
+            _make_label(label_id="b", width=3.0, height=1.0, order=1),
+        ]
+        plates = generate_layout(
+            labels,
+            self._scrap(width=10.0),
+            allow_rotation=False,
+            layout=LayoutMode.ROWS_SIMPLE,
+        )
+
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        assert positions["b_0"] == pytest.approx((0.0, 0.0))
+        assert positions["a_0"] == pytest.approx((3.0, 0.0))
+
+    def test_order_decides_which_plate_a_label_lands_on(self) -> None:
+        """The rank cascades across plates: the head label is on plate 1."""
+        labels = [
+            _make_label(label_id="a", width=3.0, height=1.0, count=5),
+            _make_label(label_id="z", width=3.0, height=1.0, count=2, order=0),
+        ]
+        # A 3x6 plate hosts exactly one column of six 1"-tall labels, so the
+        # plate boundary lands mid-sequence: z_0/z_1 + a_0..a_3, then a_4.
+        plates = generate_layout(
+            labels,
+            [
+                PlateSpec(id="s1", width=3.0, height=6.0),
+                PlateSpec(id="s2", width=3.0, height=6.0),
+            ],
+            allow_rotation=False,
+            layout=LayoutMode.COLUMNS_SIMPLE,
+        )
+
+        assert [p.plate_id for p in plates] == ["s1", "s2"]
+        assert self._ids(plates[0]) == ["z_0", "z_1", "a_0", "a_1", "a_2", "a_3"]
+        assert self._ids(plates[1]) == ["a_4"]
+
+    def test_order_does_not_disturb_the_widest_column_rule(self) -> None:
+        """Re-ranking changes the sequence, not the geometry: columns span their widest label."""
+        labels = [
+            _make_label(label_id="s", width=3.0, height=1.0, count=3, order=1),
+            _make_label(label_id="l", width=4.0, height=1.0, count=4),
+        ]
+        plates = generate_layout(
+            labels,
+            self._scrap(width=24.0, height=4.0),
+            allow_rotation=False,
+            layout=LayoutMode.COLUMNS_SIMPLE,
+        )
+
+        positions = {p.label_id: (p.x, p.y) for p in plates[0].labels}
+        # The ranked small labels take the column head; the column stays fixed
+        # to the widest label it received (4"), so column 2 opens at x = 4.
+        assert positions["s_0"] == pytest.approx((0.0, 0.0))
+        assert positions["l_0"] == pytest.approx((0.0, 3.0))
+        assert positions["l_1"] == pytest.approx((4.0, 0.0))
+
+    def test_order_is_inert_for_bin_packing_modes(self) -> None:
+        """The packer never reads the rank, only the grid engines do.
+
+        Defense in depth behind the schema gate: a ``ResolvedLabel`` carrying a
+        rank (built directly, bypassing validation) must leave a ``columns``
+        layout untouched, so a rank can never leak into the heuristic
+        ensemble's material ranking.
+        """
+        plain = [
+            _make_label(label_id="a", width=3.0, height=1.0, count=2),
+            _make_label(label_id="b", width=3.0, height=1.0, count=2),
+        ]
+        ranked = [
+            _make_label(label_id="a", width=3.0, height=1.0, count=2, order=7),
+            _make_label(label_id="b", width=3.0, height=1.0, count=2, order=1),
+        ]
+        before = generate_layout(
+            plain, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS
+        )
+        after = generate_layout(
+            ranked, self._scrap(), allow_rotation=False, layout=LayoutMode.COLUMNS
+        )
+
+        assert _plate_bbox(before[0]) == _plate_bbox(after[0])
+        assert {p.label_id: (p.x, p.y) for p in before[0].labels} == {
+            p.label_id: (p.x, p.y) for p in after[0].labels
+        }
+
+
 class TestPackSimpleGridUnit:
     """Direct unit coverage of the simple grid engine's edges."""
 
     @staticmethod
     def _entry(
         index: int, width: float, height: float
-    ) -> tuple[float, float, tuple[str, object, float, int]]:
-        return (width, height, (f"e{index}", None, width, index))
+    ) -> tuple[float, float, tuple[str, ResolvedLabel, float, int]]:
+        # A real ResolvedLabel, not None: the engine reads the label's ``order``.
+        return (width, height, (f"e{index}", _make_label(f"e{index}", width, height), width, index))
 
     def test_rejects_non_simple_mode(self) -> None:
         from plt_optimizer.generate.packing.simple_grid import pack_simple_grid

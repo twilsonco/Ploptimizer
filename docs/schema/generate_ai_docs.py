@@ -269,6 +269,8 @@ _CONFIG_GROUP_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "plates-layout-and-packing": (
         "allow_rotation",
+        "rotation_preference",
+        "plate_fill",
         "text_chunk_mode",
         "layout",
         "plate_width",

@@ -2709,6 +2709,7 @@ class ResolvedLabel:
     hole_cutter_buffer: float = DEFAULT_CUTTER_BUFFER_ROUTING
     text_chunk_mode: str = "line"
     plate_id: Optional[str] = None
+    order: Optional[int] = None
     material: Optional[str] = None
     use_baseline_spacing: bool = DEFAULT_USE_BASELINE_SPACING
     v_center_by_content: bool = DEFAULT_V_CENTER_BY_CONTENT
@@ -5795,6 +5796,13 @@ def _resolve_label(
     # LabelSpec.plate_id); a root-level job has no plate_id attribute.
     label_plate_id: Optional[str] = getattr(label_input, "plate_id", None)
 
+    # Placement rank for the simple grid-fill modes (explicit LabelSpec.order;
+    # `None` = unset). Read verbatim by
+    # :func:`plt_optimizer.generate.packing.simple_grid.pack_simple_grid` -- no
+    # cascade applies, since a job-level default would silently reorder every
+    # label of a job that declares none.
+    label_order: Optional[int] = getattr(label_input, "order", None)
+
     # Stock material (cascades label -> job; both tiers carry the field, so
     # a root-level job masquerading as a label resolves to its own value).
     # `None` stays `None`: unset labels group with the job-level material
@@ -6002,6 +6010,7 @@ def _resolve_label(
         balanced_centering_hole_border_factor=label_balance_factor,
         text_chunk_mode=label_text_chunk_mode,
         plate_id=label_plate_id,
+        order=label_order,
         material=label_material,
         use_baseline_spacing=label_use_baseline_spacing,
         v_center_by_content=label_v_center_by_content,

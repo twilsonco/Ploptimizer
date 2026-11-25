@@ -80,6 +80,24 @@
       "title": "LayoutMode",
       "type": "string"
     },
+    "PlateFill": {
+      "description": "Enumeration of how a multi-plate layout is ranked once material ties.\n\nBoth policies rank total plate material first, so no layout is accepted for\nspreading labels over more plates. What they disagree about is the tie\nbetween layouts that cost the same material:\n\nAttributes:\n    GLOBAL: Rank the layout as one whole -- least-filled plate lifted\n        (max-min), then total ink bounding box. Fragments less material in\n        total, and will accept a 99 % first plate with a 7-label tail when\n        the tail lets the last plate pack tighter.\n    PLATE_MAJOR: Saturate the first plate, then the next (a banded\n        plate-major fill vector). The leading run of same-size labels fills\n        a sheet completely -- 128 3x1 tags on a 24x16 sheet, 100 % -- so one\n        full sheet is engraved and one short sheet is left, which is what the\n        shop runs. Plate material still leads the ranking, so a saturated\n        first plate never buys an extra sheet.",
+      "enum": [
+        "global",
+        "plate_major"
+      ],
+      "title": "PlateFill",
+      "type": "string"
+    },
+    "RotationPreference": {
+      "description": "Enumeration of what breaks the tie between packings that fit.\n\nEvery packing candidate is ranked by used plate material first, so a label\nis never rotated to buy material. The preference decides the tie between\ncandidates that cost the same material:\n\nAttributes:\n    FILL_AXIS: Follow the `layout` fill order, so rotation is a tool of the\n        fill order (a label stands upright in `columns` and lies along the\n        width in `rows`). The historical behaviour.\n    MINIMIZE: Take the fewest rotated labels, so a job engraves upright\n        whenever that costs no extra material. The fill order still\n        separates equally-rotated layouts, so plates stay unfragmented.",
+      "enum": [
+        "fill_axis",
+        "minimize"
+      ],
+      "title": "RotationPreference",
+      "type": "string"
+    },
     "TextHAlignment": {
       "description": "Enumeration of valid horizontal text alignment modes for a text line.\n\nThe alignment anchors the rendered line within the label's inner content\narea (label width minus both margins). `left` places the line's\nleft-most point precisely at the left margin; `right` places the\nline's right-most point precisely at the right margin; `center`\n(the default) centers the line horizontally.\n\nAttributes:\n    LEFT: Align text to the left margin.\n    CENTER: Center text horizontally.\n    RIGHT: Align text to the right margin.",
       "enum": [
@@ -1094,6 +1112,30 @@
       ],
       "default": null,
       "description": "Default plate fill order (job layer)."
+    },
+    "rotation_preference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RotationPreference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default rotation ranking (job layer): 'fill_axis' lets the fill order rotate labels, 'minimize' takes the fewest rotated labels at equal plate material."
+    },
+    "plate_fill": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlateFill"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Default plate-fill ranking (job layer): 'plate_major' saturates the first plate at equal plate material (and lets the matching flush grid compete as a layout candidate), 'global' ranks the whole layout at once (the historical behaviour)."
     },
     "replacement_text_delimiter": {
       "anyOf": [

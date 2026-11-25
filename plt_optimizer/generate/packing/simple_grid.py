@@ -18,6 +18,13 @@ opens the next plate (leftover entries surface through the caller's
 Round labels are exempt from this engine: :mod:`plt_optimizer.generate.packing.layout`
 routes them to the ellipse pipeline regardless of the fill-order mode.
 
+A label may declare ``order`` to take over the head of that sequence (see
+:attr:`plt_optimizer.generate.schema.LabelSpec.order`): entries are ranked by
+their label's declared ``order`` ascending, then by content order, so the
+lowest rank takes the plate's first slot and labels that declare nothing keep
+the historical behavior. ``order`` is honoured here and nowhere else, which is
+why the schema rejects it on a bin-packed job.
+
 The engine consumes the same ``_RectEntry`` tuples the ``rectpack`` passes
 build (real space, no transposition) and emits the same
 :class:`~plt_optimizer.generate.packing.layout.PackedPlate` /
@@ -40,6 +47,34 @@ from plt_optimizer.generate.schema import LayoutMode
 # cursor offsets, so an exact stack of e.g. 16 x 1.0in labels can sum to
 # 16.000000000000002; a strict ">" would then open a phantom column.
 _FIT_EPS: float = 1e-9
+
+
+def _placement_rank(entry: _RectEntry) -> tuple[int, int, int]:
+    """Build the fill-order rank of one entry (see ``LabelSpec.order``).
+
+    Labels declaring ``order`` fill the plate first, ascending; labels that
+    omit it follow in content order, so a job that declares nothing reproduces
+    the historical pure content order exactly. Equal ranks keep content order.
+
+    Args:
+        entry: The ``(width, height, rid)`` tuple being ranked. The rid
+            payload carries the source label (for its declared ``order``) and
+            the pre-pack content index, which is why a label's own ``count`` /
+            ``replacement_text_file`` instances keep their expansion order.
+            The source label is optional — synthetic entries built straight in
+            tests (and any future caller that only needs geometry) carry no
+            label, so they read as undeclared.
+
+    Returns:
+        A ``(declared, order, content_index)`` key: declared ranks sort
+        ahead of undeclared ones, declared ranks by value, everything else by
+        content index.
+    """
+    _width, _height, (_rect_id, source_label, _pack_width, seq) = entry
+    order = source_label.order if source_label is not None else None
+    if order is None:
+        return (1, 0, seq)
+    return (0, order, seq)
 
 
 def _place(
@@ -94,7 +129,9 @@ def pack_simple_grid(
 
     Args:
         entries: Real-space ``(pack_width, pack_height, rid)`` tuples in
-            content order.
+            content order. Re-ranked by :func:`_placement_rank` before the
+            first placement, so a label declaring ``order`` reaches the head
+            of the sequence (see :attr:`LabelSpec.order`).
         bin_specs: ``(width, height, bid)`` plates sharing this simple
             fill mode, declaration order.
         layout: :attr:`LayoutMode.COLUMNS_SIMPLE` (fill each column
@@ -121,7 +158,8 @@ def pack_simple_grid(
 
     clearance_map: Mapping[str, tuple[float, float]] = clearances or {}
     material_map: Mapping[str, Optional[str]] = materials or {}
-    remaining: list[_RectEntry] = list(entries)
+    # Content order is the fill order, with declared ranks jumping the queue.
+    remaining: list[_RectEntry] = sorted(entries, key=_placement_rank)
     plates: list[PackedPlate] = []
 
     for plate_width, plate_height, bin_id in bin_specs:

@@ -1083,6 +1083,85 @@ def _material_usage(
     }
 
 
+def _layout_usage(
+    packed_plates: Sequence[Any],
+    material_by_plate: Mapping[int, Optional[str]],
+) -> Dict[str, Any]:
+    """Aggregate how much of each plate the layout actually uses.
+
+    The plate's sheet is the material the shop buys, so its span is the usable
+    area plus the left/top clearance strips (the same span
+    :func:`_material_usage` charges for). The envelope is the bounding box of
+    the placements the packer put on the plate, so ``empty_sq_in`` is the sheet
+    outside that envelope: the material a plate carries and nothing is engraved
+    on. ``coverage_pct`` is the engraved area over the sheet, the same ratio the
+    packing benchmark reports, so the report and the harness agree.
+
+    Args:
+        packed_plates: The packed plates, in packing order.
+        material_by_plate: Stock material name per 1-based plate number.
+
+    Returns:
+        The ``usage.layout`` block: one ``by_plate`` row per plate plus the job
+        ``total`` (plate count, rotated placements, empty material).
+    """
+    by_plate: List[Dict[str, Any]] = []
+    total_empty = 0.0
+    total_rotated = 0
+    for number, plate in enumerate(packed_plates, start=1):
+        placements = list(plate.labels)
+        sheet_w = float(plate.left_clearance) + float(plate.width)
+        sheet_h = float(plate.top_clearance) + float(plate.height)
+        sheet = sheet_w * sheet_h
+        used = sum(float(item.width) * float(item.height) for item in placements)
+        if placements:
+            bbox_w = max(float(item.x) + float(item.width) for item in placements) - min(
+                float(item.x) for item in placements
+            )
+            bbox_h = max(float(item.y) + float(item.height) for item in placements) - min(
+                float(item.y) for item in placements
+            )
+            envelope = bbox_w * bbox_h
+        else:
+            envelope = 0.0
+        # A plate can never be more than full: rounding at packing precision
+        # leaves a hair over 100 % coverage / a hair under 0 empty on plates
+        # the packer tiled exactly, which reads as a bug in the report.
+        coverage = min(100.0, used / sheet * 100.0) if sheet > 0.0 else 0.0
+        empty = max(0.0, sheet - envelope)
+        rotated = sum(1 for item in placements if bool(getattr(item, "rotated", False)))
+        total_empty += empty
+        total_rotated += rotated
+        by_plate.append(
+            {
+                "plate": number,
+                "material": material_by_plate.get(number, getattr(plate, "material", None)),
+                "label_instances": sum(
+                    int(placement.source_label.count) for placement in placements
+                ),
+                "sheet_sq_in": _round(sheet),
+                "used_sq_in": _round(used),
+                "envelope_sq_in": _round(envelope),
+                "coverage_pct": _round(coverage),
+                "empty_sq_in": _round(empty),
+                "rotated_labels": rotated,
+            }
+        )
+    sheets = sum(float(row["sheet_sq_in"] or 0.0) for row in by_plate)
+    used_total = sum(float(row["used_sq_in"] or 0.0) for row in by_plate)
+    return {
+        "total": {
+            "plates": len(packed_plates),
+            "rotated_labels": total_rotated,
+            "empty_sq_in": _round(total_empty),
+            "coverage_pct": _round(
+                min(100.0, used_total / sheets * 100.0) if sheets > 0.0 else 0.0
+            ),
+        },
+        "by_plate": by_plate,
+    }
+
+
 @dataclass
 class _WeightBucket:
     """One weight-report bucket: a plate, material, or (spec, plate) pair.
@@ -2811,6 +2890,7 @@ def build_usage_stats(
         "characters": _characters_usage(resolved_labels),
         "holes": _holes_usage(resolved_labels),
         "material": _material_usage(packed_plates, counts_materials, resolved_labels),
+        "layout": _layout_usage(packed_plates, counts_materials),
         "weight": _weight_usage(packed_plates, counts_materials, job_spec),
         "distance": _distance_rows(totals, frames, label_meta),
         "time": _time_rows(totals, frames, label_meta, rates_by_layer or None, file_count),
@@ -2918,9 +2998,40 @@ def format_usage_lines(usage: Mapping[str, Any]) -> List[str]:
     lines.extend(_characters_lines(usage))
     lines.extend(_holes_lines(usage))
     lines.extend(_material_lines(usage))
+    lines.extend(_layout_lines(usage))
     lines.extend(_weight_lines(usage))
     lines.extend(_distance_lines(usage))
     lines.extend(_time_lines(usage))
+    return lines
+
+
+def _layout_lines(usage: Mapping[str, Any]) -> List[str]:
+    """Render the ``usage.layout`` block.
+
+    Args:
+        usage: The ``usage`` block.
+
+    Returns:
+        The section's lines (absent when the run recorded no layout).
+    """
+    layout = usage.get("layout")
+    if not layout:
+        return []
+    total = layout.get("total", {})
+    lines = [
+        f"  layout: {total.get('plates', 0)} {_plural(int(total.get('plates', 0)), 'plate')}  "
+        f"coverage {_fmt3(total.get('coverage_pct'))}%  "
+        f"rotated {total.get('rotated_labels', 0)}  "
+        f"empty {_fmt3(total.get('empty_sq_in'))} in2"
+    ]
+    lines.extend(
+        f"    plate {row.get('plate')}: {row.get('label_instances', 0)} labels  "
+        f"coverage {_fmt3(row.get('coverage_pct'))}%  "
+        f"empty {_fmt3(row.get('empty_sq_in'))} in2  "
+        f"rotated {row.get('rotated_labels', 0)}  "
+        f"[{row.get('material_label') or _material_label(row.get('material'))}]"
+        for row in _rows(usage, "layout", "by_plate")
+    )
     return lines
 
 

@@ -833,6 +833,208 @@ class TestLayoutMode:
         assert job.allow_rotation is False
 
 
+class TestLabelOrderValidation:
+    """``order`` is a simple-layout-only placement rank.
+
+    The grid-fill engines place labels one at a time, so a rank is honoured
+    exactly there; ``rectpack`` ranks layouts by used material and discards a
+    declared sequence, so the schema rejects the combination instead of
+    ignoring it.
+    """
+
+    @staticmethod
+    def _write(tmp_path: Path, name: str, body: str) -> Path:
+        """Write a spec file and return its path."""
+        path = tmp_path / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_order_parses_on_labels(self, tmp_path: Path) -> None:
+        """A simple-layout job reads integer ranks off its labels."""
+        path = self._write(
+            tmp_path,
+            "order_parse.yaml",
+            "job:\n"
+            "  name: 'OrderParse'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: 3\n"
+            "      content:\n"
+            "        - text: 'A'\n"
+            "    - id: b\n"
+            "      count: 1\n"
+            "      content:\n"
+            "        - text: 'B'\n",
+        )
+        job = parse_yaml(path)
+        assert job.labels is not None
+        assert job.labels[0].order == 3
+        assert job.labels[1].order is None
+
+    def test_negative_rank_parses(self, tmp_path: Path) -> None:
+        """``order`` is a signed int, not a positive-only counter."""
+        path = self._write(
+            tmp_path,
+            "order_negative.yaml",
+            "job:\n"
+            "  name: 'OrderNegative'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: rows-simple\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: -1\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        job = parse_yaml(path)
+        assert job.labels is not None
+        assert job.labels[0].order == -1
+
+    def test_order_rejected_on_the_default_bin_packing_layout(self, tmp_path: Path) -> None:
+        """An unset layout defaults to `columns` (bin packing): `order` is rejected."""
+        path = self._write(
+            tmp_path,
+            "order_default.yaml",
+            "job:\n"
+            "  name: 'OrderDefault'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: 1\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="only the\n?.*simple"):
+            parse_yaml(path)
+
+    def test_order_rejected_on_explicit_bin_packing_layout(self, tmp_path: Path) -> None:
+        """`layout: rows` bin packs, so a declared placement sequence is refused."""
+        path = self._write(
+            tmp_path,
+            "order_rows.yaml",
+            "job:\n"
+            "  name: 'OrderRows'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: rows\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: 1\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="discarded"):
+            parse_yaml(path)
+
+    def test_order_rejected_when_one_plate_bin_packs(self, tmp_path: Path) -> None:
+        """A mixed job is refused: a rank spanning both engines has no meaning."""
+        path = self._write(
+            tmp_path,
+            "order_mixed.yaml",
+            "job:\n"
+            "  name: 'OrderMixed'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "    - id: p2\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      layout: rows-simple\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: 1\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="columns"):
+            parse_yaml(path)
+
+    def test_order_accepted_when_every_plate_is_simple(self, tmp_path: Path) -> None:
+        """Job and plate layouts all grid-fill: the rank is honoured everywhere."""
+        path = self._write(
+            tmp_path,
+            "order_all_simple.yaml",
+            "job:\n"
+            "  name: 'OrderAllSimple'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      layout: rows-simple\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: 2\n"
+            "      content:\n"
+            "        - text: 'A'\n"
+            "    - id: b\n"
+            "      count: 1\n"
+            "      order: 1\n"
+            "      content:\n"
+            "        - text: 'B'\n",
+        )
+        job = parse_yaml(path)
+        assert job.labels is not None
+        assert [label.order for label in job.labels] == [2, 1]
+
+    def test_explicit_null_order_is_allowed_on_a_bin_packed_job(self, tmp_path: Path) -> None:
+        """`order: null` declares nothing, so it cannot ask for a discarded order."""
+        path = self._write(
+            tmp_path,
+            "order_null.yaml",
+            "job:\n"
+            "  name: 'OrderNull'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      order: null\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        job = parse_yaml(path)
+        assert job.labels is not None
+        assert job.labels[0].order is None
+
+    def test_order_rejection_names_the_offending_label(self, tmp_path: Path) -> None:
+        """The message points at the label to fix, not just the rule."""
+        path = self._write(
+            tmp_path,
+            "order_named.yaml",
+            "job:\n"
+            "  name: 'OrderNamed'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  labels:\n"
+            "    - id: head_tag\n"
+            "      count: 1\n"
+            "      order: 0\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="head_tag"):
+            parse_yaml(path)
+
+
 class TestLabelSpecValidation:
     """Additional LabelSpec validation edge cases."""
 
