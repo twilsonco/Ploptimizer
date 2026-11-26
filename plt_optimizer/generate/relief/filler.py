@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 from shapely.geometry import LineString, MultiPolygon, Polygon
-from shapely.geometry.base import BaseGeometry
+from shapely.geometry.base import BaseGeometry, BaseMultipartGeometry
 
 #: Tolerance (inches) for endpoint/link containment tests (well under a
 #: plotter unit: 1/1016 in ~ 0.001).
@@ -140,7 +140,14 @@ def _row_intervals(region: Polygon, y: float) -> List[Tuple[float, float]]:
     line = LineString([(bounds[0] - 1.0, y), (bounds[2] + 1.0, y)])
     cut = region.intersection(line)
     intervals: List[Tuple[float, float]] = []
-    geoms = list(cut.geoms) if cut.geom_type.startswith("Multi") else [cut]
+    # The ``geom_type`` test is the contract (a GeometryCollection is a
+    # multipart geometry in shapely's class tree and is deliberately NOT
+    # expanded here); the ``isinstance`` clause only narrows the type for the
+    # checker, since ``geoms`` lives on BaseMultipartGeometry, not BaseGeometry.
+    if cut.geom_type.startswith("Multi") and isinstance(cut, BaseMultipartGeometry):
+        geoms: List[BaseGeometry] = list(cut.geoms)
+    else:
+        geoms = [cut]
     for geom in geoms:
         if geom.is_empty:
             continue
