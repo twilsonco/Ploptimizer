@@ -1049,7 +1049,7 @@ def _bh_buckets(
         if (
             owner
             and content_map
-            and not _has_pen(content_map[owner], (LAYER_BOUNDARY, LAYER_HOLES))
+            and not _has_pen(content_map.get(owner, ""), (LAYER_BOUNDARY, LAYER_HOLES))
         ):
             continue
         key = (cutter, width, _tool_option_signature(spec, job_config, "borders_holes"))
@@ -1092,7 +1092,10 @@ def _text_buckets(
         per_owner: ``job_key ->`` that job's assembled plate content. Given for
             a mixed plate, it drops jobs that engrave nothing on this pen, so a
             file's job list (and its name) names only real contributors - a pen
-            only one job uses keeps that job's own filename token.
+            only one job uses keeps that job's own filename token. Empty for a
+            plate one job owns outright (its whole sheet is that job's work, so
+            nothing is filtered - and a single-job run has no owner at all), the
+            same contract :func:`_bh_buckets` reads.
 
     Returns:
         One bucket per (pen, header block), in ascending pen order.
@@ -1101,7 +1104,7 @@ def _text_buckets(
     grouped: dict[tuple[int, Tuple[str, ...]], tuple[Optional[JobSpec], List[str]]] = {}
     for pen_id in sorted(layer_by_pen):
         for owner in owners:
-            if owner and not _has_pen(content_map.get(owner, ""), (pen_id,)):
+            if owner and content_map and not _has_pen(content_map.get(owner, ""), (pen_id,)):
                 continue
             spec = _segment_spec(owner, job_spec, layer_specs)
             key = (pen_id, _tool_option_signature(spec, job_config, "text"))

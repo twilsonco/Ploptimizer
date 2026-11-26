@@ -32,13 +32,19 @@ from plt_optimizer.generate.jobset import (
     build_jobset_plan,
     normalize_pinning,
 )
-from plt_optimizer.generate.vectorize import PerCutterExport, export_per_cutter_plts
+from plt_optimizer.generate.vectorize import (
+    PerCutterExport,
+    _text_buckets,
+    export_per_cutter_plts,
+)
 
 FIXTURES = Path("tests_deps")
 REPO_CONFIG = Path("job-config.json")
 
 ALPHA = "Export_Alpha"
 BETA = "Export_Beta"
+SOLO_A = "Solo_Alpha"
+SOLO_B = "Solo_Beta"
 
 
 def _plan(name: str) -> JobSetPlan:
@@ -428,6 +434,90 @@ class TestSingleJobPathIsInert:
 
         assert all(BETA in path.name for path in result.plt_paths)
         assert ALPHA not in "".join(path.name for path in result.plt_paths)
+
+
+class TestSingleOwnerPlateWritesEveryLayer:
+    """A sheet exactly one job owns writes every layer, not just its structure.
+
+    ``jobset_solo.yaml`` is built so member A's short sheet overflows onto B's
+    sheet while B fills its own sheet alone: plate 1 is shared by both jobs and
+    plate 2 belongs to ``Solo_Beta`` outright. The export builds the per-owner
+    content map only for a SHARED plate (on a solo sheet the segment IS the
+    whole plate), so a text bucket must not read that empty map as "this job
+    engraves nothing" - doing so dropped every text layer of the solo sheet,
+    and with it the PDF preview that mirrors each written PLT. The combined
+    ``*_all_*`` proof is assembled separately, which is why the sheet still
+    looked complete in the whole-plate preview.
+    """
+
+    @pytest.fixture()
+    def solo(self, tmp_path: Path) -> Tuple[JobSetPlan, PerCutterExport]:
+        plan = _plan("jobset_solo.yaml")
+        return plan, _export_batch(plan, tmp_path)
+
+    def test_the_batch_holds_one_shared_and_one_solo_plate(
+        self, solo: Tuple[JobSetPlan, PerCutterExport]
+    ) -> None:
+        """The fixture shape this class measures: one mixed sheet, one solo."""
+        plan, result = solo
+
+        assert [context.job_key for context in plan.contexts] == [SOLO_A, SOLO_B]
+        assert result.plate_jobs == {1: (SOLO_A, SOLO_B), 2: (SOLO_B,)}
+
+    def test_a_solo_plate_writes_its_text_layer(
+        self, solo: Tuple[JobSetPlan, PerCutterExport]
+    ) -> None:
+        """Every plate yields a text file, shared sheet or solo sheet.
+
+        Both sheets engrave with the same 0.040 text cutter, so the shared
+        sheet's file names the batch and the solo sheet's names its one owner.
+        """
+        plan, result = solo
+
+        assert plan.jobset_id == "Jobset_Solo"
+        text = sorted(path.name for path in result.plt_paths if "_txt_" in path.name)
+        assert text == ["p01_40_txt_Jobset_Solo.plt", "p02_40_txt_Solo_Beta.plt"], text
+
+    def test_a_solo_layer_is_attributed_to_its_only_owner(
+        self, solo: Tuple[JobSetPlan, PerCutterExport]
+    ) -> None:
+        """Per-file ownership is the record the report and previews read: a
+        shared layer carries both jobs, the solo layer only its own."""
+        result = solo[1]
+
+        owners = {
+            path.name: result.file_jobs[path] for path in result.plt_paths if "_txt_" in path.name
+        }
+        assert owners == {
+            "p01_40_txt_Jobset_Solo.plt": (SOLO_A, SOLO_B),
+            "p02_40_txt_Solo_Beta.plt": (SOLO_B,),
+        }
+
+
+class TestTextBucketOwnershipContract:
+    """An absent ownership map means "not segmented", never "no ink"."""
+
+    @staticmethod
+    def _bucketized(per_owner: Dict[str, str]) -> List[Tuple[str, float, Tuple[str, ...]]]:
+        """One pen (0.060) and one owner, bucketized under ``per_owner``."""
+        buckets = _text_buckets(
+            ("Job_A",),
+            layer_by_pen={1: (0.06, "")},
+            pen_widths={},
+            job_spec=None,
+            layer_specs=None,
+            job_config=None,
+            per_owner=per_owner,
+        )
+        return [(bucket.kind, bucket.cutter, bucket.owners) for bucket in buckets]
+
+    def test_an_empty_owner_map_keeps_the_layer(self) -> None:
+        """A solo sheet's single owner is kept: its whole plate is its work."""
+        assert self._bucketized({}) == [("txt", 0.06, ("Job_A",))]
+
+    def test_a_segmented_owner_that_engraves_nothing_on_the_pen_is_dropped(self) -> None:
+        """Segmentation ON, no stroke on this pen: the owner is still dropped."""
+        assert self._bucketized({"Job_A": ""}) == []
 
 
 def _pinned_pair(tmp_path: Path) -> JobSetPlan:
