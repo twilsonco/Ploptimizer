@@ -3,13 +3,14 @@ job:
   font: helv1
   material: kw
   h_margin: 0.2
-  
+  layout: columns-simple
   labels:
     - id: a case tags
       width: 3
       height: 1
       text_height: 0.75
       replacement_text_file: 2026-11-25 SEER alb 0110 1x3.txt
+      order: 1
       holes:
         - location: sides
     - id: "b 2x4"
@@ -19,10 +20,12 @@ job:
       holes:
         - location: sides
       replacement_text_file: 2026-11-25 SEER alb 0110 2x4.txt
+      order: 2
     - id: c alarm placard
       width: 10
       height: 2
       text_height: 0.5
+      order: 3
       content:
         - text: "REFRIGERATION ALARM"
         - text: "CONTACT STORE MANAGER"

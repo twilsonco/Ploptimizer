@@ -3,7 +3,7 @@ job:
   font: helv1
   material: kw
   h_margin: 0.2
-  
+  layout: columns-simple
   labels:
     - id: "b 2x4"
       width: 4
@@ -12,6 +12,7 @@ job:
       holes:
         - location: sides
       replacement_text_file: 2026-11-25 CES vons 1671 2x4.txt
+      order: 2
     - id: d 7x5.33 placards
       material: kw(uv)
       width: 7
