@@ -7,7 +7,6 @@ job:
   text_height: 0.125
   replacement_text_file: "2026-11-24 ADK 111075 wk 4-line.txt"
   cutter_size: 0.01
-  left_clearance: 3
   content:
     - text: "top line"
       text_height: 0.25

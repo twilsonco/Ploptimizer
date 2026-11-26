@@ -4,7 +4,7 @@ job:
   sc_scale: 1
   material: kw
   h_margin: 0.2
-  layout: columns-simple
+  # layout: columns-simple
   labels:
     - id: a case tags
       width: 3

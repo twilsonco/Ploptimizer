@@ -3,7 +3,6 @@ job:
   font: helv1
   material: kw
   h_margin: 0.2
-  allow_rotation: false
   
   labels:
     - id: "b 2x4"
