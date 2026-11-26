@@ -17,6 +17,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
@@ -28,6 +29,8 @@ from plt_optimizer.generate.font_registry import (
     DEFAULT_FONT_NAME,
     normalize_font_name,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class HoleLocation(str, Enum):
@@ -3350,25 +3353,23 @@ class JobSpec(LabelAttributes):
         return self
 
     @model_validator(mode="after")
-    def _reject_fill_axis_preference_with_simple_layout(self) -> JobSpec:
-        """Reject an explicit `rotation_preference: fill_axis` on a simple layout.
+    def _warn_fill_axis_preference_with_simple_layout(self) -> JobSpec:
+        """Warn (do not reject) a `rotation_preference` a simple layout ignores.
 
         The simple grid-fill modes place every label unrotated by definition,
-        so a fill-order rotation preference asks for a rotation that cannot
-        happen. The rule reads the same way as
-        :meth:`_reject_rotation_with_simple_layout`: only an *explicit* value
-        counts (job layer, incl. a `job-config.json` injection). `minimize` is
-        never rejected -- it is exactly what a simple layout already does
-        (engrave everything upright), which is why a shop default of 'minimize'
-        injects cleanly into a simple-layout job.
+        so a fill-order rotation preference is inert there -- nothing is asked
+        for that cannot happen, the preference simply has no effect. That is
+        why this case only warns while its sibling
+        :meth:`_reject_rotation_with_simple_layout` rejects: `allow_rotation:
+        true` *contradicts* a simple layout, a preference does not.
+
+        Warning instead of rejecting is also what makes a shop-wide default
+        usable. `rotation_preference` is a `job-config.json` default that every
+        job inherits, so rejecting it here failed every `*-simple` job in the
+        shop for a preference its author never declared for that job.
 
         Returns:
             Self for method chaining.
-
-        Raises:
-            ValueError: If a simple layout (job-level or any plate-level
-                override) is combined with an explicit
-                `rotation_preference: fill_axis`.
         """
         declared = [self.layout, *(plate.layout for plate in self.plates or [])]
         layouts = {mode for mode in declared if mode is not None and mode in SIMPLE_LAYOUT_MODES}
@@ -3379,11 +3380,12 @@ class JobSpec(LabelAttributes):
             and self.rotation_preference is RotationPreference.FILL_AXIS
         ):
             simple = ", ".join(sorted(mode.value for mode in layouts))
-            raise ValueError(
-                f"layout '{simple}' never rotates labels (simple grid fill), so a "
-                "fill-order rotation preference does nothing here. Remove the "
-                "`rotation_preference` declaration, or set it to 'minimize' "
-                "(the preference a simple layout already satisfies)."
+            logger.warning(
+                "layout '%s' never rotates labels (simple grid fill), so the "
+                "'fill_axis' rotation preference is ignored for this job. Set "
+                "`rotation_preference: minimize` for this job, or switch its "
+                "`layout` to a packing mode ('rectpack') that honours it.",
+                simple,
             )
         return self
 

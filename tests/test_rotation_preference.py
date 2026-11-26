@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from pydantic import ValidationError
 
 from plt_optimizer.generate.job_config import JobConfigError, load_job_config
 from plt_optimizer.generate.packing import PACK_CONFIGS
@@ -220,10 +219,18 @@ class TestSchemaSurface:
         assert job.plates is not None
         assert job.plates[0].rotation_preference is FILL_AXIS
 
-    def test_explicit_fill_axis_is_rejected_on_a_simple_layout(self) -> None:
-        """A simple grid never rotates, so an explicit ``fill_axis`` is a lie."""
-        with pytest.raises(ValidationError, match="rotation_preference"):
-            _job(layout=LayoutMode.COLUMNS_SIMPLE, rotation_preference=FILL_AXIS)
+    def test_fill_axis_on_a_simple_layout_warns_and_is_ignored(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A simple grid ignores ``fill_axis``; it warns instead of failing.
+
+        The preference is inert on a layout that never rotates, and it is a
+        `job-config.json` default every job inherits, so rejecting it would
+        fail every `*-simple` job in the shop.
+        """
+        job = _job(layout=LayoutMode.COLUMNS_SIMPLE, rotation_preference=FILL_AXIS)
+        assert job.rotation_preference is FILL_AXIS
+        assert "rotation preference is ignored" in caplog.text
 
     def test_simple_layout_accepts_minimize(self) -> None:
         """``minimize`` is a legal declaration on a simple layout (it is a no-op)."""
@@ -234,10 +241,17 @@ class TestSchemaSurface:
 class TestShopDefaults:
     """``job-config.json`` is the shop's layout source of truth."""
 
-    def test_repo_config_prefers_minimize(self) -> None:
-        """The shop default is the fewest-rotations ranking (decision D2)."""
+    def test_repo_config_prefers_a_fill_order_ranking(self) -> None:
+        """The shop config declares a valid fill-order rotation preference.
+
+        The value is a hand-tuned shop knob (AGENTS.md: tests derive from
+        `job-config.json`, they never pin it), so this pins that the file
+        parses and names the ranking the simple layouts cannot honour -- the
+        case the `*-simple` warning exists for.
+        """
         config = load_job_config(JOB_CONFIG)
-        assert config is not None and config.defaults.rotation_preference is MINIMIZE
+        assert config is not None
+        assert config.defaults.rotation_preference in (MINIMIZE, FILL_AXIS)
 
     @pytest.mark.parametrize(
         "spelling,expected",
@@ -310,7 +324,11 @@ class TestBenchmarkHarness:
             tools_path=REPO_ROOT / "tools.json",
         )
         assert unoverridden.job is not None
-        assert unoverridden.job.rotation_preference is MINIMIZE
+        # The shop default flows through untouched (job-config.json is
+        # hand-tuned; the assertion derives from it, never pins it).
+        shop_default = load_job_config(REPO_ROOT / "job-config.json")
+        assert shop_default is not None
+        assert unoverridden.job.rotation_preference is shop_default.defaults.rotation_preference
 
         prepared = module.prepare(
             spec_path,
