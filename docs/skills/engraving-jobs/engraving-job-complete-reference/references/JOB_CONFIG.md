@@ -456,7 +456,7 @@ excluded from the docs byte-pin.
 | `text_chunk_mode` | `line` \| `word` \| null | — | unset | plates-layout-and-packing |
 | `layout` | LayoutMode \| null | — | **set** | plates-layout-and-packing |
 | `rotation_preference` | RotationPreference \| null | — | **set** | plates-layout-and-packing |
-| `plate_fill` | PlateFill \| null | — | unset | plates-layout-and-packing |
+| `plate_fill` | PlateFill \| null | — | **set** | plates-layout-and-packing |
 | `replacement_text_delimiter` | str \| null | — | **set** | replacement-text |
 | `replacement_text_file_comment_string` | str \| null | — | **set** | replacement-text |
 | `replacement_text_file_allow_blank_lines` | bool \| null | — | **set** | replacement-text |

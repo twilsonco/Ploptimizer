@@ -5796,10 +5796,15 @@ def _resolve_label(
     # LabelSpec.plate_id); a root-level job has no plate_id attribute.
     label_plate_id: Optional[str] = getattr(label_input, "plate_id", None)
 
-    # Placement rank for the simple grid-fill modes (explicit LabelSpec.order;
-    # `None` = unset). Read verbatim by
-    # :func:`plt_optimizer.generate.packing.simple_grid.pack_simple_grid` -- no
-    # cascade applies, since a job-level default would silently reorder every
+    # Placement rank for the simple grid-fill modes; `None` = unset. Read
+    # verbatim by
+    # :func:`plt_optimizer.generate.packing.simple_grid.pack_simple_grid`.
+    # There is no cascade: a label's rank is its own, and a job-level rank is
+    # legal only as the single-label shorthand (a job declaring a `labels` list
+    # alongside a job-level `order` is rejected by
+    # :meth:`plt_optimizer.generate.schema.JobSpec._reject_job_level_order_with_labels`),
+    # so this read picks up the job's own value exactly for the root-level job
+    # masquerading as a label -- a cascade there would silently reorder every
     # label of a job that declares none.
     label_order: Optional[int] = getattr(label_input, "order", None)
 

@@ -1575,6 +1575,29 @@ class LabelAttributes(TextAttributes):
             "case; unset (`null`) labels pack with the job-level material."
         ),
     )
+    order: Optional[int] = Field(
+        default=None,
+        description=(
+            "Placement rank on the plate, honoured by the simple grid-fill "
+            "modes ('columns-simple' / 'rows-simple') only: the lowest value "
+            "is placed first (the head of the first plate) and the rest "
+            "follow ascending, so a job decides which label sits at the head "
+            "of the sheet and the reading/emission order of every label "
+            "after it. Labels that omit it keep declaration order and place "
+            "after every declared rank; equal ranks keep declaration order; "
+            "all instances of a `count` / `replacement_text_file` label keep "
+            "their own expansion order. Rejected on a job that bin packs "
+            "('columns' / 'rows'): that engine ranks layouts by used "
+            "material, so a declared placement sequence would be silently "
+            "discarded. Round labels place through the ellipse packer, which "
+            "packs by adjacency, and ignore it. At the job level it is the "
+            "single-label shorthand: accepted only when the job declares no "
+            "`labels` list, where it ranks the one label the job produces "
+            "(together with the other jobs of a jobset on a shared sheet); "
+            "with a `labels` list it is rejected, because a rank belongs to "
+            "each label, not to the job."
+        ),
+    )
     use_baseline_spacing: Optional[bool] = Field(
         default=None,
         description=(
@@ -2037,19 +2060,16 @@ class LabelSpec(LabelAttributes):
     order: Optional[int] = Field(
         default=None,
         description=(
-            "Placement rank on the plate, honoured by the simple grid-fill "
-            "modes ('columns-simple' / 'rows-simple') only: the lowest value "
-            "is placed first (the head of the first plate) and the rest "
-            "follow ascending, so a job decides which label sits at the head "
-            "of the sheet and the reading/emission order of every label "
-            "after it. Labels that omit it keep declaration order and place "
-            "after every declared rank; equal ranks keep declaration order; "
-            "all instances of a `count` / `replacement_text_file` label keep "
-            "their own expansion order. Rejected on a job that bin packs "
-            "('columns' / 'rows'): that engine ranks layouts by used "
-            "material, so a declared placement sequence would be silently "
-            "discarded. Round labels place through the ellipse packer, which "
-            "packs by adjacency, and ignore it."
+            "Placement rank of this label on the plate (see the job-level "
+            "`order` for the full contract): honoured by the simple "
+            "grid-fill modes ('columns-simple' / 'rows-simple') only, lowest "
+            "value first, unset labels keeping declaration order after every "
+            "declared rank, equal ranks keeping declaration order, and a "
+            "label's own `count` / `replacement_text_file` instances staying "
+            "together. Rejected on a job that bin packs ('columns' / 'rows'), "
+            "which ranks layouts by used material and would discard it, and "
+            "ignored for round labels, which place through the ellipse "
+            "packer."
         ),
     )
 
@@ -3404,9 +3424,15 @@ class JobSpec(LabelAttributes):
         an instruction about which label gets engraved, not as a hint.
 
         Every layout in play must be a simple mode: the job value (the default
-        `columns` counts when unset) and each plate override, because a mixed
-        job packs one declaration-ordered pass per mode and a rank spanning two
-        engines has no defined meaning.
+        `columns` counts when unset) and each plate's *effective* mode -- a
+        plate that declares no layout inherits the job's, so only a plate that
+        overrides with a bin-packing mode breaks the rule. A mixed job packs
+        one declaration-ordered pass per mode and a rank spanning two engines
+        has no defined meaning.
+
+        A job-level `order` (the single-label shorthand, accepted only when no
+        `labels` list is declared) ranks the job's one label just like a
+        label-level rank, so it is checked the same way.
 
         Returns:
             Self for method chaining.
@@ -3420,11 +3446,21 @@ class JobSpec(LabelAttributes):
             for label in self.labels or []
             if "order" in label.model_fields_set and label.order is not None
         ]
+        if not ranked and "order" in self.model_fields_set and self.order is not None:
+            # Single-label shorthand: the job's name is how its one implicit
+            # label is known, so name that in the error.
+            ranked = [self.name]
         if not ranked:
             return self
+        job_mode = self.layout or DEFAULT_LAYOUT_MODE
         declared = [
-            (mode or DEFAULT_LAYOUT_MODE)
-            for mode in (self.layout, *(p.layout for p in self.plates or []))
+            job_mode,
+            # An unset plate layout inherits the job's; only an override to a
+            # bin-packing mode counts against the rule.
+            *(
+                plate.layout if plate.layout is not None else job_mode
+                for plate in self.plates or []
+            ),
         ]
         bin_packed = sorted({mode.value for mode in declared if mode not in SIMPLE_LAYOUT_MODES})
         if bin_packed:
@@ -3435,6 +3471,35 @@ class JobSpec(LabelAttributes):
                 "placement is ranked by used material and a declared order is "
                 "discarded. Set the layout to a '*-simple' mode, or remove "
                 "'order'."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_job_level_order_with_labels(self) -> JobSpec:
+        """Reject a job-level `order` on a job that declares a `labels` list.
+
+        A job-level label attribute is the single-label shorthand: root-level
+        jobs (content, `replacement_text_file`, `count`) describe exactly one
+        label, so the attribute is unambiguous. `order` is a placement rank,
+        and a job that declares labels ranks *them* -- a job-wide rank would
+        rank nothing, and letting it cascade would silently reorder a job whose
+        author never asked for it (the same reasoning that rejects a job-level
+        `text_color`, which the shorthand cannot mean either).
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: When the job declares `order` and a `labels` list.
+        """
+        if self.labels and "order" in self.model_fields_set and self.order is not None:
+            raise ValueError(
+                f"'order: {self.order}' cannot be set at the job level while a "
+                "'labels' list is declared: 'order' ranks individual labels, so "
+                "declare it on each label that needs a placement rank (labels "
+                "that omit it keep declaration order and place last). The "
+                "job-level form is the single-label shorthand and is accepted "
+                "only when the job declares no 'labels'."
             )
         return self
 

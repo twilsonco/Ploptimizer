@@ -952,7 +952,7 @@ class TestLabelOrderValidation:
             "    - id: p2\n"
             "      width: 24.0\n"
             "      height: 16.0\n"
-            "      layout: rows-simple\n"
+            "      layout: rows\n"
             "  labels:\n"
             "    - id: a\n"
             "      count: 1\n"
@@ -960,7 +960,9 @@ class TestLabelOrderValidation:
             "      content:\n"
             "        - text: 'A'\n",
         )
-        with pytest.raises((ValidationError, ValueError), match="columns"):
+        # p1 declares no layout, so it inherits the job's simple mode; p2
+        # overrides with a bin-packing mode, and that is the mix refused.
+        with pytest.raises((ValidationError, ValueError), match="rows"):
             parse_yaml(path)
 
     def test_order_accepted_when_every_plate_is_simple(self, tmp_path: Path) -> None:
@@ -1032,6 +1034,124 @@ class TestLabelOrderValidation:
             "        - text: 'A'\n",
         )
         with pytest.raises((ValidationError, ValueError), match="head_tag"):
+            parse_yaml(path)
+
+    def test_order_accepted_when_a_plate_declares_no_layout(self, tmp_path: Path) -> None:
+        """A plate with no layout inherits the job's simple mode (and the rank).
+
+        Production shape: the job grid-fills and the plates come from
+        `job-config.json` / a plate list that never mentions `layout`, so the
+        only effective mode in the job is the simple one.
+        """
+        path = self._write(
+            tmp_path,
+            "order_plate_inherits.yaml",
+            "job:\n"
+            "  name: 'OrderPlateInherits'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  order: 1\n"
+            "  content:\n"
+            "    - text: 'A'\n"
+            "  plates:\n"
+            "    - id: s1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n",
+        )
+        job = parse_yaml(path)
+        assert job.order == 1
+        assert job.plates is not None
+        assert job.plates[0].layout is None
+
+    def test_job_level_order_parses_for_a_single_label_job(self, tmp_path: Path) -> None:
+        """A root-level (single-label) job may rank itself at the job level."""
+        path = self._write(
+            tmp_path,
+            "order_job.yaml",
+            "job:\n"
+            "  name: 'OrderJob'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  order: 2\n"
+            "  content:\n"
+            "    - text: 'A'\n",
+        )
+        job = parse_yaml(path)
+        assert job.order == 2
+
+    def test_job_level_order_is_rejected_with_a_labels_list(self, tmp_path: Path) -> None:
+        """With labels declared, a job-wide rank would rank nothing."""
+        path = self._write(
+            tmp_path,
+            "order_job_with_labels.yaml",
+            "job:\n"
+            "  name: 'OrderJobLabels'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  order: 1\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="ranks individual labels"):
+            parse_yaml(path)
+
+    def test_job_level_order_null_is_allowed_with_a_labels_list(self, tmp_path: Path) -> None:
+        """`order: null` declares nothing, so labels lists may carry it."""
+        path = self._write(
+            tmp_path,
+            "order_job_null_labels.yaml",
+            "job:\n"
+            "  name: 'OrderJobNullLabels'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns-simple\n"
+            "  order: null\n"
+            "  labels:\n"
+            "    - id: a\n"
+            "      count: 1\n"
+            "      content:\n"
+            "        - text: 'A'\n",
+        )
+        job = parse_yaml(path)
+        assert job.order is None
+
+    def test_job_level_order_is_rejected_on_a_bin_packing_layout(self, tmp_path: Path) -> None:
+        """The shorthand rank is checked against the layout like a label rank."""
+        path = self._write(
+            tmp_path,
+            "order_job_columns.yaml",
+            "job:\n"
+            "  name: 'OrderJobColumns'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  layout: columns\n"
+            "  order: 1\n"
+            "  content:\n"
+            "    - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="only the"):
+            parse_yaml(path)
+
+    def test_job_level_order_rejection_names_the_job(self, tmp_path: Path) -> None:
+        """The shorthand rejection names the job, the only label it produces."""
+        path = self._write(
+            tmp_path,
+            "order_job_named.yaml",
+            "job:\n"
+            "  name: 'OrderJobNamed'\n"
+            "  width: 2.0\n"
+            "  height: 1.0\n"
+            "  order: 1\n"
+            "  content:\n"
+            "    - text: 'A'\n",
+        )
+        with pytest.raises((ValidationError, ValueError), match="OrderJobNamed"):
             parse_yaml(path)
 
 

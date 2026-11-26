@@ -841,6 +841,20 @@ class TestJobLevelReplacementExpansion:
         assert all(lbl.height == 1.0 for lbl in resolved)
         assert all(line.nominal_text_height == 0.75 for lbl in resolved for line in lbl.content)
 
+    def test_job_level_order_reaches_every_expanded_label(self, tmp_path: Path) -> None:
+        """The single-label shorthand ranks labels a job-level file produces.
+
+        The file's labels are copies of a template built from the job-level
+        attributes, so a job-level `order` is the rank of all of them -- the
+        form a shop uses to say "this job's labels go on the sheet first".
+        """
+        yaml_path = self._job_yaml(tmp_path, "  layout: columns-simple\n  order: 1\n")
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.order for lbl in job.labels] == [1, 1]
+        resolved = resolve_job_spec(job)
+        assert [lbl.order for lbl in resolved] == [1, 1]
+
     def test_content_template_attributes_apply(self, tmp_path: Path) -> None:
         """Job-level content acts as the per-line attribute template."""
         yaml_path = self._job_yaml(
@@ -989,6 +1003,39 @@ class TestPlateLevelReplacementExpansion:
         assert job.labels[0].plate_id is None
         assert job.labels[1].plate_id == "p1"
         assert job.labels[2].plate_id == "p1"
+
+    def test_job_level_order_reaches_plate_generated_labels(self, tmp_path: Path) -> None:
+        """Root-content shorthand ranks the labels a plate file produces.
+
+        With no `labels` list the plate file's lines are the job's one label,
+        so the job-level rank applies to them too (a `labels` list alongside a
+        job-level `order` is rejected by the schema, so `job.order` is only
+        ever set in this form).
+        """
+        _write(tmp_path / "p1s.txt", "AAA\nBBB\n")
+        yaml_path = tmp_path / "job.yaml"
+        yaml_path.write_text(
+            "job:\n"
+            "  name: Plate Repl Shorthand\n"
+            "  width: 3.0\n"
+            "  height: 1.0\n"
+            "  text_height: 0.75\n"
+            "  layout: columns-simple\n"
+            "  order: 2\n"
+            "  content:\n"
+            "    - text: TPL\n"
+            "  plates:\n"
+            "    - id: p1\n"
+            "      width: 24.0\n"
+            "      height: 16.0\n"
+            "      replacement_text_file: p1s.txt\n",
+            encoding="utf-8",
+        )
+        job = expand_job_spec(parse_yaml(yaml_path), yaml_path)
+        assert job.labels is not None
+        assert [lbl.id for lbl in job.labels] == ["p1_0000", "p1_0001"]
+        assert [lbl.order for lbl in job.labels] == [2, 2]
+        assert [lbl.plate_id for lbl in job.labels] == ["p1", "p1"]
 
     def test_plate_fields_cleared(self, tmp_path: Path) -> None:
         """Expansion consumes the plate-level replacement fields."""

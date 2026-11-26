@@ -448,6 +448,11 @@ def _expand_job_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
         replacement_text_delimiter=job.replacement_text_delimiter,
         replacement_text_file_comment_string=job.replacement_text_file_comment_string,
         replacement_text_file_allow_blank_lines=job.replacement_text_file_allow_blank_lines,
+        # The job-level single-label shorthand: instances are copies of this
+        # template, so the job's placement rank reaches every label the file
+        # produces (a job-level `order` beside a `labels` list is rejected by
+        # the schema, so this is the only form that can carry one).
+        order=job.order,
     )
     instances = expand_label_with_replacements(template, base_dir)
     logger.info(
@@ -518,6 +523,10 @@ def _expand_plate_level_replacements(job: JobSpec, base_dir: Path) -> JobSpec:
             replacement_text_delimiter=plate.replacement_text_delimiter,
             replacement_text_file_comment_string=plate.replacement_text_file_comment_string,
             replacement_text_file_allow_blank_lines=plate.replacement_text_file_allow_blank_lines,
+            # Same shorthand as the job-level file above: in the root-content
+            # form these are the job's labels, so the job's rank applies
+            # (`job.order` is necessarily None when a `labels` list exists).
+            order=job.order,
         )
         instances = expand_label_with_replacements(template, base_dir)
         # Pinned labels inherit the declaring plate's material (the one true

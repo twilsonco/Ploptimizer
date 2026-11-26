@@ -3175,6 +3175,19 @@
           "description": "Stock material name (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (`null`) labels pack with the job-level material.",
           "title": "Material"
         },
+        "order": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Placement rank of this label on the plate (see the job-level `order` for the full contract): honoured by the simple grid-fill modes ('columns-simple' / 'rows-simple') only, lowest value first, unset labels keeping declaration order after every declared rank, equal ranks keeping declaration order, and a label's own `count` / `replacement_text_file` instances staying together. Rejected on a job that bin packs ('columns' / 'rows'), which ranks layouts by used material and would discard it, and ignored for round labels, which place through the ellipse packer.",
+          "title": "Order"
+        },
         "use_baseline_spacing": {
           "anyOf": [
             {
@@ -3520,19 +3533,6 @@
           "default": null,
           "description": "Id of the plate this label is pinned to (packs exclusively onto that plate). Set by plate-level replacement expansion.",
           "title": "Plate Id"
-        },
-        "order": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Placement rank on the plate, honoured by the simple grid-fill modes ('columns-simple' / 'rows-simple') only: the lowest value is placed first (the head of the first plate) and the rest follow ascending, so a job decides which label sits at the head of the sheet and the reading/emission order of every label after it. Labels that omit it keep declaration order and place after every declared rank; equal ranks keep declaration order; all instances of a `count` / `replacement_text_file` label keep their own expansion order. Rejected on a job that bin packs ('columns' / 'rows'): that engine ranks layouts by used material, so a declared placement sequence would be silently discarded. Round labels place through the ellipse packer, which packs by adjacency, and ignore it.",
-          "title": "Order"
         }
       },
       "required": [
@@ -6348,6 +6348,19 @@
       "default": null,
       "description": "Stock material name (free-form, e.g. 'wk' or 'wk(uv)'); cascades job -> label. Labels sharing a material pack together and a plate never mixes materials. Comparison trims whitespace and ignores case; unset (`null`) labels pack with the job-level material.",
       "title": "Material"
+    },
+    "order": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Placement rank on the plate, honoured by the simple grid-fill modes ('columns-simple' / 'rows-simple') only: the lowest value is placed first (the head of the first plate) and the rest follow ascending, so a job decides which label sits at the head of the sheet and the reading/emission order of every label after it. Labels that omit it keep declaration order and place after every declared rank; equal ranks keep declaration order; all instances of a `count` / `replacement_text_file` label keep their own expansion order. Rejected on a job that bin packs ('columns' / 'rows'): that engine ranks layouts by used material, so a declared placement sequence would be silently discarded. Round labels place through the ellipse packer, which packs by adjacency, and ignore it. At the job level it is the single-label shorthand: accepted only when the job declares no `labels` list, where it ranks the one label the job produces (together with the other jobs of a jobset on a shared sheet); with a `labels` list it is rejected, because a rank belongs to each label, not to the job.",
+      "title": "Order"
     },
     "use_baseline_spacing": {
       "anyOf": [
