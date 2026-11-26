@@ -1,21 +1,5 @@
 # TODO List
 
-- [ ] A rotated **relief** label engraves outside the slot the packer reserved for it.
-  - Measured while fixing the jobset plate-proof key (2026-11-25): a 5 x 1.5in label with
-    `relief: true`, placed sideways, engraves a 7.71 x 3.30in patch inside a slot the packer
-    reserved as 4.66 x 3.30in. The packer grows the label's NATURAL footprint by the clearance
-    and places the result, so a relief label's extra footprint (the `relief_compensation` border
-    ring plus the bypass-cutter ladder span, which is what makes its ink wider than its nominal
-    box) is never reserved. The engraving therefore leaves the slot on the long axis and can meet
-    a neighbour's engraving; `clearance` is the only thing separating them.
-  - Non-relief labels are unaffected: their ink is exactly the nominal box, centred in the slot.
-  - Needs a decision on the fix: reserve the relief footprint before packing (the honest fix —
-    it changes packing density and every relief layout, so it wants its own measured unit), or
-    require a clearance large enough to absorb the overhang (cheap, and a validation WARNING is
-    the minimum bar), or document it as the operator's responsibility.
-  - Measuring it: `.probe/js/key_vs_ink.py`, given a jobset YAML path, prints each label's engraved box, the
-    plate-proof key, and the four gaps; a relief label's ink is the rect that overruns.
-
 - [ ] Add relief engraving support
   - A ground truth example has been created with EngraveLab and provided:
     - `examples/plt_relief_engraving/A_no_relief.plt` is the toolpath for a capital "A" centered on a 1x1 plate using single-stroke dino font, 1/2" text height (0.44" with a 0.06" cutter).
@@ -151,3 +135,21 @@
   - This will *fully replace* the current kerning system; all of the current kerning parameters will be removed. The cleanup of the old kerning system will be a separate task to ensure a smooth transition and avoid breaking existing functionality.
   - Because the current kerning system will be removed, do not utilize any of its existing parameters for the new system.
   - Any new parameters should cascade job -> plate -> label -> line, and have defaults in `job-config.json`.
+- [ ] Add new item type for `content` lists: `toolpath` that points to a plt file that will be included in the job. e.g. `- toolpath: "path/to/file.plt"`
+  - We can currently specify `text` items, where each text item is on its own line on the label.
+  - The new `toolpath` item type will allow us to include pre-existing plt files as part of the job, rather than generating text items line by line. The specified plt file will be read in an parsed, so that it can be transformed and used in the label in which it's specified.
+  - Transforms will include rotation, and scaling, allowing the included plt content to be positioned and sized appropriately within the label.
+    - Translation is not necessary because it will always come on the "next line" from the previous content, and so only h alignment need be specified if different from that of the label.
+    - `scale` will be an optional float >= 0.01, with a default value of 1.0 if not specified meaning no scaling will be applied. Values less than 1.0 will shrink the content, and values greater than 1.0 will enlarge it.
+    - `rotation` will be an optional float in (-360.0, 360.0), representing the rotation angle in degrees, with a default value of 0.0 if not specified meaning no rotation will be applied. Positive values will rotate the content clockwise, and negative values will rotate it counterclockwise.
+- [ ] Add new standalone html markdown support for including a toolpath. Is standalone like the `<space>` tag, and will allow to define all the toolpath properties inside the tag, e.g. `<toolpath="path/to/file.plt" scale=1.0 rotation=0.0>`. Will allow toolpaths to be included inline.
+- [ ] Add new item type for `content` lists: `shape` that allows the user to define a geometric shape to be included in the job. e.g. `- shape: rectangle`
+  - The main `shape` field will be enum type, one of `rectangle`, `square`, `circle`, `ellipse`, `h-line`, `star`, `polygon`.
+  - Each shape type will have its own set of required and optional parameters, such as dimensions, radius, number of sides, etc., depending on the shape. e.g. `width` (float), `height` (float), `n-sides` (int; for stars/polygons), `filled` (true/false)
+- [ ] Add new standalone html markdown support for including a shape. Is standalone like the `<space>` tag, and will allow to define all the shape properties inside the tag, e.g. `<shape="rectangle" width=100 height=50 filled=true>`. Will allow shapes to be included inline.
+- [ ] Add new item type for `content` lists: `image` that points to an image file to be included in the job.
+  - This will work similar to the `toolpath` content item type, but it includes the processing of the image file to be included in the label.
+  - The image file is expected to be a raster image format such as PNG, JPEG, or BMP.
+  - The image will be transformed into a relief (filled) toolpath with one or more connected components. The image must therefore have edge-detection applied, and have a uniform background color to distinguish the foreground from the background.
+  - This will be a large and potentially complex operation, as it involves image processing, edge detection, and conversion to a toolpath. Development will need to take place in multiple phases in order to ensure correctness and efficiency.
+- [ ] Add material to job proof title (in parentheses next to plate name)
