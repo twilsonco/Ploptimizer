@@ -1,5 +1,21 @@
 # TODO List
 
+- [ ] A rotated **relief** label engraves outside the slot the packer reserved for it.
+  - Measured while fixing the jobset plate-proof key (2026-11-25): a 5 x 1.5in label with
+    `relief: true`, placed sideways, engraves a 7.71 x 3.30in patch inside a slot the packer
+    reserved as 4.66 x 3.30in. The packer grows the label's NATURAL footprint by the clearance
+    and places the result, so a relief label's extra footprint (the `relief_compensation` border
+    ring plus the bypass-cutter ladder span, which is what makes its ink wider than its nominal
+    box) is never reserved. The engraving therefore leaves the slot on the long axis and can meet
+    a neighbour's engraving; `clearance` is the only thing separating them.
+  - Non-relief labels are unaffected: their ink is exactly the nominal box, centred in the slot.
+  - Needs a decision on the fix: reserve the relief footprint before packing (the honest fix —
+    it changes packing density and every relief layout, so it wants its own measured unit), or
+    require a clearance large enough to absorb the overhang (cheap, and a validation WARNING is
+    the minimum bar), or document it as the operator's responsibility.
+  - Measuring it: `.probe/js/key_vs_ink.py`, given a jobset YAML path, prints each label's engraved box, the
+    plate-proof key, and the four gaps; a relief label's ink is the rect that overruns.
+
 - [ ] Add relief engraving support
   - A ground truth example has been created with EngraveLab and provided:
     - `examples/plt_relief_engraving/A_no_relief.plt` is the toolpath for a capital "A" centered on a 1x1 plate using single-stroke dino font, 1/2" text height (0.44" with a 0.06" cutter).

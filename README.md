@@ -184,9 +184,11 @@ The plate proof is the visual key: **every label carries a dashed outline in its
 job's colour, drawn inside its own border** (a fixed palette, colour first then
 line style, indexed by the job's position in the file), one box per label so a
 label's owner is read off directly, with a legend collapsing to one row per job.
-The box sits 0.05in inboard of the label's slot on every side, so the key reads
-as part of the label instead of adding a second outline in the scrap margin
-between two labels that abut. The treatment is the same on a sheet one job
+The box is the label's own engraved box - its nominal size, turned with the
+label when the packer placed it sideways and kept centred in its slot - pulled
+0.05in inboard on every side, so the key reads as part of the label instead of
+adding a second outline in the scrap margin between two labels that abut. A
+rotated label's key turns with it. The treatment is the same on a sheet one job
 occupies alone - an outlined label is identified at a glance, where "no box
 here" would force you to infer ownership from the absence of a key. A normal
 single-job `generate` run draws no overlay at all (it has one

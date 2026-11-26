@@ -569,28 +569,101 @@ def _slot_rect(
     :func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`
     lands it with a plain additive
     :func:`~plt_optimizer.generate.vectorize.translate_plt_coordinates` of
-    ``(placement.x, placement.y)`` -- no mirroring and no Y flip (see the
-    ``[x, x+H] x [y, y+W]`` slot comment there for a rotated placement). So the
-    slot of a placement is exactly ``[x, x+width] x [y, y+height]`` in the
-    emitted content's frame, in inches.
+    ``(placement.x, placement.y)`` -- no mirroring and no Y flip. So the slot of
+    a placement is exactly ``[x, x + width] x [y, y + height]`` in the emitted
+    content's frame, in inches.
+
+    ``width`` / ``height`` are PLACED inches, i.e. already turned into the
+    orientation the label is engraved in, so the geometry swaps nothing.
+    :func:`_slots_for` passes the ink rect from :func:`placement_ink_rect`
+    (the label's nominal size, swapped and centred when the placement is
+    sideways). Handing this helper ``PackedLabel.width`` / ``.height`` directly
+    is the slot, ``clearance / 2`` wider than the ink on every side; swapping
+    those post-rotation fields on ``rotated`` -- the shape this helper had
+    before -- turns the rect 90 degrees away from the ink, which mis-bills
+    every stroke near a sideways label.
 
     Args:
         x: Slot origin X in inches (from the plate frame's origin).
         y: Slot origin Y in inches (from the plate frame's origin).
-        width: The label's nominal width in inches (unrotated).
-        height: The label's nominal height in inches (unrotated).
-        rotated: Whether the packer placed the label sideways.
+        width: The rect's width in inches, as placed (post-rotation).
+        height: The rect's height in inches, as placed (post-rotation).
+        rotated: Whether the packer placed the label sideways. Carried for the
+            slot's identity (a sideways slot is a distinct slot) and for the
+            relief-orientation rule in :func:`_slots_for`; the geometry needs it
+            by no means, the size is already turned.
 
     Returns:
         The slot rectangle in device plotter units.
     """
-    origin_x = inches_to_units(x)
-    origin_y = inches_to_units(y)
-    span_w = inches_to_units(width)
-    span_h = inches_to_units(height)
-    # A sideways placement occupies the swapped slot [x, x + H] x [y, y + W].
-    x_span, y_span = (span_h, span_w) if rotated else (span_w, span_h)
-    return _Rect(origin_x, origin_y, origin_x + x_span, origin_y + y_span)
+    return _Rect(
+        inches_to_units(x),
+        inches_to_units(y),
+        inches_to_units(x) + inches_to_units(width),
+        inches_to_units(y) + inches_to_units(height),
+    )
+
+
+def placement_ink_rect(placement: Any) -> Tuple[float, float, float, float]:
+    """Return the rectangle a placement's engraved content covers, in inches.
+
+    Three frames are in play and only the middle one is the ink:
+
+    * the label's **nominal** ``width`` / ``height`` (its own spec box);
+    * the **slot** the packer reserves, ``nominal + clearance`` on each axis,
+      which is what ``PackedLabel.width`` / ``.height`` carry (post-rotation);
+    * the **ink** the label engraves, which is the nominal size, turned 90
+      degrees when the placement is sideways and kept CENTRED in its slot.
+
+    The last two facts come from
+    :func:`~plt_optimizer.generate.vectorize.assemble_plt_from_rendered_labels`:
+    a rotated content block is rewritten by
+    :func:`~plt_optimizer.generate.vectorize.rotate_plt_content_90cw` to span
+    ``[0, height] x [0, width]`` about the label's own centre, then translated
+    by ``(placement.x, placement.y)``. Verified against engraved ink: this rect
+    coincides with a rotated label's border stroke to < 0.001in, where the slot
+    rect is wide by the clearance and the slot rect swapped is wide by the
+    label's whole short axis.
+
+    Use this wherever geometry is attributed to, or drawn over, a label: the
+    plate proof's per-label job key (:func:`~plt_optimizer.generate.jobset.job_overlay_boxes`)
+    and the usage report's slot attribution. Swapping ``PackedLabel``'s
+    post-rotation size is the classic error -- it turns the box 90 degrees away
+    from the ink it is meant to mark.
+
+    Args:
+        placement: A ``PackedLabel`` (duck-typed). A placement whose source
+            label carries no usable size falls back to its slot, the best
+            available estimate.
+
+    Returns:
+        ``(x, y, width, height)`` in inches, in the plate frame -- the same
+        space the packer places labels in.
+    """
+    source = getattr(placement, "source_label", None)
+    nominal_w = getattr(source, "width", None)
+    nominal_h = getattr(source, "height", None)
+    if not isinstance(nominal_w, (int, float)) or not isinstance(nominal_h, (int, float)):
+        return (
+            float(placement.x),
+            float(placement.y),
+            float(placement.width),
+            float(placement.height),
+        )
+    span_w, span_h = (nominal_h, nominal_w) if placement.rotated else (nominal_w, nominal_h)
+    if span_w <= 0.0 or span_h <= 0.0:
+        return (
+            float(placement.x),
+            float(placement.y),
+            float(placement.width),
+            float(placement.height),
+        )
+    # Centred in the slot: the rotation pivots on the label's own centre, and
+    # an axis too small to hold the ink (no clearance, or a rotated relief that
+    # overruns the packer's footprint) anchors at the slot's origin.
+    x = float(placement.x) + max(float(placement.width) - span_w, 0.0) / 2.0
+    y = float(placement.y) + max(float(placement.height) - span_h, 0.0) / 2.0
+    return (x, y, float(span_w), float(span_h))
 
 
 def _slots_for(placements: Sequence[Any], relief_ids: FrozenSet[str] = frozenset()) -> List[_Slot]:
@@ -609,15 +682,16 @@ def _slots_for(placements: Sequence[Any], relief_ids: FrozenSet[str] = frozenset
     slots: List[_Slot] = []
     for placement in placements:
         source = getattr(placement, "source_label", None)
+        ink_x, ink_y, ink_w, ink_h = placement_ink_rect(placement)
         slots.append(
             _Slot(
                 label_id=str(getattr(placement, "label_id", "") or ""),
                 spec_id=str(getattr(source, "id", "") or ""),
                 rect=_slot_rect(
-                    float(placement.x),
-                    float(placement.y),
-                    float(placement.width),
-                    float(placement.height),
+                    ink_x,
+                    ink_y,
+                    ink_w,
+                    ink_h,
                     bool(placement.rotated),
                 ),
                 is_relief=bool(getattr(source, "relief_engraving", False))

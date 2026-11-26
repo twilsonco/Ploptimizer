@@ -20,6 +20,29 @@
     `test_generation_report.py`, the jobset/phase3/run-integration suites); the regenerated
     `JOB_SPEC.md` + `job_spec.schema.json` are the user-facing contract
 
+### Fixed
+
+* **jobset:** a rotated label's dashed **job key turns with the label**. The per-label
+  key on a jobset plate proof is the rectangle the label *engraves* — its nominal size,
+  turned 90 degrees and kept centred inside its slot when the packer placed the label
+  sideways — pulled `0.05in` inboard on every side. Both the proof
+  (`jobset.py:job_overlay_boxes`) and the usage report's slot attribution
+  (`usage_stats.py:_slots_for`) were reading `PackedLabel.width` / `.height`, which the
+  packer already stores **post-rotation**, and turning them a second time: a sideways
+  label's key was drawn 90 degrees away from the label it marks, and attribution
+  mis-billed every stroke near one. The rule now lives once, in
+  `usage_stats.py:placement_ink_rect`, which both call sites use, so the drawing and the
+  billing cannot disagree. Measured against engraved ink on a real 3-label rotated
+  batch: the key now sits exactly `0.05in` inside the label's border stroke on all four
+  sides. The usage report's `by_label` / `by_plate` numbers shift for runs with rotated
+  labels (that is the mis-billing being corrected); `sum(by_job) == distance.total` and
+  `unattributed == 0` hold, and per-cutter PLT bytes are untouched.
+  - Pins: `tests/test_jobset_plots.py` (the key of a rotated label, with and without
+    plate clearance; the fixture now models the packer's nominal→slot relation, which is
+    what makes rotation testable at all), `tests/test_usage_stats.py`
+    (`placement_ink_rect`: unrotated, rotated, no-size fallback, an ink larger than its
+    slot).
+
 ### Features
 
 * **generate:** every run with plots on now also writes one **composite proof sheet** —

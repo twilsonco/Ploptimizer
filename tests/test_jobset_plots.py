@@ -42,13 +42,19 @@ ALPHA = "Job_Alpha"
 BETA = "Job_Beta"
 
 
-def _resolved(label_id: str) -> ResolvedLabel:
-    """A resolved label carrying exactly the id the overlay keys on."""
+def _resolved(label_id: str, width: float = 4.0, height: float = 2.0) -> ResolvedLabel:
+    """A resolved label carrying exactly the id the overlay keys on.
+
+    ``width`` / ``height`` are the label's NOMINAL box, the size the renderer
+
+    engraves; a placement's slot is that box plus the packer's clearance (see
+    :func:`_placement`).
+    """
     return ResolvedLabel(
         id=label_id,
         count=1,
-        width=4.0,
-        height=2.0,
+        width=width,
+        height=height,
         margin=0.1,
         h_margin=0.1,
         v_margin=0.1,
@@ -60,16 +66,47 @@ def _resolved(label_id: str) -> ResolvedLabel:
     )
 
 
-def _placement(label_id: str, x: float, y: float, w: float, h: float, rotated: bool) -> PackedLabel:
-    """One placement on a plate, at the packer's inches-space position."""
+def _placement(
+    label_id: str,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    rotated: bool,
+    *,
+    clearance: float = 0.0,
+) -> PackedLabel:
+    """One placement on a plate, at the packer's inches-space position.
+
+    ``w`` / ``h`` are the label's NOMINAL size. The placement then carries what
+    the packer actually records: ``PackedLabel.width`` / ``.height`` are the
+    FINAL, post-rotation footprint, i.e. the nominal box plus ``clearance`` on
+    each side, with the axes swapped when the label is placed sideways. Keeping
+    that relation in the fixture is what makes a rotated label's geometry
+    testable at all - a fixture that hands over the slot as the label's own size
+    cannot tell a correctly turned key from one turned 90 degrees away.
+
+    Args:
+        label_id: The source label id the overlay keys on.
+        x: Slot origin X in inches.
+        y: Slot origin Y in inches.
+        w: The label's nominal width in inches.
+        h: The label's nominal height in inches.
+        rotated: Whether the packer placed the label sideways.
+        clearance: Plate clearance per side in inches, added to the nominal box
+            to make the slot (the packer grows the label's NATURAL footprint,
+            then places the result).
+    """
+    slot_w = w + 2.0 * clearance
+    slot_h = h + 2.0 * clearance
     return PackedLabel(
         label_id=f"{label_id}_0",
         x=x,
         y=y,
-        width=w,
-        height=h,
+        width=slot_h if rotated else slot_w,
+        height=slot_w if rotated else slot_h,
         rotated=rotated,
-        source_label=_resolved(label_id),
+        source_label=_resolved(label_id, w, h),
     )
 
 
@@ -404,11 +441,14 @@ class TestJobOverlayGeometry:
         # Explicitly not the union the old geometry produced.
         assert all((b.width, b.height) != pytest.approx((9.1, 9.1)) for b in boxes[1])
 
-    def test_a_rotated_placement_boxes_its_swapped_slot(self) -> None:
-        """A sideways placement fills ``[x, x+H] x [y, y+W]`` - the same swap
-        :func:`plt_optimizer.generate.usage_stats._slot_rect` computes in
-        device units. The proof's box must cover the ink, not the pre-rotation
-        footprint."""
+    def test_a_rotated_placement_boxes_its_own_footprint(self) -> None:
+        """A sideways label's key is turned with it: the engraved patch is the
+        label's NOMINAL size swapped, centred in its slot, so a 6.0 x 1.5in
+        label placed sideways is keyed tall (1.4 x 5.9in after the inset).
+        Reading ``PackedLabel.width/height`` (the post-rotation SLOT) and
+        swapping them again - the shape this geometry had before - drew the key
+        wide and short, 90 degrees off the ink it marks.
+        """
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
         plates = [
             PackedPlate(
@@ -416,6 +456,9 @@ class TestJobOverlayGeometry:
                 width=24.0,
                 height=16.0,
                 labels=[
+                    # A 6.0 x 1.5in label placed sideways: the fixture states
+                    # the label's nominal size, and the ink is turned by the
+                    # rotation, so the key is tall.
                     _placement(f"{ALPHA}::main", 3.0, 2.0, 6.0, 1.5, True),
                     _placement(f"{BETA}::main", 2.0, 8.0, 2.0, 2.0, False),
                 ],
@@ -425,18 +468,46 @@ class TestJobOverlayGeometry:
         boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)})
 
         alpha = next(box for box in boxes[1] if box.label == "Job Alpha")
-        # Spelled out: a 6.0 x 1.5in label placed sideways fills the swapped
-        # slot [3, 4.5] x [2, 8]; the box is inset 0.05in from that.
+        # Slot [3, 4.5] x [2, 8], inset 0.05in: tall, not wide.
         assert (alpha.x, alpha.y) == pytest.approx((3.05, 2.05))
         assert (alpha.width, alpha.height) == pytest.approx((1.4, 5.9))
+        assert alpha.height > alpha.width
+
+    def test_a_rotated_label_tracks_a_tall_slot(self) -> None:
+        """The packer rotates a wide label to fit a tall slot: the key follows
+        the ink, so it is tall. Keyed to the defect this geometry had - reading
+        the slot and swapping it a second time made the box wide and short, 90
+        degrees off the label's ink.
+        """
+        provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
+        plates = [
+            PackedPlate(
+                plate_id="shared",
+                width=24.0,
+                height=16.0,
+                labels=[
+                    _placement(f"{ALPHA}::main", 1.0, 1.0, 6.0, 2.0, True),
+                    _placement(f"{BETA}::main", 5.0, 1.0, 2.0, 2.0, False),
+                ],
+            )
+        ]
+
+        boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)})
+
+        alpha = next(box for box in boxes[1] if box.label == "Job Alpha")
+        assert (alpha.width, alpha.height) == pytest.approx((1.9, 5.9))
+        # The bug's signature was a box of 5.9 x 1.9: wide instead of tall.
+        assert alpha.height > alpha.width
 
     def test_the_box_matches_the_usage_attribution_slot(self) -> None:
-        """The proof and the usage report must agree on where a label is: the
-        box is the slot rect that
-        :func:`plt_optimizer.generate.usage_stats._slot_rect` computes in
-        device units, converted back to inches.
+        """The proof and the usage report must agree on where a label is, so
+        both are built from ONE rule:
+        :func:`plt_optimizer.generate.usage_stats.placement_ink_rect`, which
+        ``_slots_for`` feeds to ``_slot_rect``. Parity is asserted for a rotated
+        label, the case that used to diverge - both sides swapped the
+        placement's post-rotation size a second time.
         """
-        from plt_optimizer.generate.usage_stats import _slot_rect
+        from plt_optimizer.generate.usage_stats import _slot_rect, placement_ink_rect
 
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})
         plates = [
@@ -445,6 +516,9 @@ class TestJobOverlayGeometry:
                 width=24.0,
                 height=16.0,
                 labels=[
+                    # A 6.0 x 1.5in label placed sideways, so its ink - and the
+                    # box the usage report bills to it - stands 1.5 wide by 6.0
+                    # tall.
                     _placement(f"{ALPHA}::main", 3.0, 2.0, 6.0, 1.5, True),
                     _placement(f"{BETA}::main", 2.0, 8.0, 2.0, 2.0, False),
                 ],
@@ -454,7 +528,17 @@ class TestJobOverlayGeometry:
         boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA, BETA)})
 
         alpha = next(box for box in boxes[1] if box.label == "Job Alpha")
-        slot = _slot_rect(3.0, 2.0, 6.0, 1.5, True)
+        placement = plates[0].labels[0]
+        ink_x, ink_y, ink_w, ink_h = placement_ink_rect(placement)
+        assert (ink_x, ink_y, ink_w, ink_h) == pytest.approx(
+            (3.0, 2.0, 1.5, 6.0)
+        )  # One rule, one rectangle: the proof is the ink rect pulled in by the
+        # inset, and _slot_rect (which takes PLACED inches and swaps nothing)
+        # turns the same rect into the device-space box the usage report bills
+        # to this label. Feeding _slot_rect the placement's post-rotation
+        # width/height - the pre-fix shape of the call - lands the box on the
+        # clearance-padded slot instead of the ink.
+        slot = _slot_rect(ink_x, ink_y, ink_w, ink_h, placement.rotated)
         assert (alpha.x, alpha.y) == pytest.approx(
             (units_to_inches(slot.x_min) + 0.05, units_to_inches(slot.y_min) + 0.05)
         )
@@ -465,9 +549,36 @@ class TestJobOverlayGeometry:
                 units_to_inches(slot.y_max - slot.y_min) - 0.1,
             )
         )
-        # Spelled out: the 6in width is the vertical span of the slot.
+        # Spelled out: the 6in nominal height is the vertical span of the slot.
         assert alpha.width == pytest.approx(1.4)
         assert alpha.height == pytest.approx(5.9)
+
+    def test_a_rotated_label_with_clearance_keys_the_ink_not_the_slot(self) -> None:
+        """With plate clearance the two frames part company, and only the ink
+        frame keeps the key on the label.
+
+        A 6 x 1.5 label turned inside a slot that is 0.4in wider and 0.4in
+        taller than it: the ink is centred in the slot, so the box must start
+        0.05 + 0.2in in from the slot corner, not 0.05in.
+        """
+        provenance = _provenance(ALPHA, ids={f"{ALPHA}::main": ALPHA})
+        plates = [
+            PackedPlate(
+                plate_id="shared",
+                width=24.0,
+                height=16.0,
+                labels=[_placement(f"{ALPHA}::main", 3.0, 2.0, 6.0, 1.5, True, clearance=0.2)],
+            )
+        ]
+
+        boxes = job_overlay_boxes(provenance, plates, {1: (ALPHA,)})
+
+        # Slot: 1.9 wide (1.5 + 2x0.2) by 6.4 tall, the 6.0 nominal span vertical.
+        # Ink: 1.5 x 6.0 centred -> origin (3.2, 2.2).
+        assert boxes[1][0].x == pytest.approx(3.25)
+        assert boxes[1][0].y == pytest.approx(2.25)
+        assert boxes[1][0].width == pytest.approx(1.4)
+        assert boxes[1][0].height == pytest.approx(5.9)
 
     def test_the_inset_is_configurable(self) -> None:
         provenance = _provenance(ALPHA, BETA, ids={f"{ALPHA}::main": ALPHA, f"{BETA}::main": BETA})

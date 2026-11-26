@@ -69,6 +69,7 @@ from plt_optimizer.generate.schema import (
     LayoutMode,
     PlateSpec,
 )
+from plt_optimizer.generate.usage_stats import placement_ink_rect
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from plt_optimizer.generate.job_config import JobConfig
@@ -467,13 +468,16 @@ def legend_style_for(index: int) -> tuple[str, str]:
 class JobOverlayBox:
     """One label's provenance rectangle on a jobset plate proof (inches).
 
-    One box is emitted per PLACEMENT: the rectangle of the slot that label
-    fills drawn INBOARD of its border stroke (inset by the overlay margin), so
-    the dashed key reads as part of the label rather than as a box around it in
-    the scrap. EVERY label on a jobset proof carries one - a sheet one job
-    occupies alone is outlined too - because a union box around a job's labels
-    says nothing about which labels inside it are whose, and that is the
-    question the proof has to answer. The legend lists one row per job (the
+    One box is emitted per PLACEMENT: the rectangle the label ENGRAVES, drawn
+    INBOARD of its border stroke (inset by the overlay margin), so the dashed
+    key reads as part of the label rather than as a box around it in the scrap.
+    That rectangle is the label's nominal size, turned 90 degrees and kept
+    centred inside its slot when the packer placed the label sideways -- see
+    :func:`~plt_optimizer.generate.usage_stats.placement_ink_rect` -- so the key
+    of a rotated label turns with it. EVERY label on a jobset proof carries one
+    - a sheet one job occupies alone is outlined too - because a union box around
+    a job's labels says nothing about which labels inside it are whose, and that
+    is the question the proof has to answer. The legend lists one row per job (the
     plotter collapses repeated rows), naming each colour and dash pattern.
 
     Attributes:
@@ -530,10 +534,10 @@ def job_overlay_boxes(
         plate_jobs: 1-based plate number -> the owning job keys of the labels
             on it, as recorded by the export in
             :attr:`~plt_optimizer.generate.vectorize.PerCutterExport.plate_jobs`.
-        inset: How far each box is pulled inside its label's slot, in inches.
-            Each axis clamps the margin to half the slot, so a label thinner
-            than twice the margin degenerates to its centre line on that axis
-            instead of inverting to a negative-size rectangle.
+        inset: How far each box is pulled inside the label's own engraved box,
+            in inches. Each axis clamps the margin to half that box, so a label
+            thinner than twice the margin degenerates to its centre line on that
+            axis instead of inverting to a negative-size rectangle.
 
     Returns:
         1-based plate number -> its overlay boxes, grouped by job in
@@ -553,18 +557,13 @@ def job_overlay_boxes(
             owner = provenance.job_of_label(source_id)
             if owner is None or owner not in known:
                 continue
-            # The slot a rotated placement fills is the swapped pair, exactly
-            # as plt_optimizer.generate.usage_stats._slot_rect computes it in
-            # device units - the proof's box must cover the ink, not the
-            # pre-rotation footprint.
-            x_span, y_span = (
-                (placement.height, placement.width)
-                if placement.rotated
-                else (placement.width, placement.height)
-            )
-            per_job.setdefault(owner, []).append(
-                (placement.x, placement.y, placement.x + x_span, placement.y + y_span)
-            )
+            # The box marks the label's INK, not the slot it was packed into:
+            # the slot is nominal + clearance, and a sideways label's content
+            # is turned 90 degrees and kept centred inside it. placement_ink_rect
+            # is the one rule, shared with the usage report's attribution, so
+            # the proof and the report cannot disagree about where a label is.
+            ink_x, ink_y, ink_w, ink_h = placement_ink_rect(placement)
+            per_job.setdefault(owner, []).append((ink_x, ink_y, ink_x + ink_w, ink_y + ink_h))
         entries: list[JobOverlayBox] = []
         for key in sorted(per_job, key=lambda item: job_index.get(item, len(job_index))):
             record = provenance.record(key)

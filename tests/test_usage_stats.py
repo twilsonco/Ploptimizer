@@ -124,14 +124,27 @@ def placement(
     """A placement of ``source`` on a plate.
 
     ``x``/``y`` are the slot's lower-left corner in the emitted plate frame (the
-    frame :func:`rect_path` draws into), inches.
+    frame :func:`rect_path` draws into), inches. ``width``/``height`` override
+    that SLOT (what ``PackedLabel.width`` / ``.height`` carry, i.e. already
+    turned into the placed orientation).
+
+    The source label's nominal size is derived from the slot and written back,
+    because :func:`plt_optimizer.generate.usage_stats.placement_ink_rect` reads
+    the engraved size from the source and the slot from the placement: a fixture
+    that sets one without the other describes a label engraving outside its own
+    slot, which is not what these tests are about.
     """
+    slot_w = source.width if width is None else width
+    slot_h = source.height if height is None else height
+    nominal_w, nominal_h = (slot_h, slot_w) if rotated else (slot_w, slot_h)
+    if (nominal_w, nominal_h) != (source.width, source.height):
+        source = dataclasses.replace(source, width=nominal_w, height=nominal_h)
     return PackedLabel(
         label_id=label_id or f"{source.id}_0",
         x=x,
         y=y,
-        width=source.width if width is None else width,
-        height=source.height if height is None else height,
+        width=slot_w,
+        height=slot_h,
         rotated=rotated,
         source_label=source,
     )
