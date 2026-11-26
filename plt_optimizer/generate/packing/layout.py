@@ -2633,6 +2633,7 @@ def generate_layout_with_bounds(
         default_plate_size=default_plate_size,
         default_plate_clearance=default_plate_clearance,
         rotation_preference=rotation_preference,
+        plate_fill=plate_fill,
     )
 
     # Verify all labels were packed.
