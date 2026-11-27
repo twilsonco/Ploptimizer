@@ -10,6 +10,9 @@ __pycache__/
 
 .deltabox/
 
+.venv/
+.uv-cache/
+
 
 build
 dist
