@@ -268,6 +268,42 @@ def unroll_labels_with_rendered_bounds(
     return rectangles
 
 
+def placement_content_shift(
+    rendered: RenderedLabel,
+    *,
+    rotated: bool,
+) -> tuple[float, float]:
+    """Return the shift (inches) that lands a label's ink at its slot origin.
+
+    The renderer does not normalise a label's content box: the content bbox is
+    wherever the glyph outlines, border ring and holes happen to sit around the
+    label origin, so a label whose content is wider or taller than the nominal
+    box (a multi-line block that cannot fit the label's height, a relief raster
+    that fills the whole box) has a *negative* bbox minimum.
+
+    Plate assembly translates a label by its slot origin, so that negative
+    minimum is engraved below/left of the slot the packer reserved -- the
+    engraving leaves the slot on the low axis and meets a neighbour's. Shifting
+    by ``-min`` lands the engraved box on the slot, which is what
+    :func:`plt_optimizer.generate.usage_stats.placement_ink_rect` (the
+    plate-proof key) and the usage accounting already describe.
+
+    A rotated placement needs no shift: rotation is origin-normalised by
+    :func:`plt_optimizer.generate.vectorize.rotate_plt_content_90cw`.
+
+    Args:
+        rendered: The label's render (its content bbox is the reference).
+        rotated: Whether the packer placed the label sideways.
+
+    Returns:
+        ``(dx, dy)`` in inches, to be added to the placement's origin by every
+        consumer that maps label-local geometry onto the plate.
+    """
+    if rotated:
+        return (0.0, 0.0)
+    return (-float(rendered.x_min), -float(rendered.y_min))
+
+
 def unroll_labels(
     resolved_labels: list[ResolvedLabel],
 ) -> list[tuple[float, float, str, ResolvedLabel]]:

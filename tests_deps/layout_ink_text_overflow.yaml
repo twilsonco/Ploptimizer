@@ -1,0 +1,22 @@
+job:
+  name: layout_ink_text_overflow
+  font: dino
+  text_height: 1.0
+  relief_engraving: false
+  layout: columns
+  allow_rotation: false
+  plates:
+    - id: p1
+      width: 20.0
+      height: 20.0
+      left_clearance: 0.0
+      top_clearance: 0.0
+  labels:
+    - id: overflow
+      width: 3.0
+      height: 1.2
+      type: rect
+      content:
+        - text: "A"
+        - text: "B"
+        - text: "C"

@@ -1,0 +1,22 @@
+job:
+  name: layout_ink_relief_rotated
+  font: dino
+  text_height: 1.02
+  relief_engraving: true
+  relief_engraving_cutters: [0.06, 0.005]
+  relief_engraving_quality: coarse
+  layout: columns
+  allow_rotation: true
+  plates:
+    - id: p1
+      width: 4.0
+      height: 20.0
+      left_clearance: 0.0
+      top_clearance: 0.0
+  labels:
+    - id: rotated
+      width: 5.0
+      height: 1.5
+      type: rect
+      content:
+        - text: "RELIEF"

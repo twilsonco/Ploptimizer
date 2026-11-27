@@ -52,7 +52,10 @@ from plt_optimizer.generate.label_renderer import (
     RenderedLabel,
     extract_bounds_from_plt,
 )
-from plt_optimizer.generate.packing.layout import PackedPlate
+from plt_optimizer.generate.packing.layout import (
+    PackedPlate,
+    placement_content_shift,
+)
 from plt_optimizer.generate.plate_optimizer import (
     PlateOptimization,
     StrategyFactory,
@@ -304,8 +307,15 @@ def assemble_plt_from_rendered_labels(
         if packed_label.rotated:
             plt_content = rotate_plt_content_90cw(plt_content)
 
-        # Translate coordinates to position on plate
-        translated = translate_plt_coordinates(plt_content, packed_label.x, packed_label.y)
+        # Translate coordinates to position on plate. The shift lands the
+        # content's own box on the slot: content that overflows the nominal box
+        # (a multi-line text block, a relief raster that fills the box) carries
+        # a negative bbox minimum, and translating by the bare slot origin
+        # engraves that part below/left of the slot the packer reserved.
+        shift_x, shift_y = placement_content_shift(rendered, rotated=packed_label.rotated)
+        translated = translate_plt_coordinates(
+            plt_content, packed_label.x + shift_x, packed_label.y + shift_y
+        )
 
         # Remove any leading PU commands to avoid duplication
         # Assembly will add a single PU0,0; before each label

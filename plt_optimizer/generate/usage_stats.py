@@ -658,9 +658,11 @@ def placement_ink_rect(placement: Any) -> Tuple[float, float, float, float]:
             float(placement.width),
             float(placement.height),
         )
-    # Centred in the slot: the rotation pivots on the label's own centre, and
-    # an axis too small to hold the ink (no clearance, or a rotated relief that
-    # overruns the packer's footprint) anchors at the slot's origin.
+    # Centred in the slot: the label's own box is centred inside the footprint
+    # the renderer measured (that is how the content is laid out), and the
+    # assembly lands that footprint on the slot origin, so any clearance the
+    # packer added splits evenly. With no clearance the ink is flush with the
+    # slot's origin -- which is exactly where the plotter engraves it.
     x = float(placement.x) + max(float(placement.width) - span_w, 0.0) / 2.0
     y = float(placement.y) + max(float(placement.height) - span_h, 0.0) / 2.0
     return (x, y, float(span_w), float(span_h))

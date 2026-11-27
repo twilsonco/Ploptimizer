@@ -309,6 +309,16 @@ def apply_relief_to_plates(
             # inventory tools (preset selection).
             ladder = _plan_ladder(label, regions, available_cutters, logger)
             if not ladder:
+                # `_plan_ladder` explains the one case it can see (no cutter
+                # inventory). Whatever the cause, the label now engraves FLAT
+                # while the job asked for relief -- a scrap part in a shop that
+                # runs headless, so record it at ERROR, not as silence.
+                if logger is not None:
+                    logger.error(
+                        f"label {label.id}: relief engraving is enabled but no relief cutter "
+                        f"ladder is admissible for its {label.width:g} x {label.height:g}in box "
+                        "-- the label engraves WITHOUT relief."
+                    )
                 continue
             passes = generate_relief_passes(
                 regions,
@@ -318,6 +328,12 @@ def apply_relief_to_plates(
                 overlap_percent=label.relief_engraving_stroke_overlap_percent,
             )
             if not passes:
+                if logger is not None:
+                    logger.error(
+                        f"label {label.id}: relief regions produced no passes with ladder "
+                        f"{'/'.join(f'{c.physical:g}in' for c in ladder)} -- the label engraves "
+                        "WITHOUT relief."
+                    )
                 continue
             pen_of = {c.physical: pen_map[(c.physical, "none")] for c in ladder}
             records = _relief_records(passes, pen_of)
