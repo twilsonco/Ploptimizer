@@ -3830,6 +3830,69 @@ class JobSpec(LabelAttributes):
         return self
 
     @model_validator(mode="after")
+    def _reject_relief_label_without_room(self) -> JobSpec:
+        """Reject a relief label that no declared plate has room to reserve.
+
+        Relief rasterises the label's whole box -- edge to edge with
+        `relief_engraving_preserve_border: false`, the default -- so a relief
+        label's engraving is its nominal box wide and tall and the packer has
+        to reserve that footprint. A plate smaller than the footprint cannot
+        hold the label at all, and the packing pass omits rects it cannot
+        place, so the job would export a plate that is silently missing labels.
+        A label is a production instruction, not a hint, so it fails here.
+
+        A label pinned to a plate (`plate_id`) must fit that plate; an unpinned
+        label must fit at least one declared plate. A job that allows rotation
+        may also fit with its axes swapped, which is what the packer does.
+        Jobs with no declared plates are skipped: `auto_fill` sizes its sheets
+        from the labels, so room is never a question there.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            ValueError: When a relief label's box fits no plate it could be
+                placed on.
+        """
+        if not self.plates or not self.labels:
+            return self
+        by_id = {plate.id: plate for plate in self.plates}
+        for label in self.labels:
+            if not label.relief_engraving:
+                continue
+            pinned = by_id.get(label.plate_id or "")
+            width = (
+                label.width
+                if label.width is not None
+                else (pinned.width if pinned is not None else self.width)
+            )
+            height = (
+                label.height
+                if label.height is not None
+                else (pinned.height if pinned is not None else self.height)
+            )
+            if width is None or height is None:
+                continue  # No box declared: nothing to reserve, nothing to check.
+            candidates = [pinned] if pinned is not None else list(self.plates)
+            fits = False
+            for plate in candidates:
+                straight = width <= plate.width and height <= plate.height
+                swapped = height <= plate.width and width <= plate.height
+                if straight or (self.allow_rotation and swapped):
+                    fits = True
+                    break
+            if not fits:
+                rooms = ", ".join(f"{p.id}: {p.width:g}x{p.height:g}in" for p in candidates)
+                raise ValueError(
+                    f"Relief label '{label.id}' engraves a {width:g} x {height:g}in patch "
+                    f"(relief rasterises the whole label box) and no plate can reserve room "
+                    f"for it. Declared plates -- {rooms}. Enlarge a plate, shrink the label, "
+                    "or allow rotation."
+                )
+
+        return self
+
+    @model_validator(mode="after")
     def _validate_label_plate_references(self) -> JobSpec:
         """Validate `LabelSpec.plate_id` references against the plate list.
 

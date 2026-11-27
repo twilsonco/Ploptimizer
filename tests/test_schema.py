@@ -4772,6 +4772,158 @@ class TestReliefEngravingFields:
         assert job.labels[0].relief_engraving_quality == "fine"
 
 
+class TestReliefLabelNeedsPlateRoom:
+    """A relief label must have a plate that can reserve its whole box.
+
+    Relief rasterises the label's whole box, so the packer has to reserve the
+    nominal box; a plate too small for it drops the label from the packing pass
+    and exports a plate that is silently missing labels.
+    """
+
+    @staticmethod
+    def _job(
+        *,
+        plate: PlateSpec,
+        label: LabelSpec,
+        allow_rotation: bool | None = None,
+        relief_engraving: bool | None = None,
+        width: float = 2.0,
+        height: float = 1.0,
+        plates: list[PlateSpec] | None = None,
+    ) -> JobSpec:
+        """Build a one-plate, one-label job (or a two-plate job via `plates`)."""
+        fields: dict[str, object] = {}
+        if allow_rotation is not None:
+            fields["allow_rotation"] = allow_rotation
+        if relief_engraving is not None:
+            fields["relief_engraving"] = relief_engraving
+        return JobSpec(
+            name="J",
+            width=width,
+            height=height,
+            plates=[plate] if plates is None else plates,
+            labels=[label],
+            **fields,  # type: ignore[arg-type]
+        )
+
+    @staticmethod
+    def _label(**fields: object) -> LabelSpec:
+        return LabelSpec(content=[ContentEntry(text="X")], **fields)  # type: ignore[arg-type]
+
+    def test_relief_label_bigger_than_the_plate_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="no plate can reserve"):
+            self._job(
+                plate=PlateSpec(id="p1", width=4.0, height=4.0),
+                label=self._label(id="big", width=5.0, height=3.0, relief_engraving=True),
+            )
+
+    def test_rejection_names_the_label_and_the_declared_plates(self) -> None:
+        with pytest.raises(ValidationError) as excinfo:
+            self._job(
+                plate=PlateSpec(id="sheet01", width=4.0, height=4.0),
+                label=self._label(id="big", width=5.0, height=3.0, relief_engraving=True),
+            )
+        message = str(excinfo.value)
+        assert "'big'" in message
+        assert "5 x 3" in message
+        assert "sheet01: 4x4in" in message
+
+    def test_relief_label_that_fits_is_accepted(self) -> None:
+        job = self._job(
+            plate=PlateSpec(id="p1", width=12.0, height=8.0),
+            label=self._label(id="ok", width=5.0, height=3.0, relief_engraving=True),
+        )
+        labels = job.labels or []
+        assert labels[0].relief_engraving is True
+
+    def test_pinned_label_is_checked_against_its_own_plate(self) -> None:
+        """A bigger plate elsewhere does not rescue a label pinned to a small one."""
+        with pytest.raises(ValidationError, match="'big'"):
+            self._job(
+                plate=PlateSpec(id="small", width=4.0, height=4.0),
+                plates=[
+                    PlateSpec(id="small", width=4.0, height=4.0),
+                    PlateSpec(id="large", width=24.0, height=16.0),
+                ],
+                label=self._label(
+                    id="big",
+                    plate_id="small",
+                    width=5.0,
+                    height=3.0,
+                    relief_engraving=True,
+                ),
+            )
+
+    def test_rotation_rescues_a_label_only_when_allowed(self) -> None:
+        label = self._label(id="tall", width=5.0, height=3.0, relief_engraving=True)
+        # 5 x 3 fits a 4 x 6 plate only with its axes swapped.
+        job = self._job(
+            plate=PlateSpec(id="p1", width=4.0, height=6.0),
+            label=label,
+            allow_rotation=True,
+        )
+        labels = job.labels or []
+        assert labels[0].id == "tall"
+        with pytest.raises(ValidationError, match="allow rotation"):
+            self._job(
+                plate=PlateSpec(id="p1", width=4.0, height=6.0),
+                label=label,
+                allow_rotation=False,
+            )
+
+    def test_unpinned_label_needs_room_on_any_plate(self) -> None:
+        job = self._job(
+            plate=PlateSpec(id="small", width=2.0, height=2.0),
+            plates=[
+                PlateSpec(id="small", width=2.0, height=2.0),
+                PlateSpec(id="large", width=12.0, height=8.0),
+            ],
+            label=self._label(id="big", width=5.0, height=3.0, relief_engraving=True),
+        )
+        labels = job.labels or []
+        assert labels[0].relief_engraving is True
+
+    def test_job_level_box_is_used_when_the_label_declares_none(self) -> None:
+        """The box the packer reserves cascades job -> label, so it is checked."""
+        with pytest.raises(ValidationError, match="no plate can reserve"):
+            self._job(
+                plate=PlateSpec(id="p1", width=4.0, height=4.0),
+                label=self._label(id="big", relief_engraving=True),
+                width=12.0,
+                height=8.0,
+            )
+
+    def test_job_level_relief_flag_is_checked_after_the_cascade(self) -> None:
+        with pytest.raises(ValidationError, match="no plate can reserve"):
+            self._job(
+                plate=PlateSpec(id="p1", width=4.0, height=4.0),
+                label=self._label(id="big", width=5.0, height=3.0),
+                relief_engraving=True,
+            )
+
+    def test_non_relief_labels_are_not_checked(self) -> None:
+        """Plain labels engrave their rendered footprint, not their nominal box."""
+        job = self._job(
+            plate=PlateSpec(id="p1", width=4.0, height=4.0),
+            label=self._label(id="big", width=5.0, height=3.0),
+            width=12.0,
+            height=8.0,
+        )
+        labels = job.labels or []
+        assert labels[0].relief_engraving is None
+
+    def test_auto_fill_jobs_without_plates_are_not_checked(self) -> None:
+        """`auto_fill` sizes its sheets from the labels, so room is not a question."""
+        job = JobSpec(
+            name="J",
+            width=12.0,
+            height=8.0,
+            labels=[self._label(id="big", width=5.0, height=3.0, relief_engraving=True)],
+        )
+        labels = job.labels or []
+        assert labels[0].relief_engraving is True
+
+
 class TestMaterialWeightPerSquareInch:
     """``material_weight_per_square_inch`` cascades job -> plate, never label."""
 

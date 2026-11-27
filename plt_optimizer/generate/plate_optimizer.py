@@ -87,7 +87,10 @@ from plt_optimizer.generate.label_renderer import (
     _render_boundary_hpgl,
     _section_border_ink_in_inches,
 )
-from plt_optimizer.generate.packing.layout import PackedLabel
+from plt_optimizer.generate.packing.layout import (
+    PackedLabel,
+    placement_content_shift,
+)
 from plt_optimizer.generate.resolution import ResolvedLabel
 from plt_optimizer.generate.text_geometry import LineSeg, Stroke, TextBlock
 from plt_optimizer.utils.logging import TextLogger
@@ -881,8 +884,11 @@ def build_stroke_width_map(
         if rendered is None or not rendered.text_chunks:
             continue
         transform = _label_transform(rendered, packed_label.source_label)
-        dx_units = _units(packed_label.x)
-        dy_units = _units(packed_label.y)
+        # Same plate transform the emission uses, ink-to-slot shift included,
+        # so the routing nodes sit on the geometry that is actually engraved.
+        shift_x, shift_y = placement_content_shift(rendered, rotated=packed_label.rotated)
+        dx_units = _units(packed_label.x + shift_x)
+        dy_units = _units(packed_label.y + shift_y)
         for record in rendered.text_chunks:
             if not record.stroke_widths:
                 continue
@@ -937,8 +943,10 @@ def build_text_blocks_with_glyphs(
         if rendered is None or not rendered.text_chunks:
             continue
         transform = _label_transform(rendered, packed_label.source_label)
-        dx_units = _units(packed_label.x)
-        dy_units = _units(packed_label.y)
+        # Same plate transform the emission uses, ink-to-slot shift included.
+        shift_x, shift_y = placement_content_shift(rendered, rotated=packed_label.rotated)
+        dx_units = _units(packed_label.x + shift_x)
+        dy_units = _units(packed_label.y + shift_y)
         for record in rendered.text_chunks:
             if record.pen != pen:
                 continue
