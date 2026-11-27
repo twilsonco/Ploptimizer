@@ -307,12 +307,24 @@ def assemble_plt_from_rendered_labels(
         if packed_label.rotated:
             plt_content = rotate_plt_content_90cw(plt_content)
 
-        # Translate coordinates to position on plate. The shift lands the
-        # content's own box on the slot: content that overflows the nominal box
-        # (a multi-line text block, a relief raster that fills the box) carries
-        # a negative bbox minimum, and translating by the bare slot origin
-        # engraves that part below/left of the slot the packer reserved.
-        shift_x, shift_y = placement_content_shift(rendered, rotated=packed_label.rotated)
+        # Translate coordinates to position on plate. The shift centres the
+        # content this plate actually receives inside the slot the packer
+        # reserved: content is not normalised by the renderer (a multi-line text
+        # block carries a negative bbox minimum) and rotation normalises it to
+        # its own minimum, so an unshifted placement engraves part of the label
+        # below/left of its slot. Centring on the emitted bounds is also what
+        # puts the plate-proof key on the engraving.
+        try:
+            ink_bounds = extract_bounds_from_plt(plt_content)
+        except ValueError:  # Content with no coordinates at all.
+            ink_bounds = None
+        shift_x, shift_y = placement_content_shift(
+            rendered,
+            rotated=packed_label.rotated,
+            slot_width=packed_label.width,
+            slot_height=packed_label.height,
+            ink_bounds=ink_bounds,
+        )
         translated = translate_plt_coordinates(
             plt_content, packed_label.x + shift_x, packed_label.y + shift_y
         )

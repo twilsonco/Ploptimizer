@@ -886,7 +886,12 @@ def build_stroke_width_map(
         transform = _label_transform(rendered, packed_label.source_label)
         # Same plate transform the emission uses, ink-to-slot shift included,
         # so the routing nodes sit on the geometry that is actually engraved.
-        shift_x, shift_y = placement_content_shift(rendered, rotated=packed_label.rotated)
+        shift_x, shift_y = placement_content_shift(
+            rendered,
+            rotated=packed_label.rotated,
+            slot_width=packed_label.width,
+            slot_height=packed_label.height,
+        )
         dx_units = _units(packed_label.x + shift_x)
         dy_units = _units(packed_label.y + shift_y)
         for record in rendered.text_chunks:
@@ -944,7 +949,12 @@ def build_text_blocks_with_glyphs(
             continue
         transform = _label_transform(rendered, packed_label.source_label)
         # Same plate transform the emission uses, ink-to-slot shift included.
-        shift_x, shift_y = placement_content_shift(rendered, rotated=packed_label.rotated)
+        shift_x, shift_y = placement_content_shift(
+            rendered,
+            rotated=packed_label.rotated,
+            slot_width=packed_label.width,
+            slot_height=packed_label.height,
+        )
         dx_units = _units(packed_label.x + shift_x)
         dy_units = _units(packed_label.y + shift_y)
         for record in rendered.text_chunks:

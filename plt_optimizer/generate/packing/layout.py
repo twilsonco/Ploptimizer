@@ -272,36 +272,67 @@ def placement_content_shift(
     rendered: RenderedLabel,
     *,
     rotated: bool,
+    slot_width: float,
+    slot_height: float,
+    ink_bounds: Optional[tuple[float, float, float, float]] = None,
 ) -> tuple[float, float]:
-    """Return the shift (inches) that lands a label's ink at its slot origin.
+    """Return the shift (inches) that lands a label's engraving on its slot.
 
     The renderer does not normalise a label's content box: the content bbox is
     wherever the glyph outlines, border ring and holes happen to sit around the
     label origin, so a label whose content is wider or taller than the nominal
     box (a multi-line block that cannot fit the label's height, a relief raster
-    that fills the whole box) has a *negative* bbox minimum.
+    that fills the whole box) has a *negative* bbox minimum. Plate assembly
+    translates a label by its slot origin, so that negative minimum is engraved
+    below/left of the slot the packer reserved -- the engraving leaves the slot
+    on the low axis and meets a neighbour's.
 
-    Plate assembly translates a label by its slot origin, so that negative
-    minimum is engraved below/left of the slot the packer reserved -- the
-    engraving leaves the slot on the low axis and meets a neighbour's. Shifting
-    by ``-min`` lands the engraved box on the slot, which is what
-    :func:`plt_optimizer.generate.usage_stats.placement_ink_rect` (the
-    plate-proof key) and the usage accounting already describe.
+    A rotated placement needs the opposite treatment: rotation rewrites the
+    content with
+    :func:`~plt_optimizer.generate.vectorize.rotate_plt_content_90cw`, which
+    normalises the rotated ink to its own minimum, so the unshifted engraving
+    lands flush with the slot's low corner.
 
-    A rotated placement needs no shift: rotation is origin-normalised by
-    :func:`plt_optimizer.generate.vectorize.rotate_plt_content_90cw`.
+    Either way the fix is the same shape -- bring the ink's own minimum to the
+    slot's low corner, then centre what the slot has room for. That is where
+    :func:`plt_optimizer.generate.usage_stats.placement_ink_rect` puts the
+    label's box (the plate-proof key), so key and engraving coincide, and it is
+    safe by construction: the centring term only moves ink that the slot has
+    room for, and clamps to flush when the ink is larger than the slot.
 
     Args:
-        rendered: The label's render (its content bbox is the reference).
+        rendered: The label's render (its content bbox is the fallback frame).
         rotated: Whether the packer placed the label sideways.
+        slot_width: The reserved slot's width in plate axes (post-rotation).
+        slot_height: The reserved slot's height in plate axes (post-rotation).
+        ink_bounds: ``(x_min, y_min, x_max, y_max)`` of the content the plate
+            receives, in inches, in the same axes the shift is applied in (so
+            the rotated caller passes the POST-rotation bounds). Centring uses
+            these extents; the render's own bbox is used when they are absent.
 
     Returns:
         ``(dx, dy)`` in inches, to be added to the placement's origin by every
         consumer that maps label-local geometry onto the plate.
     """
-    if rotated:
-        return (0.0, 0.0)
-    return (-float(rendered.x_min), -float(rendered.y_min))
+    if ink_bounds is None:
+        ink_min_x = float(rendered.x_min)
+        ink_min_y = float(rendered.y_min)
+        ink_width = float(rendered.x_max) - ink_min_x
+        ink_height = float(rendered.y_max) - ink_min_y
+        if rotated:
+            # The rotation has not happened to the render's bbox: it normalises
+            # the ink to its own minimum and swaps the axes, so the plate's
+            # x-extent is the content's height and its y-extent the width.
+            ink_min_x, ink_min_y = 0.0, 0.0
+            ink_width, ink_height = ink_height, ink_width
+    else:
+        ink_min_x, ink_min_y = float(ink_bounds[0]), float(ink_bounds[1])
+        ink_width = float(ink_bounds[2]) - ink_min_x
+        ink_height = float(ink_bounds[3]) - ink_min_y
+    return (
+        -ink_min_x + max(float(slot_width) - ink_width, 0.0) / 2.0,
+        -ink_min_y + max(float(slot_height) - ink_height, 0.0) / 2.0,
+    )
 
 
 def unroll_labels(

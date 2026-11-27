@@ -11,11 +11,12 @@ sweeps and merge rewrites are all included) and pins two invariants:
 2. the plate-proof key (``usage_stats.placement_ink_rect``) describes that
    engraving -- the dashed key the operator drills by sits on the ink.
 
-Every cell is green as of 2026-11-26: the assembly lands a rendered footprint's
-own box on the slot (``packing.layout.placement_content_shift``), so a label
-whose text block is taller than its nominal box, and a relief label whose fill
-box is narrower than the footprint the packer reserved, both keep their
-engraving -- and their plate-proof key -- inside the slot.
+Every cell is green as of 2026-11-26: the assembly centres a rendered footprint's
+own box in the slot (``packing.layout.placement_content_shift``), so a label
+whose text block is taller than its nominal box, a relief label whose fill box
+is narrower than the footprint the packer reserved, and a rotated label whose
+engraving is normalised to its own minimum all keep their engraving -- and their
+plate-proof key -- inside the slot.
 
 The rich per-label report (engraved box, slot, key, four signed gaps, the whole
 variant matrix) lives in the gitignored dev probe ``.probe/js/relief_slot_vs_ink.py``;
@@ -357,14 +358,32 @@ def test_key_sits_on_the_engraving_for_an_upright_label(ink_run: RunExport) -> N
 def test_key_sits_on_the_engraving_for_a_rotated_relief_label(ink_run: RunExport) -> None:
     """A rotated relief label's plate-proof key sits on its engraving.
 
-    Rotation is origin-normalised by :func:`rotate_plt_content_90cw`, so a
-    rotated label lands in its slot the same way an upright one does and the
-    turn does not throw the key off.
+    Rotation is origin-normalised by :func:`rotate_plt_content_90cw`, so an
+    unshifted rotated label lands flush with its slot's low corner while the key
+    centres the label's box; the assembly centres the engraving to match.
     """
     slots = _slot_map(ink_run, "layout_ink_relief_rotated.yaml")
     slot = slots["1/rotated_0"]
     assert slot.rotated
     assert _key_offset(slot) <= TOL_IN
+
+
+def test_key_sits_on_the_engraving_for_a_rotated_relief_label_that_overflows(
+    ink_run: RunExport,
+) -> None:
+    """A rotated relief label whose text overflows its box keys its engraving.
+
+    Rotation rewrites the engraving normalised to its own minimum, so an
+    unshifted placement lands flush with the slot's low corner while the key
+    centres the label's box in the slot -- the two disagree by half the slack.
+    The assembly centres the engraving, and here the relief fill (the nominal
+    3 x 2in box) is narrower than the slot the 3-line text block reserved.
+    """
+    slot = _slot_map(ink_run, "layout_ink_relief_rotated_overflow.yaml")["1/rotated_overflow_0"]
+    assert slot.rotated
+    assert _key_offset(slot) <= TOL_IN, (
+        f"key {slot.key} vs ink {slot.ink} (slot {slot.slot}, {slot.strokes} strokes)"
+    )
 
 
 def _key_offset(slot: SlotInk) -> float:
@@ -384,8 +403,8 @@ def test_key_sits_on_the_engraving_when_the_ink_is_narrower_than_the_slot(
 
     Here the relief fill is the 1.0in nominal box while the packer reserved the
     taller rendered text footprint, so a key centred in the slot and an engraving
-    anchored at its origin disagree -- the assembly resolves that by landing the
-    content's own box on the slot origin.
+    anchored at its origin disagree -- the assembly centres the engraving in the
+    slot, which is where the key already sits.
     """
     slot = _slot_map(ink_run, "layout_ink_relief_ladder.yaml")["1/ladder_0"]
     assert _key_offset(slot) <= TOL_IN, (
@@ -406,6 +425,7 @@ def test_key_sits_on_the_engraving_when_the_ink_is_narrower_than_the_slot(
         "layout_ink_relief_rotated.yaml",
         "layout_ink_text_overflow.yaml",
         "layout_ink_relief_overflow.yaml",
+        "layout_ink_relief_rotated_overflow.yaml",
     ],
 )
 def test_plate_keeps_its_engraving_inside_the_usable_area(
